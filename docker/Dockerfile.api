@@ -1,0 +1,28 @@
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+
+COPY package.json ./
+COPY apps/api/package.json ./apps/api/
+RUN npm install --workspace=apps/api
+
+COPY tsconfig.base.json ./
+COPY apps/api/ ./apps/api/
+
+WORKDIR /app/apps/api
+RUN npm run build
+
+FROM node:20-alpine AS runner
+
+WORKDIR /app
+
+COPY --from=builder /app/apps/api/package.json ./
+RUN npm install --omit=dev
+
+COPY --from=builder /app/apps/api/dist ./dist
+COPY --from=builder /app/apps/api/drizzle ./drizzle
+
+ENV NODE_ENV=production
+EXPOSE 3000
+
+CMD ["node", "dist/main"]
