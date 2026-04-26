@@ -16,6 +16,7 @@ import { LlmModule } from './modules/llm/llm.module';
 import { TelegramModule } from './modules/telegram/telegram.module';
 import { McpModule } from './modules/mcp/mcp.module';
 import { SesModule } from './modules/ses/ses.module';
+import { GmailModule } from './modules/gmail/gmail.module';
 import { TaskipTrialModule } from './modules/agents/taskip-trial/taskip-trial.module';
 
 @Module({
@@ -52,6 +53,7 @@ import { TaskipTrialModule } from './modules/agents/taskip-trial/taskip-trial.mo
     TelegramModule,
     McpModule,
     SesModule,
+    GmailModule,
     TaskipTrialModule,
   ],
 })

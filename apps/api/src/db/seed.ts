@@ -19,6 +19,8 @@ const AGENT_SEEDS = [
         churned_30d: { enabled: false, templatePromptId: 'churned_d30' },
       },
       llm: { provider: 'openai', model: 'gpt-4o-mini' },
+      emailProvider: 'gmail',
+      gmail: { from: 'Sharifur <sharifur@taskip.net>' },
       ses: { from: 'Sharifur <sharifur@taskip.net>', configurationSet: 'ses-monitoring' },
       dailyCap: 50,
       maxFollowupsPerEmail: 5,

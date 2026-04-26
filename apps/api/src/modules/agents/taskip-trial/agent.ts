@@ -6,6 +6,7 @@ import { taskipTrialEmailLog, taskipTrialSuppressed } from './schema';
 import { AgentRegistryService } from '../runtime/agent-registry.service';
 import { LlmRouterService } from '../../llm/llm-router.service';
 import { SesService } from '../../ses/ses.service';
+import { GmailService } from '../../gmail/gmail.service';
 import { TaskipDbService, TaskipUser } from './taskip-db.service';
 import type {
   IAgent,
@@ -27,6 +28,8 @@ interface SegmentConfig {
 interface AgentConfig {
   segments: Record<string, SegmentConfig>;
   llm: { provider: string; model: string };
+  emailProvider: 'gmail' | 'ses';
+  gmail: { from: string };
   ses: { from: string; configurationSet?: string };
   dailyCap: number;
   maxFollowupsPerEmail: number;
@@ -94,6 +97,7 @@ export class TaskipTrialAgent implements IAgent, OnModuleInit {
     private db: DbService,
     private llm: LlmRouterService,
     private ses: SesService,
+    private gmail: GmailService,
     private taskipDb: TaskipDbService,
     private registry: AgentRegistryService,
   ) {}
@@ -168,13 +172,25 @@ export class TaskipTrialAgent implements IAgent, OnModuleInit {
     const draft = action.payload as EmailDraft;
     const config = await this.getConfig();
 
-    const sesMessageId = await this.ses.sendEmail({
-      to: draft.email,
-      from: config.ses.from,
-      subject: draft.subject,
-      textBody: draft.body,
-      configurationSet: config.ses.configurationSet,
-    });
+    const provider = config.emailProvider ?? 'gmail';
+    let messageId: string;
+
+    if (provider === 'gmail' && this.gmail.isConfigured()) {
+      messageId = await this.gmail.sendEmail({
+        to: draft.email,
+        from: config.gmail?.from ?? process.env.GMAIL_FROM ?? draft.email,
+        subject: draft.subject,
+        textBody: draft.body,
+      });
+    } else {
+      messageId = await this.ses.sendEmail({
+        to: draft.email,
+        from: config.ses.from,
+        subject: draft.subject,
+        textBody: draft.body,
+        configurationSet: config.ses.configurationSet,
+      });
+    }
 
     await this.db.db.insert(taskipTrialEmailLog).values({
       runId: '',
@@ -183,10 +199,10 @@ export class TaskipTrialAgent implements IAgent, OnModuleInit {
       segment: draft.segment,
       subject: draft.subject,
       body: draft.body,
-      sesMessageId,
+      sesMessageId: messageId,
     });
 
-    return { success: true, data: { sesMessageId, to: draft.email } };
+    return { success: true, data: { messageId, provider, to: draft.email } };
   }
 
   mcpTools(): McpToolDefinition[] {
@@ -346,6 +362,8 @@ export class TaskipTrialAgent implements IAgent, OnModuleInit {
         churned_30d: { enabled: false, templatePromptId: 'churned_d30' },
       },
       llm: { provider: 'openai', model: 'gpt-4o-mini' },
+      emailProvider: 'gmail',
+      gmail: { from: 'Sharifur <sharifur@taskip.net>' },
       ses: { from: 'Sharifur <sharifur@taskip.net>', configurationSet: 'ses-monitoring' },
       dailyCap: 50,
       maxFollowupsPerEmail: 5,
