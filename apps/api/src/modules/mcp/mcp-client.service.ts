@@ -1,7 +1,8 @@
-import { Injectable, OnModuleDestroy, Logger } from '@nestjs/common';
+import { Injectable, OnModuleDestroy, Logger, NotFoundException } from '@nestjs/common';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { MetricsService } from '../metrics/metrics.service';
+import { McpServersService } from './mcp-servers.service';
 
 interface McpConnection {
   client: Client;
@@ -14,7 +15,10 @@ export class McpClientService implements OnModuleDestroy {
   // url → established connection
   private readonly pool = new Map<string, McpConnection>();
 
-  constructor(private metrics: MetricsService) {}
+  constructor(
+    private metrics: MetricsService,
+    private mcpServersService: McpServersService,
+  ) {}
 
   async connect(url: string): Promise<McpConnection> {
     const existing = this.pool.get(url);
@@ -48,20 +52,30 @@ export class McpClientService implements OnModuleDestroy {
     return conn.tools;
   }
 
-  async callTool(
+  async callTool(agentKey: string, url: string, toolName: string, args: Record<string, unknown>) {
+    const conn = await this.connect(url);
+    this.metrics.mcpCallsTotal.inc({ agent: agentKey, tool: toolName, direction: 'outbound' });
+    return conn.client.callTool({ name: toolName, arguments: args });
+  }
+
+  // Agents use this — look up server URL by name from DB
+  async callToolByName(
     agentKey: string,
-    url: string,
+    serverName: string,
     toolName: string,
     args: Record<string, unknown>,
   ) {
-    const conn = await this.connect(url);
-    this.metrics.mcpCallsTotal.inc({
-      agent: agentKey,
-      tool: toolName,
-      direction: 'outbound',
-    });
-    const result = await conn.client.callTool({ name: toolName, arguments: args });
-    return result;
+    const server = await this.mcpServersService.findByName(serverName);
+    if (!server) throw new NotFoundException(`External MCP server not configured: ${serverName}`);
+    if (!server.enabled) throw new Error(`External MCP server is disabled: ${serverName}`);
+    return this.callTool(agentKey, server.url, toolName, args);
+  }
+
+  // Returns tools from a named server (used by admin panel)
+  async listToolsByName(serverName: string) {
+    const server = await this.mcpServersService.findByName(serverName);
+    if (!server) throw new NotFoundException(`External MCP server not configured: ${serverName}`);
+    return this.listTools(server.url);
   }
 
   disconnect(url: string) {
@@ -73,13 +87,9 @@ export class McpClientService implements OnModuleDestroy {
   }
 
   async onModuleDestroy() {
-    for (const [url, conn] of this.pool) {
-      try {
-        await conn.client.close();
-      } catch {
-        // ignore on shutdown
-      }
-      this.pool.delete(url);
+    for (const [, conn] of this.pool) {
+      try { await conn.client.close(); } catch { /* ignore on shutdown */ }
     }
+    this.pool.clear();
   }
 }

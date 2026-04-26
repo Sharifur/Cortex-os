@@ -15,6 +15,13 @@
       "when": 1777221879359,
       "tag": "0001_watery_ultragirl",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1777227681819,
+      "tag": "0002_deep_rumiko_fujikawa",
+      "breakpoints": true
     }
   ]
 }

@@ -115,6 +115,16 @@ export const agentLogs = pgTable('agent_logs', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
+export const mcpServers = pgTable('mcp_servers', {
+  id: text('id')
+    .primaryKey()
+    .$defaultFn(() => createId()),
+  name: text('name').notNull().unique(),
+  url: text('url').notNull(),
+  enabled: boolean('enabled').notNull().default(true),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
 export const promptTemplates = pgTable('prompt_templates', {
   id: text('id')
     .primaryKey()
