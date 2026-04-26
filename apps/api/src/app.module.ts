@@ -14,6 +14,7 @@ import { ApprovalsModule } from './modules/approvals/approvals.module';
 import { SettingsModule } from './modules/settings/settings.module';
 import { LlmModule } from './modules/llm/llm.module';
 import { TelegramModule } from './modules/telegram/telegram.module';
+import { McpModule } from './modules/mcp/mcp.module';
 
 @Module({
   imports: [
@@ -47,6 +48,7 @@ import { TelegramModule } from './modules/telegram/telegram.module';
     SettingsModule,
     LlmModule,
     TelegramModule,
+    McpModule,
   ],
 })
 export class AppModule {}
