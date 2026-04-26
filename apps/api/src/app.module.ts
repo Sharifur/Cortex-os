@@ -7,7 +7,9 @@ import { DbModule } from './db/db.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { HealthModule } from './modules/health/health.module';
 import { MetricsModule } from './modules/metrics/metrics.module';
-import { QUEUE_NAMES } from './common/queue/queue.constants';
+import { AgentsModule } from './modules/agents/agents.module';
+import { RunsModule } from './modules/runs/runs.module';
+import { ApprovalsModule } from './modules/approvals/approvals.module';
 
 @Module({
   imports: [
@@ -30,14 +32,13 @@ import { QUEUE_NAMES } from './common/queue/queue.constants';
       }),
     }),
 
-    BullModule.registerQueue(
-      ...Object.values(QUEUE_NAMES).map((name) => ({ name })),
-    ),
-
     DbModule,
     AuthModule,
     HealthModule,
     MetricsModule,
+    AgentsModule,
+    RunsModule,
+    ApprovalsModule,
   ],
 })
 export class AppModule {}

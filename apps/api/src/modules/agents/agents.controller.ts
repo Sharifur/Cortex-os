@@ -1,0 +1,45 @@
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
+import { AgentsService } from './agents.service';
+import { UpdateAgentDto } from './dto/update-agent.dto';
+import { TriggerAgentDto } from './dto/trigger-agent.dto';
+import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+
+@Controller('agents')
+@UseGuards(JwtAuthGuard)
+export class AgentsController {
+  constructor(private agents: AgentsService) {}
+
+  @Get()
+  findAll() {
+    return this.agents.findAll();
+  }
+
+  @Get(':key')
+  findOne(@Param('key') key: string) {
+    return this.agents.findByKey(key);
+  }
+
+  @Patch(':key')
+  update(@Param('key') key: string, @Body() dto: UpdateAgentDto) {
+    return this.agents.update(key, dto);
+  }
+
+  @Post(':key/trigger')
+  trigger(@Param('key') key: string, @Body() dto: TriggerAgentDto) {
+    return this.agents.trigger(key, dto);
+  }
+
+  @Get(':key/runs')
+  getRuns(@Param('key') key: string, @Query('limit') limit?: string) {
+    return this.agents.getRuns(key, limit ? parseInt(limit) : 20);
+  }
+}
