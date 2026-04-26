@@ -75,7 +75,12 @@ function AgentRow({ agent, token }: { agent: Agent; token: string }) {
 
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-0.5">
-          <span className="text-sm font-medium">{agent.name}</span>
+          <button
+            onClick={() => navigate(`/agents/${agent.key}`)}
+            className="text-sm font-medium hover:text-primary transition-colors"
+          >
+            {agent.name}
+          </button>
           <code className="text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded">{agent.key}</code>
           {!agent.registered && (
             <span className="text-xs bg-yellow-500/10 text-yellow-500 px-1.5 py-0.5 rounded">unregistered</span>
@@ -110,9 +115,9 @@ function AgentRow({ agent, token }: { agent: Agent; token: string }) {
         </button>
 
         <button
-          onClick={() => navigate(`/agents/${agent.key}/runs`)}
+          onClick={() => navigate(`/agents/${agent.key}`)}
           className="text-muted-foreground hover:text-foreground transition-colors"
-          title="View runs"
+          title="View details"
         >
           <ChevronRight className="w-4 h-4" />
         </button>

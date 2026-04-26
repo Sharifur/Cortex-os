@@ -232,6 +232,7 @@ export default function SettingsPage() {
   const { data, isLoading, isError } = useQuery({
     queryKey: ['settings'],
     queryFn: () => fetchSettings(token),
+    staleTime: 0,
   });
 
   const grouped: Record<string, SettingRow[]> = {};

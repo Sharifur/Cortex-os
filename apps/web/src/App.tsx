@@ -7,7 +7,7 @@ import ActivityPage from '@/pages/ActivityPage';
 import ProfilePage from '@/pages/ProfilePage';
 import ChangePasswordPage from '@/pages/ChangePasswordPage';
 import AgentsPage from '@/pages/AgentsPage';
-import AgentRunsPage from '@/pages/AgentRunsPage';
+import AgentDetailPage from '@/pages/AgentDetailPage';
 import ApprovalsPage from '@/pages/ApprovalsPage';
 import RunDetailPage from '@/pages/RunDetailPage';
 import McpPage from '@/pages/McpPage';
@@ -38,7 +38,7 @@ export default function App() {
           >
             <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/agents" element={<AgentsPage />} />
-            <Route path="/agents/:key/runs" element={<AgentRunsPage />} />
+            <Route path="/agents/:key" element={<AgentDetailPage />} />
             <Route path="/approvals" element={<ApprovalsPage />} />
             <Route path="/runs/:id" element={<RunDetailPage />} />
             <Route path="/mcp" element={<McpPage />} />
