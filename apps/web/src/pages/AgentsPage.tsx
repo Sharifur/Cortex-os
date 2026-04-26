@@ -2,7 +2,28 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { Bot, Play, ToggleLeft, ToggleRight, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Skeleton } from '@/components/ui/skeleton';
 import { useAuthStore } from '@/stores/authStore';
+
+function AgentRowSkeleton() {
+  return (
+    <div className="flex items-center gap-4 px-5 py-4">
+      <Skeleton className="w-8 h-8 rounded-lg shrink-0" />
+      <div className="flex-1 min-w-0 space-y-1.5">
+        <div className="flex items-center gap-2">
+          <Skeleton className="h-4 w-32 rounded" />
+          <Skeleton className="h-4 w-20 rounded" />
+        </div>
+        <Skeleton className="h-3 w-64 rounded" />
+      </div>
+      <div className="flex items-center gap-2 shrink-0">
+        <Skeleton className="h-7 w-20 rounded" />
+        <Skeleton className="h-6 w-6 rounded" />
+        <Skeleton className="h-4 w-4 rounded" />
+      </div>
+    </div>
+  );
+}
 
 interface Agent {
   id: string;
@@ -119,7 +140,13 @@ export default function AgentsPage() {
         Manage and manually trigger your AI agents.
       </p>
 
-      {isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
+      {isLoading && (
+        <div className="rounded-xl border border-border bg-card overflow-hidden">
+          <div className="divide-y divide-border">
+            {Array.from({ length: 3 }).map((_, i) => <AgentRowSkeleton key={i} />)}
+          </div>
+        </div>
+      )}
       {isError && <p className="text-sm text-destructive">Failed to load agents.</p>}
 
       {data && (

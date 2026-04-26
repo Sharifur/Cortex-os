@@ -7,7 +7,35 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Skeleton } from '@/components/ui/skeleton';
 import { useAuthStore } from '@/stores/authStore';
+
+function ApprovalCardSkeleton() {
+  return (
+    <div className="rounded-xl border border-border bg-card p-5 space-y-4">
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <Skeleton className="w-9 h-9 rounded-lg shrink-0" />
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-2">
+              <Skeleton className="h-4 w-28 rounded" />
+              <Skeleton className="h-5 w-16 rounded" />
+            </div>
+            <Skeleton className="h-3.5 w-20 rounded" />
+          </div>
+        </div>
+        <Skeleton className="h-5 w-20 rounded" />
+      </div>
+      <Skeleton className="h-4 w-full rounded" />
+      <Skeleton className="h-4 w-5/6 rounded" />
+      <div className="flex gap-2">
+        <Skeleton className="h-8 w-24 rounded" />
+        <Skeleton className="h-8 w-20 rounded" />
+        <Skeleton className="h-8 w-24 rounded" />
+      </div>
+    </div>
+  );
+}
 
 interface ProposedAction {
   type: string;
@@ -214,11 +242,10 @@ export default function ApprovalsPage() {
   const [approvals, setApprovals] = useState<Approval[]>([]);
   const [connected, setConnected] = useState(false);
   const [connError, setConnError] = useState(false);
-  // track snapshot receipt so we don't flash empty state before initial load
-  const snapshotReceived = useRef(false);
+  const [snapshotReceived, setSnapshotReceived] = useState(false);
 
   useEffect(() => {
-    snapshotReceived.current = false;
+    setSnapshotReceived(false);
     setConnError(false);
 
     const es = new EventSource(`/approvals/stream?token=${encodeURIComponent(token)}`);
@@ -236,7 +263,7 @@ export default function ApprovalsPage() {
 
       if (msg.type === 'snapshot') {
         setApprovals(msg.data as Approval[]);
-        snapshotReceived.current = true;
+        setSnapshotReceived(true);
       } else if (msg.type === 'created') {
         setApprovals((prev) => [msg.data as Approval, ...prev]);
       } else if (msg.type === 'removed') {
@@ -297,7 +324,13 @@ export default function ApprovalsPage() {
         <p className="text-sm text-destructive mb-4">Connection lost. Reload to reconnect.</p>
       )}
 
-      {connected && snapshotReceived.current && approvals.length === 0 && (
+      {!connError && !snapshotReceived && (
+        <div className="space-y-4">
+          {Array.from({ length: 2 }).map((_, i) => <ApprovalCardSkeleton key={i} />)}
+        </div>
+      )}
+
+      {connected && snapshotReceived && approvals.length === 0 && (
         <div className="rounded-xl border border-border bg-card p-10 text-center">
           <CheckCircle2 className="w-8 h-8 text-muted-foreground mx-auto mb-3" />
           <p className="text-sm text-muted-foreground">No pending approvals. All clear.</p>

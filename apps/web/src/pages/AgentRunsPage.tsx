@@ -1,7 +1,27 @@
 import { useQuery } from '@tanstack/react-query';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { Bot, ArrowLeft, ChevronRight } from 'lucide-react';
+import { Skeleton } from '@/components/ui/skeleton';
 import { useAuthStore } from '@/stores/authStore';
+
+function RunRowSkeleton() {
+  return (
+    <div className="flex items-center gap-4 px-5 py-3.5">
+      <div className="flex-1 min-w-0 space-y-1.5">
+        <div className="flex items-center gap-2">
+          <Skeleton className="h-3.5 w-24 rounded font-mono" />
+          <Skeleton className="h-5 w-20 rounded" />
+          <Skeleton className="h-3.5 w-14 rounded" />
+        </div>
+      </div>
+      <div className="text-right shrink-0 space-y-1">
+        <Skeleton className="h-3.5 w-16 rounded ml-auto" />
+        <Skeleton className="h-3.5 w-10 rounded ml-auto" />
+      </div>
+      <Skeleton className="w-4 h-4 rounded shrink-0" />
+    </div>
+  );
+}
 
 interface Run {
   id: string;
@@ -74,7 +94,13 @@ export default function AgentRunsPage() {
       </div>
       <p className="text-muted-foreground text-sm mb-6">Last 50 runs for this agent.</p>
 
-      {isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
+      {isLoading && (
+        <div className="rounded-xl border border-border bg-card overflow-hidden">
+          <div className="divide-y divide-border">
+            {Array.from({ length: 6 }).map((_, i) => <RunRowSkeleton key={i} />)}
+          </div>
+        </div>
+      )}
       {isError && <p className="text-sm text-destructive">Failed to load runs.</p>}
 
       {runs && (

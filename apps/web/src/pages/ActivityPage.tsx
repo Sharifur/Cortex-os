@@ -1,6 +1,24 @@
 import { useState, useEffect, useRef } from 'react';
 import { Activity, Bot, AlertCircle, Info, AlertTriangle, Bug, Wifi, WifiOff } from 'lucide-react';
+import { Skeleton } from '@/components/ui/skeleton';
 import { useAuthStore } from '@/stores/authStore';
+
+function LogRowSkeleton() {
+  return (
+    <div className="flex items-start gap-3 px-4 py-3">
+      <Skeleton className="h-5 w-12 rounded shrink-0 mt-0.5" />
+      <div className="flex-1 min-w-0 space-y-1.5">
+        <div className="flex items-center gap-2">
+          <Skeleton className="h-3.5 w-24 rounded" />
+          <Skeleton className="h-3.5 w-16 rounded" />
+          <Skeleton className="h-3.5 w-14 rounded" />
+        </div>
+        <Skeleton className="h-4 w-3/4 rounded" />
+      </div>
+      <Skeleton className="h-3.5 w-12 rounded shrink-0" />
+    </div>
+  );
+}
 
 interface LogEntry {
   id: string;
@@ -128,7 +146,11 @@ export default function ActivityPage() {
       )}
 
       {!connected && !connError && (
-        <p className="text-sm text-muted-foreground">Connecting…</p>
+        <div className="rounded-xl border border-border bg-card overflow-hidden">
+          <div className="divide-y divide-border">
+            {Array.from({ length: 8 }).map((_, i) => <LogRowSkeleton key={i} />)}
+          </div>
+        </div>
       )}
 
       {connected && logs.length === 0 && (
