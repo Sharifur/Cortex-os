@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { Bot, LogOut, LayoutDashboard, Settings, User, ChevronDown } from 'lucide-react';
+import { Bot, LogOut, LayoutDashboard, Settings, User, KeyRound, ChevronDown } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 
 const NAV = [
@@ -22,9 +22,9 @@ function UserMenu() {
     return () => document.removeEventListener('mousedown', onClickOutside);
   }, []);
 
-  function handleLogout() {
-    logout();
-    navigate('/login');
+  function go(to: string) {
+    navigate(to);
+    setOpen(false);
   }
 
   return (
@@ -41,17 +41,24 @@ function UserMenu() {
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full mt-1 w-44 rounded-lg border border-border bg-card shadow-lg z-50 py-1">
+        <div className="absolute right-0 top-full mt-1 w-48 rounded-lg border border-border bg-card shadow-lg z-50 py-1">
           <button
-            onClick={() => { navigate('/profile'); setOpen(false); }}
+            onClick={() => go('/profile')}
             className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
           >
             <User className="w-4 h-4" />
             Profile
           </button>
+          <button
+            onClick={() => go('/change-password')}
+            className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
+          >
+            <KeyRound className="w-4 h-4" />
+            Change Password
+          </button>
           <div className="h-px bg-border mx-2 my-1" />
           <button
-            onClick={handleLogout}
+            onClick={() => { logout(); navigate('/login'); }}
             className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
           >
             <LogOut className="w-4 h-4" />
@@ -66,7 +73,6 @@ function UserMenu() {
 export default function AppLayout() {
   return (
     <div className="min-h-screen bg-background flex">
-      {/* Sidebar */}
       <aside className="w-56 shrink-0 border-r border-border flex flex-col">
         <div className="px-4 py-4 border-b border-border flex items-center gap-2">
           <Bot className="w-5 h-5 text-primary" />
@@ -94,14 +100,10 @@ export default function AppLayout() {
         </nav>
       </aside>
 
-      {/* Right panel */}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Topbar */}
         <header className="h-12 shrink-0 border-b border-border px-5 flex items-center justify-end">
           <UserMenu />
         </header>
-
-        {/* Page content */}
         <main className="flex-1 overflow-auto">
           <Outlet />
         </main>
