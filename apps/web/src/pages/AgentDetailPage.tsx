@@ -160,7 +160,7 @@ function RunsTab({ agentKey, token }: { agentKey: string; token: string }) {
       </div>
     );
   }
-  if (isError) return <p className="text-sm text-destructive">Failed to load runs.</p>;
+  if (isError && !runs) return <p className="text-sm text-destructive">Failed to load runs.</p>;
   if (!runs?.length) {
     return (
       <div className="rounded-xl border border-border bg-card">
@@ -889,8 +889,8 @@ export default function AgentDetailPage() {
         Agents
       </button>
 
-      {isLoading && <AgentDetailSkeleton />}
-      {isError && <p className="text-sm text-destructive">Failed to load agent.</p>}
+      {isLoading && !agent && <AgentDetailSkeleton />}
+      {isError && !agent && <p className="text-sm text-destructive">Failed to load agent.</p>}
 
       {agent && (
         <>
