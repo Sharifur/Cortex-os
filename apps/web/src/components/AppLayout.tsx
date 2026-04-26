@@ -1,10 +1,11 @@
 import { useState, useRef, useEffect } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { Bot, LogOut, LayoutDashboard, Settings, User, KeyRound, ChevronDown } from 'lucide-react';
+import { Bot, LogOut, LayoutDashboard, Settings, Activity, User, KeyRound, ChevronDown } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 
 const NAV = [
   { to: '/dashboard', icon: <LayoutDashboard className="w-4 h-4" />, label: 'Dashboard' },
+  { to: '/activity', icon: <Activity className="w-4 h-4" />, label: 'Activity' },
   { to: '/settings', icon: <Settings className="w-4 h-4" />, label: 'Settings' },
 ];
 

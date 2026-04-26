@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Res, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Query, Res, UseGuards } from '@nestjs/common';
 import { FastifyReply } from 'fastify';
 import { RunsService } from './runs.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -11,6 +11,11 @@ export class RunsController {
   @Get()
   findAll() {
     return this.runs.findAll();
+  }
+
+  @Get('activity')
+  getActivity(@Query('limit') limit?: string) {
+    return this.runs.getRecentLogs(limit ? parseInt(limit, 10) : 100);
   }
 
   @Get(':id')

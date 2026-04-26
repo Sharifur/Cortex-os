@@ -15,13 +15,11 @@ interface SettingRow {
   stored: boolean;
 }
 
-type GroupedSettings = Record<string, SettingRow[]>;
-
-const GROUP_LABELS: Record<string, { label: string; icon: React.ReactNode }> = {
-  llm: { label: 'LLM Providers', icon: <Bot className="w-4 h-4" /> },
-  telegram: { label: 'Telegram', icon: <Send className="w-4 h-4" /> },
-  ses: { label: 'Email (SES)', icon: <Mail className="w-4 h-4" /> },
-};
+const TABS = [
+  { key: 'llm', label: 'LLM Providers', icon: <Bot className="w-4 h-4" /> },
+  { key: 'telegram', label: 'Telegram', icon: <Send className="w-4 h-4" /> },
+  { key: 'ses', label: 'Email (SES)', icon: <Mail className="w-4 h-4" /> },
+];
 
 async function fetchSettings(token: string): Promise<SettingRow[]> {
   const res = await fetch('/settings', {
@@ -31,24 +29,21 @@ async function fetchSettings(token: string): Promise<SettingRow[]> {
   return res.json();
 }
 
-async function upsertSetting(token: string, key: string, value: string): Promise<void> {
+async function upsertSetting(token: string, key: string, value: string) {
   const res = await fetch(`/settings/${key}`, {
     method: 'PUT',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    },
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ value }),
   });
-  if (!res.ok) throw new Error('Failed to save setting');
+  if (!res.ok) throw new Error('Failed to save');
 }
 
-async function deleteSetting(token: string, key: string): Promise<void> {
+async function deleteSetting(token: string, key: string) {
   const res = await fetch(`/settings/${key}`, {
     method: 'DELETE',
     headers: { Authorization: `Bearer ${token}` },
   });
-  if (!res.ok) throw new Error('Failed to delete setting');
+  if (!res.ok) throw new Error('Failed to delete');
 }
 
 function SettingField({ setting, token }: { setting: SettingRow; token: string }) {
@@ -59,11 +54,7 @@ function SettingField({ setting, token }: { setting: SettingRow; token: string }
 
   const saveMutation = useMutation({
     mutationFn: () => upsertSetting(token, setting.key, inputValue),
-    onSuccess: () => {
-      setEditing(false);
-      setInputValue('');
-      qc.invalidateQueries({ queryKey: ['settings'] });
-    },
+    onSuccess: () => { setEditing(false); setInputValue(''); qc.invalidateQueries({ queryKey: ['settings'] }); },
   });
 
   const deleteMutation = useMutation({
@@ -71,8 +62,7 @@ function SettingField({ setting, token }: { setting: SettingRow; token: string }
     onSuccess: () => qc.invalidateQueries({ queryKey: ['settings'] }),
   });
 
-  const displayValue = setting.stored ? setting.value : setting.value || '—';
-  const inputType = setting.isSecret && !showRaw ? 'password' : 'text';
+  const displayValue = setting.stored ? setting.value : (setting.value || '—');
 
   return (
     <div className="py-4 border-b border-border last:border-0">
@@ -93,7 +83,7 @@ function SettingField({ setting, token }: { setting: SettingRow; token: string }
             <div className="flex items-center gap-2 mt-2">
               <div className="relative flex-1">
                 <Input
-                  type={inputType}
+                  type={setting.isSecret && !showRaw ? 'password' : 'text'}
                   value={inputValue}
                   onChange={(e) => setInputValue(e.target.value)}
                   placeholder={`Enter ${setting.label}`}
@@ -110,45 +100,28 @@ function SettingField({ setting, token }: { setting: SettingRow; token: string }
                   </button>
                 )}
               </div>
-              <Button
-                size="sm"
-                onClick={() => saveMutation.mutate()}
-                disabled={!inputValue || saveMutation.isPending}
-              >
-                <Save className="w-3.5 h-3.5" />
-                Save
+              <Button size="sm" onClick={() => saveMutation.mutate()} disabled={!inputValue || saveMutation.isPending}>
+                <Save className="w-3.5 h-3.5" />Save
               </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => { setEditing(false); setInputValue(''); }}
-              >
+              <Button size="sm" variant="ghost" onClick={() => { setEditing(false); setInputValue(''); }}>
                 Cancel
               </Button>
             </div>
           ) : (
-            <div className="flex items-center gap-2 mt-1">
-              <code className="text-xs bg-muted px-2 py-1 rounded font-mono text-muted-foreground">
-                {displayValue}
-              </code>
-            </div>
+            <code className="text-xs bg-muted px-2 py-1 rounded font-mono text-muted-foreground mt-1 inline-block">
+              {displayValue}
+            </code>
           )}
         </div>
 
         {!editing && (
           <div className="flex items-center gap-1 shrink-0">
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => setEditing(true)}
-              className="text-xs"
-            >
+            <Button size="sm" variant="outline" onClick={() => setEditing(true)} className="text-xs">
               {setting.stored ? 'Update' : 'Set'}
             </Button>
             {setting.stored && (
               <Button
-                size="sm"
-                variant="ghost"
+                size="sm" variant="ghost"
                 onClick={() => deleteMutation.mutate()}
                 disabled={deleteMutation.isPending}
                 className="text-muted-foreground hover:text-destructive"
@@ -165,17 +138,20 @@ function SettingField({ setting, token }: { setting: SettingRow; token: string }
 
 export default function SettingsPage() {
   const token = useAuthStore((s) => s.token)!;
+  const [activeTab, setActiveTab] = useState('llm');
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['settings'],
     queryFn: () => fetchSettings(token),
   });
 
-  const grouped: GroupedSettings = {};
+  const grouped: Record<string, SettingRow[]> = {};
   for (const row of data ?? []) {
     if (!grouped[row.group]) grouped[row.group] = [];
     grouped[row.group].push(row);
   }
+
+  const activeRows = grouped[activeTab] ?? [];
 
   return (
     <div className="p-8 max-w-3xl mx-auto">
@@ -183,34 +159,44 @@ export default function SettingsPage() {
         <Settings className="w-5 h-5 text-primary" />
         <h1 className="text-2xl font-semibold">Settings</h1>
       </div>
-      <p className="text-muted-foreground text-sm mb-8">
+      <p className="text-muted-foreground text-sm mb-6">
         API keys and configuration. Secrets are encrypted at rest and never shown in plaintext.
       </p>
 
-      {isLoading && (
-        <p className="text-sm text-muted-foreground">Loading…</p>
-      )}
-      {isError && (
-        <p className="text-sm text-destructive">Failed to load settings.</p>
-      )}
+      {/* Tab bar */}
+      <div className="flex items-center gap-1 border-b border-border mb-6">
+        {TABS.map((tab) => (
+          <button
+            key={tab.key}
+            onClick={() => setActiveTab(tab.key)}
+            className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
+              activeTab === tab.key
+                ? 'border-primary text-foreground'
+                : 'border-transparent text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            {tab.icon}
+            {tab.label}
+          </button>
+        ))}
+      </div>
 
-      {Object.entries(GROUP_LABELS).map(([groupKey, { label, icon }]) => {
-        const rows = grouped[groupKey];
-        if (!rows) return null;
-        return (
-          <div key={groupKey} className="rounded-xl border border-border bg-card mb-6">
-            <div className="flex items-center gap-2 px-5 py-3 border-b border-border">
-              {icon}
-              <span className="text-sm font-semibold">{label}</span>
-            </div>
-            <div className="px-5">
-              {rows.map((s) => (
+      {isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
+      {isError && <p className="text-sm text-destructive">Failed to load settings.</p>}
+
+      {!isLoading && !isError && (
+        <div className="rounded-xl border border-border bg-card">
+          <div className="px-5">
+            {activeRows.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-6">No settings in this group.</p>
+            ) : (
+              activeRows.map((s) => (
                 <SettingField key={s.key} setting={s} token={token} />
-              ))}
-            </div>
+              ))
+            )}
           </div>
-        );
-      })}
+        </div>
+      )}
     </div>
   );
 }
