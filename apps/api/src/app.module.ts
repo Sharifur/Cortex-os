@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { BullModule } from '@nestjs/bullmq';
+import { EventEmitterModule } from '@nestjs/event-emitter';
 import { LoggerModule } from 'nestjs-pino';
 import IORedis from 'ioredis';
 import { DbModule } from './db/db.module';
@@ -12,10 +13,12 @@ import { RunsModule } from './modules/runs/runs.module';
 import { ApprovalsModule } from './modules/approvals/approvals.module';
 import { SettingsModule } from './modules/settings/settings.module';
 import { LlmModule } from './modules/llm/llm.module';
+import { TelegramModule } from './modules/telegram/telegram.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    EventEmitterModule.forRoot(),
 
     LoggerModule.forRoot({
       pinoHttp: {
@@ -43,6 +46,7 @@ import { LlmModule } from './modules/llm/llm.module';
     ApprovalsModule,
     SettingsModule,
     LlmModule,
+    TelegramModule,
   ],
 })
 export class AppModule {}

@@ -1,15 +1,18 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Queue, Job } from 'bullmq';
 import { eq } from 'drizzle-orm';
 import { DbService } from '../../../../db/db.service';
-import { agentRuns } from '../../../../db/schema';
+import { agentRuns, agents } from '../../../../db/schema';
 import { AgentRegistryService } from '../agent-registry.service';
 import { ApprovalService } from '../approval.service';
 import { AgentLogService } from '../agent-log.service';
 import { QUEUE_NAMES } from '../../../../common/queue/queue.constants';
+import { TELEGRAM_EVENTS } from '../../../telegram/telegram.types';
 import type { AgentRunJobData, AgentExecuteJobData, TriggerEvent } from '../types';
+import type { ApprovalCreatedEvent } from '../../../telegram/telegram.types';
 
 const MAX_FOLLOWUPS = 5;
 
@@ -22,6 +25,7 @@ export class AgentRunProcessor extends WorkerHost {
     private registry: AgentRegistryService,
     private approvalSvc: ApprovalService,
     private logSvc: AgentLogService,
+    private eventEmitter: EventEmitter2,
     @InjectQueue(QUEUE_NAMES.AGENT_EXECUTE) private executeQueue: Queue,
   ) {
     super();
@@ -34,31 +38,39 @@ export class AgentRunProcessor extends WorkerHost {
     const agent = this.registry.get(agentKey);
     if (!agent) throw new Error(`Agent not found in registry: ${agentKey}`);
 
-    const [run] = await this.db.db
+    const [runRow] = await this.db.db
       .select()
       .from(agentRuns)
       .where(eq(agentRuns.id, runId));
 
-    if (!run) throw new Error(`Run not found: ${runId}`);
+    if (!runRow) throw new Error(`Run not found: ${runId}`);
+
+    // Look up agent display name
+    const [agentRecord] = await this.db.db
+      .select({ name: agents.name })
+      .from(agents)
+      .where(eq(agents.id, runRow.agentId));
+
+    const agentName = agentRecord?.name ?? agentKey;
 
     await this.db.db
       .update(agentRuns)
       .set({ status: 'RUNNING' })
       .where(eq(agentRuns.id, runId));
 
-    await this.logSvc.info(runId, `Run started`, { agentKey, trigger: run.triggerType });
+    await this.logSvc.info(runId, `Run started`, { agentKey, trigger: runRow.triggerType });
 
     try {
       const trigger: TriggerEvent = {
-        type: run.triggerType as TriggerEvent['type'],
-        payload: run.triggerPayload,
+        type: runRow.triggerType as TriggerEvent['type'],
+        payload: runRow.triggerPayload,
       };
 
       const runCtx = {
-        id: run.id,
-        triggerType: run.triggerType as TriggerEvent['type'],
-        triggerPayload: run.triggerPayload,
-        context: run.context as never,
+        id: runRow.id,
+        triggerType: runRow.triggerType as TriggerEvent['type'],
+        triggerPayload: runRow.triggerPayload,
+        context: runRow.context as never,
       };
 
       const context = await agent.buildContext(trigger, runCtx);
@@ -92,7 +104,14 @@ export class AgentRunProcessor extends WorkerHost {
             approvalId: approval.id,
             risk: action.riskLevel,
           });
-          // Telegram notification will be added in the Telegram phase
+
+          this.eventEmitter.emit(TELEGRAM_EVENTS.APPROVAL_CREATED, {
+            approvalId: approval.id,
+            runId,
+            agentKey,
+            agentName,
+            action,
+          } satisfies ApprovalCreatedEvent);
         } else {
           await this.executeQueue.add(
             'execute',
