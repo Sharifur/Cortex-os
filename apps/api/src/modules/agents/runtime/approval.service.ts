@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { eq, and } from 'drizzle-orm';
 import { DbService } from '../../../db/db.service';
 import { pendingApprovals, agentRuns, agents } from '../../../db/schema';
@@ -17,6 +18,7 @@ export class ApprovalService {
     private db: DbService,
     private registry: AgentRegistryService,
     private logSvc: AgentLogService,
+    private events: EventEmitter2,
     @InjectQueue(QUEUE_NAMES.AGENT_EXECUTE) private executeQueue: Queue,
     @InjectQueue(QUEUE_NAMES.AGENT_FOLLOWUP) private followupQueue: Queue,
   ) {}
@@ -25,13 +27,12 @@ export class ApprovalService {
     const expiresAt = new Date(Date.now() + APPROVAL_TTL_MS);
     const [approval] = await this.db.db
       .insert(pendingApprovals)
-      .values({
-        runId,
-        action,
-        status: 'PENDING',
-        expiresAt,
-      })
+      .values({ runId, action, status: 'PENDING', expiresAt })
       .returning();
+
+    const enriched = await this.getEnrichedApproval(approval.id);
+    if (enriched) this.events.emit('approval.created', enriched);
+
     return approval;
   }
 
@@ -83,6 +84,7 @@ export class ApprovalService {
       .where(eq(agentRuns.id, approval.runId));
 
     await this.logSvc.info(approval.runId, `Approval ${approvalId} approved`);
+    this.events.emit('approval.removed', { id: approvalId });
 
     await this.executeQueue.add(
       'execute',
@@ -111,6 +113,7 @@ export class ApprovalService {
       .where(eq(agentRuns.id, approval.runId));
 
     await this.logSvc.info(approval.runId, `Approval ${approvalId} rejected`);
+    this.events.emit('approval.removed', { id: approvalId });
   }
 
   async followup(approvalId: string, instruction: string) {
@@ -141,6 +144,7 @@ export class ApprovalService {
       .where(eq(agentRuns.id, approval.runId));
 
     await this.logSvc.info(approval.runId, `Follow-up received: "${instruction}"`);
+    this.events.emit('approval.removed', { id: approvalId });
 
     const runWithAgent = await this.getRunForApproval(approval.runId);
     await this.followupQueue.add(
@@ -174,9 +178,32 @@ export class ApprovalService {
         .where(eq(agentRuns.id, approval.runId));
 
       await this.logSvc.error(approval.runId, `Approval ${approval.id} expired`);
+      this.events.emit('approval.removed', { id: approval.id });
     }
 
     return toExpire.length;
+  }
+
+  private async getEnrichedApproval(approvalId: string) {
+    const [row] = await this.db.db
+      .select({
+        id: pendingApprovals.id,
+        runId: pendingApprovals.runId,
+        agentKey: agents.key,
+        agentName: agents.name,
+        runStatus: agentRuns.status,
+        action: pendingApprovals.action,
+        status: pendingApprovals.status,
+        followupMessages: pendingApprovals.followupMessages,
+        createdAt: pendingApprovals.createdAt,
+        resolvedAt: pendingApprovals.resolvedAt,
+        expiresAt: pendingApprovals.expiresAt,
+      })
+      .from(pendingApprovals)
+      .innerJoin(agentRuns, eq(pendingApprovals.runId, agentRuns.id))
+      .innerJoin(agents, eq(agentRuns.agentId, agents.id))
+      .where(eq(pendingApprovals.id, approvalId));
+    return row ?? null;
   }
 
   private async getRunForApproval(runId: string) {
