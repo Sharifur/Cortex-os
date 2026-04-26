@@ -1,6 +1,5 @@
-import { useQuery } from '@tanstack/react-query';
-import { Activity, RefreshCw, Bot, AlertCircle, Info, AlertTriangle, Bug } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { useState, useEffect, useRef } from 'react';
+import { Activity, Bot, AlertCircle, Info, AlertTriangle, Bug, Wifi, WifiOff } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 
 interface LogEntry {
@@ -33,14 +32,6 @@ const STATUS_CLS: Record<string, string> = {
   FOLLOWUP: 'text-purple-400',
 };
 
-async function fetchActivity(token: string): Promise<LogEntry[]> {
-  const res = await fetch('/runs/activity?limit=200', {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!res.ok) throw new Error('Failed to fetch activity');
-  return res.json();
-}
-
 function shortId(id: string) {
   return id.slice(0, 8);
 }
@@ -53,14 +44,59 @@ function relTime(iso: string) {
   return new Date(iso).toLocaleDateString();
 }
 
+const MAX_ENTRIES = 500;
+
 export default function ActivityPage() {
   const token = useAuthStore((s) => s.token)!;
+  const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [connected, setConnected] = useState(false);
+  const [connError, setConnError] = useState(false);
+  const snapshotDone = useRef(false);
+  const snapshotBuffer = useRef<LogEntry[]>([]);
 
-  const { data, isLoading, isError, refetch, isFetching } = useQuery({
-    queryKey: ['activity'],
-    queryFn: () => fetchActivity(token),
-    refetchInterval: 5000,
-  });
+  useEffect(() => {
+    snapshotDone.current = false;
+    snapshotBuffer.current = [];
+    setConnError(false);
+
+    const es = new EventSource(`/runs/activity/stream?token=${encodeURIComponent(token)}`);
+
+    es.onopen = () => {
+      setConnected(true);
+      setConnError(false);
+    };
+
+    es.onmessage = (event) => {
+      const data = JSON.parse(event.data as string) as { type?: string } & LogEntry;
+
+      if (data.type === 'snapshot_done') {
+        setLogs(snapshotBuffer.current);
+        snapshotDone.current = true;
+        return;
+      }
+
+      if (!snapshotDone.current) {
+        snapshotBuffer.current.push(data as LogEntry);
+        return;
+      }
+
+      setLogs((prev) => {
+        const next = [data as LogEntry, ...prev];
+        return next.length > MAX_ENTRIES ? next.slice(0, MAX_ENTRIES) : next;
+      });
+    };
+
+    es.onerror = () => {
+      setConnected(false);
+      setConnError(true);
+      es.close();
+    };
+
+    return () => {
+      es.close();
+      setConnected(false);
+    };
+  }, [token]);
 
   return (
     <div className="p-8 max-w-5xl mx-auto">
@@ -69,56 +105,57 @@ export default function ActivityPage() {
           <Activity className="w-5 h-5 text-primary" />
           <h1 className="text-2xl font-semibold">Activity</h1>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => refetch()}
-          disabled={isFetching}
-          className="gap-1.5 text-xs"
-        >
-          <RefreshCw className={`w-3.5 h-3.5 ${isFetching ? 'animate-spin' : ''}`} />
-          Refresh
-        </Button>
+        <div className="flex items-center gap-1.5 text-xs">
+          {connected ? (
+            <>
+              <Wifi className="w-3.5 h-3.5 text-green-500" />
+              <span className="text-green-500">Live</span>
+            </>
+          ) : (
+            <>
+              <WifiOff className="w-3.5 h-3.5 text-muted-foreground" />
+              <span className="text-muted-foreground">{connError ? 'Disconnected' : 'Connecting…'}</span>
+            </>
+          )}
+        </div>
       </div>
       <p className="text-muted-foreground text-sm mb-8">
-        Live agent logs and Telegram approval activity. Auto-refreshes every 5 s.
+        Real-time agent logs and Telegram approval activity.
       </p>
 
-      {isLoading && (
-        <p className="text-sm text-muted-foreground">Loading…</p>
-      )}
-      {isError && (
-        <p className="text-sm text-destructive">Failed to load activity.</p>
+      {connError && (
+        <p className="text-sm text-destructive mb-4">Connection lost. Reload to reconnect.</p>
       )}
 
-      {data && data.length === 0 && (
+      {!connected && !connError && (
+        <p className="text-sm text-muted-foreground">Connecting…</p>
+      )}
+
+      {connected && logs.length === 0 && (
         <div className="rounded-xl border border-border bg-card p-8 text-center">
           <Bot className="w-8 h-8 text-muted-foreground mx-auto mb-3" />
           <p className="text-sm text-muted-foreground">No activity yet. Agents haven't run.</p>
         </div>
       )}
 
-      {data && data.length > 0 && (
+      {logs.length > 0 && (
         <div className="rounded-xl border border-border bg-card overflow-hidden">
           <div className="px-4 py-3 border-b border-border flex items-center gap-2">
             <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-              {data.length} entries
+              {logs.length} entries
             </span>
             <span className="ml-auto text-xs text-muted-foreground">newest first</span>
           </div>
           <div className="divide-y divide-border">
-            {data.map((entry) => {
+            {logs.map((entry) => {
               const lvl = LEVEL_CONFIG[entry.level] ?? LEVEL_CONFIG.INFO;
               return (
                 <div key={entry.id} className="px-4 py-3 hover:bg-accent/30 transition-colors">
                   <div className="flex items-start gap-3">
-                    {/* Level badge */}
                     <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-mono font-medium shrink-0 mt-0.5 ${lvl.cls}`}>
                       {lvl.icon}
                       {lvl.label}
                     </span>
-
-                    {/* Main content */}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-0.5 flex-wrap">
                         <span className="text-xs font-medium text-foreground">{entry.agentName}</span>
@@ -136,8 +173,6 @@ export default function ActivityPage() {
                         </pre>
                       )}
                     </div>
-
-                    {/* Timestamp */}
                     <span className="text-xs text-muted-foreground shrink-0">
                       {relTime(entry.createdAt)}
                     </span>
