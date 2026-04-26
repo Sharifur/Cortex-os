@@ -12,7 +12,9 @@
     "db:seed": "../../node_modules/.bin/ts-node -r tsconfig-paths/register src/db/seed.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-ses": "^3.1037.0",
     "@google/generative-ai": "^0.24.1",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@nestjs/bullmq": "^10.2.3",
     "@nestjs/common": "^10.4.15",
     "@nestjs/config": "^3.3.0",
