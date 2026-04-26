@@ -18,6 +18,7 @@ export default defineConfig({
       '/approvals': 'http://localhost:4000',
       '/health': 'http://localhost:4000',
       '/metrics': 'http://localhost:4000',
+      '/settings': 'http://localhost:4000',
     },
   },
 });

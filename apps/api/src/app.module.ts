@@ -10,6 +10,8 @@ import { MetricsModule } from './modules/metrics/metrics.module';
 import { AgentsModule } from './modules/agents/agents.module';
 import { RunsModule } from './modules/runs/runs.module';
 import { ApprovalsModule } from './modules/approvals/approvals.module';
+import { SettingsModule } from './modules/settings/settings.module';
+import { LlmModule } from './modules/llm/llm.module';
 
 @Module({
   imports: [
@@ -39,6 +41,8 @@ import { ApprovalsModule } from './modules/approvals/approvals.module';
     AgentsModule,
     RunsModule,
     ApprovalsModule,
+    SettingsModule,
+    LlmModule,
   ],
 })
 export class AppModule {}

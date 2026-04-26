@@ -12,6 +12,7 @@
     "db:seed": "../../node_modules/.bin/ts-node -r tsconfig-paths/register src/db/seed.ts"
   },
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
     "@nestjs/bullmq": "^10.2.3",
     "@nestjs/common": "^10.4.15",
     "@nestjs/config": "^3.3.0",
@@ -30,6 +31,7 @@
     "ioredis": "^5.4.2",
     "minio": "^8.0.3",
     "nestjs-pino": "^4.1.0",
+    "openai": "^6.34.0",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
     "pino-http": "^10.4.0",
