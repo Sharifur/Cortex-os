@@ -5,7 +5,7 @@ import * as bcrypt from 'bcrypt';
 
 async function seed() {
   const email = process.env.OWNER_EMAIL ?? 'admin@example.com';
-  const password = process.env.OWNER_PASSWORD ?? 'changeme';
+  const password = process.env.OWNER_PASSWORD ?? 'password';
 
   const existing = await db.select().from(users).limit(1);
   if (existing.length > 0) {
