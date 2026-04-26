@@ -262,7 +262,7 @@ export default function ApprovalsPage() {
   }
 
   return (
-    <div className="p-8 max-w-3xl mx-auto">
+    <div className="p-8 max-w-4xl mx-auto">
       <div className="flex items-center justify-between mb-1">
         <div className="flex items-center gap-2">
           <AlertTriangle className="w-5 h-5 text-primary" />
