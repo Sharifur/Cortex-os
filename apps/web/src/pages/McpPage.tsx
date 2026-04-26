@@ -7,7 +7,58 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Skeleton } from '@/components/ui/skeleton';
 import { useAuthStore } from '@/stores/authStore';
+
+function AgentMcpCardSkeleton() {
+  return (
+    <div className="rounded-xl border border-border bg-card overflow-hidden">
+      <div className="flex items-center gap-3 px-5 py-4">
+        <Skeleton className="w-8 h-8 rounded-lg shrink-0" />
+        <div className="flex-1 space-y-1.5">
+          <div className="flex items-center gap-2">
+            <Skeleton className="h-4 w-32 rounded" />
+            <Skeleton className="h-4 w-20 rounded" />
+          </div>
+          <Skeleton className="h-3.5 w-16 rounded" />
+        </div>
+        <Skeleton className="w-4 h-4 rounded" />
+      </div>
+    </div>
+  );
+}
+
+function ExternalServerSkeleton() {
+  return (
+    <div className="rounded-xl border border-border bg-card overflow-hidden">
+      <div className="flex items-center gap-3 px-5 py-4">
+        <div className="flex-1 space-y-1.5">
+          <Skeleton className="h-4 w-28 rounded" />
+          <Skeleton className="h-3.5 w-52 rounded font-mono" />
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <Skeleton className="w-3.5 h-3.5 rounded" />
+          <Skeleton className="w-6 h-6 rounded" />
+          <Skeleton className="w-4 h-4 rounded" />
+          <Skeleton className="w-4 h-4 rounded" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ToolsSkeleton() {
+  return (
+    <div className="border-t border-border divide-y divide-border">
+      {Array.from({ length: 2 }).map((_, i) => (
+        <div key={i} className="px-5 py-3 flex items-center gap-2">
+          <Skeleton className="w-3.5 h-3.5 rounded shrink-0" />
+          <Skeleton className="h-3.5 w-40 rounded" />
+        </div>
+      ))}
+    </div>
+  );
+}
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -219,9 +270,7 @@ function ExternalServerRow({
 
       {expanded && (
         <div className="border-t border-border">
-          {toolsLoading && (
-            <p className="px-5 py-4 text-sm text-muted-foreground">Connecting…</p>
-          )}
+          {toolsLoading && <ToolsSkeleton />}
           {toolsData && !toolsData.connected && (
             <div className="px-5 py-4 flex items-center gap-2 text-destructive">
               <AlertCircle className="w-4 h-4 shrink-0" />
@@ -317,7 +366,7 @@ export default function McpPage() {
   const token = useAuthStore((s) => s.token)!;
   const [showAddForm, setShowAddForm] = useState(false);
 
-  const { data: overview } = useQuery<McpOverview>({
+  const { data: overview, isLoading: overviewLoading } = useQuery<McpOverview>({
     queryKey: ['mcp'],
     queryFn: () => apiFetch(token, '/mcp'),
   });
@@ -354,7 +403,13 @@ export default function McpPage() {
           Inbound — tools exposed to external clients
         </h2>
 
-        {withTools.length === 0 && noTools.length === 0 && (
+        {overviewLoading && (
+          <div className="space-y-3">
+            {Array.from({ length: 2 }).map((_, i) => <AgentMcpCardSkeleton key={i} />)}
+          </div>
+        )}
+
+        {!overviewLoading && withTools.length === 0 && noTools.length === 0 && (
           <p className="text-sm text-muted-foreground">No agents registered yet.</p>
         )}
 
@@ -398,7 +453,11 @@ export default function McpPage() {
           </div>
         )}
 
-        {serversLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
+        {serversLoading && (
+          <div className="space-y-3">
+            {Array.from({ length: 2 }).map((_, i) => <ExternalServerSkeleton key={i} />)}
+          </div>
+        )}
 
         {!serversLoading && externalServers.length === 0 && !showAddForm && (
           <div className="rounded-xl border border-border bg-card p-8 text-center">

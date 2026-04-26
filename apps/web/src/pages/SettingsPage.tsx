@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Settings, Save, Trash2, Eye, EyeOff, Key, Bot, Send, Mail, Zap } from 'lucide-react';
+import { Settings, Save, Trash2, Eye, EyeOff, Key, Bot, Send, Mail, Zap, Mail as GmailIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Skeleton } from '@/components/ui/skeleton';
 import { useAuthStore } from '@/stores/authStore';
 
 interface SettingRow {
@@ -20,6 +21,7 @@ const MAIN_TABS = [
   { key: 'llm', label: 'LLM Providers', icon: <Bot className="w-4 h-4" /> },
   { key: 'telegram', label: 'Telegram', icon: <Send className="w-4 h-4" /> },
   { key: 'ses', label: 'Email (SES)', icon: <Mail className="w-4 h-4" /> },
+  { key: 'gmail', label: 'Gmail', icon: <GmailIcon className="w-4 h-4" /> },
 ];
 
 const LLM_PROVIDER_TABS = [
@@ -266,7 +268,25 @@ export default function SettingsPage() {
         ))}
       </div>
 
-      {isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
+      {isLoading && (
+        <div className="rounded-xl border border-border bg-card">
+          <div className="px-5 divide-y divide-border">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="py-4 flex items-start justify-between gap-4">
+                <div className="flex-1 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Skeleton className="h-4 w-36 rounded" />
+                    <Skeleton className="h-4 w-12 rounded" />
+                  </div>
+                  <Skeleton className="h-3.5 w-64 rounded" />
+                  <Skeleton className="h-7 w-48 rounded" />
+                </div>
+                <Skeleton className="h-7 w-14 rounded" />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       {isError && <p className="text-sm text-destructive">Failed to load settings.</p>}
 
       {!isLoading && !isError && (

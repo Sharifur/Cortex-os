@@ -175,7 +175,7 @@ export class TaskipTrialAgent implements IAgent, OnModuleInit {
     const provider = config.emailProvider ?? 'gmail';
     let messageId: string;
 
-    if (provider === 'gmail' && this.gmail.isConfigured()) {
+    if (provider === 'gmail' && await this.gmail.isConfigured()) {
       messageId = await this.gmail.sendEmail({
         to: draft.email,
         from: config.gmail?.from ?? process.env.GMAIL_FROM ?? draft.email,

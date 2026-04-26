@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { SESClient, SendEmailCommand } from '@aws-sdk/client-ses';
+import { SettingsService } from '../settings/settings.service';
 
 export interface SendEmailParams {
   to: string;
@@ -12,19 +13,25 @@ export interface SendEmailParams {
 @Injectable()
 export class SesService {
   private readonly logger = new Logger(SesService.name);
-  private readonly client: SESClient;
 
-  constructor() {
-    this.client = new SESClient({
-      region: process.env.AWS_REGION ?? 'ap-south-1',
-      credentials: {
-        accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
-        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
-      },
-    });
-  }
+  constructor(private readonly settings: SettingsService) {}
 
   async sendEmail(params: SendEmailParams): Promise<string> {
+    const [accessKeyId, secretAccessKey, region] = await Promise.all([
+      this.settings.getDecrypted('aws_access_key_id'),
+      this.settings.getDecrypted('aws_secret_access_key'),
+      this.settings.getDecrypted('aws_region'),
+    ]);
+
+    if (!accessKeyId || !secretAccessKey) {
+      throw new Error('AWS credentials not configured — set them in Settings → Email (SES)');
+    }
+
+    const client = new SESClient({
+      region: region ?? 'ap-south-1',
+      credentials: { accessKeyId, secretAccessKey },
+    });
+
     const cmd = new SendEmailCommand({
       Destination: { ToAddresses: [params.to] },
       Message: {
@@ -35,8 +42,8 @@ export class SesService {
       ...(params.configurationSet ? { ConfigurationSetName: params.configurationSet } : {}),
     });
 
-    const result = await this.client.send(cmd);
-    this.logger.log(`Email sent to ${params.to} — messageId: ${result.MessageId}`);
+    const result = await client.send(cmd);
+    this.logger.log(`SES sent to ${params.to} — messageId: ${result.MessageId}`);
     return result.MessageId ?? '';
   }
 }

@@ -2,7 +2,7 @@ export interface SettingDefinition {
   label: string;
   description?: string;
   isSecret: boolean;
-  group: 'llm' | 'telegram' | 'ses' | 'integrations';
+  group: 'llm' | 'telegram' | 'ses' | 'gmail' | 'integrations';
   defaultValue?: string;
   provider?: 'openai' | 'gemini' | 'deepseek' | 'general';
 }
@@ -83,17 +83,60 @@ export const SETTING_DEFINITIONS: Record<string, SettingDefinition> = {
     group: 'telegram',
   },
 
-  // SES
+  // SES — AWS credentials
+  aws_access_key_id: {
+    label: 'AWS Access Key ID',
+    description: 'IAM user with ses:SendEmail permission',
+    isSecret: true,
+    group: 'ses',
+  },
+  aws_secret_access_key: {
+    label: 'AWS Secret Access Key',
+    isSecret: true,
+    group: 'ses',
+  },
+  aws_region: {
+    label: 'AWS Region',
+    description: 'SES-enabled region, e.g. ap-south-1',
+    isSecret: false,
+    group: 'ses',
+    defaultValue: 'ap-south-1',
+  },
   ses_from_address: {
-    label: 'SES From Address',
+    label: 'From Address',
     description: 'e.g. Sharifur <sharifur@taskip.net>',
     isSecret: false,
     group: 'ses',
   },
   ses_configuration_set: {
-    label: 'SES Configuration Set',
+    label: 'Configuration Set',
     isSecret: false,
     group: 'ses',
     defaultValue: 'ses-monitoring',
+  },
+
+  // Gmail — OAuth2
+  gmail_client_id: {
+    label: 'OAuth2 Client ID',
+    description: 'From Google Cloud Console → Credentials',
+    isSecret: false,
+    group: 'gmail',
+  },
+  gmail_client_secret: {
+    label: 'OAuth2 Client Secret',
+    isSecret: true,
+    group: 'gmail',
+  },
+  gmail_refresh_token: {
+    label: 'Refresh Token',
+    description: 'Obtained via OAuth2 consent (scope: https://mail.google.com/)',
+    isSecret: true,
+    group: 'gmail',
+  },
+  gmail_from_address: {
+    label: 'From Address',
+    description: 'e.g. Sharifur <sharifur@taskip.net>',
+    isSecret: false,
+    group: 'gmail',
   },
 };

@@ -1,6 +1,6 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { google, gmail_v1 } from 'googleapis';
-import { OAuth2Client } from 'google-auth-library';
+import { Injectable, Logger } from '@nestjs/common';
+import { google } from 'googleapis';
+import { SettingsService } from '../settings/settings.service';
 
 export interface GmailSendParams {
   to: string;
@@ -9,66 +9,54 @@ export interface GmailSendParams {
   textBody: string;
 }
 
-// Required env vars:
-//   GMAIL_CLIENT_ID      — OAuth2 client ID from Google Cloud Console
-//   GMAIL_CLIENT_SECRET  — OAuth2 client secret
-//   GMAIL_REFRESH_TOKEN  — refresh token obtained via OAuth2 consent flow
-//   GMAIL_FROM           — sender address, e.g. "Sharifur <sharifur@taskip.net>"
-
 @Injectable()
-export class GmailService implements OnModuleInit {
+export class GmailService {
   private readonly logger = new Logger(GmailService.name);
-  private gmail!: gmail_v1.Gmail;
-  private oauth2Client!: OAuth2Client;
 
-  onModuleInit() {
-    const clientId = process.env.GMAIL_CLIENT_ID;
-    const clientSecret = process.env.GMAIL_CLIENT_SECRET;
-    const refreshToken = process.env.GMAIL_REFRESH_TOKEN;
+  constructor(private readonly settings: SettingsService) {}
 
-    if (!clientId || !clientSecret || !refreshToken) {
-      this.logger.warn('Gmail OAuth2 credentials not set — GmailService disabled');
-      return;
-    }
-
-    this.oauth2Client = new google.auth.OAuth2(clientId, clientSecret);
-    this.oauth2Client.setCredentials({ refresh_token: refreshToken });
-    this.gmail = google.gmail({ version: 'v1', auth: this.oauth2Client });
-    this.logger.log('GmailService ready');
-  }
-
-  isConfigured(): boolean {
-    return !!this.gmail;
+  async isConfigured(): Promise<boolean> {
+    const [id, secret, token] = await Promise.all([
+      this.settings.getDecrypted('gmail_client_id'),
+      this.settings.getDecrypted('gmail_client_secret'),
+      this.settings.getDecrypted('gmail_refresh_token'),
+    ]);
+    return !!(id && secret && token);
   }
 
   async sendEmail(params: GmailSendParams): Promise<string> {
-    if (!this.gmail) {
-      throw new Error('GmailService not configured — set GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, GMAIL_REFRESH_TOKEN');
+    const [clientId, clientSecret, refreshToken] = await Promise.all([
+      this.settings.getDecrypted('gmail_client_id'),
+      this.settings.getDecrypted('gmail_client_secret'),
+      this.settings.getDecrypted('gmail_refresh_token'),
+    ]);
+
+    if (!clientId || !clientSecret || !refreshToken) {
+      throw new Error('Gmail credentials not configured — set them in Settings → Gmail');
     }
 
-    const raw = this.buildRawMessage(params);
+    const auth = new google.auth.OAuth2(clientId, clientSecret);
+    auth.setCredentials({ refresh_token: refreshToken });
+    const gmail = google.gmail({ version: 'v1', auth });
 
-    const res = await this.gmail.users.messages.send({
-      userId: 'me',
-      requestBody: { raw },
-    });
+    const raw = this.buildRaw(params);
+    const res = await gmail.users.messages.send({ userId: 'me', requestBody: { raw } });
 
     const messageId = res.data.id ?? '';
     this.logger.log(`Gmail sent to ${params.to} — messageId: ${messageId}`);
     return messageId;
   }
 
-  private buildRawMessage(params: GmailSendParams): string {
-    const boundary = `boundary_${Date.now()}`;
-    const headers = [
+  private buildRaw(params: GmailSendParams): string {
+    const lines = [
       `From: ${params.from}`,
       `To: ${params.to}`,
       `Subject: ${params.subject}`,
       `MIME-Version: 1.0`,
       `Content-Type: text/plain; charset=UTF-8`,
+      ``,
+      params.textBody,
     ].join('\r\n');
-
-    const message = `${headers}\r\n\r\n${params.textBody}`;
-    return Buffer.from(message).toString('base64url');
+    return Buffer.from(lines).toString('base64url');
   }
 }
