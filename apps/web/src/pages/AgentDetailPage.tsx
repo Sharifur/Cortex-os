@@ -1,7 +1,11 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { Bot, ArrowLeft, ChevronRight, Save, Play, ToggleLeft, ToggleRight, Settings } from 'lucide-react';
+import {
+  Bot, ArrowLeft, ChevronRight, Save, Play,
+  ToggleLeft, ToggleRight, Settings, List,
+  Mail, Cpu, Layers, Info,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -29,6 +33,16 @@ interface Run {
   finishedAt: string | null;
 }
 
+interface TaskipConfig {
+  segments: Record<string, { enabled: boolean; templatePromptId: string }>;
+  llm: { provider: string; model: string };
+  emailProvider: 'gmail' | 'ses';
+  gmail: { from: string };
+  ses: { from: string; configurationSet?: string };
+  dailyCap: number;
+  maxFollowupsPerEmail: number;
+}
+
 const STATUS_CLS: Record<string, string> = {
   PENDING: 'text-muted-foreground bg-muted/50',
   RUNNING: 'text-blue-400 bg-blue-500/10',
@@ -39,6 +53,16 @@ const STATUS_CLS: Record<string, string> = {
   FAILED: 'text-red-500 bg-red-500/10',
   FOLLOWUP: 'text-purple-400 bg-purple-500/10',
 };
+
+const SEGMENT_LABELS: Record<string, string> = {
+  trial_day_3: 'Trial Day 3',
+  trial_day_5_low_activity: 'Trial Day 5 — Low Activity',
+  trial_expiring_24h: 'Trial Expiring (24 h)',
+  paid_at_risk: 'Paid At Risk',
+  churned_30d: 'Churned 30 Days',
+};
+
+const LLM_PROVIDERS = ['openai', 'gemini', 'deepseek', 'auto'];
 
 function relTime(iso: string) {
   const diff = Date.now() - new Date(iso).getTime();
@@ -84,6 +108,35 @@ async function apiFetch(token: string, path: string, opts?: RequestInit) {
   return res.json();
 }
 
+function BigToggle({ enabled, onClick, disabled }: { enabled: boolean; onClick: () => void; disabled?: boolean }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className="text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+    >
+      {enabled
+        ? <ToggleRight className="w-11 h-11 text-primary" />
+        : <ToggleLeft className="w-11 h-11" />}
+    </button>
+  );
+}
+
+function SaveRow({ isPending, isSuccess, onClick }: { isPending: boolean; isSuccess: boolean; onClick: () => void }) {
+  return (
+    <div className="flex items-center gap-2 pt-2">
+      <Button size="sm" onClick={onClick} disabled={isPending}>
+        <Save className="w-3.5 h-3.5" />
+        {isPending ? 'Saving…' : 'Save'}
+      </Button>
+      {isSuccess && <span className="text-xs text-green-500">Saved</span>}
+    </div>
+  );
+}
+
+// ─── Runs tab ────────────────────────────────────────────────────────────────
+
 function RunsTab({ agentKey, token }: { agentKey: string; token: string }) {
   const { data: runs, isLoading, isError } = useQuery<Run[]>({
     queryKey: ['agent-runs', agentKey],
@@ -106,9 +159,7 @@ function RunsTab({ agentKey, token }: { agentKey: string; token: string }) {
       </div>
     );
   }
-
   if (isError) return <p className="text-sm text-destructive">Failed to load runs.</p>;
-
   if (!runs?.length) {
     return (
       <div className="rounded-xl border border-border bg-card">
@@ -150,16 +201,31 @@ function RunsTab({ agentKey, token }: { agentKey: string; token: string }) {
   );
 }
 
-function SettingsTab({ agent, token }: { agent: AgentDetail; token: string }) {
+// ─── Settings sub-tabs ───────────────────────────────────────────────────────
+
+const SETTINGS_TABS = [
+  { key: 'general', label: 'General', icon: Settings },
+  { key: 'segments', label: 'Segments', icon: Layers },
+  { key: 'email', label: 'Email', icon: Mail },
+  { key: 'llm', label: 'LLM', icon: Cpu },
+  { key: 'runtime', label: 'Runtime', icon: Info },
+] as const;
+
+type SettingsTabKey = typeof SETTINGS_TABS[number]['key'];
+
+function GeneralSubTab({
+  agent, config, onChange, token,
+}: {
+  agent: AgentDetail;
+  config: TaskipConfig;
+  onChange: (patch: Partial<TaskipConfig>) => void;
+  token: string;
+}) {
   const qc = useQueryClient();
   const navigate = useNavigate();
 
   const [name, setName] = useState(agent.name);
   const [description, setDescription] = useState(agent.description ?? '');
-  const [configText, setConfigText] = useState(
-    JSON.stringify(agent.config ?? {}, null, 2)
-  );
-  const [configError, setConfigError] = useState<string | null>(null);
 
   const metaMutation = useMutation({
     mutationFn: () =>
@@ -180,23 +246,13 @@ function SettingsTab({ agent, token }: { agent: AgentDetail; token: string }) {
   });
 
   const configMutation = useMutation({
-    mutationFn: (config: Record<string, unknown>) =>
+    mutationFn: (c: TaskipConfig) =>
       apiFetch(token, `/agents/${agent.key}`, {
         method: 'PATCH',
-        body: JSON.stringify({ config }),
+        body: JSON.stringify({ config: c }),
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['agent', agent.key] }),
   });
-
-  function handleSaveConfig() {
-    try {
-      const parsed = JSON.parse(configText);
-      setConfigError(null);
-      configMutation.mutate(parsed);
-    } catch {
-      setConfigError('Invalid JSON — fix the syntax before saving.');
-    }
-  }
 
   const triggerMutation = useMutation({
     mutationFn: () =>
@@ -209,9 +265,9 @@ function SettingsTab({ agent, token }: { agent: AgentDetail; token: string }) {
 
   return (
     <div className="space-y-6">
-      {/* Basic info */}
+      {/* Agent meta */}
       <div className="rounded-xl border border-border bg-card p-5">
-        <h2 className="text-sm font-semibold mb-4">Basic Info</h2>
+        <h3 className="text-sm font-semibold mb-4">Agent Info</h3>
         <div className="space-y-4">
           <div>
             <label className="text-xs text-muted-foreground block mb-1">Name</label>
@@ -221,117 +277,53 @@ function SettingsTab({ agent, token }: { agent: AgentDetail; token: string }) {
             <label className="text-xs text-muted-foreground block mb-1">Description</label>
             <Input value={description} onChange={(e) => setDescription(e.target.value)} className="text-sm" />
           </div>
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between py-1">
             <div>
               <p className="text-sm font-medium">Enabled</p>
               <p className="text-xs text-muted-foreground">Allow this agent to run on schedule</p>
             </div>
-            <button
-              onClick={() => toggleMutation.mutate()}
-              disabled={toggleMutation.isPending}
-              className="text-muted-foreground hover:text-foreground transition-colors"
-            >
-              {agent.enabled
-                ? <ToggleRight className="w-7 h-7 text-primary" />
-                : <ToggleLeft className="w-7 h-7" />}
-            </button>
+            <BigToggle enabled={agent.enabled} onClick={() => toggleMutation.mutate()} disabled={toggleMutation.isPending} />
           </div>
-          <div className="flex items-center gap-2 pt-1">
-            <Button
-              size="sm"
-              onClick={() => metaMutation.mutate()}
-              disabled={metaMutation.isPending}
-            >
-              <Save className="w-3.5 h-3.5" />
-              {metaMutation.isPending ? 'Saving…' : 'Save'}
-            </Button>
-            {metaMutation.isSuccess && (
-              <span className="text-xs text-green-500">Saved</span>
-            )}
-          </div>
+          <SaveRow isPending={metaMutation.isPending} isSuccess={metaMutation.isSuccess} onClick={() => metaMutation.mutate()} />
         </div>
       </div>
 
-      {/* Config JSON */}
+      {/* Caps */}
       <div className="rounded-xl border border-border bg-card p-5">
-        <div className="flex items-center justify-between mb-4">
+        <h3 className="text-sm font-semibold mb-4">Rate Limits</h3>
+        <div className="grid grid-cols-2 gap-4">
           <div>
-            <h2 className="text-sm font-semibold">Agent Config</h2>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              Runtime configuration — controls segments, LLM, email provider, caps.
-            </p>
+            <label className="text-xs text-muted-foreground block mb-1">Daily email cap</label>
+            <Input
+              type="number"
+              min={1}
+              value={config.dailyCap}
+              onChange={(e) => onChange({ dailyCap: parseInt(e.target.value) || 1 })}
+              className="text-sm"
+            />
           </div>
-          <Button
-            size="sm"
-            onClick={handleSaveConfig}
-            disabled={configMutation.isPending}
-          >
-            <Save className="w-3.5 h-3.5" />
-            {configMutation.isPending ? 'Saving…' : 'Save Config'}
-          </Button>
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1">Max follow-ups per run</label>
+            <Input
+              type="number"
+              min={1}
+              max={10}
+              value={config.maxFollowupsPerEmail}
+              onChange={(e) => onChange({ maxFollowupsPerEmail: parseInt(e.target.value) || 1 })}
+              className="text-sm"
+            />
+          </div>
         </div>
-        {configError && (
-          <p className="text-xs text-destructive mb-2">{configError}</p>
-        )}
-        {configMutation.isSuccess && !configError && (
-          <p className="text-xs text-green-500 mb-2">Config saved</p>
-        )}
-        <textarea
-          value={configText}
-          onChange={(e) => { setConfigText(e.target.value); setConfigError(null); }}
-          spellCheck={false}
-          className="w-full h-80 font-mono text-xs bg-muted/40 border border-border rounded-lg p-3 resize-none focus:outline-none focus:ring-1 focus:ring-ring text-foreground"
+        <SaveRow
+          isPending={configMutation.isPending}
+          isSuccess={configMutation.isSuccess}
+          onClick={() => configMutation.mutate(config)}
         />
       </div>
 
-      {/* Triggers + Routes info */}
-      {(agent.triggers.length > 0 || agent.apiRoutes.length > 0 || agent.mcpTools.length > 0) && (
-        <div className="rounded-xl border border-border bg-card p-5">
-          <h2 className="text-sm font-semibold mb-4">Runtime Info</h2>
-          <div className="space-y-4">
-            {agent.triggers.length > 0 && (
-              <div>
-                <p className="text-xs text-muted-foreground mb-1.5">Triggers</p>
-                <div className="flex flex-wrap gap-2">
-                  {agent.triggers.map((t, i) => (
-                    <span key={i} className="text-xs bg-muted px-2 py-1 rounded font-mono">
-                      {t.type}{t.cron ? ` (${t.cron})` : ''}{t.webhookPath ? ` ${t.webhookPath}` : ''}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-            {agent.apiRoutes.length > 0 && (
-              <div>
-                <p className="text-xs text-muted-foreground mb-1.5">API Routes</p>
-                <div className="flex flex-wrap gap-2">
-                  {agent.apiRoutes.map((r, i) => (
-                    <span key={i} className="text-xs bg-muted px-2 py-1 rounded font-mono">
-                      {r.method} {r.path}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-            {agent.mcpTools.length > 0 && (
-              <div>
-                <p className="text-xs text-muted-foreground mb-1.5">MCP Tools</p>
-                <div className="flex flex-wrap gap-2">
-                  {agent.mcpTools.map((t) => (
-                    <span key={t.name} className="text-xs bg-muted px-2 py-1 rounded font-mono" title={t.description}>
-                      {t.name}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Danger zone */}
+      {/* Manual trigger */}
       <div className="rounded-xl border border-border bg-card p-5">
-        <h2 className="text-sm font-semibold mb-1">Manual Trigger</h2>
+        <h3 className="text-sm font-semibold mb-1">Manual Trigger</h3>
         <p className="text-xs text-muted-foreground mb-3">Start a run now, bypassing the schedule.</p>
         <Button
           size="sm"
@@ -350,6 +342,403 @@ function SettingsTab({ agent, token }: { agent: AgentDetail; token: string }) {
     </div>
   );
 }
+
+function SegmentsSubTab({
+  agent, config, onChange, token,
+}: {
+  agent: AgentDetail;
+  config: TaskipConfig;
+  onChange: (patch: Partial<TaskipConfig>) => void;
+  token: string;
+}) {
+  const qc = useQueryClient();
+
+  const configMutation = useMutation({
+    mutationFn: (c: TaskipConfig) =>
+      apiFetch(token, `/agents/${agent.key}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ config: c }),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['agent', agent.key] }),
+  });
+
+  function toggleSegment(key: string) {
+    const current = config.segments[key];
+    onChange({
+      segments: {
+        ...config.segments,
+        [key]: { ...current, enabled: !current.enabled },
+      },
+    });
+  }
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-5">
+      <h3 className="text-sm font-semibold mb-1">Email Segments</h3>
+      <p className="text-xs text-muted-foreground mb-4">Enable or disable each outreach segment.</p>
+      <div className="space-y-0 divide-y divide-border">
+        {Object.entries(config.segments).map(([key, seg]) => (
+          <div key={key} className="flex items-center justify-between py-3.5">
+            <div>
+              <p className="text-sm font-medium">{SEGMENT_LABELS[key] ?? key}</p>
+              <code className="text-xs text-muted-foreground font-mono">{key}</code>
+            </div>
+            <BigToggle enabled={seg.enabled} onClick={() => toggleSegment(key)} />
+          </div>
+        ))}
+      </div>
+      <SaveRow
+        isPending={configMutation.isPending}
+        isSuccess={configMutation.isSuccess}
+        onClick={() => configMutation.mutate(config)}
+      />
+    </div>
+  );
+}
+
+function EmailSubTab({
+  agent, config, onChange, token,
+}: {
+  agent: AgentDetail;
+  config: TaskipConfig;
+  onChange: (patch: Partial<TaskipConfig>) => void;
+  token: string;
+}) {
+  const qc = useQueryClient();
+
+  const configMutation = useMutation({
+    mutationFn: (c: TaskipConfig) =>
+      apiFetch(token, `/agents/${agent.key}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ config: c }),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['agent', agent.key] }),
+  });
+
+  return (
+    <div className="space-y-6">
+      {/* Provider selector */}
+      <div className="rounded-xl border border-border bg-card p-5">
+        <h3 className="text-sm font-semibold mb-4">Email Provider</h3>
+        <div className="flex gap-2">
+          {(['gmail', 'ses'] as const).map((p) => (
+            <button
+              key={p}
+              onClick={() => onChange({ emailProvider: p })}
+              className={`px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${
+                config.emailProvider === p
+                  ? 'bg-primary text-primary-foreground border-primary'
+                  : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground/30'
+              }`}
+            >
+              {p === 'gmail' ? 'Gmail' : 'AWS SES'}
+            </button>
+          ))}
+        </div>
+        <p className="text-xs text-muted-foreground mt-2">
+          {config.emailProvider === 'gmail'
+            ? 'Uses Gmail OAuth2 credentials set in Settings → Gmail.'
+            : 'Uses AWS SES credentials set in Settings → Email (SES).'}
+        </p>
+      </div>
+
+      {/* Gmail from */}
+      <div className="rounded-xl border border-border bg-card p-5">
+        <h3 className="text-sm font-semibold mb-4">Gmail Settings</h3>
+        <div>
+          <label className="text-xs text-muted-foreground block mb-1">From address</label>
+          <Input
+            value={config.gmail?.from ?? ''}
+            onChange={(e) => onChange({ gmail: { ...config.gmail, from: e.target.value } })}
+            placeholder="Name <email@domain.com>"
+            className="text-sm"
+          />
+        </div>
+      </div>
+
+      {/* SES settings */}
+      <div className="rounded-xl border border-border bg-card p-5">
+        <h3 className="text-sm font-semibold mb-4">SES Settings</h3>
+        <div className="space-y-3">
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1">From address</label>
+            <Input
+              value={config.ses?.from ?? ''}
+              onChange={(e) => onChange({ ses: { ...config.ses, from: e.target.value } })}
+              placeholder="Name <email@domain.com>"
+              className="text-sm"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1">Configuration set</label>
+            <Input
+              value={config.ses?.configurationSet ?? ''}
+              onChange={(e) => onChange({ ses: { ...config.ses, configurationSet: e.target.value } })}
+              placeholder="ses-monitoring"
+              className="text-sm"
+            />
+          </div>
+        </div>
+      </div>
+
+      <SaveRow
+        isPending={configMutation.isPending}
+        isSuccess={configMutation.isSuccess}
+        onClick={() => configMutation.mutate(config)}
+      />
+    </div>
+  );
+}
+
+function LlmSubTab({
+  agent, config, onChange, token,
+}: {
+  agent: AgentDetail;
+  config: TaskipConfig;
+  onChange: (patch: Partial<TaskipConfig>) => void;
+  token: string;
+}) {
+  const qc = useQueryClient();
+
+  const configMutation = useMutation({
+    mutationFn: (c: TaskipConfig) =>
+      apiFetch(token, `/agents/${agent.key}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ config: c }),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['agent', agent.key] }),
+  });
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-5">
+      <h3 className="text-sm font-semibold mb-4">LLM Configuration</h3>
+      <div className="space-y-4">
+        <div>
+          <label className="text-xs text-muted-foreground block mb-2">Provider</label>
+          <div className="flex flex-wrap gap-2">
+            {LLM_PROVIDERS.map((p) => (
+              <button
+                key={p}
+                onClick={() => onChange({ llm: { ...config.llm, provider: p } })}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
+                  config.llm?.provider === p
+                    ? 'bg-primary text-primary-foreground border-primary'
+                    : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground/30'
+                }`}
+              >
+                {p === 'auto' ? 'Auto (fallback chain)' : p.charAt(0).toUpperCase() + p.slice(1)}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div>
+          <label className="text-xs text-muted-foreground block mb-1">Model</label>
+          <Input
+            value={config.llm?.model ?? ''}
+            onChange={(e) => onChange({ llm: { ...config.llm, model: e.target.value } })}
+            placeholder="gpt-4o-mini"
+            className="text-sm"
+          />
+          <p className="text-xs text-muted-foreground mt-1">
+            e.g. gpt-4o-mini, gpt-4o, gemini-1.5-flash, deepseek-chat
+          </p>
+        </div>
+      </div>
+      <SaveRow
+        isPending={configMutation.isPending}
+        isSuccess={configMutation.isSuccess}
+        onClick={() => configMutation.mutate(config)}
+      />
+    </div>
+  );
+}
+
+function RuntimeSubTab({ agent }: { agent: AgentDetail }) {
+  const hasContent = agent.triggers.length > 0 || agent.apiRoutes.length > 0 || agent.mcpTools.length > 0;
+  if (!hasContent) {
+    return <p className="text-sm text-muted-foreground">No runtime info available.</p>;
+  }
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-5 space-y-5">
+      {agent.triggers.length > 0 && (
+        <div>
+          <p className="text-xs font-medium text-muted-foreground mb-2">Triggers</p>
+          <div className="flex flex-wrap gap-2">
+            {agent.triggers.map((t, i) => (
+              <span key={i} className="text-xs bg-muted px-2 py-1 rounded font-mono">
+                {t.type}{t.cron ? ` (${t.cron})` : ''}{t.webhookPath ? ` ${t.webhookPath}` : ''}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+      {agent.apiRoutes.length > 0 && (
+        <div>
+          <p className="text-xs font-medium text-muted-foreground mb-2">API Routes</p>
+          <div className="flex flex-wrap gap-2">
+            {agent.apiRoutes.map((r, i) => (
+              <span key={i} className="text-xs bg-muted px-2 py-1 rounded font-mono">
+                {r.method} {r.path}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+      {agent.mcpTools.length > 0 && (
+        <div>
+          <p className="text-xs font-medium text-muted-foreground mb-2">MCP Tools</p>
+          <div className="flex flex-wrap gap-2">
+            {agent.mcpTools.map((t) => (
+              <span key={t.name} className="text-xs bg-muted px-2 py-1 rounded font-mono" title={t.description}>
+                {t.name}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Settings tab (orchestrator) ─────────────────────────────────────────────
+
+function SettingsTab({ agent, token }: { agent: AgentDetail; token: string }) {
+  const [activeSub, setActiveSub] = useState<SettingsTabKey>('general');
+  const [config, setConfig] = useState<TaskipConfig>(
+    (agent.config as TaskipConfig) ?? {
+      segments: {},
+      llm: { provider: 'openai', model: 'gpt-4o-mini' },
+      emailProvider: 'gmail',
+      gmail: { from: '' },
+      ses: { from: '', configurationSet: '' },
+      dailyCap: 50,
+      maxFollowupsPerEmail: 5,
+    }
+  );
+
+  function handleChange(patch: Partial<TaskipConfig>) {
+    setConfig((prev) => ({ ...prev, ...patch }));
+  }
+
+  const isTaskipTrial = agent.key === 'taskip_trial';
+
+  return (
+    <div>
+      {isTaskipTrial ? (
+        <>
+          {/* Settings sub-tab bar */}
+          <div className="flex items-center gap-1 border border-border rounded-lg p-1 mb-5 bg-muted/30 w-fit">
+            {SETTINGS_TABS.map(({ key, label, icon: Icon }) => (
+              <button
+                key={key}
+                onClick={() => setActiveSub(key)}
+                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                  activeSub === key
+                    ? 'bg-card text-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                <Icon className="w-3.5 h-3.5" />
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {activeSub === 'general' && (
+            <GeneralSubTab agent={agent} config={config} onChange={handleChange} token={token} />
+          )}
+          {activeSub === 'segments' && (
+            <SegmentsSubTab agent={agent} config={config} onChange={handleChange} token={token} />
+          )}
+          {activeSub === 'email' && (
+            <EmailSubTab agent={agent} config={config} onChange={handleChange} token={token} />
+          )}
+          {activeSub === 'llm' && (
+            <LlmSubTab agent={agent} config={config} onChange={handleChange} token={token} />
+          )}
+          {activeSub === 'runtime' && <RuntimeSubTab agent={agent} />}
+        </>
+      ) : (
+        /* Generic JSON editor for other agents */
+        <GenericConfigEditor agent={agent} token={token} />
+      )}
+    </div>
+  );
+}
+
+function GenericConfigEditor({ agent, token }: { agent: AgentDetail; token: string }) {
+  const qc = useQueryClient();
+  const navigate = useNavigate();
+  const [configText, setConfigText] = useState(JSON.stringify(agent.config ?? {}, null, 2));
+  const [configError, setConfigError] = useState<string | null>(null);
+
+  const configMutation = useMutation({
+    mutationFn: (config: Record<string, unknown>) =>
+      apiFetch(token, `/agents/${agent.key}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ config }),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['agent', agent.key] }),
+  });
+
+  const triggerMutation = useMutation({
+    mutationFn: () =>
+      apiFetch(token, `/agents/${agent.key}/trigger`, {
+        method: 'POST',
+        body: JSON.stringify({ triggerType: 'MANUAL' }),
+      }),
+    onSuccess: (run: { id: string }) => navigate(`/runs/${run.id}`),
+  });
+
+  function handleSave() {
+    try {
+      const parsed = JSON.parse(configText);
+      setConfigError(null);
+      configMutation.mutate(parsed);
+    } catch {
+      setConfigError('Invalid JSON — fix the syntax before saving.');
+    }
+  }
+
+  return (
+    <div className="space-y-5">
+      <div className="rounded-xl border border-border bg-card p-5">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-semibold">Config JSON</h3>
+          <Button size="sm" onClick={handleSave} disabled={configMutation.isPending}>
+            <Save className="w-3.5 h-3.5" />
+            {configMutation.isPending ? 'Saving…' : 'Save'}
+          </Button>
+        </div>
+        {configError && <p className="text-xs text-destructive mb-2">{configError}</p>}
+        {configMutation.isSuccess && !configError && <p className="text-xs text-green-500 mb-2">Saved</p>}
+        <textarea
+          value={configText}
+          onChange={(e) => { setConfigText(e.target.value); setConfigError(null); }}
+          spellCheck={false}
+          className="w-full h-72 font-mono text-xs bg-muted/40 border border-border rounded-lg p-3 resize-none focus:outline-none focus:ring-1 focus:ring-ring text-foreground"
+        />
+      </div>
+      <div className="rounded-xl border border-border bg-card p-5">
+        <h3 className="text-sm font-semibold mb-1">Manual Trigger</h3>
+        <p className="text-xs text-muted-foreground mb-3">Start a run now, bypassing the schedule.</p>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => triggerMutation.mutate()}
+          disabled={!agent.enabled || !agent.registered || triggerMutation.isPending}
+          className="gap-1.5"
+        >
+          <Play className="w-3.5 h-3.5" />
+          {triggerMutation.isPending ? 'Starting…' : 'Run now'}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
 
 function AgentDetailSkeleton() {
   return (
@@ -402,7 +791,6 @@ export default function AgentDetailPage() {
 
       {agent && (
         <>
-          {/* Header */}
           <div className="flex items-center gap-3 mb-6">
             <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
               <Bot className="w-5 h-5 text-primary" />
@@ -425,7 +813,6 @@ export default function AgentDetailPage() {
             </div>
           </div>
 
-          {/* Tabs */}
           <div className="flex items-center gap-1 border-b border-border mb-6">
             <button
               onClick={() => setActiveTab('runs')}
@@ -435,7 +822,7 @@ export default function AgentDetailPage() {
                   : 'border-transparent text-muted-foreground hover:text-foreground'
               }`}
             >
-              <ChevronRight className="w-4 h-4" />
+              <List className="w-4 h-4" />
               Runs
             </button>
             <button

@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { Bot, Play, ToggleLeft, ToggleRight, ChevronRight } from 'lucide-react';
+import { Bot, Play, ToggleLeft, ToggleRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAuthStore } from '@/stores/authStore';
@@ -18,8 +18,7 @@ function AgentRowSkeleton() {
       </div>
       <div className="flex items-center gap-2 shrink-0">
         <Skeleton className="h-7 w-20 rounded" />
-        <Skeleton className="h-6 w-6 rounded" />
-        <Skeleton className="h-4 w-4 rounded" />
+        <Skeleton className="h-8 w-8 rounded" />
       </div>
     </div>
   );
@@ -114,13 +113,6 @@ function AgentRow({ agent, token }: { agent: Agent; token: string }) {
             : <ToggleLeft className="w-6 h-6" />}
         </button>
 
-        <button
-          onClick={() => navigate(`/agents/${agent.key}`)}
-          className="text-muted-foreground hover:text-foreground transition-colors"
-          title="View details"
-        >
-          <ChevronRight className="w-4 h-4" />
-        </button>
       </div>
     </div>
   );
