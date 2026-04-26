@@ -4,7 +4,8 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
   Bot, ArrowLeft, ChevronRight, Save, Play,
   ToggleLeft, ToggleRight, Settings, List,
-  Mail, Cpu, Layers, Info,
+  Mail, Cpu, Layers, Info, BookOpen,
+  CheckCircle2, Circle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -204,6 +205,7 @@ function RunsTab({ agentKey, token }: { agentKey: string; token: string }) {
 // ─── Settings sub-tabs ───────────────────────────────────────────────────────
 
 const SETTINGS_TABS = [
+  { key: 'setup', label: 'Setup', icon: BookOpen },
   { key: 'general', label: 'General', icon: Settings },
   { key: 'segments', label: 'Segments', icon: Layers },
   { key: 'email', label: 'Email', icon: Mail },
@@ -553,6 +555,106 @@ function LlmSubTab({
   );
 }
 
+function SetupStep({
+  n, title, done, children,
+}: { n: number; title: string; done?: boolean; children: React.ReactNode }) {
+  return (
+    <div className="flex gap-3">
+      <div className="shrink-0 mt-0.5">
+        {done
+          ? <CheckCircle2 className="w-5 h-5 text-green-500" />
+          : <Circle className="w-5 h-5 text-muted-foreground/40" />}
+      </div>
+      <div>
+        <div className="flex items-center gap-2 mb-0.5">
+          <span className="text-xs font-semibold text-muted-foreground">Step {n}</span>
+          <p className="text-sm font-medium">{title}</p>
+        </div>
+        <div className="text-xs text-muted-foreground space-y-1">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function SetupSubTab({ agent, config }: { agent: AgentDetail; config: TaskipConfig }) {
+  const hasLlm = false;
+  const hasEmail = config.emailProvider === 'gmail' || config.emailProvider === 'ses';
+  const isRegistered = agent.registered;
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-xl border border-border bg-card p-5">
+        <h3 className="text-sm font-semibold mb-1">Trial Email Agent — Setup Checklist</h3>
+        <p className="text-xs text-muted-foreground mb-5">
+          Complete all steps before running this agent in production.
+        </p>
+        <div className="space-y-5">
+
+          <SetupStep n={1} title="Configure LLM provider" done={false}>
+            <p>Go to <strong>Settings → LLM Providers</strong> and set an API key for OpenAI, Gemini, or DeepSeek.</p>
+            <p>Then set the <strong>Default Provider</strong> or configure a specific one in the LLM sub-tab above.</p>
+          </SetupStep>
+
+          <SetupStep n={2} title="Connect email provider" done={hasEmail}>
+            <p>Choose <strong>Gmail</strong> or <strong>AWS SES</strong> in the Email sub-tab above.</p>
+            <p className="font-medium text-foreground/70 mt-1">Gmail (recommended — better inbox delivery):</p>
+            <ol className="list-decimal list-inside space-y-0.5 ml-1">
+              <li>Create OAuth2 credentials in Google Cloud Console</li>
+              <li>Enable Gmail API on the project</li>
+              <li>Use OAuth Playground to get a refresh token (scope: <code className="bg-muted px-1 rounded">https://mail.google.com/</code>)</li>
+              <li>Paste Client ID, Secret, Refresh Token → <strong>Settings → Gmail</strong></li>
+            </ol>
+            <p className="font-medium text-foreground/70 mt-2">AWS SES:</p>
+            <ol className="list-decimal list-inside space-y-0.5 ml-1">
+              <li>Create IAM user with <code className="bg-muted px-1 rounded">ses:SendEmail</code> permission</li>
+              <li>Verify your sending domain in SES</li>
+              <li>Paste Access Key, Secret, Region → <strong>Settings → Email (SES)</strong></li>
+            </ol>
+          </SetupStep>
+
+          <SetupStep n={3} title="Connect Telegram for approvals" done={false}>
+            <p>Every email batch needs your approval before sending.</p>
+            <ol className="list-decimal list-inside space-y-0.5 ml-1">
+              <li>Message <code className="bg-muted px-1 rounded">@BotFather</code> → <code className="bg-muted px-1 rounded">/newbot</code> → get your token</li>
+              <li>Message <code className="bg-muted px-1 rounded">@userinfobot</code> to get your Chat ID</li>
+              <li>Paste both in <strong>Settings → Telegram</strong></li>
+            </ol>
+          </SetupStep>
+
+          <SetupStep n={4} title="Add Taskip read-only database" done={false}>
+            <p>The agent queries your Taskip Postgres DB to find users for each segment.</p>
+            <p>In Coolify (or your <code className="bg-muted px-1 rounded">.env</code> file), set:</p>
+            <code className="bg-muted px-2 py-1 rounded block mt-1 text-xs">
+              TASKIP_DB_URL_READONLY=postgres://user:pass@host:5432/taskip
+            </code>
+            <p className="mt-1">Use a read-only Postgres role — this agent never writes to Taskip DB.</p>
+          </SetupStep>
+
+          <SetupStep n={5} title="Configure segments and limits" done={isRegistered}>
+            <p>Use the <strong>Segments</strong> sub-tab to enable the email sequences you want.</p>
+            <p>Set daily cap and follow-up limit in <strong>General</strong>.</p>
+          </SetupStep>
+
+          <SetupStep n={6} title="Test with a manual run" done={false}>
+            <p>Click <strong>Run now</strong> in the General tab. A Telegram message will arrive asking for approval.</p>
+            <p>Approve one email, check that it lands in the inbox, then enable the daily schedule.</p>
+          </SetupStep>
+
+        </div>
+      </div>
+
+      {/* SES webhook reminder */}
+      <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4">
+        <p className="text-xs font-medium text-amber-500 mb-1">SES users: wire up bounce handling</p>
+        <p className="text-xs text-muted-foreground">
+          Go to <strong>Settings → Email (SES)</strong> to find your SNS webhook URL.
+          Subscribe your SES Configuration Set SNS topic to it so bounces and complaints are automatically suppressed.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 function RuntimeSubTab({ agent }: { agent: AgentDetail }) {
   const hasContent = agent.triggers.length > 0 || agent.apiRoutes.length > 0 || agent.mcpTools.length > 0;
   if (!hasContent) {
@@ -604,7 +706,7 @@ function RuntimeSubTab({ agent }: { agent: AgentDetail }) {
 // ─── Settings tab (orchestrator) ─────────────────────────────────────────────
 
 function SettingsTab({ agent, token }: { agent: AgentDetail; token: string }) {
-  const [activeSub, setActiveSub] = useState<SettingsTabKey>('general');
+  const [activeSub, setActiveSub] = useState<SettingsTabKey>('setup');
   const [config, setConfig] = useState<TaskipConfig>(
     (agent.config as TaskipConfig) ?? {
       segments: {},
@@ -645,6 +747,7 @@ function SettingsTab({ agent, token }: { agent: AgentDetail; token: string }) {
             ))}
           </div>
 
+          {activeSub === 'setup' && <SetupSubTab agent={agent} config={config} />}
           {activeSub === 'general' && (
             <GeneralSubTab agent={agent} config={config} onChange={handleChange} token={token} />
           )}
