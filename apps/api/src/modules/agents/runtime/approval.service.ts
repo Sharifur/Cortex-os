@@ -37,8 +37,22 @@ export class ApprovalService {
 
   async getPending() {
     return this.db.db
-      .select()
+      .select({
+        id: pendingApprovals.id,
+        runId: pendingApprovals.runId,
+        agentKey: agents.key,
+        agentName: agents.name,
+        runStatus: agentRuns.status,
+        action: pendingApprovals.action,
+        status: pendingApprovals.status,
+        followupMessages: pendingApprovals.followupMessages,
+        createdAt: pendingApprovals.createdAt,
+        resolvedAt: pendingApprovals.resolvedAt,
+        expiresAt: pendingApprovals.expiresAt,
+      })
       .from(pendingApprovals)
+      .innerJoin(agentRuns, eq(pendingApprovals.runId, agentRuns.id))
+      .innerJoin(agents, eq(agentRuns.agentId, agents.id))
       .where(eq(pendingApprovals.status, 'PENDING'));
   }
 

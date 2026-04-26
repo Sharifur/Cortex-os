@@ -1,10 +1,27 @@
 import { useState, useRef, useEffect } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { Bot, LogOut, LayoutDashboard, Settings, Activity, User, KeyRound, ChevronDown } from 'lucide-react';
+import { Bot, LogOut, LayoutDashboard, Settings, Activity, User, KeyRound, ChevronDown, AlertTriangle } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
+import { useQuery } from '@tanstack/react-query';
+
+function useApprovalCount(token: string) {
+  const { data } = useQuery<{ length: number }>({
+    queryKey: ['approvals-count'],
+    queryFn: async () => {
+      const res = await fetch('/approvals', { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    refetchInterval: 15_000,
+    select: (data) => ({ length: Array.isArray(data) ? data.length : 0 }),
+  });
+  return data?.length ?? 0;
+}
 
 const NAV = [
   { to: '/dashboard', icon: <LayoutDashboard className="w-4 h-4" />, label: 'Dashboard' },
+  { to: '/agents', icon: <Bot className="w-4 h-4" />, label: 'Agents' },
+  { to: '/approvals', icon: <AlertTriangle className="w-4 h-4" />, label: 'Approvals', badge: true },
   { to: '/activity', icon: <Activity className="w-4 h-4" />, label: 'Activity' },
   { to: '/settings', icon: <Settings className="w-4 h-4" />, label: 'Settings' },
 ];
@@ -72,6 +89,9 @@ function UserMenu() {
 }
 
 export default function AppLayout() {
+  const token = useAuthStore((s) => s.token)!;
+  const approvalCount = useApprovalCount(token);
+
   return (
     <div className="min-h-screen bg-background flex">
       <aside className="w-56 shrink-0 border-r border-border flex flex-col">
@@ -96,6 +116,11 @@ export default function AppLayout() {
             >
               {item.icon}
               {item.label}
+              {item.badge && approvalCount > 0 && (
+                <span className="ml-auto text-xs bg-yellow-500/15 text-yellow-500 px-1.5 py-0.5 rounded-full font-medium">
+                  {approvalCount}
+                </span>
+              )}
             </NavLink>
           ))}
         </nav>

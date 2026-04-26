@@ -6,6 +6,10 @@ import SettingsPage from '@/pages/SettingsPage';
 import ActivityPage from '@/pages/ActivityPage';
 import ProfilePage from '@/pages/ProfilePage';
 import ChangePasswordPage from '@/pages/ChangePasswordPage';
+import AgentsPage from '@/pages/AgentsPage';
+import AgentRunsPage from '@/pages/AgentRunsPage';
+import ApprovalsPage from '@/pages/ApprovalsPage';
+import RunDetailPage from '@/pages/RunDetailPage';
 import AppLayout from '@/components/AppLayout';
 import { useAuthStore } from '@/stores/authStore';
 
@@ -32,6 +36,10 @@ export default function App() {
             }
           >
             <Route path="/dashboard" element={<DashboardPage />} />
+            <Route path="/agents" element={<AgentsPage />} />
+            <Route path="/agents/:key/runs" element={<AgentRunsPage />} />
+            <Route path="/approvals" element={<ApprovalsPage />} />
+            <Route path="/runs/:id" element={<RunDetailPage />} />
             <Route path="/activity" element={<ActivityPage />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/profile" element={<ProfilePage />} />

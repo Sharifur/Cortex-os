@@ -16,13 +16,28 @@ export class RunsService {
   }
 
   async findById(id: string) {
-    const [run] = await this.db.db
-      .select()
+    const [row] = await this.db.db
+      .select({
+        id: agentRuns.id,
+        agentId: agentRuns.agentId,
+        agentKey: agents.key,
+        agentName: agents.name,
+        triggerType: agentRuns.triggerType,
+        triggerPayload: agentRuns.triggerPayload,
+        status: agentRuns.status,
+        context: agentRuns.context,
+        proposedActions: agentRuns.proposedActions,
+        result: agentRuns.result,
+        error: agentRuns.error,
+        startedAt: agentRuns.startedAt,
+        finishedAt: agentRuns.finishedAt,
+      })
       .from(agentRuns)
+      .innerJoin(agents, eq(agentRuns.agentId, agents.id))
       .where(eq(agentRuns.id, id));
 
-    if (!run) throw new NotFoundException(`Run not found: ${id}`);
-    return run;
+    if (!row) throw new NotFoundException(`Run not found: ${id}`);
+    return row;
   }
 
   async getLogs(runId: string, afterId?: string) {
