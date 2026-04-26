@@ -18,6 +18,7 @@ import { McpModule } from './modules/mcp/mcp.module';
 import { SesModule } from './modules/ses/ses.module';
 import { GmailModule } from './modules/gmail/gmail.module';
 import { TaskipTrialModule } from './modules/agents/taskip-trial/taskip-trial.module';
+import { DailyReminderModule } from './modules/agents/daily-reminder/daily-reminder.module';
 
 @Module({
   imports: [
@@ -55,6 +56,7 @@ import { TaskipTrialModule } from './modules/agents/taskip-trial/taskip-trial.mo
     SesModule,
     GmailModule,
     TaskipTrialModule,
+    DailyReminderModule,
   ],
 })
 export class AppModule {}

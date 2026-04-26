@@ -6,6 +6,19 @@ import * as bcrypt from 'bcrypt';
 
 const AGENT_SEEDS = [
   {
+    key: 'daily_reminder',
+    name: 'Daily Reminder',
+    description: 'Morning brief and evening recap via Telegram. Summarises pending approvals and agent activity.',
+    enabled: true,
+    config: {
+      morningCron: '30 2 * * *',
+      eveningCron: '0 15 * * *',
+      enableMorning: true,
+      enableEvening: true,
+      llm: { provider: 'auto', model: 'gpt-4o-mini' },
+    },
+  },
+  {
     key: 'taskip_trial',
     name: 'Trial Email Agent',
     description: 'Behavior-based outreach to Taskip trial, paid, and churned users via AWS SES.',

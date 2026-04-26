@@ -44,6 +44,14 @@ interface TaskipConfig {
   maxFollowupsPerEmail: number;
 }
 
+interface DailyReminderConfig {
+  morningCron: string;
+  eveningCron: string;
+  enableMorning: boolean;
+  enableEvening: boolean;
+  llm: { provider: string; model: string };
+}
+
 const STATUS_CLS: Record<string, string> = {
   PENDING: 'text-muted-foreground bg-muted/50',
   RUNNING: 'text-blue-400 bg-blue-500/10',
@@ -703,6 +711,332 @@ function RuntimeSubTab({ agent }: { agent: AgentDetail }) {
   );
 }
 
+// ─── Daily Reminder sub-tabs ─────────────────────────────────────────────────
+
+const DAILY_REMINDER_TABS = [
+  { key: 'setup', label: 'Setup', icon: BookOpen },
+  { key: 'general', label: 'General', icon: Settings },
+  { key: 'schedule', label: 'Schedule', icon: Info },
+  { key: 'llm', label: 'LLM', icon: Cpu },
+  { key: 'runtime', label: 'Runtime', icon: List },
+] as const;
+
+type DailyReminderTabKey = typeof DAILY_REMINDER_TABS[number]['key'];
+
+function DailyReminderSetupSubTab({ agent }: { agent: AgentDetail }) {
+  return (
+    <div className="space-y-4">
+      <div className="rounded-xl border border-border bg-card p-5">
+        <h3 className="text-sm font-semibold mb-1">Daily Reminder — Setup Checklist</h3>
+        <p className="text-xs text-muted-foreground mb-5">
+          This agent sends a morning brief and evening recap to Telegram. It has no external API dependencies beyond
+          what you already have configured.
+        </p>
+        <div className="space-y-5">
+
+          <SetupStep n={1} title="Configure Telegram bot" done={agent.registered}>
+            <p>The brief is delivered via your Telegram bot. If not yet configured:</p>
+            <ol className="list-decimal list-inside space-y-0.5 ml-1 mt-1">
+              <li>Message <code className="bg-muted px-1 rounded">@BotFather</code> → <code className="bg-muted px-1 rounded">/newbot</code> → copy the token</li>
+              <li>Message <code className="bg-muted px-1 rounded">@userinfobot</code> to get your Chat ID</li>
+              <li>Paste both in <strong>Settings → Telegram</strong></li>
+            </ol>
+          </SetupStep>
+
+          <SetupStep n={2} title="Configure LLM provider" done={false}>
+            <p>The agent uses an LLM to compose the brief text. Go to <strong>Settings → LLM Providers</strong> and add an API key.</p>
+            <p className="mt-1">Then set the provider and model in the <strong>LLM</strong> sub-tab above. Default: <code className="bg-muted px-1 rounded">gpt-4o-mini</code>.</p>
+          </SetupStep>
+
+          <SetupStep n={3} title="Set your timezone schedule" done={false}>
+            <p>
+              Default schedule: <strong>08:30 Dhaka (02:30 UTC)</strong> for morning, <strong>21:00 Dhaka (15:00 UTC)</strong> for evening.
+            </p>
+            <p className="mt-1">If you're in a different timezone, adjust the cron expressions in the <strong>Schedule</strong> sub-tab.</p>
+            <p className="mt-1 font-medium text-foreground/70">Cron format: <code className="bg-muted px-1 rounded">MINUTE HOUR * * *</code> (UTC)</p>
+          </SetupStep>
+
+          <SetupStep n={4} title="Enable the agent and test" done={agent.enabled}>
+            <p>Toggle the agent <strong>Enabled</strong> in the General tab, then click <strong>Run now</strong>.</p>
+            <p className="mt-1">You should receive a Telegram message within a few seconds. The brief will say "No pending approvals" and list any recent agent activity.</p>
+          </SetupStep>
+
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DailyReminderGeneralSubTab({
+  agent, token,
+}: {
+  agent: AgentDetail;
+  token: string;
+}) {
+  const qc = useQueryClient();
+  const navigate = useNavigate();
+
+  const [name, setName] = useState(agent.name);
+  const [description, setDescription] = useState(agent.description ?? '');
+
+  const metaMutation = useMutation({
+    mutationFn: () =>
+      apiFetch(token, `/agents/${agent.key}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ name, description }),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['agent', agent.key] }),
+  });
+
+  const toggleMutation = useMutation({
+    mutationFn: () =>
+      apiFetch(token, `/agents/${agent.key}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ enabled: !agent.enabled }),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['agent', agent.key] }),
+  });
+
+  const triggerMutation = useMutation({
+    mutationFn: () =>
+      apiFetch(token, `/agents/${agent.key}/trigger`, {
+        method: 'POST',
+        body: JSON.stringify({ triggerType: 'MANUAL' }),
+      }),
+    onSuccess: (run: { id: string }) => navigate(`/runs/${run.id}`),
+  });
+
+  return (
+    <div className="space-y-6">
+      <div className="rounded-xl border border-border bg-card p-5">
+        <h3 className="text-sm font-semibold mb-4">Agent Info</h3>
+        <div className="space-y-4">
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1">Name</label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} className="text-sm" />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1">Description</label>
+            <Input value={description} onChange={(e) => setDescription(e.target.value)} className="text-sm" />
+          </div>
+          <div className="flex items-center justify-between py-1">
+            <div>
+              <p className="text-sm font-medium">Enabled</p>
+              <p className="text-xs text-muted-foreground">Allow this agent to run on schedule</p>
+            </div>
+            <BigToggle enabled={agent.enabled} onClick={() => toggleMutation.mutate()} disabled={toggleMutation.isPending} />
+          </div>
+          <SaveRow isPending={metaMutation.isPending} isSuccess={metaMutation.isSuccess} onClick={() => metaMutation.mutate()} />
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-border bg-card p-5">
+        <h3 className="text-sm font-semibold mb-1">Manual Trigger</h3>
+        <p className="text-xs text-muted-foreground mb-3">Send a brief now, bypassing the schedule.</p>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => triggerMutation.mutate()}
+          disabled={!agent.enabled || !agent.registered || triggerMutation.isPending}
+          className="gap-1.5"
+        >
+          <Play className="w-3.5 h-3.5" />
+          {triggerMutation.isPending ? 'Starting…' : 'Send brief now'}
+        </Button>
+        {!agent.registered && (
+          <p className="text-xs text-yellow-500 mt-2">Agent is not registered in the runtime.</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DailyReminderScheduleSubTab({
+  agent, config, onChange, token,
+}: {
+  agent: AgentDetail;
+  config: DailyReminderConfig;
+  onChange: (patch: Partial<DailyReminderConfig>) => void;
+  token: string;
+}) {
+  const qc = useQueryClient();
+
+  const configMutation = useMutation({
+    mutationFn: (c: DailyReminderConfig) =>
+      apiFetch(token, `/agents/${agent.key}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ config: c }),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['agent', agent.key] }),
+  });
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-5">
+      <h3 className="text-sm font-semibold mb-1">Schedule</h3>
+      <p className="text-xs text-muted-foreground mb-5">
+        Cron expressions run in <strong>UTC</strong>. Default timezone offset for Dhaka (UTC+6): morning 02:30 UTC = 08:30, evening 15:00 UTC = 21:00.
+      </p>
+      <div className="space-y-5 divide-y divide-border">
+        <div className="pb-5">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <p className="text-sm font-medium">Morning Brief</p>
+              <p className="text-xs text-muted-foreground">Sent at the start of your day</p>
+            </div>
+            <BigToggle
+              enabled={config.enableMorning}
+              onClick={() => onChange({ enableMorning: !config.enableMorning })}
+            />
+          </div>
+          <label className="text-xs text-muted-foreground block mb-1">Cron expression (UTC)</label>
+          <Input
+            value={config.morningCron}
+            onChange={(e) => onChange({ morningCron: e.target.value })}
+            placeholder="30 2 * * *"
+            className="text-sm font-mono"
+          />
+        </div>
+
+        <div className="pt-5">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <p className="text-sm font-medium">Evening Recap</p>
+              <p className="text-xs text-muted-foreground">Sent at the end of your day</p>
+            </div>
+            <BigToggle
+              enabled={config.enableEvening}
+              onClick={() => onChange({ enableEvening: !config.enableEvening })}
+            />
+          </div>
+          <label className="text-xs text-muted-foreground block mb-1">Cron expression (UTC)</label>
+          <Input
+            value={config.eveningCron}
+            onChange={(e) => onChange({ eveningCron: e.target.value })}
+            placeholder="0 15 * * *"
+            className="text-sm font-mono"
+          />
+        </div>
+      </div>
+      <SaveRow
+        isPending={configMutation.isPending}
+        isSuccess={configMutation.isSuccess}
+        onClick={() => configMutation.mutate(config)}
+      />
+    </div>
+  );
+}
+
+function DailyReminderLlmSubTab({
+  agent, config, onChange, token,
+}: {
+  agent: AgentDetail;
+  config: DailyReminderConfig;
+  onChange: (patch: Partial<DailyReminderConfig>) => void;
+  token: string;
+}) {
+  const qc = useQueryClient();
+
+  const configMutation = useMutation({
+    mutationFn: (c: DailyReminderConfig) =>
+      apiFetch(token, `/agents/${agent.key}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ config: c }),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['agent', agent.key] }),
+  });
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-5">
+      <h3 className="text-sm font-semibold mb-4">LLM Configuration</h3>
+      <div className="space-y-4">
+        <div>
+          <label className="text-xs text-muted-foreground block mb-2">Provider</label>
+          <div className="flex flex-wrap gap-2">
+            {LLM_PROVIDERS.map((p) => (
+              <button
+                key={p}
+                onClick={() => onChange({ llm: { ...config.llm, provider: p } })}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
+                  config.llm?.provider === p
+                    ? 'bg-primary text-primary-foreground border-primary'
+                    : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground/30'
+                }`}
+              >
+                {p === 'auto' ? 'Auto (fallback chain)' : p.charAt(0).toUpperCase() + p.slice(1)}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div>
+          <label className="text-xs text-muted-foreground block mb-1">Model</label>
+          <Input
+            value={config.llm?.model ?? ''}
+            onChange={(e) => onChange({ llm: { ...config.llm, model: e.target.value } })}
+            placeholder="gpt-4o-mini"
+            className="text-sm"
+          />
+          <p className="text-xs text-muted-foreground mt-1">
+            e.g. gpt-4o-mini, gpt-4o, gemini-1.5-flash, deepseek-chat
+          </p>
+        </div>
+      </div>
+      <SaveRow
+        isPending={configMutation.isPending}
+        isSuccess={configMutation.isSuccess}
+        onClick={() => configMutation.mutate(config)}
+      />
+    </div>
+  );
+}
+
+function DailyReminderSettingsTab({ agent, token }: { agent: AgentDetail; token: string }) {
+  const [activeSub, setActiveSub] = useState<DailyReminderTabKey>('setup');
+  const [config, setConfig] = useState<DailyReminderConfig>(
+    (agent.config as DailyReminderConfig) ?? {
+      morningCron: '30 2 * * *',
+      eveningCron: '0 15 * * *',
+      enableMorning: true,
+      enableEvening: true,
+      llm: { provider: 'auto', model: 'gpt-4o-mini' },
+    }
+  );
+
+  function handleChange(patch: Partial<DailyReminderConfig>) {
+    setConfig((prev) => ({ ...prev, ...patch }));
+  }
+
+  return (
+    <div>
+      <div className="flex items-center gap-1 border border-border rounded-lg p-1 mb-5 bg-muted/30 w-fit">
+        {DAILY_REMINDER_TABS.map(({ key, label, icon: Icon }) => (
+          <button
+            key={key}
+            onClick={() => setActiveSub(key)}
+            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-md text-sm font-medium transition-colors ${
+              activeSub === key
+                ? 'bg-card text-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            <Icon className="w-3.5 h-3.5" />
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {activeSub === 'setup' && <DailyReminderSetupSubTab agent={agent} />}
+      {activeSub === 'general' && <DailyReminderGeneralSubTab agent={agent} token={token} />}
+      {activeSub === 'schedule' && (
+        <DailyReminderScheduleSubTab agent={agent} config={config} onChange={handleChange} token={token} />
+      )}
+      {activeSub === 'llm' && (
+        <DailyReminderLlmSubTab agent={agent} config={config} onChange={handleChange} token={token} />
+      )}
+      {activeSub === 'runtime' && <RuntimeSubTab agent={agent} />}
+    </div>
+  );
+}
+
 // ─── Settings tab (orchestrator) ─────────────────────────────────────────────
 
 function SettingsTab({ agent, token }: { agent: AgentDetail; token: string }) {
@@ -724,6 +1058,11 @@ function SettingsTab({ agent, token }: { agent: AgentDetail; token: string }) {
   }
 
   const isTaskipTrial = agent.key === 'taskip_trial';
+  const isDailyReminder = agent.key === 'daily_reminder';
+
+  if (isDailyReminder) {
+    return <DailyReminderSettingsTab agent={agent} token={token} />;
+  }
 
   return (
     <div>
