@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, BadRequestException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { eq } from 'drizzle-orm';
 import * as bcrypt from 'bcrypt';
@@ -39,6 +39,21 @@ export class AuthService {
       .where(eq(users.id, userId));
 
     return user ?? null;
+  }
+
+  async changePassword(userId: string, currentPassword: string, newPassword: string) {
+    const [user] = await this.db.db
+      .select()
+      .from(users)
+      .where(eq(users.id, userId));
+
+    if (!user) throw new UnauthorizedException();
+
+    const valid = await bcrypt.compare(currentPassword, user.password);
+    if (!valid) throw new BadRequestException('Current password is incorrect');
+
+    const hashed = await bcrypt.hash(newPassword, 12);
+    await this.db.db.update(users).set({ password: hashed }).where(eq(users.id, userId));
   }
 
   async updateTelegramChatId(userId: string, chatId: string) {

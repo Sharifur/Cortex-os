@@ -1,11 +1,12 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { Bot, LogOut, LayoutDashboard, Settings } from 'lucide-react';
+import { Bot, LogOut, LayoutDashboard, Settings, User } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAuthStore } from '@/stores/authStore';
 
 const NAV = [
   { to: '/dashboard', icon: <LayoutDashboard className="w-4 h-4" />, label: 'Dashboard' },
   { to: '/settings', icon: <Settings className="w-4 h-4" />, label: 'Settings' },
+  { to: '/profile', icon: <User className="w-4 h-4" />, label: 'Profile' },
 ];
 
 export default function AppLayout() {

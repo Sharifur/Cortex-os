@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import LoginPage from '@/pages/LoginPage';
 import DashboardPage from '@/pages/DashboardPage';
 import SettingsPage from '@/pages/SettingsPage';
+import ProfilePage from '@/pages/ProfilePage';
 import AppLayout from '@/components/AppLayout';
 import { useAuthStore } from '@/stores/authStore';
 
@@ -28,6 +29,7 @@ export default function App() {
           >
             <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/profile" element={<ProfilePage />} />
           </Route>
           <Route path="*" element={<Navigate to="/login" replace />} />
         </Routes>
