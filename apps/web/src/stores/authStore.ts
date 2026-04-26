@@ -3,19 +3,26 @@ import { persist } from 'zustand/middleware';
 
 interface AuthState {
   token: string | null;
+  _hydrated: boolean;
   setToken: (token: string) => void;
   logout: () => void;
-  isAuthenticated: () => boolean;
+  setHydrated: (v: boolean) => void;
 }
 
 export const useAuthStore = create<AuthState>()(
   persist(
-    (set, get) => ({
+    (set) => ({
       token: null,
+      _hydrated: false,
       setToken: (token) => set({ token }),
       logout: () => set({ token: null }),
-      isAuthenticated: () => !!get().token,
+      setHydrated: (v) => set({ _hydrated: v }),
     }),
-    { name: 'cortex-auth' },
+    {
+      name: 'cortex-auth',
+      onRehydrateStorage: () => (state) => {
+        state?.setHydrated(true);
+      },
+    },
   ),
 );

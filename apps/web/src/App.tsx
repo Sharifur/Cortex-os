@@ -11,6 +11,9 @@ const queryClient = new QueryClient();
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token);
+  const hydrated = useAuthStore((s) => s._hydrated);
+
+  if (!hydrated) return null;
   return token ? <>{children}</> : <Navigate to="/login" replace />;
 }
 
