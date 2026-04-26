@@ -11,20 +11,29 @@ export class LlmRouterService {
   constructor(private readonly settings: SettingsService) {}
 
   async complete(opts: LlmCompleteOpts): Promise<LlmResponse> {
-    const provider = opts.provider ?? 'auto';
+    const explicitProvider = opts.provider;
 
-    if (provider === 'auto') {
-      return this.autoRoute(opts);
+    // If caller specified a provider, use it directly
+    if (explicitProvider && explicitProvider !== 'auto') {
+      switch (explicitProvider) {
+        case 'openai': return this.callOpenAi(opts);
+        case 'gemini': return this.callGemini(opts);
+        case 'deepseek': return this.callDeepSeek(opts);
+      }
     }
 
-    switch (provider) {
-      case 'openai':
-        return this.callOpenAi(opts);
-      case 'gemini':
-        return this.callGemini(opts);
-      case 'deepseek':
-        return this.callDeepSeek(opts);
+    // Read configured default provider from settings
+    const configuredDefault = await this.settings.getDecrypted('llm_default_provider') ?? 'auto';
+
+    if (configuredDefault !== 'auto') {
+      switch (configuredDefault) {
+        case 'openai': return this.callOpenAi(opts);
+        case 'gemini': return this.callGemini(opts);
+        case 'deepseek': return this.callDeepSeek(opts);
+      }
     }
+
+    return this.autoRoute(opts);
   }
 
   private async autoRoute(opts: LlmCompleteOpts): Promise<LlmResponse> {

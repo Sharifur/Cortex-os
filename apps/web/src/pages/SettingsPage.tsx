@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Settings, Save, Trash2, Eye, EyeOff, Key, Bot, Send, Mail } from 'lucide-react';
+import { Settings, Save, Trash2, Eye, EyeOff, Key, Bot, Send, Mail, Zap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useAuthStore } from '@/stores/authStore';
@@ -12,19 +12,31 @@ interface SettingRow {
   label: string;
   description?: string | null;
   group: string;
+  provider?: string | null;
   stored: boolean;
 }
 
-const TABS = [
+const MAIN_TABS = [
   { key: 'llm', label: 'LLM Providers', icon: <Bot className="w-4 h-4" /> },
   { key: 'telegram', label: 'Telegram', icon: <Send className="w-4 h-4" /> },
   { key: 'ses', label: 'Email (SES)', icon: <Mail className="w-4 h-4" /> },
 ];
 
+const LLM_PROVIDER_TABS = [
+  { key: 'openai', label: 'OpenAI' },
+  { key: 'gemini', label: 'Gemini' },
+  { key: 'deepseek', label: 'DeepSeek' },
+];
+
+const DEFAULT_PROVIDER_OPTIONS = [
+  { value: 'auto', label: 'Auto (fallback chain)', desc: 'OpenAI → Gemini → DeepSeek' },
+  { value: 'openai', label: 'OpenAI' },
+  { value: 'gemini', label: 'Gemini' },
+  { value: 'deepseek', label: 'DeepSeek' },
+];
+
 async function fetchSettings(token: string): Promise<SettingRow[]> {
-  const res = await fetch('/settings', {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  const res = await fetch('/settings', { headers: { Authorization: `Bearer ${token}` } });
   if (!res.ok) throw new Error('Failed to fetch settings');
   return res.json();
 }
@@ -62,8 +74,6 @@ function SettingField({ setting, token }: { setting: SettingRow; token: string }
     onSuccess: () => qc.invalidateQueries({ queryKey: ['settings'] }),
   });
 
-  const displayValue = setting.stored ? setting.value : (setting.value || '—');
-
   return (
     <div className="py-4 border-b border-border last:border-0">
       <div className="flex items-start justify-between gap-4">
@@ -78,7 +88,6 @@ function SettingField({ setting, token }: { setting: SettingRow; token: string }
           {setting.description && (
             <p className="text-xs text-muted-foreground mb-2">{setting.description}</p>
           )}
-
           {editing ? (
             <div className="flex items-center gap-2 mt-2">
               <div className="relative flex-1">
@@ -91,11 +100,8 @@ function SettingField({ setting, token }: { setting: SettingRow; token: string }
                   autoFocus
                 />
                 {setting.isSecret && (
-                  <button
-                    type="button"
-                    onClick={() => setShowRaw((v) => !v)}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                  >
+                  <button type="button" onClick={() => setShowRaw((v) => !v)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
                     {showRaw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 )}
@@ -103,34 +109,115 @@ function SettingField({ setting, token }: { setting: SettingRow; token: string }
               <Button size="sm" onClick={() => saveMutation.mutate()} disabled={!inputValue || saveMutation.isPending}>
                 <Save className="w-3.5 h-3.5" />Save
               </Button>
-              <Button size="sm" variant="ghost" onClick={() => { setEditing(false); setInputValue(''); }}>
-                Cancel
-              </Button>
+              <Button size="sm" variant="ghost" onClick={() => { setEditing(false); setInputValue(''); }}>Cancel</Button>
             </div>
           ) : (
             <code className="text-xs bg-muted px-2 py-1 rounded font-mono text-muted-foreground mt-1 inline-block">
-              {displayValue}
+              {setting.stored ? setting.value : (setting.value || '—')}
             </code>
           )}
         </div>
-
         {!editing && (
           <div className="flex items-center gap-1 shrink-0">
             <Button size="sm" variant="outline" onClick={() => setEditing(true)} className="text-xs">
               {setting.stored ? 'Update' : 'Set'}
             </Button>
             {setting.stored && (
-              <Button
-                size="sm" variant="ghost"
-                onClick={() => deleteMutation.mutate()}
+              <Button size="sm" variant="ghost" onClick={() => deleteMutation.mutate()}
                 disabled={deleteMutation.isPending}
-                className="text-muted-foreground hover:text-destructive"
-              >
+                className="text-muted-foreground hover:text-destructive">
                 <Trash2 className="w-3.5 h-3.5" />
               </Button>
             )}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+function DefaultProviderSelector({ current, token }: { current: string; token: string }) {
+  const qc = useQueryClient();
+  const mutation = useMutation({
+    mutationFn: (val: string) => upsertSetting(token, 'llm_default_provider', val),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['settings'] }),
+  });
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-5 mb-4">
+      <div className="flex items-center gap-2 mb-3">
+        <Zap className="w-4 h-4 text-primary" />
+        <span className="text-sm font-semibold">Default Provider</span>
+        {mutation.isSuccess && (
+          <span className="text-xs text-green-500 ml-auto">Saved</span>
+        )}
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {DEFAULT_PROVIDER_OPTIONS.map((opt) => (
+          <button
+            key={opt.value}
+            onClick={() => mutation.mutate(opt.value)}
+            disabled={mutation.isPending}
+            className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
+              current === opt.value
+                ? 'bg-primary text-primary-foreground border-primary'
+                : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground/30'
+            }`}
+          >
+            {opt.label}
+            {opt.desc && current === opt.value && (
+              <span className="ml-1.5 text-xs opacity-75">{opt.desc}</span>
+            )}
+          </button>
+        ))}
+      </div>
+      {current !== 'auto' && (
+        <p className="text-xs text-muted-foreground mt-2">
+          Falls back to auto chain if the selected provider fails or has no API key.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function LlmTab({ rows, token }: { rows: SettingRow[]; token: string }) {
+  const [activeProvider, setActiveProvider] = useState('openai');
+
+  const generalSettings = rows.filter((r) => r.provider === 'general');
+  const defaultProviderRow = generalSettings.find((r) => r.key === 'llm_default_provider');
+  const currentDefault = defaultProviderRow?.value || 'auto';
+
+  const providerRows = rows.filter((r) => r.provider === activeProvider);
+
+  return (
+    <div>
+      <DefaultProviderSelector current={currentDefault} token={token} />
+
+      {/* Provider sub-tabs */}
+      <div className="flex items-center gap-1 border border-border rounded-lg p-1 mb-4 bg-muted/30 w-fit">
+        {LLM_PROVIDER_TABS.map((tab) => (
+          <button
+            key={tab.key}
+            onClick={() => setActiveProvider(tab.key)}
+            className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
+              activeProvider === tab.key
+                ? 'bg-card text-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="rounded-xl border border-border bg-card">
+        <div className="px-5">
+          {providerRows.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-6">No settings for this provider.</p>
+          ) : (
+            providerRows.map((s) => <SettingField key={s.key} setting={s} token={token} />)
+          )}
+        </div>
       </div>
     </div>
   );
@@ -151,8 +238,6 @@ export default function SettingsPage() {
     grouped[row.group].push(row);
   }
 
-  const activeRows = grouped[activeTab] ?? [];
-
   return (
     <div className="p-8 max-w-3xl mx-auto">
       <div className="flex items-center gap-2 mb-1">
@@ -163,9 +248,9 @@ export default function SettingsPage() {
         API keys and configuration. Secrets are encrypted at rest and never shown in plaintext.
       </p>
 
-      {/* Tab bar */}
+      {/* Main tab bar */}
       <div className="flex items-center gap-1 border-b border-border mb-6">
-        {TABS.map((tab) => (
+        {MAIN_TABS.map((tab) => (
           <button
             key={tab.key}
             onClick={() => setActiveTab(tab.key)}
@@ -185,17 +270,23 @@ export default function SettingsPage() {
       {isError && <p className="text-sm text-destructive">Failed to load settings.</p>}
 
       {!isLoading && !isError && (
-        <div className="rounded-xl border border-border bg-card">
-          <div className="px-5">
-            {activeRows.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-6">No settings in this group.</p>
-            ) : (
-              activeRows.map((s) => (
-                <SettingField key={s.key} setting={s} token={token} />
-              ))
-            )}
-          </div>
-        </div>
+        <>
+          {activeTab === 'llm' ? (
+            <LlmTab rows={grouped['llm'] ?? []} token={token} />
+          ) : (
+            <div className="rounded-xl border border-border bg-card">
+              <div className="px-5">
+                {(grouped[activeTab] ?? []).length === 0 ? (
+                  <p className="text-sm text-muted-foreground py-6">No settings in this group.</p>
+                ) : (
+                  (grouped[activeTab] ?? []).map((s) => (
+                    <SettingField key={s.key} setting={s} token={token} />
+                  ))
+                )}
+              </div>
+            </div>
+          )}
+        </>
       )}
     </div>
   );

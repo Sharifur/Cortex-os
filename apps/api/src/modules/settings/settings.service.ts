@@ -12,6 +12,7 @@ export interface SettingRow {
   label: string;
   description?: string | null;
   group: string;
+  provider?: string | null;
   stored: boolean;
 }
 
@@ -35,6 +36,7 @@ export class SettingsService {
         label: def.label,
         description: def.description ?? null,
         group: def.group,
+        provider: def.provider ?? null,
         stored: !!row,
       };
     });
