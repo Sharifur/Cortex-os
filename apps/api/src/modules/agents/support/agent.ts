@@ -7,6 +7,7 @@ import { AgentRegistryService } from '../runtime/agent-registry.service';
 import { LlmRouterService } from '../../llm/llm-router.service';
 import { TelegramService } from '../../telegram/telegram.service';
 import { KnowledgeBaseService } from '../../knowledge-base/knowledge-base.service';
+import { PurchaseVerifyService } from '../purchase-verify/purchase-verify.service';
 import type {
   IAgent,
   TriggerSpec,
@@ -58,6 +59,7 @@ export class SupportAgent implements IAgent, OnModuleInit {
     private telegram: TelegramService,
     private registry: AgentRegistryService,
     private kb: KnowledgeBaseService,
+    private purchaseVerify: PurchaseVerifyService,
   ) {}
 
   onModuleInit() {
@@ -130,7 +132,15 @@ export class SupportAgent implements IAgent, OnModuleInit {
               .join('\n')}`
           : '';
 
-        const systemPrompt = (template?.system ?? SYSTEM_PROMPT) + kbBlock + contactMemory;
+        let purchaseBlock = '';
+        const ticketText = `${ticket.subject ?? ''} ${ticket.body ?? ''}`;
+        const purchaseCodes = PurchaseVerifyService.extractPurchaseCodes(ticketText);
+        if (purchaseCodes.length && PurchaseVerifyService.hasSupportIntent(ticketText)) {
+          const verifyResult = await this.purchaseVerify.verify(purchaseCodes[0]);
+          if (verifyResult) purchaseBlock = PurchaseVerifyService.buildVerifyPromptBlock(verifyResult);
+        }
+
+        const systemPrompt = (template?.system ?? SYSTEM_PROMPT) + kbBlock + contactMemory + purchaseBlock;
 
         const response = await this.llm.complete({
           messages: [

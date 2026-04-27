@@ -29,6 +29,7 @@ const TABS = [
   { key: 'telegram', label: 'Telegram', icon: <Send className="w-4 h-4" /> },
   { key: 'ses', label: 'Email (SES)', icon: <Mail className="w-4 h-4" /> },
   { key: 'gmail', label: 'Gmail', icon: <Mail className="w-4 h-4" /> },
+  { key: 'license', label: 'License Server', icon: <Key className="w-4 h-4" /> },
 ];
 
 async function fetchSettings(token: string): Promise<SettingRow[]> {
@@ -573,6 +574,38 @@ function GmailTab({ rows, token }: { rows: SettingRow[]; token: string }) {
   );
 }
 
+function LicenseTab({ rows, token }: { rows: SettingRow[]; token: string }) {
+  return (
+    <IntegrationLayout
+      integrationKey="license"
+      rows={rows}
+      token={token}
+      docs={
+        <>
+          <h2 className="text-sm font-semibold mb-4">Setup Guide</h2>
+          <div className="space-y-4">
+            <SetupStep n={1} title="Open the license server dashboard">
+              <p>Go to your Xgenious license server → <strong>Dashboard → Public API</strong>.</p>
+            </SetupStep>
+            <SetupStep n={2} title="Create an application">
+              <p>Click <strong>Create</strong>, set a name (e.g. "Cortex OS"), enable the <code className="bg-muted px-1 rounded">envato.verify</code> scope.</p>
+              <p>Copy the generated <strong>X-Signature</strong> — it is shown only once.</p>
+            </SetupStep>
+            <SetupStep n={3} title="Paste credentials in Settings">
+              <p>Set the <strong>License Server URL</strong> (base URL without trailing slash) and paste the signature.</p>
+              <p>Set <strong>Default Envato Account</strong> to the slug used by your products (e.g. <code className="bg-muted px-1 rounded">xgenious</code>).</p>
+            </SetupStep>
+            <SetupStep n={4} title="Test the connection">
+              <p>Click <strong>Test connection</strong> — a valid signature returns "License server reachable".</p>
+              <p>After setup, the Crisp and Support agents will automatically verify purchase codes found in customer messages before generating replies.</p>
+            </SetupStep>
+          </div>
+        </>
+      }
+    />
+  );
+}
+
 export default function IntegrationsPage() {
   const token = useAuthStore((s) => s.token)!;
   const [activeTab, setActiveTab] = useState('whatsapp');
@@ -643,6 +676,7 @@ export default function IntegrationsPage() {
           {activeTab === 'telegram' && <TelegramTab rows={grouped['telegram'] ?? []} token={token} />}
           {activeTab === 'ses' && <SesTab rows={grouped['ses'] ?? []} token={token} />}
           {activeTab === 'gmail' && <GmailTab rows={grouped['gmail'] ?? []} token={token} />}
+          {activeTab === 'license' && <LicenseTab rows={grouped['license'] ?? []} token={token} />}
         </>
       )}
     </div>

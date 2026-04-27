@@ -2,7 +2,7 @@ export interface SettingDefinition {
   label: string;
   description?: string;
   isSecret: boolean;
-  group: 'llm' | 'telegram' | 'ses' | 'gmail' | 'whatsapp' | 'linkedin' | 'reddit' | 'crisp';
+  group: 'llm' | 'telegram' | 'ses' | 'gmail' | 'whatsapp' | 'linkedin' | 'reddit' | 'crisp' | 'license';
   defaultValue?: string;
   provider?: 'openai' | 'gemini' | 'deepseek' | 'general';
 }
@@ -231,5 +231,26 @@ export const SETTING_DEFINITIONS: Record<string, SettingDefinition> = {
     description: 'From Crisp → Settings → Website → API Keys → Key (treat as secret)',
     isSecret: true,
     group: 'crisp',
+  },
+
+  // License Server
+  license_server_url: {
+    label: 'License Server URL',
+    description: 'Base URL of the Xgenious license server, e.g. https://license.xgenious.com',
+    isSecret: false,
+    group: 'license',
+  },
+  license_server_signature: {
+    label: 'API Signature',
+    description: 'X-Signature token from Dashboard → Public API → Create (starts with xs_)',
+    isSecret: true,
+    group: 'license',
+  },
+  license_account_type: {
+    label: 'Default Envato Account',
+    description: 'Envato account slug to try first, e.g. xgenious or bytesed',
+    isSecret: false,
+    group: 'license',
+    defaultValue: 'xgenious',
   },
 };

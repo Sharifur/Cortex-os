@@ -34,6 +34,7 @@ import { KnowledgeBaseModule } from './modules/knowledge-base/knowledge-base.mod
 import { TasksModule } from './modules/tasks/tasks.module';
 import { IntegrationsModule } from './modules/integrations/integrations.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
+import { PurchaseVerifyModule } from './modules/agents/purchase-verify/purchase-verify.module';
 
 @Module({
   imports: [
@@ -87,6 +88,7 @@ import { DashboardModule } from './modules/dashboard/dashboard.module';
     TasksModule,
     IntegrationsModule,
     DashboardModule,
+    PurchaseVerifyModule,
   ],
 })
 export class AppModule {}

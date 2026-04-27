@@ -8,6 +8,7 @@ import { AgentRegistryService } from '../runtime/agent-registry.service';
 import { LlmRouterService } from '../../llm/llm-router.service';
 import { TelegramService } from '../../telegram/telegram.service';
 import { KnowledgeBaseService } from '../../knowledge-base/knowledge-base.service';
+import { PurchaseVerifyService } from '../purchase-verify/purchase-verify.service';
 import type {
   IAgent,
   TriggerSpec,
@@ -53,6 +54,7 @@ export class CrispAgent implements IAgent, OnModuleInit {
     private crisp: CrispService,
     private registry: AgentRegistryService,
     private kb: KnowledgeBaseService,
+    private purchaseVerify: PurchaseVerifyService,
   ) {}
 
   onModuleInit() {
@@ -139,8 +141,15 @@ export class CrispAgent implements IAgent, OnModuleInit {
               .join('\n')}`
           : '';
 
+        let purchaseBlock = '';
+        const purchaseCodes = PurchaseVerifyService.extractPurchaseCodes(msg.content ?? '');
+        if (purchaseCodes.length && PurchaseVerifyService.hasSupportIntent(msg.content ?? '')) {
+          const verifyResult = await this.purchaseVerify.verify(purchaseCodes[0]);
+          if (verifyResult) purchaseBlock = PurchaseVerifyService.buildVerifyPromptBlock(verifyResult);
+        }
+
         const defaultSystem = `You are a customer support agent. Context: ${config.productContext}\nTone: ${config.replyTone}\nWrite a direct reply to the customer message. 2-4 sentences max. No greetings like "Dear" or closings like "Best regards". Just the reply.`;
-        const systemPrompt = (template?.system ?? defaultSystem) + kbBlock + visitorMemory;
+        const systemPrompt = (template?.system ?? defaultSystem) + kbBlock + visitorMemory + purchaseBlock;
 
         const response = await this.llm.complete({
           messages: [

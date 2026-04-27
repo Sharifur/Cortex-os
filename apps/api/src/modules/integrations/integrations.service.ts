@@ -21,6 +21,7 @@ export class IntegrationsService {
       case 'telegram':  return this.testTelegram();
       case 'ses':       return this.testSes();
       case 'gmail':     return this.testGmail();
+      case 'license':   return this.testLicense();
       default:          return { ok: false, message: `Unknown integration: ${key}` };
     }
   }
@@ -200,6 +201,37 @@ export class IntegrationsService {
       const sent = quota.SentLast24Hours ?? 0;
       const max = quota.Max24HourSend ?? 0;
       return { ok: true, message: `Quota: ${sent}/${max} emails in last 24h` };
+    } catch (err) {
+      return { ok: false, message: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  private async testLicense(): Promise<TestResult> {
+    const [serverUrl, signature] = await Promise.all([
+      this.settings.getDecrypted('license_server_url'),
+      this.settings.getDecrypted('license_server_signature'),
+    ]);
+    if (!serverUrl || !signature) return { ok: false, message: 'License server URL and signature not configured' };
+
+    try {
+      const res = await fetch(`${serverUrl.replace(/\/$/, '')}/api/public-api/envato/verify-purchase-code`, {
+        method: 'POST',
+        headers: {
+          'X-Signature': signature,
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        body: JSON.stringify({ purchase_code: 'test-connection-probe' }),
+        signal: AbortSignal.timeout(8000),
+      });
+      const data = await res.json() as any;
+
+      if (res.status === 401) return { ok: false, message: `Auth failed: ${data?.error_code ?? 'INVALID_SIGNATURE'}` };
+      if (res.status === 403) return { ok: false, message: `Forbidden: ${data?.error_code ?? 'check scope/IP/expiry'}` };
+      if (res.status === 422 || res.status === 404 || res.status === 200) {
+        return { ok: true, message: `License server reachable — signature valid` };
+      }
+      return { ok: false, message: `Unexpected HTTP ${res.status}` };
     } catch (err) {
       return { ok: false, message: err instanceof Error ? err.message : String(err) };
     }
