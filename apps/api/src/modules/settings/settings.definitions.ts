@@ -28,10 +28,18 @@ export const SETTING_DEFINITIONS: Record<string, SettingDefinition> = {
   },
   openai_default_model: {
     label: 'Default Model',
-    description: 'e.g. gpt-4o-mini, gpt-4o',
+    description: 'Model used for text generation tasks',
     isSecret: false,
     group: 'llm',
     defaultValue: 'gpt-4o-mini',
+    provider: 'openai',
+  },
+  openai_embedding_model: {
+    label: 'Embedding Model',
+    description: 'Model used for vector embeddings in the knowledge base',
+    isSecret: false,
+    group: 'llm',
+    defaultValue: 'text-embedding-3-small',
     provider: 'openai',
   },
 

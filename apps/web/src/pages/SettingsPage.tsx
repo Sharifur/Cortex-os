@@ -23,6 +23,28 @@ const LLM_PROVIDER_TABS = [
   { key: 'deepseek', label: 'DeepSeek' },
 ];
 
+const OPENAI_TEXT_MODELS = [
+  { label: 'GPT-5.5', value: 'gpt-5.5' },
+  { label: 'GPT-5.4', value: 'gpt-5.4' },
+  { label: 'GPT-5.4 mini', value: 'gpt-5.4-mini' },
+  { label: 'GPT-5.2', value: 'gpt-5.2' },
+  { label: 'GPT-5', value: 'gpt-5' },
+  { label: 'GPT-5 mini', value: 'gpt-5-mini' },
+  { label: 'o3', value: 'o3' },
+  { label: 'o3-pro', value: 'o3-pro' },
+  { label: 'o4-mini', value: 'o4-mini' },
+  { label: 'GPT-4.5', value: 'gpt-4.5' },
+  { label: 'GPT-4o', value: 'gpt-4o' },
+  { label: 'GPT-4o mini', value: 'gpt-4o-mini' },
+  { label: 'GPT-4.1', value: 'gpt-4.1' },
+  { label: 'GPT-4.1 mini', value: 'gpt-4.1-mini' },
+];
+
+const OPENAI_EMBEDDING_MODELS = [
+  { label: 'text-embedding-3-large', value: 'text-embedding-3-large' },
+  { label: 'text-embedding-3-small', value: 'text-embedding-3-small' },
+];
+
 const DEFAULT_PROVIDER_OPTIONS = [
   { value: 'auto', label: 'Auto (fallback chain)', desc: 'OpenAI → Gemini → DeepSeek' },
   { value: 'openai', label: 'OpenAI' },
@@ -131,6 +153,50 @@ function SettingField({ setting, token }: { setting: SettingRow; token: string }
   );
 }
 
+function ModelSelectField({
+  setting,
+  options,
+  token,
+}: {
+  setting: SettingRow;
+  options: { label: string; value: string }[];
+  token: string;
+}) {
+  const qc = useQueryClient();
+  const mutation = useMutation({
+    mutationFn: (val: string) => upsertSetting(token, setting.key, val),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['settings'] }),
+  });
+
+  return (
+    <div className="py-4 border-b border-border last:border-0">
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-0.5">
+            <span className="text-sm font-medium">{setting.label}</span>
+            {mutation.isSuccess && (
+              <span className="text-xs bg-green-500/10 text-green-500 px-1.5 py-0.5 rounded">saved</span>
+            )}
+          </div>
+          {setting.description && (
+            <p className="text-xs text-muted-foreground mb-2">{setting.description}</p>
+          )}
+          <select
+            value={setting.value || ''}
+            onChange={(e) => mutation.mutate(e.target.value)}
+            disabled={mutation.isPending}
+            className="mt-1 w-full max-w-xs bg-muted border border-border rounded-md px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
+          >
+            {options.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function DefaultProviderSelector({ current, token }: { current: string; token: string }) {
   const qc = useQueryClient();
   const mutation = useMutation({
@@ -175,6 +241,11 @@ function DefaultProviderSelector({ current, token }: { current: string; token: s
   );
 }
 
+const MODEL_SELECT_KEYS: Record<string, { label: string; value: string }[]> = {
+  openai_default_model: OPENAI_TEXT_MODELS,
+  openai_embedding_model: OPENAI_EMBEDDING_MODELS,
+};
+
 function LlmTab({ rows, token }: { rows: SettingRow[]; token: string }) {
   const [activeProvider, setActiveProvider] = useState('openai');
 
@@ -210,7 +281,13 @@ function LlmTab({ rows, token }: { rows: SettingRow[]; token: string }) {
           {providerRows.length === 0 ? (
             <p className="text-sm text-muted-foreground py-6">No settings for this provider.</p>
           ) : (
-            providerRows.map((s) => <SettingField key={s.key} setting={s} token={token} />)
+            providerRows.map((s) =>
+              MODEL_SELECT_KEYS[s.key] ? (
+                <ModelSelectField key={s.key} setting={s} options={MODEL_SELECT_KEYS[s.key]} token={token} />
+              ) : (
+                <SettingField key={s.key} setting={s} token={token} />
+              )
+            )
           )}
         </div>
       </div>
