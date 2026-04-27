@@ -12,7 +12,7 @@ import { ApprovalService } from '../agents/runtime/approval.service';
 import { AgentRuntimeService } from '../agents/runtime/agent-runtime.service';
 import { LlmRouterService } from '../llm/llm-router.service';
 import { DbService } from '../../db/db.service';
-import { pendingApprovals } from '../../db/schema';
+import { pendingApprovals, tasks } from '../../db/schema';
 import { SelfImprovementService, KbProposalNotifyEvent } from '../knowledge-base/self-improvement.service';
 import type { ApprovalCreatedEvent } from './telegram.types';
 import { TELEGRAM_EVENTS } from './telegram.types';
@@ -349,6 +349,27 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async handleConversation(ctx: { reply: (text: string, opts?: object) => Promise<unknown> }, text: string) {
+    // 0. Detect timed reminder before routing to any agent
+    try {
+      const reminder = await this.detectReminder(text);
+      if (reminder) {
+        await this.db.db.insert(tasks).values({
+          title: 'Reminder',
+          instructions: `REMINDER: ${reminder.message}`,
+          agentKey: 'daily_reminder',
+          status: 'pending',
+          nextRunAt: reminder.sendAt,
+        });
+        await ctx.reply(
+          `Reminder scheduled for *${reminder.sendAtLabel}*\n_"${reminder.message}"_`,
+          { parse_mode: 'Markdown' },
+        );
+        return;
+      }
+    } catch (err) {
+      this.logger.warn(`Reminder detection failed: ${(err as Error).message}`);
+    }
+
     // 1. Check for @mention: "@daily_reminder what's my status?"
     const mentionMatch = text.match(/^@(\S+)\s+([\s\S]+)/i);
     if (mentionMatch) {
@@ -436,6 +457,72 @@ Never explain. Only output the JSON.`,
       "I'm not sure which agent should handle this. Pick one:",
       { reply_markup: keyboard },
     );
+  }
+
+  private async detectReminder(text: string): Promise<{ message: string; sendAt: Date; sendAtLabel: string } | null> {
+    const nowUtc = new Date();
+    // User is in Asia/Dhaka (UTC+6)
+    const nowLocal = nowUtc.toLocaleString('en-US', { timeZone: 'Asia/Dhaka', hour12: false });
+    const utcOffsetMs = 6 * 60 * 60 * 1000;
+
+    const response = await this.llm.complete({
+      provider: 'auto',
+      messages: [
+        {
+          role: 'system',
+          content: `You detect timed reminders in user messages. Current UTC time: ${nowUtc.toISOString()}. User is in Asia/Dhaka (UTC+6), local time: ${nowLocal}.
+
+If the message is a reminder/schedule request with a specific time, return JSON:
+{"isReminder": true, "message": "<clean reminder text>", "targetLocalHHMM": "HH:MM", "targetLocalLabel": "9:00 PM", "sendMinutesBefore": 10}
+
+- message: short, clear reminder text (e.g. "Go to Nurul Ami Bhai's office")
+- targetLocalHHMM: 24h format of the event time in Asia/Dhaka
+- sendMinutesBefore: how many minutes before the event to send the reminder (default 10)
+- If the time has already passed today, assume tomorrow.
+
+If not a reminder, return: {"isReminder": false}
+Only output JSON.`,
+        },
+        { role: 'user', content: text },
+      ],
+      maxTokens: 120,
+      temperature: 0,
+    });
+
+    try {
+      const raw = response.content.trim().replace(/^```json\s*|```$/g, '');
+      const parsed = JSON.parse(raw) as {
+        isReminder: boolean;
+        message?: string;
+        targetLocalHHMM?: string;
+        targetLocalLabel?: string;
+        sendMinutesBefore?: number;
+      };
+
+      if (!parsed.isReminder || !parsed.message || !parsed.targetLocalHHMM) return null;
+
+      const [hh, mm] = parsed.targetLocalHHMM.split(':').map(Number);
+      const sendBefore = parsed.sendMinutesBefore ?? 10;
+
+      // Build target datetime in UTC
+      const nowDhaka = new Date(nowUtc.getTime() + utcOffsetMs);
+      const targetDhaka = new Date(nowDhaka);
+      targetDhaka.setHours(hh, mm, 0, 0);
+      if (targetDhaka <= nowDhaka) targetDhaka.setDate(targetDhaka.getDate() + 1);
+
+      const sendAtDhaka = new Date(targetDhaka.getTime() - sendBefore * 60 * 1000);
+      const sendAtUtc = new Date(sendAtDhaka.getTime() - utcOffsetMs);
+
+      const sendAtLabel = sendAtDhaka.toLocaleTimeString('en-US', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true,
+      }) + ` (${sendBefore}min before ${parsed.targetLocalLabel ?? parsed.targetLocalHHMM})`;
+
+      return { message: parsed.message, sendAt: sendAtUtc, sendAtLabel };
+    } catch {
+      return null;
+    }
   }
 
   private resolveAgentByAlias(input: string): typeof ROUTABLE_AGENTS[0] | null {

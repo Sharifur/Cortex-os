@@ -170,8 +170,21 @@ export class DailyReminderAgent implements IAgent, OnModuleInit {
 
     const { briefType, config } = snapshot;
 
-    // Task-triggered: send the instruction as-is (or let LLM compose a direct reply)
+    // Task-triggered: handle direct reminder or LLM-composed instruction
     if (briefType === 'task' && snapshot.taskInstruction) {
+      // REMINDER: prefix means send the message exactly as-is — no LLM
+      if (snapshot.taskInstruction.startsWith('REMINDER:')) {
+        const message = snapshot.taskInstruction.slice('REMINDER:'.length).trim();
+        return [
+          {
+            type: 'send_telegram_brief',
+            summary: `Send reminder: ${message}`,
+            payload: { message: `Reminder: ${message}`, briefType: 'task' },
+            riskLevel: 'low',
+          },
+        ];
+      }
+
       const response = await this.llm.complete({
         provider: config.llm.provider as 'openai' | 'gemini' | 'deepseek' | 'auto',
         model: config.llm.model,
