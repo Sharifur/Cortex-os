@@ -150,14 +150,33 @@ export class IntegrationsService {
     if (!token) return { ok: false, message: 'Bot token not configured' };
 
     try {
-      const res = await fetch(`https://api.telegram.org/bot${token}/getMe`, {
+      const getMeRes = await fetch(`https://api.telegram.org/bot${token}/getMe`, {
         signal: AbortSignal.timeout(8000),
       });
-      const data = await res.json() as any;
-      if (!res.ok || !data.ok) return { ok: false, message: data.description ?? `HTTP ${res.status}` };
-      const botName = data.result?.username ? `@${data.result.username}` : (data.result?.first_name ?? 'bot');
-      const chatNote = chatId ? '' : ' — owner chat ID not set';
-      return { ok: true, message: `${botName}${chatNote}` };
+      const getMeData = await getMeRes.json() as any;
+      if (!getMeRes.ok || !getMeData.ok) {
+        return { ok: false, message: getMeData.description ?? `HTTP ${getMeRes.status}` };
+      }
+      const botName = getMeData.result?.username ? `@${getMeData.result.username}` : (getMeData.result?.first_name ?? 'bot');
+
+      if (!chatId) {
+        return { ok: true, message: `${botName} — owner chat ID not set` };
+      }
+
+      // Verify the chat ID is reachable by calling getChat
+      const getChatRes = await fetch(
+        `https://api.telegram.org/bot${token}/getChat?chat_id=${chatId}`,
+        { signal: AbortSignal.timeout(8000) },
+      );
+      const getChatData = await getChatRes.json() as any;
+      if (!getChatRes.ok || !getChatData.ok) {
+        return {
+          ok: false,
+          message: `Bot token ok (${botName}) but chat ID ${chatId} not reachable — send /start to the bot first`,
+        };
+      }
+
+      return { ok: true, message: `${botName} — chat verified` };
     } catch (err) {
       return { ok: false, message: err instanceof Error ? err.message : String(err) };
     }
