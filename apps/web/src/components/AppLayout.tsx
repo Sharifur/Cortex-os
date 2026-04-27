@@ -95,8 +95,8 @@ export default function AppLayout() {
   const approvalCount = useApprovalCount(token);
 
   return (
-    <div className="min-h-screen bg-background flex">
-      <aside className="w-56 shrink-0 border-r border-border flex flex-col">
+    <div className="h-screen bg-background flex overflow-hidden">
+      <aside className="w-56 shrink-0 border-r border-border flex flex-col h-full">
         <div className="px-4 py-4 border-b border-border flex items-center gap-2">
           <Bot className="w-5 h-5 text-primary" />
           <span className="font-semibold text-sm">Cortex OS</span>
@@ -128,7 +128,7 @@ export default function AppLayout() {
         </nav>
       </aside>
 
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 h-full">
         <header className="h-12 shrink-0 border-b border-border px-5 flex items-center justify-end">
           <UserMenu />
         </header>
