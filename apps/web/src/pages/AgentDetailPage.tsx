@@ -1653,6 +1653,108 @@ function SettingsTab({ agent, token }: { agent: AgentDetail; token: string }) {
   if (isEmailManager) return <EmailManagerSettingsTab agent={agent} token={token} />;
   if (agent.key === 'taskip_internal') return <TaskipInternalSettingsTab agent={agent} token={token} />;
 
+  if (agent.key === 'support') return (
+    <Phase4SettingsTab agent={agent} token={token} setupContent={
+      <Phase4SetupSubTab
+        agent={agent}
+        title="Support Ticket Manager — Setup Checklist"
+        description="Ingests support tickets via webhook or sweeps open tickets every 30 min. Classifies, sets priority, drafts a reply, and sends it via Telegram for approval before posting."
+        steps={<>
+          <SetupStep n={1} title="Push tickets via webhook" done={agent.registered}>
+            <p>POST to <code className="bg-muted px-1 rounded">/support/ingest-ticket</code> from your helpdesk/CRM (or any HTTP integration).</p>
+            <p className="mt-1">Body: <code className="bg-muted px-1 rounded">{`{ "subject": "...", "body": "...", "userEmail": "...", "externalId": "..." }`}</code></p>
+          </SetupStep>
+          <SetupStep n={2} title="Set escalation keywords" done={false}>
+            <p>In the Config JSON below, set <code className="bg-muted px-1 rounded">escalateKeywords</code> — any ticket body containing these words triggers an escalation action (requires approval).</p>
+          </SetupStep>
+          <SetupStep n={3} title="Enable and test" done={agent.enabled}>
+            <p>Enable the agent and push a test ticket. A Telegram message will arrive with the drafted reply asking for approval.</p>
+          </SetupStep>
+        </>}
+      />
+    } />
+  );
+
+  if (agent.key === 'whatsapp') return (
+    <Phase4SettingsTab agent={agent} token={token} setupContent={
+      <Phase4SetupSubTab
+        agent={agent}
+        title="WhatsApp Business Watcher — Setup Checklist"
+        description="Monitors WhatsApp Business messages. Classifies urgency, sends Telegram alerts for important messages, and drafts replies — requiring approval before sending."
+        steps={<>
+          <SetupStep n={1} title="Connect WhatsApp Business Cloud API" done={agent.registered}>
+            <p>In Meta for Developers, create an app and enable WhatsApp Business.</p>
+            <ol className="list-decimal list-inside space-y-0.5 ml-1 mt-1">
+              <li>Get your <strong>Phone Number ID</strong> and <strong>Permanent Access Token</strong></li>
+              <li>Set webhook URL to <code className="bg-muted px-1 rounded">/whatsapp/webhook</code></li>
+              <li>Add to Coolify env: <code className="bg-muted px-1 rounded">WHATSAPP_API_TOKEN</code>, <code className="bg-muted px-1 rounded">WHATSAPP_PHONE_NUMBER_ID</code>, <code className="bg-muted px-1 rounded">WHATSAPP_VERIFY_TOKEN</code></li>
+            </ol>
+          </SetupStep>
+          <SetupStep n={2} title="Configure offline hours" done={false}>
+            <p>In Config JSON set <code className="bg-muted px-1 rounded">offlineStart</code>, <code className="bg-muted px-1 rounded">offlineEnd</code> (24h format, UTC+6) and <code className="bg-muted px-1 rounded">holdingMessage</code>.</p>
+            <p className="mt-1">Default: offline 21:00–10:00 Dhaka time.</p>
+          </SetupStep>
+          <SetupStep n={3} title="Enable and test" done={agent.enabled}>
+            <p>Send a message to your WhatsApp Business number. A Telegram alert should arrive within 10 minutes (CRON sweep).</p>
+          </SetupStep>
+        </>}
+      />
+    } />
+  );
+
+  if (agent.key === 'linkedin') return (
+    <Phase4SettingsTab agent={agent} token={token} setupContent={
+      <Phase4SetupSubTab
+        agent={agent}
+        title="LinkedIn AI Agent — Setup Checklist"
+        description="Scans your LinkedIn feed every 4 hours, drafts comments on relevant posts, and prepares outreach DMs — all requiring your approval before posting."
+        steps={<>
+          <SetupStep n={1} title="Connect LinkedIn via Unipile (recommended)" done={agent.registered}>
+            <p>Unipile provides a unified API for LinkedIn actions without needing direct OAuth approval.</p>
+            <ol className="list-decimal list-inside space-y-0.5 ml-1 mt-1">
+              <li>Sign up at <strong>unipile.com</strong> and connect your LinkedIn account</li>
+              <li>Get your API Key and DSN from the dashboard</li>
+              <li>Add to Coolify: <code className="bg-muted px-1 rounded">UNIPILE_API_KEY</code>, <code className="bg-muted px-1 rounded">UNIPILE_DSN</code></li>
+            </ol>
+            <p className="mt-2 font-medium text-foreground/70">Alternative — LinkedIn OAuth2 directly:</p>
+            <p className="mt-0.5">Set <code className="bg-muted px-1 rounded">LINKEDIN_ACCESS_TOKEN</code> in Coolify env (requires LinkedIn Developer App with r_liteprofile + w_member_social scopes).</p>
+          </SetupStep>
+          <SetupStep n={2} title="Set target topics and tone" done={false}>
+            <p>In Config JSON set <code className="bg-muted px-1 rounded">targetTopics</code> (array of keywords to match posts) and <code className="bg-muted px-1 rounded">commentTone</code>.</p>
+          </SetupStep>
+          <SetupStep n={3} title="Enable and test" done={agent.enabled}>
+            <p>Enable and trigger manually. The agent will draft comments for relevant posts and send them to Telegram for approval.</p>
+          </SetupStep>
+        </>}
+      />
+    } />
+  );
+
+  if (agent.key === 'reddit') return (
+    <Phase4SettingsTab agent={agent} token={token} setupContent={
+      <Phase4SetupSubTab
+        agent={agent}
+        title="Reddit Followup Agent — Setup Checklist"
+        description="Searches Reddit every 2 hours for keyword mentions. Drafts genuine, non-spammy comments and sends them to Telegram for approval before posting."
+        steps={<>
+          <SetupStep n={1} title="Connect Reddit API" done={agent.registered}>
+            <ol className="list-decimal list-inside space-y-0.5 ml-1">
+              <li>Go to <strong>reddit.com/prefs/apps</strong> → Create app (script type)</li>
+              <li>Copy Client ID (under app name) and Client Secret</li>
+              <li>Add to Coolify: <code className="bg-muted px-1 rounded">REDDIT_CLIENT_ID</code>, <code className="bg-muted px-1 rounded">REDDIT_CLIENT_SECRET</code>, <code className="bg-muted px-1 rounded">REDDIT_USERNAME</code>, <code className="bg-muted px-1 rounded">REDDIT_PASSWORD</code></li>
+            </ol>
+          </SetupStep>
+          <SetupStep n={2} title="Set tracked keywords" done={false}>
+            <p>In Config JSON set <code className="bg-muted px-1 rounded">defaultKeywords</code> array. Or use the API route <code className="bg-muted px-1 rounded">POST /reddit/track-keyword</code> to add keywords per-subreddit.</p>
+          </SetupStep>
+          <SetupStep n={3} title="Enable and test" done={agent.enabled}>
+            <p>Enable and trigger manually. The agent will search Reddit and draft comments — you'll approve each one via Telegram before it posts.</p>
+          </SetupStep>
+        </>}
+      />
+    } />
+  );
+
   return (
     <div>
       {isTaskipTrial ? (
@@ -1765,6 +1867,162 @@ function GenericConfigEditor({ agent, token }: { agent: AgentDetail; token: stri
           {triggerMutation.isPending ? 'Starting…' : 'Run now'}
         </Button>
       </div>
+    </div>
+  );
+}
+
+// ─── Phase 4 Setup sub-tabs (Setup + General + Runtime) ─────────────────────
+
+const PHASE4_TABS = [
+  { key: 'setup', label: 'Setup', icon: BookOpen },
+  { key: 'general', label: 'General', icon: Settings },
+  { key: 'runtime', label: 'Runtime', icon: List },
+] as const;
+type Phase4TabKey = typeof PHASE4_TABS[number]['key'];
+
+function Phase4SetupSubTab({ agent, title, description, steps }: {
+  agent: AgentDetail;
+  title: string;
+  description: string;
+  steps: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-xl border border-border bg-card p-5">
+      <h3 className="text-sm font-semibold mb-1">{title}</h3>
+      <p className="text-xs text-muted-foreground mb-5">{description}</p>
+      <div className="space-y-5">{steps}</div>
+    </div>
+  );
+}
+
+function Phase4GeneralSubTab({ agent, token }: { agent: AgentDetail; token: string }) {
+  const qc = useQueryClient();
+  const navigate = useNavigate();
+  const [name, setName] = useState(agent.name);
+  const [description, setDescription] = useState(agent.description ?? '');
+  const [configText, setConfigText] = useState(JSON.stringify(agent.config ?? {}, null, 2));
+  const [configError, setConfigError] = useState<string | null>(null);
+
+  const metaMutation = useMutation({
+    mutationFn: () =>
+      apiFetch(token, `/agents/${agent.key}`, { method: 'PATCH', body: JSON.stringify({ name, description }) }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['agent', agent.key] }),
+  });
+
+  const toggleMutation = useMutation({
+    mutationFn: () =>
+      apiFetch(token, `/agents/${agent.key}`, { method: 'PATCH', body: JSON.stringify({ enabled: !agent.enabled }) }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['agent', agent.key] }),
+  });
+
+  const configMutation = useMutation({
+    mutationFn: (config: Record<string, unknown>) =>
+      apiFetch(token, `/agents/${agent.key}`, { method: 'PATCH', body: JSON.stringify({ config }) }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['agent', agent.key] }),
+  });
+
+  const triggerMutation = useMutation({
+    mutationFn: () =>
+      apiFetch(token, `/agents/${agent.key}/trigger`, { method: 'POST', body: JSON.stringify({ triggerType: 'MANUAL' }) }),
+    onSuccess: (run: { id: string }) => navigate(`/runs/${run.id}`),
+  });
+
+  function handleSaveConfig() {
+    try {
+      setConfigError(null);
+      configMutation.mutate(JSON.parse(configText));
+    } catch {
+      setConfigError('Invalid JSON');
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="rounded-xl border border-border bg-card p-5">
+        <h3 className="text-sm font-semibold mb-4">Agent Info</h3>
+        <div className="space-y-4">
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1">Name</label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} className="text-sm" />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1">Description</label>
+            <Input value={description} onChange={(e) => setDescription(e.target.value)} className="text-sm" />
+          </div>
+          <div className="flex items-center justify-between py-1">
+            <div>
+              <p className="text-sm font-medium">Enabled</p>
+              <p className="text-xs text-muted-foreground">Allow this agent to run on schedule</p>
+            </div>
+            <BigToggle enabled={agent.enabled} onClick={() => toggleMutation.mutate()} disabled={toggleMutation.isPending} />
+          </div>
+          <SaveRow isPending={metaMutation.isPending} isSuccess={metaMutation.isSuccess} onClick={() => metaMutation.mutate()} />
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-border bg-card p-5">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-semibold">Config JSON</h3>
+          <Button size="sm" onClick={handleSaveConfig} disabled={configMutation.isPending}>
+            <Save className="w-3.5 h-3.5" />
+            {configMutation.isPending ? 'Saving…' : 'Save'}
+          </Button>
+        </div>
+        {configError && <p className="text-xs text-destructive mb-2">{configError}</p>}
+        {configMutation.isSuccess && !configError && <p className="text-xs text-green-500 mb-2">Saved</p>}
+        <textarea
+          value={configText}
+          onChange={(e) => { setConfigText(e.target.value); setConfigError(null); }}
+          spellCheck={false}
+          className="w-full h-48 font-mono text-xs bg-muted/40 border border-border rounded-lg p-3 resize-none focus:outline-none focus:ring-1 focus:ring-ring text-foreground"
+        />
+      </div>
+
+      <div className="rounded-xl border border-border bg-card p-5">
+        <h3 className="text-sm font-semibold mb-1">Manual Trigger</h3>
+        <p className="text-xs text-muted-foreground mb-3">Start a run now, bypassing the schedule.</p>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => triggerMutation.mutate()}
+          disabled={!agent.enabled || !agent.registered || triggerMutation.isPending}
+          className="gap-1.5"
+        >
+          <Play className="w-3.5 h-3.5" />
+          {triggerMutation.isPending ? 'Starting…' : 'Run now'}
+        </Button>
+        {!agent.registered && <p className="text-xs text-yellow-500 mt-2">Agent is not registered.</p>}
+      </div>
+    </div>
+  );
+}
+
+function Phase4SettingsTab({ agent, token, setupContent }: {
+  agent: AgentDetail;
+  token: string;
+  setupContent: React.ReactNode;
+}) {
+  const [activeSub, setActiveSub] = useState<Phase4TabKey>('setup');
+
+  return (
+    <div>
+      <div className="flex items-center gap-1 border border-border rounded-lg p-1 mb-5 bg-muted/30 w-fit">
+        {PHASE4_TABS.map(({ key, label, icon: Icon }) => (
+          <button
+            key={key}
+            onClick={() => setActiveSub(key)}
+            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-md text-sm font-medium transition-colors ${
+              activeSub === key ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            <Icon className="w-3.5 h-3.5" />
+            {label}
+          </button>
+        ))}
+      </div>
+      {activeSub === 'setup' && setupContent}
+      {activeSub === 'general' && <Phase4GeneralSubTab agent={agent} token={token} />}
+      {activeSub === 'runtime' && <RuntimeSubTab agent={agent} />}
     </div>
   );
 }

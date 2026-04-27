@@ -21,6 +21,10 @@ import { TaskipTrialModule } from './modules/agents/taskip-trial/taskip-trial.mo
 import { DailyReminderModule } from './modules/agents/daily-reminder/daily-reminder.module';
 import { EmailManagerModule } from './modules/agents/email-manager/email-manager.module';
 import { TaskipInternalModule } from './modules/agents/taskip-internal/taskip-internal.module';
+import { SupportModule } from './modules/agents/support/support.module';
+import { WhatsAppModule } from './modules/agents/whatsapp/whatsapp.module';
+import { LinkedInModule } from './modules/agents/linkedin/linkedin.module';
+import { RedditModule } from './modules/agents/reddit/reddit.module';
 
 @Module({
   imports: [
@@ -61,6 +65,10 @@ import { TaskipInternalModule } from './modules/agents/taskip-internal/taskip-in
     DailyReminderModule,
     EmailManagerModule,
     TaskipInternalModule,
+    SupportModule,
+    WhatsAppModule,
+    LinkedInModule,
+    RedditModule,
   ],
 })
 export class AppModule {}

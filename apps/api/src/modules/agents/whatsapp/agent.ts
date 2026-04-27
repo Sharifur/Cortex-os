@@ -1,0 +1,288 @@
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { eq } from 'drizzle-orm';
+import { DbService } from '../../../db/db.service';
+import { agents } from '../../../db/schema';
+import { whatsappMessages } from './schema';
+import { WhatsAppService, WaMessage } from './whatsapp.service';
+import { AgentRegistryService } from '../runtime/agent-registry.service';
+import { LlmRouterService } from '../../llm/llm-router.service';
+import { TelegramService } from '../../telegram/telegram.service';
+import type {
+  IAgent,
+  TriggerSpec,
+  TriggerEvent,
+  RunContext,
+  AgentContext,
+  ProposedAction,
+  ActionResult,
+  McpToolDefinition,
+  AgentApiRoute,
+} from '../runtime/types';
+
+interface WhatsAppConfig {
+  offlineStart: number;
+  offlineEnd: number;
+  timezone: string;
+  holdingMessage: string;
+  llm: { provider: string; model: string };
+}
+
+interface WhatsAppSnapshot {
+  messages: any[];
+  isOffline: boolean;
+  config: WhatsAppConfig;
+}
+
+const DEFAULT_CONFIG: WhatsAppConfig = {
+  offlineStart: 21,
+  offlineEnd: 10,
+  timezone: 'Asia/Dhaka',
+  holdingMessage: "Thanks for your message! I'm currently offline but will respond as soon as possible.",
+  llm: { provider: 'auto', model: 'gpt-4o-mini' },
+};
+
+const CLASSIFY_PROMPT = `Classify this WhatsApp message as: urgent | important | normal | spam
+Also draft a short reply (1-2 sentences, friendly tone).
+
+Respond with JSON only:
+{ "importance": "...", "reply": "..." }`;
+
+@Injectable()
+export class WhatsAppAgent implements IAgent, OnModuleInit {
+  readonly key = 'whatsapp';
+  readonly name = 'WhatsApp Business Watcher';
+  private readonly logger = new Logger(WhatsAppAgent.name);
+
+  constructor(
+    private db: DbService,
+    private llm: LlmRouterService,
+    private telegram: TelegramService,
+    private wa: WhatsAppService,
+    private registry: AgentRegistryService,
+  ) {}
+
+  onModuleInit() {
+    this.registry.register(this);
+  }
+
+  triggers(): TriggerSpec[] {
+    return [
+      { type: 'CRON', cron: '*/10 * * * *' },
+      { type: 'WEBHOOK', webhookPath: '/whatsapp/webhook' },
+    ];
+  }
+
+  async buildContext(trigger: TriggerEvent, run: RunContext): Promise<AgentContext> {
+    const config = await this.getConfig();
+    const isOffline = this.wa.isOfflineHours(config.timezone, config.offlineStart, config.offlineEnd);
+
+    if (trigger.type === 'WEBHOOK' && (trigger.payload as any)?.messages) {
+      return { source: trigger, snapshot: { messages: (trigger.payload as any).messages, isOffline, config }, followups: [] };
+    }
+
+    const unprocessed = await this.db.db
+      .select()
+      .from(whatsappMessages)
+      .where(eq(whatsappMessages.status, 'new'))
+      .limit(30);
+
+    return { source: trigger, snapshot: { messages: unprocessed, isOffline, config }, followups: [] };
+  }
+
+  async decide(ctx: AgentContext): Promise<ProposedAction[]> {
+    const { messages, isOffline, config } = ctx.snapshot as WhatsAppSnapshot;
+    if (!messages.length) return [{ type: 'noop', summary: 'No new messages.', payload: {}, riskLevel: 'low' }];
+
+    const actions: ProposedAction[] = [];
+
+    for (const msg of messages) {
+      try {
+        const response = await this.llm.complete({
+          messages: [
+            { role: 'system', content: CLASSIFY_PROMPT },
+            { role: 'user', content: `From: ${msg.fromName ?? msg.from_name ?? msg.fromNumber ?? msg.from_number ?? 'Unknown'}\n\n${msg.body}` },
+          ],
+          provider: config.llm.provider as any,
+          model: config.llm.model,
+          maxTokens: 200,
+        });
+
+        let parsed: { importance: string; reply: string };
+        try {
+          const text = response.content.trim();
+          const match = text.match(/\{[\s\S]*\}/);
+          parsed = JSON.parse(match?.[0] ?? text);
+        } catch {
+          continue;
+        }
+
+        const msgId = msg.id;
+        const fromNumber = msg.fromNumber ?? msg.from_number ?? msg.from;
+        const fromName = msg.fromName ?? msg.from_name ?? fromNumber;
+        const preview = (msg.body ?? '').slice(0, 80);
+
+        if (parsed.importance === 'spam') {
+          actions.push({
+            type: 'ignore_message',
+            summary: `Ignore spam from ${fromName}: "${preview}"`,
+            payload: { msgId, fromNumber, importance: 'spam' },
+            riskLevel: 'low',
+          });
+          continue;
+        }
+
+        if (parsed.importance === 'urgent' || parsed.importance === 'important') {
+          actions.push({
+            type: 'notify_telegram_priority',
+            summary: `${parsed.importance.toUpperCase()} WhatsApp from ${fromName}: "${preview}"`,
+            payload: { msgId, fromNumber, fromName, body: msg.body, importance: parsed.importance, draft: parsed.reply },
+            riskLevel: 'low',
+          });
+        }
+
+        if (isOffline && (parsed.importance === 'urgent' || parsed.importance === 'important')) {
+          actions.push({
+            type: 'auto_reply_holding',
+            summary: `Send holding reply to ${fromName}`,
+            payload: { msgId, fromNumber, holdingMessage: config.holdingMessage, draft: parsed.reply },
+            riskLevel: 'medium',
+          });
+        } else if (parsed.importance === 'urgent' || parsed.importance === 'important') {
+          actions.push({
+            type: 'send_reply',
+            summary: `Reply to ${fromName}: "${parsed.reply.slice(0, 60)}…"`,
+            payload: { msgId, fromNumber, fromName, draft: parsed.reply },
+            riskLevel: 'medium',
+          });
+        }
+      } catch (err) {
+        this.logger.warn(`Failed to process WA message: ${err}`);
+      }
+    }
+
+    return actions.length ? actions : [{ type: 'noop', summary: 'No actionable messages.', payload: {}, riskLevel: 'low' }];
+  }
+
+  requiresApproval(action: ProposedAction): boolean {
+    return action.type === 'auto_reply_holding' || action.type === 'send_reply';
+  }
+
+  async execute(action: ProposedAction): Promise<ActionResult> {
+    if (action.type === 'noop') return { success: true };
+    const p = action.payload as any;
+
+    if (action.type === 'ignore_message') {
+      await this.markProcessed(p.msgId, 'ignored', 'spam');
+      return { success: true };
+    }
+
+    if (action.type === 'notify_telegram_priority') {
+      await this.telegram.sendMessage(
+        `📱 ${p.importance.toUpperCase()} WhatsApp\nFrom: ${p.fromName} (${p.fromNumber})\n\n${p.body}\n\n💬 Suggested reply:\n${p.draft}`,
+      );
+      await this.markProcessed(p.msgId, 'notified', p.importance);
+      return { success: true };
+    }
+
+    if (action.type === 'auto_reply_holding' || action.type === 'send_reply') {
+      const replyText = action.type === 'auto_reply_holding' ? p.holdingMessage : p.draft;
+      if (this.wa.isConfigured() && p.fromNumber) {
+        await this.wa.sendMessage(p.fromNumber, replyText);
+      }
+      await this.markProcessed(p.msgId, 'replied', undefined);
+      await this.telegram.sendMessage(`✅ Replied to ${p.fromName ?? p.fromNumber}: "${replyText.slice(0, 80)}"`);
+      return { success: true };
+    }
+
+    return { success: true };
+  }
+
+  mcpTools(): McpToolDefinition[] {
+    return [
+      {
+        name: 'get_recent_messages',
+        description: 'Fetch recent WhatsApp messages from DB',
+        inputSchema: { type: 'object', properties: { limit: { type: 'number' } } },
+        handler: async (input) => {
+          const limit = (input as any).limit ?? 20;
+          return this.db.db.select().from(whatsappMessages).limit(limit);
+        },
+      },
+      {
+        name: 'send_reply',
+        description: 'Send a WhatsApp reply to a number',
+        inputSchema: {
+          type: 'object',
+          properties: { to: { type: 'string' }, message: { type: 'string' } },
+          required: ['to', 'message'],
+        },
+        handler: async (input) => {
+          const { to, message } = input as any;
+          await this.wa.sendMessage(to, message);
+          return { sent: true };
+        },
+      },
+    ];
+  }
+
+  apiRoutes(): AgentApiRoute[] {
+    return [
+      {
+        method: 'GET',
+        path: '/whatsapp/messages/recent',
+        requiresAuth: true,
+        handler: async () => this.db.db.select().from(whatsappMessages).limit(50),
+      },
+      {
+        method: 'GET',
+        path: '/whatsapp/webhook',
+        requiresAuth: false,
+        handler: async (query) => {
+          const q = query as any;
+          if (q['hub.verify_token'] === process.env.WHATSAPP_VERIFY_TOKEN) {
+            return q['hub.challenge'];
+          }
+          return 'Forbidden';
+        },
+      },
+      {
+        method: 'POST',
+        path: '/whatsapp/webhook',
+        requiresAuth: false,
+        handler: async (body) => {
+          const messages = this.wa.parseWebhookMessages(body);
+          await this.ingestWebhook(messages);
+          return { received: true };
+        },
+      },
+    ];
+  }
+
+  async ingestWebhook(rawMessages: WaMessage[]) {
+    for (const msg of rawMessages) {
+      await this.db.db
+        .insert(whatsappMessages)
+        .values({
+          externalMsgId: msg.id,
+          fromNumber: msg.from,
+          fromName: msg.name ?? null,
+          body: msg.body,
+          receivedAt: new Date(msg.timestamp * 1000),
+        })
+        .onConflictDoNothing();
+    }
+  }
+
+  private async markProcessed(msgId: string | undefined, status: string, importance: string | undefined) {
+    if (!msgId) return;
+    await this.db.db
+      .update(whatsappMessages)
+      .set({ status, ...(importance && { importance }), processedAt: new Date() })
+      .where(eq(whatsappMessages.id, msgId));
+  }
+
+  private async getConfig(): Promise<WhatsAppConfig> {
+    const [row] = await this.db.db.select().from(agents).where(eq(agents.key, this.key));
+    return { ...DEFAULT_CONFIG, ...(row?.config as Partial<WhatsAppConfig> ?? {}) };
+  }
+}
