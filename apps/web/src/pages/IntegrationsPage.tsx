@@ -417,11 +417,24 @@ function RedditTab({ rows, token }: { rows: SettingRow[]; token: string }) {
 }
 
 function CrispTab({ rows, token }: { rows: SettingRow[]; token: string }) {
+  const webhookUrl = `${window.location.origin}/crisp/webhook`;
   return (
     <IntegrationLayout
       integrationKey="crisp"
       rows={rows}
       token={token}
+      extraSettings={
+        <div className="rounded-xl border border-border bg-card p-5">
+          <h2 className="text-sm font-semibold mb-1">Webhook URL</h2>
+          <p className="text-xs text-muted-foreground mb-3">
+            Add this in Crisp to enable real-time replies. Without it the agent polls every 15 minutes.
+          </p>
+          <div className="flex items-center gap-2 bg-muted/60 border border-border rounded-lg px-3 py-2">
+            <code className="text-xs font-mono flex-1 break-all text-foreground">{webhookUrl}</code>
+            <CopyButton text={webhookUrl} />
+          </div>
+        </div>
+      }
       docs={
         <>
           <h2 className="text-sm font-semibold mb-4">Setup Guide</h2>
@@ -438,6 +451,11 @@ function CrispTab({ rows, token }: { rows: SettingRow[]; token: string }) {
             </SetupStep>
             <SetupStep n={4} title="Paste credentials in Settings">
               <p>Set Website ID, API Identifier, and API Key. The agent uses basic auth (<code className="bg-muted px-1 rounded">identifier:key</code>).</p>
+            </SetupStep>
+            <SetupStep n={5} title="Add the webhook for real-time replies">
+              <p>Settings → <strong>Integrations</strong> → <strong>Webhooks</strong> → <strong>Add webhook</strong>.</p>
+              <p>Paste the Webhook URL shown above. Under events, enable <code className="bg-muted px-1 rounded">message:send</code>.</p>
+              <p>Save. The agent will now reply instantly when a customer sends a message instead of waiting for the 15-minute cron.</p>
             </SetupStep>
           </div>
           <a
