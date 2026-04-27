@@ -10,10 +10,13 @@ import { AgentRunProcessor } from './processors/agent-run.processor';
 import { AgentExecuteProcessor } from './processors/agent-execute.processor';
 import { AgentFollowupProcessor } from './processors/agent-followup.processor';
 import { ApprovalSweepProcessor } from './processors/approval-sweep.processor';
+import { AgentRouteDispatcherService } from './agent-route-dispatcher.service';
 import { QUEUE_NAMES } from '../../../common/queue/queue.constants';
+import { AuthModule } from '../../auth/auth.module';
 
 @Module({
   imports: [
+    AuthModule,
     BullModule.registerQueue(
       { name: QUEUE_NAMES.AGENT_RUN },
       { name: QUEUE_NAMES.AGENT_EXECUTE },
@@ -31,6 +34,7 @@ import { QUEUE_NAMES } from '../../../common/queue/queue.constants';
     AgentExecuteProcessor,
     AgentFollowupProcessor,
     ApprovalSweepProcessor,
+    AgentRouteDispatcherService,
   ],
   exports: [
     AgentRegistryService,
@@ -47,7 +51,6 @@ export class AgentRuntimeModule implements OnModuleInit {
   ) {}
 
   async onModuleInit() {
-    // Schedule approval sweep every 15 minutes as a repeatable job
     await this.sweepQueue.add(
       'sweep',
       {},

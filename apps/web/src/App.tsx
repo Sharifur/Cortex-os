@@ -9,6 +9,7 @@ import ChangePasswordPage from '@/pages/ChangePasswordPage';
 import AgentsPage from '@/pages/AgentsPage';
 import AgentDetailPage from '@/pages/AgentDetailPage';
 import AgentChatPage from '@/pages/AgentChatPage';
+import AgentRunsPage from '@/pages/AgentRunsPage';
 import ApprovalsPage from '@/pages/ApprovalsPage';
 import RunDetailPage from '@/pages/RunDetailPage';
 import McpPage from '@/pages/McpPage';
@@ -42,6 +43,7 @@ export default function App() {
             <Route path="/agents" element={<AgentsPage />} />
             <Route path="/agents/:key" element={<AgentDetailPage />} />
             <Route path="/agents/:key/chat" element={<AgentChatPage />} />
+            <Route path="/agents/:key/runs" element={<AgentRunsPage />} />
             <Route path="/approvals" element={<ApprovalsPage />} />
             <Route path="/runs/:id" element={<RunDetailPage />} />
             <Route path="/mcp" element={<McpPage />} />
