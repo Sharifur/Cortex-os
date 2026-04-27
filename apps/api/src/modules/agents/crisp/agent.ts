@@ -128,7 +128,7 @@ export class CrispAgent implements IAgent, OnModuleInit {
         const [references, previousReplies, threadHistory] = await Promise.all([
           this.kb.searchEntries(msg.content ?? '', this.key, 5),
           this.getVisitorHistory(msg.visitorEmail, msg.visitorNickname),
-          this.crisp.getSessionThread(msg.sessionId, 5),
+          this.crisp.getSessionThread(msg.sessionId, msg.websiteId, 5),
         ]);
 
         const kbBlock = this.kb.buildKbPromptBlock({
@@ -205,7 +205,7 @@ export class CrispAgent implements IAgent, OnModuleInit {
         actions.push({
           type: 'send_reply',
           summary: `Reply to ${visitorLabel}: "${draft.slice(0, 80)}"${violation ? ` [Blocklist: "${violation}"]` : ''}`,
-          payload: { sessionId: msg.sessionId, visitorLabel, message: msg.content, draft, autoReply: config.autoReply ?? true },
+          payload: { sessionId: msg.sessionId, websiteId: msg.websiteId, visitorLabel, message: msg.content, draft, autoReply: config.autoReply ?? true },
           riskLevel: violation ? 'high' : 'medium',
         });
       } catch (err) {
@@ -230,7 +230,7 @@ export class CrispAgent implements IAgent, OnModuleInit {
     const p = action.payload as any;
 
     if (action.type === 'send_reply') {
-      await this.crisp.sendReply(p.sessionId, p.draft);
+      await this.crisp.sendReply(p.sessionId, p.websiteId, p.draft);
       await this.db.db
         .update(crispConversations)
         .set({ status: 'replied', repliedAt: new Date() })

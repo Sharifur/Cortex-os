@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { SESClient, GetSendQuotaCommand } from '@aws-sdk/client-ses';
 import { google } from 'googleapis';
 import { SettingsService } from '../settings/settings.service';
+import { CrispService } from '../agents/crisp/crisp.service';
 
 export interface TestResult {
   ok: boolean;
@@ -10,7 +11,10 @@ export interface TestResult {
 
 @Injectable()
 export class IntegrationsService {
-  constructor(private readonly settings: SettingsService) {}
+  constructor(
+    private readonly settings: SettingsService,
+    private readonly crispService: CrispService,
+  ) {}
 
   async test(key: string): Promise<TestResult> {
     switch (key) {
@@ -121,26 +125,14 @@ export class IntegrationsService {
   }
 
   private async testCrisp(): Promise<TestResult> {
-    const [identifier, apiKey, websiteId] = await Promise.all([
-      this.settings.getDecrypted('crisp_api_identifier'),
-      this.settings.getDecrypted('crisp_api_key'),
-      this.settings.getDecrypted('crisp_website_id'),
-    ]);
-    if (!identifier || !apiKey || !websiteId) return { ok: false, message: 'Credentials not configured' };
-
-    try {
-      const auth = `Basic ${Buffer.from(`${identifier}:${apiKey}`).toString('base64')}`;
-      const res = await fetch(`https://api.crisp.chat/v1/website/${websiteId}`, {
-        headers: { Authorization: auth, 'X-Crisp-Tier': 'plugin' },
-        signal: AbortSignal.timeout(8000),
-      });
-      const data = await res.json() as any;
-      if (!res.ok) return { ok: false, message: data?.reason ?? `HTTP ${res.status}` };
-      const siteName = data?.data?.name ?? websiteId;
-      return { ok: true, message: `Connected — ${siteName}` };
-    } catch (err) {
-      return { ok: false, message: err instanceof Error ? err.message : String(err) };
-    }
+    const sites = await this.crispService.listWebsites();
+    if (!sites.length) return { ok: false, message: 'No websites configured' };
+    const enabled = sites.filter((s) => s.enabled);
+    if (!enabled.length) return { ok: false, message: 'No websites enabled' };
+    const results = await Promise.all(enabled.map((s) => this.crispService.testWebsite(s.id)));
+    const failed = results.filter((r) => !r.ok);
+    if (!failed.length) return { ok: true, message: results.map((r) => r.message).join(' | ') };
+    return { ok: false, message: failed.map((r) => r.message).join(' | ') };
   }
 
   private async testTelegram(): Promise<TestResult> {

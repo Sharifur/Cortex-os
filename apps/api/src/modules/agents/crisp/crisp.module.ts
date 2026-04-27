@@ -7,9 +7,11 @@ import { KnowledgeBaseModule } from '../../knowledge-base/knowledge-base.module'
 import { PurchaseVerifyModule } from '../purchase-verify/purchase-verify.module';
 import { CrispAgent } from './agent';
 import { CrispService } from './crisp.service';
+import { CrispWebsitesController } from './crisp-websites.controller';
 
 @Module({
   imports: [AgentsModule, LlmModule, TelegramModule, SettingsModule, KnowledgeBaseModule, PurchaseVerifyModule],
+  controllers: [CrispWebsitesController],
   providers: [CrispService, CrispAgent],
   exports: [CrispService, CrispAgent],
 })

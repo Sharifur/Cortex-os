@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Cable, Save, Trash2, Eye, EyeOff, Key, Send, Mail, Copy, Check,
   ExternalLink, MessageSquare, Linkedin, Hash, Bot, FlaskConical,
-  CheckCircle2, XCircle, Loader2,
+  CheckCircle2, XCircle, Loader2, Plus, Globe, ToggleLeft, ToggleRight,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -416,27 +416,240 @@ function RedditTab({ rows, token }: { rows: SettingRow[]; token: string }) {
   );
 }
 
-function CrispTab({ rows, token }: { rows: SettingRow[]; token: string }) {
+interface CrispWebsite {
+  id: string;
+  label: string;
+  websiteId: string;
+  identifier: string;
+  apiKeyMasked: string;
+  enabled: boolean;
+  createdAt: string;
+}
+
+function CrispTab({ token }: { token: string }) {
+  const qc = useQueryClient();
   const webhookUrl = `${window.location.origin}/crisp/webhook`;
+  const [sub, setSub] = useState<'settings' | 'docs'>('settings');
+  const [adding, setAdding] = useState(false);
+  const [form, setForm] = useState({ label: '', websiteId: '', identifier: '', apiKey: '' });
+  const [showKey, setShowKey] = useState(false);
+  const [testResults, setTestResults] = useState<Record<string, { ok: boolean; message: string }>>({});
+  const [testingId, setTestingId] = useState<string | null>(null);
+
+  const { data: sites = [], isLoading } = useQuery<CrispWebsite[]>({
+    queryKey: ['crisp-websites'],
+    queryFn: async () => {
+      const res = await fetch('/crisp/websites', { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) throw new Error('Failed to load');
+      return res.json();
+    },
+  });
+
+  const addMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch('/crisp/websites', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(form),
+      });
+      if (!res.ok) throw new Error('Failed to add');
+    },
+    onSuccess: () => {
+      setAdding(false);
+      setForm({ label: '', websiteId: '', identifier: '', apiKey: '' });
+      qc.invalidateQueries({ queryKey: ['crisp-websites'] });
+    },
+  });
+
+  const toggleMutation = useMutation({
+    mutationFn: async ({ id, enabled }: { id: string; enabled: boolean }) => {
+      const res = await fetch(`/crisp/websites/${id}`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled }),
+      });
+      if (!res.ok) throw new Error('Failed to update');
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['crisp-websites'] }),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await fetch(`/crisp/websites/${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error('Failed to delete');
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['crisp-websites'] }),
+  });
+
+  async function testSite(id: string) {
+    setTestingId(id);
+    try {
+      const res = await fetch(`/crisp/websites/${id}/test`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      setTestResults((prev) => ({ ...prev, [id]: data }));
+    } catch {
+      setTestResults((prev) => ({ ...prev, [id]: { ok: false, message: 'Request failed' } }));
+    } finally {
+      setTestingId(null);
+    }
+  }
+
+  const formValid = form.label && form.websiteId && form.identifier && form.apiKey;
+
   return (
-    <IntegrationLayout
-      integrationKey="crisp"
-      rows={rows}
-      token={token}
-      extraSettings={
-        <div className="rounded-xl border border-border bg-card p-5">
-          <h2 className="text-sm font-semibold mb-1">Webhook URL</h2>
-          <p className="text-xs text-muted-foreground mb-3">
-            Add this in Crisp to enable real-time replies. Without it the agent polls every 15 minutes.
-          </p>
-          <div className="flex items-center gap-2 bg-muted/60 border border-border rounded-lg px-3 py-2">
-            <code className="text-xs font-mono flex-1 break-all text-foreground">{webhookUrl}</code>
-            <CopyButton text={webhookUrl} />
+    <div>
+      <div className="flex items-center gap-1 border border-border rounded-lg p-1 mb-5 bg-muted/30 w-fit">
+        <button onClick={() => setSub('settings')}
+          className={`px-3.5 py-1.5 rounded-md text-sm font-medium transition-colors ${sub === 'settings' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}>
+          Settings
+        </button>
+        <button onClick={() => setSub('docs')}
+          className={`px-3.5 py-1.5 rounded-md text-sm font-medium transition-colors ${sub === 'docs' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}>
+          Docs
+        </button>
+      </div>
+
+      {sub === 'settings' && (
+        <div className="space-y-4">
+          {/* Webhook URL */}
+          <div className="rounded-xl border border-border bg-card p-5">
+            <h2 className="text-sm font-semibold mb-1">Webhook URL</h2>
+            <p className="text-xs text-muted-foreground mb-3">
+              Add this in Crisp to enable real-time replies. Without it the agent polls every 15 minutes.
+            </p>
+            <div className="flex items-center gap-2 bg-muted/60 border border-border rounded-lg px-3 py-2">
+              <code className="text-xs font-mono flex-1 break-all text-foreground">{webhookUrl}</code>
+              <CopyButton text={webhookUrl} />
+            </div>
+          </div>
+
+          {/* Website list */}
+          <div className="rounded-xl border border-border bg-card">
+            <div className="px-5 py-4 flex items-center justify-between border-b border-border">
+              <div>
+                <p className="text-sm font-semibold">Connected websites</p>
+                <p className="text-xs text-muted-foreground mt-0.5">{sites.length} configured</p>
+              </div>
+              {!adding && (
+                <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setAdding(true)}>
+                  <Plus className="w-3.5 h-3.5" />Add website
+                </Button>
+              )}
+            </div>
+
+            {isLoading && (
+              <div className="px-5 py-4 space-y-3">
+                {[1, 2].map((i) => <Skeleton key={i} className="h-12 rounded-lg" />)}
+              </div>
+            )}
+
+            {!isLoading && sites.length === 0 && !adding && (
+              <div className="px-5 py-8 text-center text-sm text-muted-foreground">
+                No websites configured. Add one to get started.
+              </div>
+            )}
+
+            {!isLoading && sites.map((site) => (
+              <div key={site.id} className="px-5 py-4 border-b border-border last:border-0">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Globe className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                      <span className="text-sm font-medium">{site.label}</span>
+                      <span className={`text-xs px-1.5 py-0.5 rounded ${site.enabled ? 'bg-green-500/10 text-green-500' : 'bg-muted text-muted-foreground'}`}>
+                        {site.enabled ? 'enabled' : 'disabled'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-muted-foreground font-mono">{site.websiteId}</p>
+                    {testResults[site.id] && (
+                      <span className={`flex items-center gap-1 text-xs mt-1 ${testResults[site.id].ok ? 'text-green-400' : 'text-red-400'}`}>
+                        {testResults[site.id].ok ? <CheckCircle2 className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
+                        {testResults[site.id].message}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <Button size="sm" variant="ghost" className="text-muted-foreground px-2"
+                      onClick={() => testSite(site.id)} disabled={testingId === site.id}>
+                      {testingId === site.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FlaskConical className="w-3.5 h-3.5" />}
+                    </Button>
+                    <Button size="sm" variant="ghost" className="text-muted-foreground px-2"
+                      onClick={() => toggleMutation.mutate({ id: site.id, enabled: !site.enabled })}>
+                      {site.enabled
+                        ? <ToggleRight className="w-4 h-4 text-green-500" />
+                        : <ToggleLeft className="w-4 h-4" />}
+                    </Button>
+                    <Button size="sm" variant="ghost" className="text-muted-foreground hover:text-destructive px-2"
+                      onClick={() => deleteMutation.mutate(site.id)}>
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ))}
+
+            {/* Add form */}
+            {adding && (
+              <div className="px-5 py-4 border-t border-border space-y-3">
+                <p className="text-sm font-medium">Add website</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs text-muted-foreground mb-1 block">Label</label>
+                    <Input placeholder="e.g. Taskip" value={form.label}
+                      onChange={(e) => setForm((f) => ({ ...f, label: e.target.value }))} className="text-sm" />
+                  </div>
+                  <div>
+                    <label className="text-xs text-muted-foreground mb-1 block">Website ID</label>
+                    <Input placeholder="from Crisp → Settings → Setup"
+                      value={form.websiteId}
+                      onChange={(e) => setForm((f) => ({ ...f, websiteId: e.target.value }))} className="text-sm" />
+                  </div>
+                  <div>
+                    <label className="text-xs text-muted-foreground mb-1 block">API Identifier</label>
+                    <Input placeholder="from Crisp → API Keys"
+                      value={form.identifier}
+                      onChange={(e) => setForm((f) => ({ ...f, identifier: e.target.value }))} className="text-sm" />
+                  </div>
+                  <div>
+                    <label className="text-xs text-muted-foreground mb-1 block">API Key</label>
+                    <div className="relative">
+                      <Input type={showKey ? 'text' : 'password'}
+                        placeholder="secret"
+                        value={form.apiKey}
+                        onChange={(e) => setForm((f) => ({ ...f, apiKey: e.target.value }))}
+                        className="text-sm pr-9" />
+                      <button type="button" onClick={() => setShowKey((v) => !v)}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                        {showKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <Button size="sm" onClick={() => addMutation.mutate()}
+                    disabled={!formValid || addMutation.isPending}>
+                    {addMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : <Save className="w-3.5 h-3.5 mr-1" />}
+                    Save
+                  </Button>
+                  <Button size="sm" variant="ghost"
+                    onClick={() => { setAdding(false); setForm({ label: '', websiteId: '', identifier: '', apiKey: '' }); }}>
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
-      }
-      docs={
-        <>
+      )}
+
+      {sub === 'docs' && (
+        <div className="rounded-xl border border-border bg-card p-5">
           <h2 className="text-sm font-semibold mb-4">Setup Guide</h2>
           <div className="space-y-4">
             <SetupStep n={1} title="Log in to Crisp and open your website">
@@ -449,26 +662,23 @@ function CrispTab({ rows, token }: { rows: SettingRow[]; token: string }) {
               <p>Settings → <strong>API Keys</strong> → create a new key pair.</p>
               <p>Copy both the <strong>Identifier</strong> (not secret) and the <strong>Key</strong> (secret).</p>
             </SetupStep>
-            <SetupStep n={4} title="Paste credentials in Settings">
-              <p>Set Website ID, API Identifier, and API Key. The agent uses basic auth (<code className="bg-muted px-1 rounded">identifier:key</code>).</p>
+            <SetupStep n={4} title="Add the website in Settings">
+              <p>Click <strong>Add website</strong>, fill in the label, Website ID, Identifier, and API Key.</p>
+              <p>Repeat for each Crisp website (e.g. Taskip, Xgenious).</p>
             </SetupStep>
             <SetupStep n={5} title="Add the webhook for real-time replies">
-              <p>Settings → <strong>Integrations</strong> → <strong>Webhooks</strong> → <strong>Add webhook</strong>.</p>
-              <p>Paste the Webhook URL shown above. Under events, enable <code className="bg-muted px-1 rounded">message:send</code>.</p>
-              <p>Save. The agent will now reply instantly when a customer sends a message instead of waiting for the 15-minute cron.</p>
+              <p>In Crisp → Settings → <strong>Integrations</strong> → <strong>Webhooks</strong> → <strong>Add webhook</strong>.</p>
+              <p>Paste the Webhook URL from Settings. Enable the <code className="bg-muted px-1 rounded">message:send</code> event.</p>
+              <p>The agent replies instantly instead of waiting for the 15-minute cron.</p>
             </SetupStep>
           </div>
-          <a
-            href="https://docs.crisp.chat/references/rest-api/v1/"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 text-xs text-primary hover:underline mt-4"
-          >
+          <a href="https://docs.crisp.chat/references/rest-api/v1/" target="_blank" rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 text-xs text-primary hover:underline mt-4">
             Crisp REST API docs <ExternalLink className="w-3 h-3" />
           </a>
-        </>
-      }
-    />
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -690,7 +900,7 @@ export default function IntegrationsPage() {
           {activeTab === 'whatsapp' && <WhatsAppTab rows={grouped['whatsapp'] ?? []} token={token} />}
           {activeTab === 'linkedin' && <LinkedInTab rows={grouped['linkedin'] ?? []} token={token} />}
           {activeTab === 'reddit' && <RedditTab rows={grouped['reddit'] ?? []} token={token} />}
-          {activeTab === 'crisp' && <CrispTab rows={grouped['crisp'] ?? []} token={token} />}
+          {activeTab === 'crisp' && <CrispTab token={token} />}
           {activeTab === 'telegram' && <TelegramTab rows={grouped['telegram'] ?? []} token={token} />}
           {activeTab === 'ses' && <SesTab rows={grouped['ses'] ?? []} token={token} />}
           {activeTab === 'gmail' && <GmailTab rows={grouped['gmail'] ?? []} token={token} />}

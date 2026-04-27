@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { eq, desc, lte, isNotNull, and } from 'drizzle-orm';
+import { eq, desc, lte, and } from 'drizzle-orm';
 import { DbService } from '../../db/db.service';
 import { AgentRuntimeService } from '../agents/runtime/agent-runtime.service';
 import { tasks } from '../../db/schema';
@@ -142,7 +142,6 @@ export class TasksService {
         and(
           lte(tasks.nextRunAt, now),
           eq(tasks.status, 'pending'),
-          isNotNull(tasks.recurrence),
         ),
       );
 

@@ -1,7 +1,11 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { eq } from 'drizzle-orm';
+import { DbService } from '../../../db/db.service';
 import { SettingsService } from '../../settings/settings.service';
+import { encrypt, decrypt, maskSecret } from '../../../common/crypto/crypto.util';
+import { crispWebsites } from './schema';
 
-interface CrispMessage {
+export interface CrispMessage {
   sessionId: string;
   websiteId: string;
   visitorEmail?: string;
@@ -10,75 +14,144 @@ interface CrispMessage {
   timestamp: number;
 }
 
+export interface CrispWebsiteRow {
+  id: string;
+  label: string;
+  websiteId: string;
+  identifier: string;
+  apiKeyMasked: string;
+  enabled: boolean;
+  createdAt: Date;
+}
+
+interface CrispCredentials {
+  websiteId: string;
+  identifier: string;
+  key: string;
+}
+
 @Injectable()
 export class CrispService {
   private readonly logger = new Logger(CrispService.name);
 
-  constructor(private settings: SettingsService) {}
+  constructor(
+    private db: DbService,
+    private settings: SettingsService,
+  ) {}
+
+  // ── Website CRUD ──────────────────────────────────────────────────────────
+
+  async listWebsites(): Promise<CrispWebsiteRow[]> {
+    const rows = await this.db.db
+      .select()
+      .from(crispWebsites)
+      .orderBy(crispWebsites.createdAt);
+    return rows.map((r) => ({
+      id: r.id,
+      label: r.label,
+      websiteId: r.websiteId,
+      identifier: r.identifier,
+      apiKeyMasked: maskSecret(decrypt(r.apiKey)),
+      enabled: r.enabled,
+      createdAt: r.createdAt,
+    }));
+  }
+
+  async addWebsite(dto: { label: string; websiteId: string; identifier: string; apiKey: string }) {
+    const [row] = await this.db.db
+      .insert(crispWebsites)
+      .values({
+        label: dto.label,
+        websiteId: dto.websiteId,
+        identifier: dto.identifier,
+        apiKey: encrypt(dto.apiKey),
+      })
+      .returning({ id: crispWebsites.id, label: crispWebsites.label, websiteId: crispWebsites.websiteId });
+    return row;
+  }
+
+  async updateWebsite(id: string, dto: { label?: string; enabled?: boolean }) {
+    const [existing] = await this.db.db.select().from(crispWebsites).where(eq(crispWebsites.id, id));
+    if (!existing) throw new NotFoundException(`Crisp website not found: ${id}`);
+    await this.db.db
+      .update(crispWebsites)
+      .set({ ...(dto.label !== undefined && { label: dto.label }), ...(dto.enabled !== undefined && { enabled: dto.enabled }) })
+      .where(eq(crispWebsites.id, id));
+  }
+
+  async deleteWebsite(id: string) {
+    await this.db.db.delete(crispWebsites).where(eq(crispWebsites.id, id));
+  }
+
+  async testWebsite(id: string): Promise<{ ok: boolean; message: string }> {
+    const creds = await this.getCredentialsById(id);
+    if (!creds) return { ok: false, message: 'Website not found' };
+    return this.callTest(creds);
+  }
+
+  // ── Credentials helpers ───────────────────────────────────────────────────
+
+  async getEnabledWebsites(): Promise<CrispCredentials[]> {
+    const rows = await this.db.db
+      .select()
+      .from(crispWebsites)
+      .where(eq(crispWebsites.enabled, true));
+
+    if (rows.length) {
+      return rows.map((r) => ({ websiteId: r.websiteId, identifier: r.identifier, key: decrypt(r.apiKey) }));
+    }
+
+    // Fall back to platform settings (single-site legacy)
+    const legacy = await this.getLegacyCredentials();
+    return legacy ? [legacy] : [];
+  }
+
+  async getCredentialsForWebsite(websiteId: string): Promise<CrispCredentials | null> {
+    const [row] = await this.db.db
+      .select()
+      .from(crispWebsites)
+      .where(eq(crispWebsites.websiteId, websiteId));
+
+    if (row) return { websiteId: row.websiteId, identifier: row.identifier, key: decrypt(row.apiKey) };
+
+    // Fall back to platform settings
+    const legacy = await this.getLegacyCredentials();
+    if (legacy && legacy.websiteId === websiteId) return legacy;
+    return null;
+  }
 
   async isConfigured(): Promise<boolean> {
-    const [id, key, websiteId] = await Promise.all([
-      this.settings.getDecrypted('crisp_api_identifier'),
-      this.settings.getDecrypted('crisp_api_key'),
-      this.settings.getDecrypted('crisp_website_id'),
-    ]);
-    return !!(id && key && websiteId);
+    const sites = await this.getEnabledWebsites();
+    return sites.length > 0;
   }
 
-  private async getCredentials() {
-    const [identifier, key, websiteId] = await Promise.all([
-      this.settings.getDecrypted('crisp_api_identifier'),
-      this.settings.getDecrypted('crisp_api_key'),
-      this.settings.getDecrypted('crisp_website_id'),
-    ]);
-    if (!identifier || !key || !websiteId) throw new Error('Crisp credentials not configured');
-    return { identifier, key, websiteId };
-  }
+  // ── Crisp API ─────────────────────────────────────────────────────────────
 
-  private authHeader(identifier: string, key: string): string {
-    return `Basic ${Buffer.from(`${identifier}:${key}`).toString('base64')}`;
-  }
+  async getOpenConversations(limitPerSite = 20): Promise<CrispMessage[]> {
+    const sites = await this.getEnabledWebsites();
+    const results: CrispMessage[] = [];
 
-  async getOpenConversations(limit = 20): Promise<CrispMessage[]> {
-    const { identifier, key, websiteId } = await this.getCredentials();
-
-    const res = await fetch(
-      `https://api.crisp.chat/v1/website/${websiteId}/conversations/1?filter_unread=1`,
-      { headers: { Authorization: this.authHeader(identifier, key), 'X-Crisp-Tier': 'plugin' } },
+    await Promise.all(
+      sites.map(async (creds) => {
+        try {
+          const msgs = await this.fetchOpenConversations(creds, limitPerSite);
+          results.push(...msgs);
+        } catch (err) {
+          this.logger.warn(`Failed to fetch conversations for site ${creds.websiteId}: ${err}`);
+        }
+      }),
     );
 
-    if (!res.ok) {
-      this.logger.warn(`Crisp API error: ${res.status} ${await res.text()}`);
-      return [];
-    }
-
-    const data = await res.json();
-    const conversations: CrispMessage[] = [];
-
-    for (const conv of (data.data ?? []).slice(0, limit)) {
-      const sessionId = conv.session_id;
-      const lastMsg = conv.last_message;
-      if (!lastMsg?.content) continue;
-
-      conversations.push({
-        sessionId,
-        websiteId,
-        visitorEmail: conv.meta?.email ?? undefined,
-        visitorNickname: conv.meta?.nickname ?? undefined,
-        content: typeof lastMsg.content === 'string' ? lastMsg.content : JSON.stringify(lastMsg.content),
-        timestamp: lastMsg.timestamp,
-      });
-    }
-
-    return conversations;
+    return results;
   }
 
-  async getSessionThread(sessionId: string, limit = 5): Promise<{ role: 'customer' | 'agent'; text: string }[]> {
+  async getSessionThread(sessionId: string, websiteId: string, limit = 5): Promise<{ role: 'customer' | 'agent'; text: string }[]> {
     try {
-      const { identifier, key, websiteId } = await this.getCredentials();
+      const creds = await this.getCredentialsForWebsite(websiteId);
+      if (!creds) return [];
       const res = await fetch(
         `https://api.crisp.chat/v1/website/${websiteId}/conversation/${sessionId}/messages/1`,
-        { headers: { Authorization: this.authHeader(identifier, key), 'X-Crisp-Tier': 'plugin' } },
+        { headers: { Authorization: this.authHeader(creds.identifier, creds.key), 'X-Crisp-Tier': 'plugin' } },
       );
       if (!res.ok) return [];
       const data = await res.json();
@@ -93,15 +166,16 @@ export class CrispService {
     }
   }
 
-  async sendReply(sessionId: string, message: string): Promise<void> {
-    const { identifier, key, websiteId } = await this.getCredentials();
+  async sendReply(sessionId: string, websiteId: string, message: string): Promise<void> {
+    const creds = await this.getCredentialsForWebsite(websiteId);
+    if (!creds) throw new Error(`No credentials for Crisp website: ${websiteId}`);
 
     const res = await fetch(
       `https://api.crisp.chat/v1/website/${websiteId}/conversation/${sessionId}/message`,
       {
         method: 'POST',
         headers: {
-          Authorization: this.authHeader(identifier, key),
+          Authorization: this.authHeader(creds.identifier, creds.key),
           'X-Crisp-Tier': 'plugin',
           'Content-Type': 'application/json',
         },
@@ -127,6 +201,74 @@ export class CrispService {
       };
     } catch {
       return null;
+    }
+  }
+
+  // ── Private helpers ───────────────────────────────────────────────────────
+
+  private authHeader(identifier: string, key: string): string {
+    return `Basic ${Buffer.from(`${identifier}:${key}`).toString('base64')}`;
+  }
+
+  private async fetchOpenConversations(creds: CrispCredentials, limit: number): Promise<CrispMessage[]> {
+    const res = await fetch(
+      `https://api.crisp.chat/v1/website/${creds.websiteId}/conversations/1?filter_unread=1`,
+      { headers: { Authorization: this.authHeader(creds.identifier, creds.key), 'X-Crisp-Tier': 'plugin' } },
+    );
+
+    if (!res.ok) {
+      this.logger.warn(`Crisp API error for ${creds.websiteId}: ${res.status} ${await res.text()}`);
+      return [];
+    }
+
+    const data = await res.json();
+    const conversations: CrispMessage[] = [];
+
+    for (const conv of (data.data ?? []).slice(0, limit)) {
+      const lastMsg = conv.last_message;
+      if (!lastMsg?.content) continue;
+      conversations.push({
+        sessionId: conv.session_id,
+        websiteId: creds.websiteId,
+        visitorEmail: conv.meta?.email ?? undefined,
+        visitorNickname: conv.meta?.nickname ?? undefined,
+        content: typeof lastMsg.content === 'string' ? lastMsg.content : JSON.stringify(lastMsg.content),
+        timestamp: lastMsg.timestamp,
+      });
+    }
+
+    return conversations;
+  }
+
+  private async getLegacyCredentials(): Promise<CrispCredentials | null> {
+    const [identifier, key, websiteId] = await Promise.all([
+      this.settings.getDecrypted('crisp_api_identifier'),
+      this.settings.getDecrypted('crisp_api_key'),
+      this.settings.getDecrypted('crisp_website_id'),
+    ]);
+    if (!identifier || !key || !websiteId) return null;
+    return { websiteId, identifier, key };
+  }
+
+  private async getCredentialsById(id: string): Promise<CrispCredentials | null> {
+    const [row] = await this.db.db.select().from(crispWebsites).where(eq(crispWebsites.id, id));
+    if (!row) return null;
+    return { websiteId: row.websiteId, identifier: row.identifier, key: decrypt(row.apiKey) };
+  }
+
+  private async callTest(creds: CrispCredentials): Promise<{ ok: boolean; message: string }> {
+    try {
+      const auth = this.authHeader(creds.identifier, creds.key);
+      const res = await fetch(`https://api.crisp.chat/v1/website/${creds.websiteId}`, {
+        headers: { Authorization: auth, 'X-Crisp-Tier': 'plugin' },
+        signal: AbortSignal.timeout(8000),
+      });
+      const data = await res.json() as any;
+      if (!res.ok) return { ok: false, message: data?.reason ?? `HTTP ${res.status}` };
+      const siteName = data?.data?.name ?? creds.websiteId;
+      return { ok: true, message: `Connected — ${siteName}` };
+    } catch (err) {
+      return { ok: false, message: err instanceof Error ? err.message : String(err) };
     }
   }
 }
