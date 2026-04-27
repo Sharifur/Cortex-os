@@ -7,6 +7,7 @@ import {
   Post,
   Query,
   UseGuards,
+  HttpCode,
 } from '@nestjs/common';
 import { AgentsService } from './agents.service';
 import { UpdateAgentDto } from './dto/update-agent.dto';
@@ -41,5 +42,19 @@ export class AgentsController {
   @Get(':key/runs')
   getRuns(@Param('key') key: string, @Query('limit') limit?: string) {
     return this.agents.getRuns(key, limit ? parseInt(limit) : 20);
+  }
+
+  @Get(':key/conversations/:convId')
+  getConversation(@Param('key') key: string, @Param('convId') convId: string) {
+    return this.agents.getConversation(key, convId);
+  }
+
+  @Post(':key/conversations/message')
+  @HttpCode(201)
+  saveMessage(
+    @Param('key') key: string,
+    @Body() body: { conversationId: string; role: string; content: string; runId?: string; requiresApproval?: boolean },
+  ) {
+    return this.agents.saveConversationMessage({ agentKey: key, ...body });
   }
 }

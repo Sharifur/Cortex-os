@@ -125,6 +125,17 @@ export const mcpServers = pgTable('mcp_servers', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
+export const agentConversations = pgTable('agent_conversations', {
+  id: text('id').primaryKey().$defaultFn(() => createId()),
+  agentKey: text('agent_key').notNull(),
+  conversationId: text('conversation_id').notNull(),
+  role: text('role').notNull(),          // 'user' | 'agent'
+  content: text('content').notNull(),
+  runId: text('run_id'),
+  requiresApproval: boolean('requires_approval').default(false).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
 export const promptTemplates = pgTable('prompt_templates', {
   id: text('id')
     .primaryKey()

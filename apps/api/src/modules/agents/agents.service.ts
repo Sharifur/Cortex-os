@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { eq, desc } from 'drizzle-orm';
+import { eq, desc, and } from 'drizzle-orm';
 import { DbService } from '../../db/db.service';
-import { agents, agentRuns } from '../../db/schema';
+import { agents, agentRuns, agentConversations } from '../../db/schema';
 import { AgentRuntimeService } from './runtime/agent-runtime.service';
 import { AgentRegistryService } from './runtime/agent-registry.service';
 import type { UpdateAgentDto } from './dto/update-agent.dto';
@@ -65,7 +65,42 @@ export class AgentsService {
   }
 
   async trigger(key: string, dto: TriggerAgentDto) {
-    return this.runtime.triggerAgent(key, dto.triggerType ?? 'MANUAL', dto.payload);
+    return this.runtime.triggerAgent(key, dto.triggerType ?? 'MANUAL', dto.payload, dto.delayMs);
+  }
+
+  async getConversation(agentKey: string, conversationId: string) {
+    return this.db.db
+      .select()
+      .from(agentConversations)
+      .where(
+        and(
+          eq(agentConversations.agentKey, agentKey),
+          eq(agentConversations.conversationId, conversationId),
+        ),
+      )
+      .orderBy(agentConversations.createdAt);
+  }
+
+  async saveConversationMessage(data: {
+    agentKey: string;
+    conversationId: string;
+    role: string;
+    content: string;
+    runId?: string;
+    requiresApproval?: boolean;
+  }) {
+    const [row] = await this.db.db
+      .insert(agentConversations)
+      .values({
+        agentKey: data.agentKey,
+        conversationId: data.conversationId,
+        role: data.role,
+        content: data.content,
+        runId: data.runId ?? null,
+        requiresApproval: data.requiresApproval ?? false,
+      })
+      .returning();
+    return row;
   }
 
   async getRuns(key: string, limit = 20) {

@@ -1,9 +1,10 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useNavigate } from 'react-router-dom';
-import { Bot, Play, ToggleLeft, ToggleRight } from 'lucide-react';
+import { useNavigate, Link } from 'react-router-dom';
+import { Bot, Play, ToggleLeft, ToggleRight, MessageSquare } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAuthStore } from '@/stores/authStore';
+import { agentColor } from '@/lib/agent-colors';
 
 function AgentRowSkeleton() {
   return (
@@ -66,10 +67,12 @@ function AgentRow({ agent, token }: { agent: Agent; token: string }) {
     onSuccess: (run: { id: string }) => navigate(`/runs/${run.id}`),
   });
 
+  const color = agentColor(agent.key);
+
   return (
     <div className="flex items-center gap-4 px-5 py-4 hover:bg-accent/30 transition-colors">
-      <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-        <Bot className="w-4 h-4 text-primary" />
+      <div className={`w-8 h-8 rounded-lg ${color.iconBg} flex items-center justify-center shrink-0`}>
+        <Bot className={`w-4 h-4 ${color.iconText}`} />
       </div>
 
       <div className="flex-1 min-w-0">
@@ -80,9 +83,12 @@ function AgentRow({ agent, token }: { agent: Agent; token: string }) {
           >
             {agent.name}
           </button>
-          <code className="text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded">{agent.key}</code>
+          <code className={`text-xs px-1.5 py-0.5 rounded ${color.badge} ${color.badgeText}`}>{agent.key}</code>
           {!agent.registered && (
             <span className="text-xs bg-yellow-500/10 text-yellow-500 px-1.5 py-0.5 rounded">unregistered</span>
+          )}
+          {!agent.enabled && (
+            <span className="text-xs bg-muted text-muted-foreground px-1.5 py-0.5 rounded">disabled</span>
           )}
         </div>
         {agent.description && (
@@ -91,6 +97,14 @@ function AgentRow({ agent, token }: { agent: Agent; token: string }) {
       </div>
 
       <div className="flex items-center gap-2 shrink-0">
+        <Link
+          to={`/agents/${agent.key}/chat`}
+          className={`flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg border transition-colors ${color.border} ${color.badgeText} hover:${color.iconBg}`}
+        >
+          <MessageSquare className="w-3 h-3" />
+          Chat
+        </Link>
+
         <Button
           size="sm"
           variant="outline"
@@ -99,7 +113,7 @@ function AgentRow({ agent, token }: { agent: Agent; token: string }) {
           disabled={!agent.enabled || !agent.registered || triggerMutation.isPending}
         >
           <Play className="w-3 h-3" />
-          {triggerMutation.isPending ? 'Starting…' : 'Run now'}
+          {triggerMutation.isPending ? 'Starting…' : 'Run'}
         </Button>
 
         <button
@@ -109,10 +123,9 @@ function AgentRow({ agent, token }: { agent: Agent; token: string }) {
           title={agent.enabled ? 'Disable' : 'Enable'}
         >
           {agent.enabled
-            ? <ToggleRight className="w-6 h-6 text-primary" />
+            ? <ToggleRight className={`w-6 h-6 ${color.iconText}`} />
             : <ToggleLeft className="w-6 h-6" />}
         </button>
-
       </div>
     </div>
   );

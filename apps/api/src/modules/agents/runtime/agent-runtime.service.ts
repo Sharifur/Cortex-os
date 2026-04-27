@@ -20,6 +20,7 @@ export class AgentRuntimeService {
     agentKey: string,
     triggerType: TriggerType,
     payload?: unknown,
+    delayMs?: number,
   ) {
     const agent = this.registry.get(agentKey);
     if (!agent) throw new NotFoundException(`Agent not found: ${agentKey}`);
@@ -50,7 +51,11 @@ export class AgentRuntimeService {
     await this.agentRunQueue.add(
       'run',
       { agentKey, runId: run.id } satisfies AgentRunJobData,
-      { attempts: 3, backoff: { type: 'exponential', delay: 60_000 } },
+      {
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 60_000 },
+        ...(delayMs && delayMs > 0 ? { delay: delayMs } : {}),
+      },
     );
 
     return run;

@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAuthStore } from '@/stores/authStore';
+import { agentColor } from '@/lib/agent-colors';
 
 interface AgentDetail {
   id: string;
@@ -1447,7 +1448,6 @@ function EmailManagerSettingsTab({ agent, token }: { agent: AgentDetail; token: 
 
 const TASKIP_INTERNAL_TABS = [
   { key: 'setup', label: 'Setup', icon: BookOpen },
-  { key: 'ask', label: 'Ask', icon: MessageSquare },
   { key: 'llm', label: 'LLM', icon: Cpu },
   { key: 'runtime', label: 'Runtime', icon: List },
 ] as const;
@@ -1683,9 +1683,6 @@ function TaskipInternalSettingsTab({ agent, token }: { agent: AgentDetail; token
       </div>
 
       {activeSub === 'setup' && <TaskipInternalSetupSubTab agent={agent} />}
-      {activeSub === 'ask' && (
-        <TaskipInternalAskSubTab agent={agent} config={config} token={token} />
-      )}
       {activeSub === 'llm' && (
         <TaskipInternalLlmSubTab agent={agent} config={config} onChange={handleChange} token={token} />
       )}
@@ -1863,6 +1860,7 @@ export default function AgentDetailPage() {
   const { key } = useParams<{ key: string }>();
   const token = useAuthStore((s) => s.token)!;
   const [activeTab, setActiveTab] = useState<'runs' | 'settings'>('runs');
+  const color = agentColor(key!);
 
   const { data: agent, isLoading, isError } = useQuery<AgentDetail>({
     queryKey: ['agent', key],
@@ -1892,13 +1890,13 @@ export default function AgentDetailPage() {
       {agent && (
         <>
           <div className="flex items-center gap-3 mb-6">
-            <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
-              <Bot className="w-5 h-5 text-primary" />
+            <div className={`w-10 h-10 rounded-xl ${color.iconBg} flex items-center justify-center shrink-0`}>
+              <Bot className={`w-5 h-5 ${color.iconText}`} />
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 mb-0.5">
                 <h1 className="text-xl font-semibold">{agent.name}</h1>
-                <code className="text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded">{agent.key}</code>
+                <code className={`text-xs px-1.5 py-0.5 rounded ${color.badge} ${color.badgeText}`}>{agent.key}</code>
                 {!agent.registered && (
                   <span className="text-xs bg-yellow-500/10 text-yellow-500 px-1.5 py-0.5 rounded">unregistered</span>
                 )}
@@ -1911,6 +1909,13 @@ export default function AgentDetailPage() {
                 <p className="text-sm text-muted-foreground">{agent.description}</p>
               )}
             </div>
+            <Link
+              to={`/agents/${agent.key}/chat`}
+              className={`flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg border transition-colors shrink-0 ${color.border} ${color.badgeText} hover:${color.iconBg}`}
+            >
+              <MessageSquare className="w-3.5 h-3.5" />
+              Chat
+            </Link>
           </div>
 
           <div className="flex items-center gap-1 border-b border-border mb-6">

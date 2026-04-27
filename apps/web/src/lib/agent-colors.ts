@@ -1,0 +1,138 @@
+export interface AgentColor {
+  iconBg: string;
+  iconText: string;
+  border: string;
+  bubble: string;
+  dot: string;
+  badge: string;
+  badgeText: string;
+  tabActive: string;
+}
+
+const PALETTE: Record<string, AgentColor> = {
+  taskip_trial: {
+    iconBg: 'bg-blue-500/15',
+    iconText: 'text-blue-400',
+    border: 'border-blue-500/30',
+    bubble: 'bg-blue-500/10',
+    dot: 'bg-blue-400',
+    badge: 'bg-blue-500/15',
+    badgeText: 'text-blue-400',
+    tabActive: 'border-blue-400 text-blue-400',
+  },
+  daily_reminder: {
+    iconBg: 'bg-amber-500/15',
+    iconText: 'text-amber-400',
+    border: 'border-amber-500/30',
+    bubble: 'bg-amber-500/10',
+    dot: 'bg-amber-400',
+    badge: 'bg-amber-500/15',
+    badgeText: 'text-amber-400',
+    tabActive: 'border-amber-400 text-amber-400',
+  },
+  email_manager: {
+    iconBg: 'bg-emerald-500/15',
+    iconText: 'text-emerald-400',
+    border: 'border-emerald-500/30',
+    bubble: 'bg-emerald-500/10',
+    dot: 'bg-emerald-400',
+    badge: 'bg-emerald-500/15',
+    badgeText: 'text-emerald-400',
+    tabActive: 'border-emerald-400 text-emerald-400',
+  },
+  taskip_internal: {
+    iconBg: 'bg-violet-500/15',
+    iconText: 'text-violet-400',
+    border: 'border-violet-500/30',
+    bubble: 'bg-violet-500/10',
+    dot: 'bg-violet-400',
+    badge: 'bg-violet-500/15',
+    badgeText: 'text-violet-400',
+    tabActive: 'border-violet-400 text-violet-400',
+  },
+  support: {
+    iconBg: 'bg-rose-500/15',
+    iconText: 'text-rose-400',
+    border: 'border-rose-500/30',
+    bubble: 'bg-rose-500/10',
+    dot: 'bg-rose-400',
+    badge: 'bg-rose-500/15',
+    badgeText: 'text-rose-400',
+    tabActive: 'border-rose-400 text-rose-400',
+  },
+  whatsapp: {
+    iconBg: 'bg-green-500/15',
+    iconText: 'text-green-400',
+    border: 'border-green-500/30',
+    bubble: 'bg-green-500/10',
+    dot: 'bg-green-400',
+    badge: 'bg-green-500/15',
+    badgeText: 'text-green-400',
+    tabActive: 'border-green-400 text-green-400',
+  },
+  linkedin: {
+    iconBg: 'bg-sky-500/15',
+    iconText: 'text-sky-400',
+    border: 'border-sky-500/30',
+    bubble: 'bg-sky-500/10',
+    dot: 'bg-sky-400',
+    badge: 'bg-sky-500/15',
+    badgeText: 'text-sky-400',
+    tabActive: 'border-sky-400 text-sky-400',
+  },
+  reddit: {
+    iconBg: 'bg-orange-500/15',
+    iconText: 'text-orange-400',
+    border: 'border-orange-500/30',
+    bubble: 'bg-orange-500/10',
+    dot: 'bg-orange-400',
+    badge: 'bg-orange-500/15',
+    badgeText: 'text-orange-400',
+    tabActive: 'border-orange-400 text-orange-400',
+  },
+  hr: {
+    iconBg: 'bg-pink-500/15',
+    iconText: 'text-pink-400',
+    border: 'border-pink-500/30',
+    bubble: 'bg-pink-500/10',
+    dot: 'bg-pink-400',
+    badge: 'bg-pink-500/15',
+    badgeText: 'text-pink-400',
+    tabActive: 'border-pink-400 text-pink-400',
+  },
+  social: {
+    iconBg: 'bg-purple-500/15',
+    iconText: 'text-purple-400',
+    border: 'border-purple-500/30',
+    bubble: 'bg-purple-500/10',
+    dot: 'bg-purple-400',
+    badge: 'bg-purple-500/15',
+    badgeText: 'text-purple-400',
+    tabActive: 'border-purple-400 text-purple-400',
+  },
+  canva: {
+    iconBg: 'bg-teal-500/15',
+    iconText: 'text-teal-400',
+    border: 'border-teal-500/30',
+    bubble: 'bg-teal-500/10',
+    dot: 'bg-teal-400',
+    badge: 'bg-teal-500/15',
+    badgeText: 'text-teal-400',
+    tabActive: 'border-teal-400 text-teal-400',
+  },
+};
+
+const DEFAULT: AgentColor = {
+  iconBg: 'bg-primary/15',
+  iconText: 'text-primary',
+  border: 'border-primary/30',
+  bubble: 'bg-primary/10',
+  dot: 'bg-primary',
+  badge: 'bg-primary/15',
+  badgeText: 'text-primary',
+  tabActive: 'border-primary text-primary',
+};
+
+export function agentColor(key: string): AgentColor {
+  return PALETTE[key] ?? DEFAULT;
+}
