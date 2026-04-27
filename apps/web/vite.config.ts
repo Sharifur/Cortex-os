@@ -2,7 +2,10 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 
-const API_PATHS = ['/auth', '/agents', '/runs', '/approvals', '/health', '/metrics', '/settings'];
+const API_PATHS = [
+  '/auth', '/agents', '/runs', '/approvals', '/health', '/metrics',
+  '/settings', '/integrations', '/dashboard', '/mcp', '/knowledge-base', '/tasks',
+];
 
 export default defineConfig({
   plugins: [react()],
