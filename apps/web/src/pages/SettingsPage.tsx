@@ -252,10 +252,17 @@ function DefaultProviderSelector({ current, token }: { current: string; token: s
   );
 }
 
+const DEEPSEEK_TEXT_MODELS = [
+  { label: 'DeepSeek-V4-Pro', value: 'deepseek-v4-pro' },
+  { label: 'DeepSeek-V4-Flash', value: 'deepseek-v4-flash' },
+  { label: 'DeepSeek-V3.2', value: 'deepseek-v3.2' },
+];
+
 const MODEL_SELECT_KEYS: Record<string, { label: string; value: string }[]> = {
   openai_default_model: OPENAI_TEXT_MODELS,
   openai_embedding_model: OPENAI_EMBEDDING_MODELS,
   gemini_default_model: GEMINI_TEXT_MODELS,
+  deepseek_default_model: DEEPSEEK_TEXT_MODELS,
 };
 
 function LlmTab({ rows, token }: { rows: SettingRow[]; token: string }) {
