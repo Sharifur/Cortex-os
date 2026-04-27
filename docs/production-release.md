@@ -2,21 +2,24 @@
 
 ## 1. Infrastructure services
 
-All managed by Coolify. Provision these before deploying the apps.
+### Coolify one-click services
+
+Provision these from Coolify → Services before deploying the apps.
 
 | Service | Version | Purpose |
 |---|---|---|
 | PostgreSQL | 16 | Primary database — agents, runs, approvals, settings, tasks |
 | Redis | 7 | BullMQ job queues, KB cache (5-min TTL) |
-| MinIO | latest | File storage for knowledge base ingestion (PDFs, DOCX) |
+| Uptime Kuma | latest | Ping `/health` every 60s for uptime monitoring |
+| Grafana | latest | Dashboard over Prometheus metrics |
 
-Optional monitoring stack:
+### External service
 
 | Service | Purpose |
 |---|---|
-| Uptime Kuma | Ping `/health` every 60s |
-| Prometheus | Scrape `/metrics` |
-| Grafana | Dashboard over Prometheus |
+| Cloudflare R2 | S3-compatible object storage for knowledge base file ingestion (PDFs, DOCX). Free tier: 10GB storage, no egress fees. |
+
+Create a bucket named `cortex` (or your preferred name) in Cloudflare Dashboard → R2, then generate an R2 API token with Object Read & Write permissions.
 
 ---
 
@@ -57,16 +60,18 @@ Set these in Coolify for the `api` and `worker` apps (both use the same image).
 | `OWNER_EMAIL` | yes | Login email for the web UI |
 | `OWNER_PASSWORD` | yes | Login password for the web UI |
 
-### MinIO
+### Cloudflare R2 (object storage)
 
-| Variable | Required | Notes |
+The app uses the MinIO client which is S3-compatible — point it at R2 with these values.
+
+| Variable | Required | Value for R2 |
 |---|---|---|
-| `MINIO_ENDPOINT` | yes | Hostname only, e.g. `minio.yourdomain.com` |
-| `MINIO_PORT` | no | `9000` (default) |
-| `MINIO_USE_SSL` | no | `true` if behind HTTPS |
-| `MINIO_ACCESS_KEY` | yes | MinIO root user or access key |
-| `MINIO_SECRET_KEY` | yes | MinIO root password or secret key |
-| `MINIO_BUCKET` | yes | e.g. `cortex` — create this bucket before first run |
+| `MINIO_ENDPOINT` | yes | `<account-id>.r2.cloudflarestorage.com` — find Account ID in Cloudflare Dashboard → R2 |
+| `MINIO_PORT` | yes | `443` |
+| `MINIO_USE_SSL` | yes | `true` |
+| `MINIO_ACCESS_KEY` | yes | R2 API token Access Key ID |
+| `MINIO_SECRET_KEY` | yes | R2 API token Secret Access Key |
+| `MINIO_BUCKET` | yes | Bucket name, e.g. `cortex` |
 
 ### Telegram
 
@@ -107,7 +112,8 @@ The LLM router falls back in order: OpenAI → Gemini → DeepSeek. Configure at
 
 ## 4. Coolify deployment steps
 
-1. **Create the three infrastructure services** (Postgres 16, Redis 7, MinIO) and note their internal hostnames.
+1. **Create Coolify services** — PostgreSQL 16, Redis 7, Uptime Kuma, Grafana. Note the internal hostnames Coolify assigns to Postgres and Redis.
+   **Create the R2 bucket** in Cloudflare Dashboard → R2 and generate an API token.
 
 2. **Add a new application** from the GitHub repo for each of the three apps.
 
