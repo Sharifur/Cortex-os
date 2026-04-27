@@ -82,8 +82,8 @@ export class DashboardService {
       failedRuns24h: failedRuns24hRow[0].n,
       totalAgents: totalAgentsRow[0].n,
       enabledAgents: enabledAgentsRow[0].n,
-      statusBreakdown: statusBreakdown as { status: string; n: number }[],
-      topAgents: topAgents as { key: string; name: string; runs: number; failures: number }[],
+      statusBreakdown: statusBreakdown as unknown as { status: string; n: number }[],
+      topAgents: topAgents as unknown as { key: string; name: string; runs: number; failures: number }[],
       recentRuns,
     };
   }

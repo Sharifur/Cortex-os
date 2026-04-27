@@ -66,9 +66,7 @@ export class HealthController {
           accessKey: minioKey,
           secretKey: minioSecret,
         });
-        await new Promise<void>((resolve, reject) => {
-          client.listBuckets((err) => (err ? reject(err) : resolve()));
-        });
+        await client.listBuckets();
         checks.minio = { status: 'ok' };
       } catch (err) {
         checks.minio = { status: 'error', message: err instanceof Error ? err.message : String(err) };
