@@ -3,11 +3,12 @@ import { AgentsModule } from '../agents.module';
 import { LlmModule } from '../../llm/llm.module';
 import { TelegramModule } from '../../telegram/telegram.module';
 import { SettingsModule } from '../../settings/settings.module';
+import { KnowledgeBaseModule } from '../../knowledge-base/knowledge-base.module';
 import { CrispAgent } from './agent';
 import { CrispService } from './crisp.service';
 
 @Module({
-  imports: [AgentsModule, LlmModule, TelegramModule, SettingsModule],
+  imports: [AgentsModule, LlmModule, TelegramModule, SettingsModule, KnowledgeBaseModule],
   providers: [CrispService, CrispAgent],
   exports: [CrispService, CrispAgent],
 })

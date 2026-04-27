@@ -6,6 +6,7 @@ import { socialPosts, socialEngagements } from './schema';
 import { AgentRegistryService } from '../runtime/agent-registry.service';
 import { LlmRouterService } from '../../llm/llm-router.service';
 import { TelegramService } from '../../telegram/telegram.service';
+import { KnowledgeBaseService } from '../../knowledge-base/knowledge-base.service';
 import type {
   IAgent,
   TriggerSpec,
@@ -49,6 +50,7 @@ export class SocialAgent implements IAgent, OnModuleInit {
     private llm: LlmRouterService,
     private telegram: TelegramService,
     private registry: AgentRegistryService,
+    private kb: KnowledgeBaseService,
   ) {}
 
   onModuleInit() {
@@ -85,6 +87,14 @@ export class SocialAgent implements IAgent, OnModuleInit {
     const { duePosts, pendingEngagements, config } = ctx.snapshot as SocialSnapshot;
     const actions: ProposedAction[] = [];
 
+    const [alwaysOn, samples, blocklist, rejections] = await Promise.all([
+      this.kb.getAlwaysOnContext(this.key),
+      this.kb.getWritingSamples(this.key),
+      this.kb.getBlocklistRules(this.key),
+      this.kb.getRecentRejections(this.key, 3),
+    ]);
+    const template = await this.kb.getPromptTemplate(this.key);
+
     for (const post of duePosts) {
       actions.push({
         type: 'publish_post',
@@ -96,11 +106,22 @@ export class SocialAgent implements IAgent, OnModuleInit {
 
     for (const eng of pendingEngagements) {
       try {
+        const references = await this.kb.searchEntries(eng.body ?? '', this.key, 3);
+        const kbBlock = this.kb.buildKbPromptBlock({
+          voiceProfile: alwaysOn.find(e => e.entryType === 'voice_profile') ?? null,
+          facts: alwaysOn.filter(e => e.entryType === 'fact'),
+          references,
+          positiveSamples: samples.filter(s => s.polarity === 'positive'),
+          negativeSamples: samples.filter(s => s.polarity === 'negative'),
+          rejections,
+        });
+        const defaultSystem = `You are a social media manager. Tone: ${config.replyTone}. Write a 1-2 sentence reply to this ${eng.type}. Just the reply text.`;
+
         const response = await this.llm.complete({
           messages: [
             {
               role: 'system',
-              content: `You are a social media manager. Tone: ${config.replyTone}. Write a 1-2 sentence reply to this ${eng.type}. Just the reply text.`,
+              content: (template?.system ?? defaultSystem) + kbBlock,
             },
             {
               role: 'user',

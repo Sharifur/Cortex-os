@@ -29,6 +29,8 @@ import { CrispModule } from './modules/agents/crisp/crisp.module';
 import { HrModule } from './modules/agents/hr/hr.module';
 import { SocialModule } from './modules/agents/social/social.module';
 import { CanvaModule } from './modules/agents/canva/canva.module';
+import { ShortsModule } from './modules/agents/shorts/shorts.module';
+import { KnowledgeBaseModule } from './modules/knowledge-base/knowledge-base.module';
 
 @Module({
   imports: [
@@ -77,6 +79,8 @@ import { CanvaModule } from './modules/agents/canva/canva.module';
     HrModule,
     SocialModule,
     CanvaModule,
+    ShortsModule,
+    KnowledgeBaseModule,
   ],
 })
 export class AppModule {}

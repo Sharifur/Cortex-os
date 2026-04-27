@@ -6,6 +6,7 @@ import { AgentRegistryService } from '../runtime/agent-registry.service';
 import { LlmRouterService } from '../../llm/llm-router.service';
 import { TelegramService } from '../../telegram/telegram.service';
 import { GmailService } from '../../gmail/gmail.service';
+import { KnowledgeBaseService } from '../../knowledge-base/knowledge-base.service';
 import type {
   IAgent,
   TriggerSpec,
@@ -64,6 +65,7 @@ export class EmailManagerAgent implements IAgent, OnModuleInit {
     private telegram: TelegramService,
     private gmail: GmailService,
     private registry: AgentRegistryService,
+    private kb: KnowledgeBaseService,
   ) {}
 
   onModuleInit() {
@@ -123,6 +125,14 @@ export class EmailManagerAgent implements IAgent, OnModuleInit {
     const { newMessages, config } = snapshot;
     const actions: ProposedAction[] = [];
 
+    const [alwaysOn, samples, blocklist, rejections] = await Promise.all([
+      this.kb.getAlwaysOnContext(this.key),
+      this.kb.getWritingSamples(this.key),
+      this.kb.getBlocklistRules(this.key),
+      this.kb.getRecentRejections(this.key, 3),
+    ]);
+    const template = await this.kb.getPromptTemplate(this.key);
+
     for (const msg of newMessages) {
       const classification = await this.classify(msg, config);
 
@@ -145,7 +155,16 @@ export class EmailManagerAgent implements IAgent, OnModuleInit {
           riskLevel: 'low',
         });
       } else if (classification === 'must-reply') {
-        const draft = await this.draftReply(msg, config);
+        const references = await this.kb.searchEntries(`${msg.subject} ${msg.snippet}`, this.key, 5);
+        const kbBlock = this.kb.buildKbPromptBlock({
+          voiceProfile: alwaysOn.find(e => e.entryType === 'voice_profile') ?? null,
+          facts: alwaysOn.filter(e => e.entryType === 'fact'),
+          references,
+          positiveSamples: samples.filter(s => s.polarity === 'positive'),
+          negativeSamples: samples.filter(s => s.polarity === 'negative'),
+          rejections,
+        });
+        const draft = await this.draftReply(msg, config, template?.system, kbBlock);
 
         await this.db.db
           .update(emailItems)
@@ -387,12 +406,14 @@ export class EmailManagerAgent implements IAgent, OnModuleInit {
   private async draftReply(
     msg: { from: string; subject: string; snippet: string; body: string },
     config: EmailManagerConfig,
+    customSystem?: string,
+    kbBlock = '',
   ): Promise<string> {
     const res = await this.llm.complete({
       provider: config.llm.provider as 'openai' | 'gemini' | 'deepseek' | 'auto',
       model: config.llm.model,
       messages: [
-        { role: 'system', content: DRAFT_SYSTEM },
+        { role: 'system', content: (customSystem ?? DRAFT_SYSTEM) + kbBlock },
         {
           role: 'user',
           content: `From: ${msg.from}\nSubject: ${msg.subject}\n\n${msg.body || msg.snippet}`,

@@ -7,6 +7,7 @@ import { LinkedInService } from './linkedin.service';
 import { AgentRegistryService } from '../runtime/agent-registry.service';
 import { LlmRouterService } from '../../llm/llm-router.service';
 import { TelegramService } from '../../telegram/telegram.service';
+import { KnowledgeBaseService } from '../../knowledge-base/knowledge-base.service';
 import type {
   IAgent,
   TriggerSpec,
@@ -50,6 +51,7 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
     private telegram: TelegramService,
     private li: LinkedInService,
     private registry: AgentRegistryService,
+    private kb: KnowledgeBaseService,
   ) {}
 
   onModuleInit() {
@@ -80,15 +82,34 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
 
     if (!relevant.length) return [{ type: 'noop', summary: 'No relevant posts to engage with.', payload: {}, riskLevel: 'low' }];
 
+    const [alwaysOn, samples, blocklist, rejections] = await Promise.all([
+      this.kb.getAlwaysOnContext(this.key),
+      this.kb.getWritingSamples(this.key),
+      this.kb.getBlocklistRules(this.key),
+      this.kb.getRecentRejections(this.key, 3),
+    ]);
+    const template = await this.kb.getPromptTemplate(this.key);
+
     const actions: ProposedAction[] = [];
 
     for (const post of relevant) {
       try {
+        const references = await this.kb.searchEntries(post.content?.slice(0, 300) ?? '', this.key, 3);
+        const kbBlock = this.kb.buildKbPromptBlock({
+          voiceProfile: alwaysOn.find(e => e.entryType === 'voice_profile') ?? null,
+          facts: alwaysOn.filter(e => e.entryType === 'fact'),
+          references,
+          positiveSamples: samples.filter(s => s.polarity === 'positive'),
+          negativeSamples: samples.filter(s => s.polarity === 'negative'),
+          rejections,
+        });
+        const defaultSystem = `You are writing a LinkedIn comment. Tone: ${config.commentTone}. Write 1-2 sentences max. No emojis. No self-promotion. Respond with just the comment text.`;
+
         const response = await this.llm.complete({
           messages: [
             {
               role: 'system',
-              content: `You are writing a LinkedIn comment. Tone: ${config.commentTone}. Write 1-2 sentences max. No emojis. No self-promotion. Respond with just the comment text.`,
+              content: (template?.system ?? defaultSystem) + kbBlock,
             },
             {
               role: 'user',

@@ -1825,6 +1825,8 @@ function SettingsTab({ agent, token }: { agent: AgentDetail; token: string }) {
     } />
   );
 
+  if (agent.key === 'shorts') return <ShortsSettingsTab agent={agent} token={token} />;
+
   if (agent.key === 'crisp') return (
     <Phase4SettingsTab agent={agent} token={token} setupContent={
       <Phase4SetupSubTab
@@ -2089,6 +2091,218 @@ function Phase4GeneralSubTab({ agent, token }: { agent: AgentDetail; token: stri
         </Button>
         {!agent.registered && <p className="text-xs text-yellow-500 mt-2">Agent is not registered.</p>}
       </div>
+    </div>
+  );
+}
+
+// ─── Shorts Settings Tab ──────────────────────────────────────────────────────
+
+const SHORTS_SUBTABS = [
+  { key: 'setup', label: 'Setup', icon: BookOpen },
+  { key: 'general', label: 'General', icon: Settings },
+  { key: 'scripts', label: 'Scripts', icon: List },
+] as const;
+type ShortsSubTabKey = typeof SHORTS_SUBTABS[number]['key'];
+
+function ShortsScriptsSubTab({ token }: { token: string }) {
+  const qc = useQueryClient();
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [canvaInputs, setCanvaInputs] = useState<Record<string, { designId: string; designUrl: string }>>({});
+
+  const { data: scripts = [], isLoading } = useQuery<any[]>({
+    queryKey: ['shorts-scripts'],
+    queryFn: () => apiFetch(token, '/shorts/scripts'),
+  });
+
+  const linkCanvaMut = useMutation({
+    mutationFn: ({ id, canvaDesignId, canvaDesignUrl }: { id: string; canvaDesignId: string; canvaDesignUrl: string }) =>
+      apiFetch(token, `/shorts/scripts/${id}/canva`, {
+        method: 'PATCH',
+        body: JSON.stringify({ id, canvaDesignId, canvaDesignUrl }),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['shorts-scripts'] }),
+  });
+
+  const publishMut = useMutation({
+    mutationFn: (id: string) =>
+      apiFetch(token, `/shorts/scripts/${id}/publish`, {
+        method: 'PATCH',
+        body: JSON.stringify({ id }),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['shorts-scripts'] }),
+  });
+
+  const STATUS_CLS: Record<string, string> = {
+    draft: 'bg-muted text-muted-foreground',
+    approved: 'bg-green-500/15 text-green-400',
+    in_production: 'bg-blue-500/15 text-blue-400',
+    published: 'bg-purple-500/15 text-purple-400',
+  };
+
+  if (isLoading) return <p className="text-sm text-muted-foreground py-8 text-center">Loading scripts...</p>;
+  if (!scripts.length) return (
+    <div className="rounded-xl border border-border bg-card p-8 text-center">
+      <p className="text-sm text-muted-foreground">No scripts yet.</p>
+      <p className="text-xs text-muted-foreground mt-1">Trigger the agent manually from the General tab to generate your first batch.</p>
+    </div>
+  );
+
+  return (
+    <div className="space-y-3">
+      {scripts.map((script: any) => {
+        const isOpen = expanded === script.id;
+        const input = canvaInputs[script.id] ?? { designId: script.canvaDesignId ?? '', designUrl: script.canvaDesignUrl ?? '' };
+        return (
+          <div key={script.id} className="rounded-xl border border-border bg-card overflow-hidden">
+            <div
+              className="px-5 py-4 flex items-center gap-3 cursor-pointer hover:bg-muted/20 transition-colors"
+              onClick={() => setExpanded(isOpen ? null : script.id)}
+            >
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-0.5">
+                  <p className="text-sm font-medium truncate">{script.title}</p>
+                  <span className={`text-xs px-1.5 py-0.5 rounded-full shrink-0 ${STATUS_CLS[script.status] ?? STATUS_CLS.draft}`}>
+                    {script.status}
+                  </span>
+                </div>
+                <p className="text-xs text-muted-foreground">{script.brand} · {script.topic} · {script.durationSecs}s</p>
+              </div>
+              <ChevronRight className={`w-4 h-4 text-muted-foreground shrink-0 transition-transform ${isOpen ? 'rotate-90' : ''}`} />
+            </div>
+
+            {isOpen && (
+              <div className="border-t border-border px-5 py-4 space-y-4">
+                <div>
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Hook</p>
+                  <p className="text-sm">{script.hook}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Voiceover Script</p>
+                  <p className="text-sm whitespace-pre-wrap leading-relaxed">{script.voiceover}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Visual Brief</p>
+                  <p className="text-sm whitespace-pre-wrap text-muted-foreground">{script.visualBrief}</p>
+                </div>
+
+                <div className="border-t border-border pt-4">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Canva Design</p>
+                  {script.canvaDesignUrl ? (
+                    <div className="flex items-center gap-3 mb-2">
+                      <a
+                        href={script.canvaDesignUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm text-primary underline underline-offset-2 truncate"
+                      >
+                        {script.canvaDesignUrl}
+                      </a>
+                      <span className="text-xs text-green-400 shrink-0">Linked</span>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground mb-2">No Canva design linked yet.</p>
+                  )}
+                  <div className="grid grid-cols-2 gap-2">
+                    <input
+                      className="bg-background border border-border rounded-lg px-3 py-1.5 text-xs focus:outline-none"
+                      placeholder="Canva design ID"
+                      value={input.designId}
+                      onChange={e => setCanvaInputs(prev => ({ ...prev, [script.id]: { ...input, designId: e.target.value } }))}
+                    />
+                    <input
+                      className="bg-background border border-border rounded-lg px-3 py-1.5 text-xs focus:outline-none"
+                      placeholder="Canva design URL"
+                      value={input.designUrl}
+                      onChange={e => setCanvaInputs(prev => ({ ...prev, [script.id]: { ...input, designUrl: e.target.value } }))}
+                    />
+                  </div>
+                  <div className="flex items-center gap-2 mt-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => linkCanvaMut.mutate({ id: script.id, canvaDesignId: input.designId, canvaDesignUrl: input.designUrl })}
+                      disabled={linkCanvaMut.isPending}
+                    >
+                      {linkCanvaMut.isPending ? 'Saving...' : 'Link design'}
+                    </Button>
+                    {script.status !== 'published' && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => publishMut.mutate(script.id)}
+                        disabled={publishMut.isPending}
+                      >
+                        Mark published
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function ShortsSettingsTab({ agent, token }: { agent: AgentDetail; token: string }) {
+  const [activeSub, setActiveSub] = useState<ShortsSubTabKey>('setup');
+
+  return (
+    <div>
+      <div className="flex items-center gap-1 border border-border rounded-lg p-1 mb-5 bg-muted/30 w-fit">
+        {SHORTS_SUBTABS.map(({ key, label, icon: Icon }) => (
+          <button
+            key={key}
+            onClick={() => setActiveSub(key)}
+            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-md text-sm font-medium transition-colors ${
+              activeSub === key ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            <Icon className="w-3.5 h-3.5" />
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {activeSub === 'setup' && (
+        <Phase4SetupSubTab
+          agent={agent}
+          title="YouTube Shorts Creator — Setup Checklist"
+          description="Generates YouTube Shorts / Reels scripts weekly (Monday 9am) or on demand. Each script includes hook, voiceover, visual brief, and Canva design brief — approved before saving."
+          steps={<>
+            <SetupStep n={1} title="Add content style to Knowledge Base" done={false}>
+              <p>Go to <strong>Knowledge Base</strong> and add writing samples for this agent (agent key: <code className="bg-muted px-1 rounded">shorts</code>):</p>
+              <ul className="list-disc list-inside mt-1 space-y-0.5 ml-1">
+                <li>Add a <strong>Voice Profile</strong> entry describing your brand tone</li>
+                <li>Add positive writing samples: examples of content you like</li>
+                <li>Add negative samples: content styles to avoid</li>
+                <li>Add facts: product names, target audience, key messages</li>
+              </ul>
+            </SetupStep>
+            <SetupStep n={2} title="Configure topics and duration" done={false}>
+              <p>In Config JSON set:</p>
+              <ul className="list-disc list-inside mt-1 space-y-0.5 ml-1">
+                <li><code className="bg-muted px-1 rounded">topics</code>: array of content topics (e.g. "productivity tips", "SaaS behind the scenes")</li>
+                <li><code className="bg-muted px-1 rounded">targetDurationSecs</code>: 15, 30, or 60</li>
+                <li><code className="bg-muted px-1 rounded">videosPerRun</code>: how many scripts to generate per run (default 3)</li>
+                <li><code className="bg-muted px-1 rounded">brands</code>: array of brand names</li>
+              </ul>
+            </SetupStep>
+            <SetupStep n={3} title="Enable and trigger" done={agent.enabled}>
+              <p>Enable and trigger manually. Each generated script is sent to Telegram for approval. After approval, view and manage scripts in the Scripts tab.</p>
+              <p className="mt-1">The agent runs automatically every Monday at 9am once enabled.</p>
+            </SetupStep>
+            <SetupStep n={4} title="Link Canva designs" done={false}>
+              <p>After creating designs in Canva (use Claude's Canva MCP or design manually), paste the design ID and URL into each script from the Scripts tab.</p>
+              <p className="mt-1">Use the <code className="bg-muted px-1 rounded">canvaDesignBrief</code> field in each approved script as the brief for your Canva design.</p>
+            </SetupStep>
+          </>}
+        />
+      )}
+      {activeSub === 'general' && <Phase4GeneralSubTab agent={agent} token={token} />}
+      {activeSub === 'scripts' && <ShortsScriptsSubTab token={token} />}
     </div>
   );
 }

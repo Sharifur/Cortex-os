@@ -1,0 +1,906 @@
+import { useState, useRef } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { BookOpen, Plus, Trash2, Edit2, X, Upload, Link, ChevronDown, ChevronRight, FileText, Globe, Code } from 'lucide-react';
+import { useAuthStore } from '@/stores/authStore';
+
+const KB_AGENTS = ['crisp', 'support', 'whatsapp', 'email_manager', 'linkedin', 'reddit', 'social', 'shorts'];
+const ENTRY_TYPES = ['reference', 'fact', 'voice_profile', 'blocklist'];
+const CATEGORIES = ['general', 'product', 'policy', 'faq', 'document', 'webpage', 'other'];
+
+async function apiFetch(token: string, path: string, opts?: RequestInit) {
+  const res = await fetch(path, {
+    ...opts,
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', ...opts?.headers },
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ message: 'Request failed' }));
+    throw new Error(err.message ?? `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+function typeBadge(type: string) {
+  const map: Record<string, string> = {
+    reference: 'bg-blue-500/15 text-blue-400',
+    fact: 'bg-amber-500/15 text-amber-400',
+    voice_profile: 'bg-purple-500/15 text-purple-400',
+    blocklist: 'bg-red-500/15 text-red-400',
+  };
+  return map[type] ?? 'bg-muted text-muted-foreground';
+}
+
+function sourceBadge(type: string) {
+  const map: Record<string, string> = {
+    manual: 'bg-muted text-muted-foreground',
+    pdf: 'bg-rose-500/15 text-rose-400',
+    docx: 'bg-indigo-500/15 text-indigo-400',
+    md: 'bg-green-500/15 text-green-400',
+    link: 'bg-cyan-500/15 text-cyan-400',
+  };
+  return map[type] ?? 'bg-muted text-muted-foreground';
+}
+
+// ─── Entry Modal ───────────────────────────────────────────────────────────
+
+function EntryModal({ entry, onClose, onSave }: {
+  entry?: any;
+  onClose: () => void;
+  onSave: (data: any) => void;
+}) {
+  const [form, setForm] = useState({
+    title: entry?.title ?? '',
+    content: entry?.content ?? '',
+    category: entry?.category ?? 'general',
+    entryType: entry?.entryType ?? 'reference',
+    priority: entry?.priority ?? 50,
+    agentKeys: entry?.agentKeys ?? '',
+  });
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div className="bg-card border border-border rounded-xl w-full max-w-lg mx-4 shadow-xl">
+        <div className="flex items-center justify-between p-4 border-b border-border">
+          <h2 className="font-semibold text-sm">{entry ? 'Edit Entry' : 'Add Entry'}</h2>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="w-4 h-4" /></button>
+        </div>
+        <div className="p-4 space-y-3">
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">Title</label>
+            <input
+              className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+              value={form.title}
+              onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
+              placeholder="e.g. Refund Policy"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">Content</label>
+            <textarea
+              className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary resize-none"
+              rows={6}
+              value={form.content}
+              onChange={e => setForm(f => ({ ...f, content: e.target.value }))}
+              placeholder="Enter the knowledge content..."
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">Type</label>
+              <select
+                className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none"
+                value={form.entryType}
+                onChange={e => setForm(f => ({ ...f, entryType: e.target.value }))}
+              >
+                <option value="reference">Reference (FTS searched)</option>
+                <option value="fact">Always-On Fact</option>
+                <option value="voice_profile">Voice Profile</option>
+                <option value="blocklist">Blocklist Rule</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">Category</label>
+              <select
+                className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none"
+                value={form.category}
+                onChange={e => setForm(f => ({ ...f, category: e.target.value }))}
+              >
+                {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">Priority (1–100)</label>
+              <input
+                type="number" min={1} max={100}
+                className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none"
+                value={form.priority}
+                onChange={e => setForm(f => ({ ...f, priority: Number(e.target.value) }))}
+              />
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">Agent Keys (blank = all)</label>
+              <input
+                className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none"
+                value={form.agentKeys}
+                onChange={e => setForm(f => ({ ...f, agentKeys: e.target.value }))}
+                placeholder="crisp,support"
+              />
+            </div>
+          </div>
+        </div>
+        <div className="flex justify-end gap-2 p-4 border-t border-border">
+          <button onClick={onClose} className="px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground border border-border rounded-lg">Cancel</button>
+          <button
+            onClick={() => onSave({ ...form, agentKeys: form.agentKeys || null })}
+            disabled={!form.title.trim() || !form.content.trim()}
+            className="px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded-lg hover:opacity-90 disabled:opacity-50"
+          >
+            Save
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Sample Modal ─────────────────────────────────────────────────────────
+
+function SampleModal({ sample, onClose, onSave }: {
+  sample?: any;
+  onClose: () => void;
+  onSave: (data: any) => void;
+}) {
+  const [form, setForm] = useState({
+    context: sample?.context ?? '',
+    sampleText: sample?.sampleText ?? '',
+    polarity: sample?.polarity ?? 'positive',
+    agentKeys: sample?.agentKeys ?? '',
+  });
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div className="bg-card border border-border rounded-xl w-full max-w-lg mx-4 shadow-xl">
+        <div className="flex items-center justify-between p-4 border-b border-border">
+          <h2 className="font-semibold text-sm">{sample ? 'Edit Sample' : 'Add Writing Sample'}</h2>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="w-4 h-4" /></button>
+        </div>
+        <div className="p-4 space-y-3">
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">Context label</label>
+            <input
+              className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+              value={form.context}
+              onChange={e => setForm(f => ({ ...f, context: e.target.value }))}
+              placeholder="e.g. angry customer reply"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">Sample text</label>
+            <textarea
+              className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary resize-none"
+              rows={8}
+              value={form.sampleText}
+              onChange={e => setForm(f => ({ ...f, sampleText: e.target.value }))}
+              placeholder="Paste an example of the writing style..."
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">Polarity</label>
+              <select
+                className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none"
+                value={form.polarity}
+                onChange={e => setForm(f => ({ ...f, polarity: e.target.value }))}
+              >
+                <option value="positive">✓ Positive — write like this</option>
+                <option value="negative">✗ Negative — never write like this</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">Agent Keys (blank = all)</label>
+              <input
+                className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none"
+                value={form.agentKeys}
+                onChange={e => setForm(f => ({ ...f, agentKeys: e.target.value }))}
+                placeholder="crisp,reddit"
+              />
+            </div>
+          </div>
+        </div>
+        <div className="flex justify-end gap-2 p-4 border-t border-border">
+          <button onClick={onClose} className="px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground border border-border rounded-lg">Cancel</button>
+          <button
+            onClick={() => onSave({ ...form, agentKeys: form.agentKeys || null })}
+            disabled={!form.context.trim() || !form.sampleText.trim()}
+            className="px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded-lg hover:opacity-90 disabled:opacity-50"
+          >
+            Save
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Tab 1: Entries ────────────────────────────────────────────────────────
+
+function EntriesTab({ token }: { token: string }) {
+  const qc = useQueryClient();
+  const [agentFilter, setAgentFilter] = useState('');
+  const [typeFilter, setTypeFilter] = useState('');
+  const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [modal, setModal] = useState<null | 'add' | any>(null);
+
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+
+  function onSearchChange(val: string) {
+    setSearch(val);
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => setDebouncedSearch(val), 400);
+  }
+
+  const params = new URLSearchParams();
+  if (agentFilter) params.set('agentKey', agentFilter);
+  if (typeFilter) params.set('type', typeFilter);
+  if (debouncedSearch) params.set('q', debouncedSearch);
+
+  const { data: entries = [], isLoading } = useQuery<any[]>({
+    queryKey: ['kb-entries', agentFilter, typeFilter, debouncedSearch],
+    queryFn: () => apiFetch(token, `/knowledge-base/entries?${params}`),
+  });
+
+  const createMut = useMutation({
+    mutationFn: (body: any) => apiFetch(token, '/knowledge-base/entries', { method: 'POST', body: JSON.stringify(body) }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['kb-entries'] }); setModal(null); },
+  });
+
+  const updateMut = useMutation({
+    mutationFn: ({ id, ...body }: any) => apiFetch(token, `/knowledge-base/entries/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['kb-entries'] }); setModal(null); },
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: (id: string) => apiFetch(token, `/knowledge-base/entries/${id}`, { method: 'DELETE' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['kb-entries'] }),
+  });
+
+  return (
+    <div>
+      {/* Filter bar */}
+      <div className="flex flex-wrap gap-2 mb-4">
+        <input
+          className="bg-background border border-border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary w-48"
+          placeholder="Search entries..."
+          value={search}
+          onChange={e => onSearchChange(e.target.value)}
+        />
+        <select
+          className="bg-background border border-border rounded-lg px-3 py-1.5 text-sm focus:outline-none"
+          value={agentFilter}
+          onChange={e => setAgentFilter(e.target.value)}
+        >
+          <option value="">All agents</option>
+          {KB_AGENTS.map(a => <option key={a} value={a}>{a}</option>)}
+        </select>
+        <select
+          className="bg-background border border-border rounded-lg px-3 py-1.5 text-sm focus:outline-none"
+          value={typeFilter}
+          onChange={e => setTypeFilter(e.target.value)}
+        >
+          <option value="">All types</option>
+          {ENTRY_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+        </select>
+        <button
+          onClick={() => setModal('add')}
+          className="ml-auto flex items-center gap-1.5 px-3 py-1.5 bg-primary text-primary-foreground text-sm rounded-lg hover:opacity-90"
+        >
+          <Plus className="w-3.5 h-3.5" /> Add Entry
+        </button>
+      </div>
+
+      {isLoading ? (
+        <div className="space-y-2">{[1,2,3].map(i => <div key={i} className="h-14 bg-muted/50 rounded-lg animate-pulse" />)}</div>
+      ) : entries.length === 0 ? (
+        <div className="text-center py-12 text-muted-foreground text-sm">No entries yet. Add your first knowledge entry.</div>
+      ) : (
+        <div className="space-y-2">
+          {entries.map((entry: any) => (
+            <div key={entry.id} className="bg-card border border-border rounded-lg px-4 py-3 flex items-start gap-3">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-sm font-medium">{entry.title}</span>
+                  <span className={`text-xs px-1.5 py-0.5 rounded-full ${typeBadge(entry.entryType)}`}>{entry.entryType}</span>
+                  <span className={`text-xs px-1.5 py-0.5 rounded-full ${sourceBadge(entry.sourceType)}`}>{entry.sourceType}</span>
+                  {entry.parentDocId && <span className="text-xs text-muted-foreground">chunk</span>}
+                  <span className="text-xs text-muted-foreground">{entry.category}</span>
+                  {entry.priority !== 50 && <span className="text-xs text-muted-foreground">p:{entry.priority}</span>}
+                </div>
+                <p className="text-xs text-muted-foreground mt-0.5 truncate">{entry.content}</p>
+                {entry.agentKeys && (
+                  <p className="text-xs text-muted-foreground mt-0.5">Agents: {entry.agentKeys}</p>
+                )}
+              </div>
+              {!entry.parentDocId && (
+                <button
+                  onClick={() => setModal(entry)}
+                  className="text-muted-foreground hover:text-foreground p-1"
+                >
+                  <Edit2 className="w-3.5 h-3.5" />
+                </button>
+              )}
+              <button
+                onClick={() => deleteMut.mutate(entry.id)}
+                className="text-muted-foreground hover:text-destructive p-1"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {modal && (
+        <EntryModal
+          entry={modal === 'add' ? undefined : modal}
+          onClose={() => setModal(null)}
+          onSave={(data) => {
+            if (modal === 'add') createMut.mutate(data);
+            else updateMut.mutate({ id: modal.id, ...data });
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─── Tab 2: Writing Samples ────────────────────────────────────────────────
+
+function SamplesTab({ token }: { token: string }) {
+  const qc = useQueryClient();
+  const [agentFilter, setAgentFilter] = useState('');
+  const [polarityFilter, setPolarityFilter] = useState('');
+  const [modal, setModal] = useState<null | 'add' | any>(null);
+
+  const params = new URLSearchParams();
+  if (agentFilter) params.set('agentKey', agentFilter);
+
+  const { data: samples = [], isLoading } = useQuery<any[]>({
+    queryKey: ['kb-samples', agentFilter],
+    queryFn: () => apiFetch(token, `/knowledge-base/samples?${params}`),
+  });
+
+  const filtered = polarityFilter ? samples.filter((s: any) => s.polarity === polarityFilter) : samples;
+
+  const createMut = useMutation({
+    mutationFn: (body: any) => apiFetch(token, '/knowledge-base/samples', { method: 'POST', body: JSON.stringify(body) }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['kb-samples'] }); setModal(null); },
+  });
+
+  const updateMut = useMutation({
+    mutationFn: ({ id, ...body }: any) => apiFetch(token, `/knowledge-base/samples/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['kb-samples'] }); setModal(null); },
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: (id: string) => apiFetch(token, `/knowledge-base/samples/${id}`, { method: 'DELETE' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['kb-samples'] }),
+  });
+
+  return (
+    <div>
+      <div className="flex flex-wrap gap-2 mb-4">
+        <select
+          className="bg-background border border-border rounded-lg px-3 py-1.5 text-sm focus:outline-none"
+          value={agentFilter}
+          onChange={e => setAgentFilter(e.target.value)}
+        >
+          <option value="">All agents</option>
+          {KB_AGENTS.map(a => <option key={a} value={a}>{a}</option>)}
+        </select>
+        <select
+          className="bg-background border border-border rounded-lg px-3 py-1.5 text-sm focus:outline-none"
+          value={polarityFilter}
+          onChange={e => setPolarityFilter(e.target.value)}
+        >
+          <option value="">All polarities</option>
+          <option value="positive">✓ Positive</option>
+          <option value="negative">✗ Negative</option>
+        </select>
+        <button
+          onClick={() => setModal('add')}
+          className="ml-auto flex items-center gap-1.5 px-3 py-1.5 bg-primary text-primary-foreground text-sm rounded-lg hover:opacity-90"
+        >
+          <Plus className="w-3.5 h-3.5" /> Add Sample
+        </button>
+      </div>
+
+      {isLoading ? (
+        <div className="space-y-2">{[1,2,3].map(i => <div key={i} className="h-14 bg-muted/50 rounded-lg animate-pulse" />)}</div>
+      ) : filtered.length === 0 ? (
+        <div className="text-center py-12 text-muted-foreground text-sm">No writing samples yet.</div>
+      ) : (
+        <div className="space-y-2">
+          {filtered.map((s: any) => (
+            <div key={s.id} className="bg-card border border-border rounded-lg px-4 py-3 flex items-start gap-3">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium">{s.context}</span>
+                  <span className={`text-xs px-1.5 py-0.5 rounded-full ${s.polarity === 'positive' ? 'bg-green-500/15 text-green-400' : 'bg-red-500/15 text-red-400'}`}>
+                    {s.polarity === 'positive' ? '✓' : '✗'} {s.polarity}
+                  </span>
+                  {s.agentKeys && <span className="text-xs text-muted-foreground">{s.agentKeys}</span>}
+                </div>
+                <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{s.sampleText}</p>
+              </div>
+              <button onClick={() => setModal(s)} className="text-muted-foreground hover:text-foreground p-1">
+                <Edit2 className="w-3.5 h-3.5" />
+              </button>
+              <button onClick={() => deleteMut.mutate(s.id)} className="text-muted-foreground hover:text-destructive p-1">
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {modal && (
+        <SampleModal
+          sample={modal === 'add' ? undefined : modal}
+          onClose={() => setModal(null)}
+          onSave={(data) => {
+            if (modal === 'add') createMut.mutate(data);
+            else updateMut.mutate({ id: modal.id, ...data });
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─── Tab 3: Import ─────────────────────────────────────────────────────────
+
+function ImportTab({ token }: { token: string }) {
+  const qc = useQueryClient();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [importType, setImportType] = useState<'document' | 'url'>('document');
+
+  const [file, setFile] = useState<File | null>(null);
+  const [fileAgentKeys, setFileAgentKeys] = useState('');
+  const [fileCategory, setFileCategory] = useState('document');
+  const [uploading, setUploading] = useState(false);
+  const [uploadResult, setUploadResult] = useState<{ chunks: number; title?: string } | null>(null);
+  const [uploadError, setUploadError] = useState('');
+
+  const [url, setUrl] = useState('');
+  const [linkAgentKeys, setLinkAgentKeys] = useState('');
+  const [linkCategory, setLinkCategory] = useState('webpage');
+  const [linking, setLinking] = useState(false);
+  const [linkResult, setLinkResult] = useState<{ chunks: number; title?: string } | null>(null);
+  const [linkError, setLinkError] = useState('');
+
+  const { data: imports = [] } = useQuery<any[]>({
+    queryKey: ['kb-imports'],
+    queryFn: () => apiFetch(token, '/knowledge-base/entries?type=reference').then((rows: any[]) =>
+      rows.filter(r => r.sourceType !== 'manual' && !r.parentDocId).slice(0, 10)
+    ),
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: (id: string) => apiFetch(token, `/knowledge-base/entries/${id}`, { method: 'DELETE' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['kb-imports', 'kb-entries'] }),
+  });
+
+  async function handleFileUpload() {
+    if (!file) return;
+    setUploading(true); setUploadError(''); setUploadResult(null);
+    try {
+      const buf = await file.arrayBuffer();
+      const base64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+      const result = await apiFetch(token, '/knowledge-base/ingest/document', {
+        method: 'POST',
+        body: JSON.stringify({ filename: file.name, mimeType: file.type, data: base64, agentKeys: fileAgentKeys || undefined, category: fileCategory }),
+      });
+      setUploadResult(result);
+      qc.invalidateQueries({ queryKey: ['kb-imports', 'kb-entries'] });
+      setFile(null);
+    } catch (err: any) {
+      setUploadError(err.message ?? 'Upload failed');
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function handleLinkImport() {
+    if (!url.trim()) return;
+    setLinking(true); setLinkError(''); setLinkResult(null);
+    try {
+      const result = await apiFetch(token, '/knowledge-base/ingest/link', {
+        method: 'POST',
+        body: JSON.stringify({ url: url.trim(), agentKeys: linkAgentKeys || undefined, category: linkCategory }),
+      });
+      setLinkResult(result);
+      qc.invalidateQueries({ queryKey: ['kb-imports', 'kb-entries'] });
+      setUrl('');
+    } catch (err: any) {
+      setLinkError(err.message ?? 'Import failed');
+    } finally {
+      setLinking(false);
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Type selector */}
+      <div className="bg-card border border-border rounded-xl p-1.5 flex gap-1">
+        <button
+          onClick={() => { setImportType('document'); setUploadResult(null); setUploadError(''); }}
+          className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-medium transition-colors ${
+            importType === 'document'
+              ? 'bg-primary text-primary-foreground'
+              : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
+          }`}
+        >
+          <FileText className="w-4 h-4" />
+          Document
+          <span className={`text-xs ${importType === 'document' ? 'text-primary-foreground/70' : 'text-muted-foreground'}`}>
+            .pdf, .docx, .md
+          </span>
+        </button>
+        <button
+          onClick={() => { setImportType('url'); setLinkResult(null); setLinkError(''); }}
+          className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-medium transition-colors ${
+            importType === 'url'
+              ? 'bg-primary text-primary-foreground'
+              : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
+          }`}
+        >
+          <Globe className="w-4 h-4" />
+          URL
+          <span className={`text-xs ${importType === 'url' ? 'text-primary-foreground/70' : 'text-muted-foreground'}`}>
+            web page / article
+          </span>
+        </button>
+      </div>
+
+      {/* Document upload panel */}
+      {importType === 'document' && (
+        <div className="bg-card border border-border rounded-xl p-5 space-y-3">
+          <div
+            className="border-2 border-dashed border-border rounded-lg p-8 text-center cursor-pointer hover:border-primary/50 transition-colors"
+            onClick={() => fileRef.current?.click()}
+            onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) { setFile(f); setUploadResult(null); setUploadError(''); } }}
+            onDragOver={e => e.preventDefault()}
+          >
+            <Upload className="w-7 h-7 mx-auto mb-2 text-muted-foreground" />
+            {file ? (
+              <div>
+                <p className="text-sm font-medium">{file.name}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">{(file.size / 1024).toFixed(0)} KB</p>
+              </div>
+            ) : (
+              <>
+                <p className="text-sm text-muted-foreground">Drag & drop or click to choose a file</p>
+                <p className="text-xs text-muted-foreground mt-1">PDF, DOCX, DOC, MD — max 10MB</p>
+              </>
+            )}
+            <input ref={fileRef} type="file" accept=".pdf,.docx,.doc,.md" className="hidden" onChange={e => { setFile(e.target.files?.[0] ?? null); setUploadResult(null); setUploadError(''); }} />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <input className="bg-background border border-border rounded-lg px-3 py-1.5 text-sm focus:outline-none" placeholder="Agent keys (optional)" value={fileAgentKeys} onChange={e => setFileAgentKeys(e.target.value)} />
+            <select className="bg-background border border-border rounded-lg px-3 py-1.5 text-sm focus:outline-none" value={fileCategory} onChange={e => setFileCategory(e.target.value)}>
+              {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+          {uploadError && <p className="text-xs text-destructive">{uploadError}</p>}
+          {uploadResult && <p className="text-xs text-green-400">✓ Imported {uploadResult.chunks} chunks from "{uploadResult.title ?? file?.name}"</p>}
+          <button
+            onClick={handleFileUpload}
+            disabled={!file || uploading}
+            className="w-full py-2 bg-primary text-primary-foreground text-sm rounded-lg hover:opacity-90 disabled:opacity-50"
+          >
+            {uploading ? 'Importing…' : 'Import Document'}
+          </button>
+        </div>
+      )}
+
+      {/* URL import panel */}
+      {importType === 'url' && (
+        <div className="bg-card border border-border rounded-xl p-5 space-y-3">
+          <input
+            className="w-full bg-background border border-border rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+            placeholder="https://yoursite.com/pricing"
+            value={url}
+            onChange={e => { setUrl(e.target.value); setLinkResult(null); setLinkError(''); }}
+          />
+          <div className="grid grid-cols-2 gap-3">
+            <input className="bg-background border border-border rounded-lg px-3 py-1.5 text-sm focus:outline-none" placeholder="Agent keys (optional)" value={linkAgentKeys} onChange={e => setLinkAgentKeys(e.target.value)} />
+            <select className="bg-background border border-border rounded-lg px-3 py-1.5 text-sm focus:outline-none" value={linkCategory} onChange={e => setLinkCategory(e.target.value)}>
+              {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+          {linkError && <p className="text-xs text-destructive">{linkError}</p>}
+          {linkResult && <p className="text-xs text-green-400">✓ Imported "{linkResult.title}" — {linkResult.chunks} chunks</p>}
+          <button
+            onClick={handleLinkImport}
+            disabled={!url.trim() || linking}
+            className="w-full py-2 bg-primary text-primary-foreground text-sm rounded-lg hover:opacity-90 disabled:opacity-50"
+          >
+            {linking ? 'Fetching…' : 'Import URL'}
+          </button>
+        </div>
+      )}
+
+      {/* Recent imports */}
+      {imports.length > 0 && (
+        <div>
+          <h3 className="text-sm font-medium mb-3">Recent Imports</h3>
+          <div className="space-y-2">
+            {imports.map((entry: any) => (
+              <div key={entry.id} className="bg-card border border-border rounded-lg px-4 py-3 flex items-center gap-3">
+                <span className={`text-xs px-1.5 py-0.5 rounded-full ${sourceBadge(entry.sourceType)}`}>{entry.sourceType}</span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium truncate">{entry.title}</p>
+                  {entry.sourceUrl && <p className="text-xs text-muted-foreground truncate">{entry.sourceUrl}</p>}
+                </div>
+                <button onClick={() => deleteMut.mutate(entry.id)} className="text-muted-foreground hover:text-destructive p-1">
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Tab 4: Prompt Templates ───────────────────────────────────────────────
+
+function TemplatesTab({ token }: { token: string }) {
+  const qc = useQueryClient();
+  const [editing, setEditing] = useState<any | null>(null);
+  const [addForm, setAddForm] = useState({ key: '', system: '', userTemplate: '' });
+  const [showAdd, setShowAdd] = useState(false);
+
+  const { data: templates = [], isLoading } = useQuery<any[]>({
+    queryKey: ['kb-templates'],
+    queryFn: () => apiFetch(token, '/knowledge-base/templates'),
+  });
+
+  const createMut = useMutation({
+    mutationFn: (body: any) => apiFetch(token, '/knowledge-base/templates', { method: 'POST', body: JSON.stringify(body) }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['kb-templates'] }); setShowAdd(false); setAddForm({ key: '', system: '', userTemplate: '' }); },
+  });
+
+  const updateMut = useMutation({
+    mutationFn: ({ id, ...body }: any) => apiFetch(token, `/knowledge-base/templates/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['kb-templates'] }); setEditing(null); },
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: (id: string) => apiFetch(token, `/knowledge-base/templates/${id}`, { method: 'DELETE' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['kb-templates'] }),
+  });
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-muted-foreground">Templates override agent system prompts. Key format: <code className="font-mono bg-muted px-1 rounded">agentKey.reply</code> e.g. <code className="font-mono bg-muted px-1 rounded">crisp.reply</code></p>
+        <button onClick={() => setShowAdd(v => !v)} className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-primary-foreground text-sm rounded-lg hover:opacity-90">
+          <Plus className="w-3.5 h-3.5" /> New Template
+        </button>
+      </div>
+
+      {showAdd && (
+        <div className="bg-card border border-border rounded-xl p-4 space-y-3">
+          <input className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none" placeholder="Key (e.g. crisp.reply)" value={addForm.key} onChange={e => setAddForm(f => ({ ...f, key: e.target.value }))} />
+          <textarea className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none resize-none" rows={6} placeholder="System prompt..." value={addForm.system} onChange={e => setAddForm(f => ({ ...f, system: e.target.value }))} />
+          <p className="text-xs text-muted-foreground">{addForm.system.length} chars</p>
+          <textarea className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none resize-none" rows={3} placeholder="User template (optional)..." value={addForm.userTemplate} onChange={e => setAddForm(f => ({ ...f, userTemplate: e.target.value }))} />
+          <div className="flex justify-end gap-2">
+            <button onClick={() => setShowAdd(false)} className="px-3 py-1.5 text-sm text-muted-foreground border border-border rounded-lg">Cancel</button>
+            <button onClick={() => createMut.mutate(addForm)} disabled={!addForm.key || !addForm.system} className="px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded-lg disabled:opacity-50">Save</button>
+          </div>
+        </div>
+      )}
+
+      {isLoading ? (
+        <div className="space-y-2">{[1,2].map(i => <div key={i} className="h-16 bg-muted/50 rounded-lg animate-pulse" />)}</div>
+      ) : templates.length === 0 ? (
+        !showAdd && <div className="text-center py-12 text-muted-foreground text-sm">No templates yet. Agents use their hardcoded prompts.</div>
+      ) : (
+        templates.map((t: any) => (
+          <div key={t.id} className="bg-card border border-border rounded-xl overflow-hidden">
+            <div className="flex items-center gap-3 px-4 py-3 border-b border-border">
+              <Code className="w-4 h-4 text-primary" />
+              <span className="text-sm font-mono font-medium">{t.key}</span>
+              <span className="text-xs text-muted-foreground ml-auto">v{t.version}</span>
+              <button onClick={() => setEditing(editing?.id === t.id ? null : t)} className="text-muted-foreground hover:text-foreground p-1">
+                {editing?.id === t.id ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+              </button>
+              <button onClick={() => deleteMut.mutate(t.id)} className="text-muted-foreground hover:text-destructive p-1">
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
+            {editing?.id === t.id && (
+              <div className="p-4 space-y-3">
+                <textarea
+                  className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none resize-none"
+                  rows={8}
+                  value={editing.system}
+                  onChange={e => setEditing((ed: any) => ({ ...ed, system: e.target.value }))}
+                />
+                <p className="text-xs text-muted-foreground">{editing.system?.length ?? 0} chars</p>
+                <div className="flex justify-end gap-2">
+                  <button onClick={() => setEditing(null)} className="px-3 py-1.5 text-sm text-muted-foreground border border-border rounded-lg">Cancel</button>
+                  <button onClick={() => updateMut.mutate({ id: t.id, system: editing.system, userTemplate: editing.userTemplate })} className="px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded-lg">Save</button>
+                </div>
+              </div>
+            )}
+          </div>
+        ))
+      )}
+    </div>
+  );
+}
+
+// ─── Tab 5: Proposals ─────────────────────────────────────────────────────────
+
+function ProposalsTab({ token }: { token: string }) {
+  const qc = useQueryClient();
+  const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('pending');
+
+  const { data: proposals = [], isLoading } = useQuery<any[]>({
+    queryKey: ['kb-proposals', statusFilter],
+    queryFn: () => apiFetch(token, `/knowledge-base/proposals${statusFilter !== 'all' ? `?status=${statusFilter}` : ''}`),
+  });
+
+  const approveMut = useMutation({
+    mutationFn: (id: string) => apiFetch(token, `/knowledge-base/proposals/${id}/approve`, { method: 'POST' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['kb-proposals'] }),
+  });
+
+  const rejectMut = useMutation({
+    mutationFn: (id: string) => apiFetch(token, `/knowledge-base/proposals/${id}/reject`, { method: 'POST' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['kb-proposals'] }),
+  });
+
+  const STATUS_BADGE: Record<string, string> = {
+    pending: 'bg-amber-500/15 text-amber-400',
+    approved: 'bg-green-500/15 text-green-400',
+    rejected: 'bg-muted text-muted-foreground',
+  };
+
+  const TYPE_BADGE: Record<string, string> = {
+    fact: 'bg-amber-500/15 text-amber-400',
+    blocklist: 'bg-red-500/15 text-red-400',
+    writing_sample: 'bg-blue-500/15 text-blue-400',
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="space-y-2">
+        <p className="text-xs text-muted-foreground">
+          When you reject an agent action with a reason, the system proposes a KB entry to prevent the mistake in future. Review proposals here or via Telegram.
+        </p>
+        <div className="flex gap-1">
+          {(['pending', 'approved', 'rejected', 'all'] as const).map(s => (
+            <button
+              key={s}
+              onClick={() => setStatusFilter(s)}
+              className={`px-2.5 py-1 text-xs rounded-lg transition-colors capitalize ${
+                statusFilter === s ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
+              }`}
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {isLoading ? (
+        <div className="space-y-2">{[1, 2, 3].map(i => <div key={i} className="h-16 bg-muted/50 rounded-lg animate-pulse" />)}</div>
+      ) : proposals.length === 0 ? (
+        <div className="bg-card border border-border rounded-xl p-8 text-center">
+          <p className="text-sm text-muted-foreground">No {statusFilter !== 'all' ? statusFilter : ''} proposals.</p>
+          <p className="text-xs text-muted-foreground mt-1">Reject an agent action with a reason to generate the first proposal.</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {proposals.map((p: any) => (
+            <div key={p.id} className="bg-card border border-border rounded-xl p-4">
+              <div className="flex items-start gap-3">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1 flex-wrap">
+                    <span className={`text-xs px-1.5 py-0.5 rounded-full ${TYPE_BADGE[p.proposedEntryType] ?? 'bg-muted text-muted-foreground'}`}>
+                      {p.proposedEntryType}
+                    </span>
+                    <span className={`text-xs px-1.5 py-0.5 rounded-full ${STATUS_BADGE[p.status] ?? ''}`}>
+                      {p.status}
+                    </span>
+                    <span className="text-xs text-muted-foreground">agent: {p.agentKey}</span>
+                    <span className="text-xs text-muted-foreground">{new Date(p.createdAt).toLocaleDateString()}</span>
+                  </div>
+                  <p className="text-sm font-medium mb-1">{p.title}</p>
+                  <p className="text-xs text-muted-foreground leading-relaxed">{p.content}</p>
+                  {p.reasoning && (
+                    <p className="text-xs text-muted-foreground/70 mt-1.5 italic">Why: {p.reasoning}</p>
+                  )}
+                </div>
+
+                {p.status === 'pending' && (
+                  <div className="flex gap-2 shrink-0">
+                    <button
+                      onClick={() => approveMut.mutate(p.id)}
+                      disabled={approveMut.isPending}
+                      className="px-3 py-1.5 text-xs bg-primary text-primary-foreground rounded-lg hover:opacity-90 disabled:opacity-50"
+                    >
+                      Add to KB
+                    </button>
+                    <button
+                      onClick={() => rejectMut.mutate(p.id)}
+                      disabled={rejectMut.isPending}
+                      className="px-3 py-1.5 text-xs border border-border text-muted-foreground rounded-lg hover:text-foreground disabled:opacity-50"
+                    >
+                      Skip
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Main Page ─────────────────────────────────────────────────────────────
+
+const TABS = [
+  { id: 'entries', label: 'Knowledge Entries' },
+  { id: 'samples', label: 'Writing Samples' },
+  { id: 'import', label: 'Import' },
+  { id: 'templates', label: 'Prompt Templates' },
+  { id: 'proposals', label: 'Proposals' },
+];
+
+export default function KnowledgeBasePage() {
+  const token = useAuthStore(s => s.token)!;
+  const [tab, setTab] = useState('entries');
+
+  return (
+    <div className="p-6 max-w-4xl mx-auto">
+      <div className="flex items-center gap-2.5 mb-6">
+        <BookOpen className="w-5 h-5 text-primary" />
+        <h1 className="text-lg font-semibold">Knowledge Base</h1>
+        <p className="text-sm text-muted-foreground ml-1">Personalize agent outputs with facts, tone, and writing samples</p>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex gap-1 mb-6 border-b border-border">
+        {TABS.map(t => (
+          <button
+            key={t.id}
+            onClick={() => setTab(t.id)}
+            className={`px-4 py-2 text-sm transition-colors -mb-px border-b-2 ${
+              tab === t.id
+                ? 'border-primary text-foreground font-medium'
+                : 'border-transparent text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'entries' && <EntriesTab token={token} />}
+      {tab === 'samples' && <SamplesTab token={token} />}
+      {tab === 'import' && <ImportTab token={token} />}
+      {tab === 'templates' && <TemplatesTab token={token} />}
+      {tab === 'proposals' && <ProposalsTab token={token} />}
+    </div>
+  );
+}

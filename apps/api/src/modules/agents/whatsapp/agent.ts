@@ -1,5 +1,5 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { eq } from 'drizzle-orm';
+import { eq, desc } from 'drizzle-orm';
 import { DbService } from '../../../db/db.service';
 import { agents } from '../../../db/schema';
 import { whatsappMessages } from './schema';
@@ -7,6 +7,7 @@ import { WhatsAppService, WaMessage } from './whatsapp.service';
 import { AgentRegistryService } from '../runtime/agent-registry.service';
 import { LlmRouterService } from '../../llm/llm-router.service';
 import { TelegramService } from '../../telegram/telegram.service';
+import { KnowledgeBaseService } from '../../knowledge-base/knowledge-base.service';
 import type {
   IAgent,
   TriggerSpec,
@@ -59,6 +60,7 @@ export class WhatsAppAgent implements IAgent, OnModuleInit {
     private telegram: TelegramService,
     private wa: WhatsAppService,
     private registry: AgentRegistryService,
+    private kb: KnowledgeBaseService,
   ) {}
 
   onModuleInit() {
@@ -93,14 +95,44 @@ export class WhatsAppAgent implements IAgent, OnModuleInit {
     const { messages, isOffline, config } = ctx.snapshot as WhatsAppSnapshot;
     if (!messages.length) return [{ type: 'noop', summary: 'No new messages.', payload: {}, riskLevel: 'low' }];
 
+    const [alwaysOn, samples, blocklist, rejections] = await Promise.all([
+      this.kb.getAlwaysOnContext(this.key),
+      this.kb.getWritingSamples(this.key),
+      this.kb.getBlocklistRules(this.key),
+      this.kb.getRecentRejections(this.key, 3),
+    ]);
+    const template = await this.kb.getPromptTemplate(this.key);
+
     const actions: ProposedAction[] = [];
 
     for (const msg of messages) {
       try {
+        const fromNumber = msg.fromNumber ?? msg.from_number ?? msg.from;
+        const fromName = msg.fromName ?? msg.from_name ?? fromNumber;
+        const preview = (msg.body ?? '').slice(0, 80);
+
+        const [references, previousCount] = await Promise.all([
+          this.kb.searchEntries(msg.body ?? '', this.key, 5),
+          this.getContactMessageCount(fromNumber),
+        ]);
+
+        const kbBlock = this.kb.buildKbPromptBlock({
+          voiceProfile: alwaysOn.find(e => e.entryType === 'voice_profile') ?? null,
+          facts: alwaysOn.filter(e => e.entryType === 'fact'),
+          references,
+          positiveSamples: samples.filter(s => s.polarity === 'positive'),
+          negativeSamples: samples.filter(s => s.polarity === 'negative'),
+          rejections,
+        });
+
+        const contactNote = previousCount > 0
+          ? `\n\nThis is a returning contact — they have sent ${previousCount} previous message(s).`
+          : '';
+
         const response = await this.llm.complete({
           messages: [
-            { role: 'system', content: CLASSIFY_PROMPT },
-            { role: 'user', content: `From: ${msg.fromName ?? msg.from_name ?? msg.fromNumber ?? msg.from_number ?? 'Unknown'}\n\n${msg.body}` },
+            { role: 'system', content: (template?.system ?? CLASSIFY_PROMPT) + kbBlock + contactNote },
+            { role: 'user', content: `From: ${fromName}\n\n${msg.body}` },
           ],
           provider: config.llm.provider as any,
           model: config.llm.model,
@@ -116,10 +148,19 @@ export class WhatsAppAgent implements IAgent, OnModuleInit {
           continue;
         }
 
+        // Self-critique + blocklist check (only for reply-type actions)
+        if (parsed.importance !== 'spam') {
+          parsed.reply = await this.selfCritique(
+            parsed.reply,
+            alwaysOn.find(e => e.entryType === 'voice_profile')?.content,
+            blocklist,
+          );
+        }
+        const violation = parsed.importance !== 'spam'
+          ? blocklist.find(p => parsed.reply.toLowerCase().includes(p.toLowerCase()))
+          : undefined;
+
         const msgId = msg.id;
-        const fromNumber = msg.fromNumber ?? msg.from_number ?? msg.from;
-        const fromName = msg.fromName ?? msg.from_name ?? fromNumber;
-        const preview = (msg.body ?? '').slice(0, 80);
 
         if (parsed.importance === 'spam') {
           actions.push({
@@ -150,9 +191,9 @@ export class WhatsAppAgent implements IAgent, OnModuleInit {
         } else if (parsed.importance === 'urgent' || parsed.importance === 'important') {
           actions.push({
             type: 'send_reply',
-            summary: `Reply to ${fromName}: "${parsed.reply.slice(0, 60)}…"`,
+            summary: `Reply to ${fromName}: "${parsed.reply.slice(0, 60)}"${violation ? ` - Blocklist: "${violation}"` : ''}`,
             payload: { msgId, fromNumber, fromName, draft: parsed.reply },
-            riskLevel: 'medium',
+            riskLevel: violation ? 'high' : 'medium',
           });
         }
       } catch (err) {
@@ -279,6 +320,47 @@ export class WhatsAppAgent implements IAgent, OnModuleInit {
       .update(whatsappMessages)
       .set({ status, ...(importance && { importance }), processedAt: new Date() })
       .where(eq(whatsappMessages.id, msgId));
+  }
+
+  private async getContactMessageCount(fromNumber: string | undefined): Promise<number> {
+    if (!fromNumber) return 0;
+    try {
+      const rows = await this.db.db
+        .select({ id: whatsappMessages.id })
+        .from(whatsappMessages)
+        .where(eq(whatsappMessages.fromNumber, fromNumber))
+        .orderBy(desc(whatsappMessages.receivedAt))
+        .limit(10);
+      return Math.max(0, rows.length - 1); // exclude current message
+    } catch {
+      return 0;
+    }
+  }
+
+  private async selfCritique(draft: string, voiceProfile?: string, blocklist?: string[]): Promise<string> {
+    try {
+      const critique = await this.llm.complete({
+        messages: [
+          {
+            role: 'system',
+            content: `You are a strict editor. Review this WhatsApp reply draft.
+Voice: ${voiceProfile ?? 'friendly, direct, brief'}
+Avoid: ${blocklist?.join(', ') || 'none specified'}
+If the draft is good, return: {"ok":true}
+If not, rewrite and return: {"ok":false,"revised":"improved reply here"}`,
+          },
+          { role: 'user', content: `Draft: "${draft}"` },
+        ],
+        provider: 'auto',
+        model: 'gpt-4o-mini',
+        maxTokens: 200,
+      });
+      const result = JSON.parse(critique.content);
+      if (!result.ok && result.revised) return result.revised.trim();
+    } catch {
+      // fail-open: use original draft
+    }
+    return draft;
   }
 
   private async getConfig(): Promise<WhatsAppConfig> {

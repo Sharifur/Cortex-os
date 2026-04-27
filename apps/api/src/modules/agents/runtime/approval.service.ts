@@ -99,12 +99,16 @@ export class ApprovalService {
   }
 
   async reject(approvalId: string) {
+    return this.rejectWithReason(approvalId, null);
+  }
+
+  async rejectWithReason(approvalId: string, reason: string | null) {
     const approval = await this.getById(approvalId);
     if (!approval) throw new NotFoundException(`Approval not found: ${approvalId}`);
 
     await this.db.db
       .update(pendingApprovals)
-      .set({ status: 'REJECTED', resolvedAt: new Date() })
+      .set({ status: 'REJECTED', resolvedAt: new Date(), rejectionReason: reason })
       .where(eq(pendingApprovals.id, approvalId));
 
     await this.db.db
@@ -112,8 +116,32 @@ export class ApprovalService {
       .set({ status: 'REJECTED', finishedAt: new Date() })
       .where(eq(agentRuns.id, approval.runId));
 
-    await this.logSvc.info(approval.runId, `Approval ${approvalId} rejected`);
+    await this.logSvc.info(
+      approval.runId,
+      `Approval ${approvalId} rejected${reason ? `: "${reason}"` : ''}`,
+    );
     this.events.emit('approval.removed', { id: approvalId });
+
+    if (reason?.trim()) {
+      const [runRow] = await this.db.db
+        .select({ agentKey: agents.key, agentName: agents.name })
+        .from(agentRuns)
+        .innerJoin(agents, eq(agentRuns.agentId, agents.id))
+        .where(eq(agentRuns.id, approval.runId));
+
+      if (runRow) {
+        const action = approval.action as { payload?: { draft?: string; comment?: string }; summary?: string };
+        const draft = action?.payload?.draft ?? action?.payload?.comment ?? action?.summary ?? '';
+        if (draft) {
+          this.events.emit('kb.rejection', {
+            agentKey: runRow.agentKey,
+            agentName: runRow.agentName,
+            draft,
+            reason,
+          });
+        }
+      }
+    }
   }
 
   async followup(approvalId: string, instruction: string) {

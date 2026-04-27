@@ -11,6 +11,7 @@ import { SettingsService } from '../settings/settings.service';
 import { ApprovalService } from '../agents/runtime/approval.service';
 import { DbService } from '../../db/db.service';
 import { pendingApprovals } from '../../db/schema';
+import { SelfImprovementService, KbProposalNotifyEvent } from '../knowledge-base/self-improvement.service';
 import type { ApprovalCreatedEvent } from './telegram.types';
 import { TELEGRAM_EVENTS } from './telegram.types';
 import type { ProposedAction } from '../agents/runtime/types';
@@ -31,6 +32,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     private readonly settings: SettingsService,
     private readonly approvalSvc: ApprovalService,
     private readonly db: DbService,
+    private readonly selfImproveSvc: SelfImprovementService,
   ) {}
 
   async onModuleInit() {
@@ -70,6 +72,14 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     await this.bot.api.sendMessage(this.ownerChatId, text, { parse_mode: 'Markdown' });
   }
 
+  async sendMessageWithKeyboard(text: string, keyboard: InlineKeyboard): Promise<{ message_id: number } | null> {
+    if (!this.bot || !this.ownerChatId) return null;
+    return this.bot.api.sendMessage(this.ownerChatId, text, {
+      parse_mode: 'Markdown',
+      reply_markup: keyboard,
+    });
+  }
+
   @OnEvent(TELEGRAM_EVENTS.APPROVAL_CREATED)
   async onApprovalCreated(event: ApprovalCreatedEvent): Promise<void> {
     if (!this.bot || !this.ownerChatId) return;
@@ -92,6 +102,24 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
         .where(eq(pendingApprovals.id, event.approvalId));
     } catch (err) {
       this.logger.error(`Failed to send approval message: ${(err as Error).message}`);
+    }
+  }
+
+  @OnEvent('telegram.kb_proposal')
+  async onKbProposal(event: KbProposalNotifyEvent): Promise<void> {
+    if (!this.bot || !this.ownerChatId) return;
+
+    const keyboard = new InlineKeyboard()
+      .text('Add to KB', `kbproposal:${event.proposalId}:approve`)
+      .text('Skip', `kbproposal:${event.proposalId}:reject`);
+
+    try {
+      await this.bot.api.sendMessage(this.ownerChatId, event.text, {
+        parse_mode: 'Markdown',
+        reply_markup: keyboard,
+      });
+    } catch (err) {
+      this.logger.error(`Failed to send KB proposal message: ${(err as Error).message}`);
     }
   }
 
@@ -119,17 +147,17 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
             parse_mode: 'Markdown',
           });
         } else if (action === 'reject') {
-          await this.approvalSvc.reject(approvalId);
-          await ctx.editMessageText(`${originalText}\n\n❌ *Rejected*`, {
-            parse_mode: 'Markdown',
+          const keyboard = new InlineKeyboard()
+            .text('🚫 Reject silently', `reject:${approvalId}:silent`)
+            .text('📝 Reject + reason', `reject:${approvalId}:reason`);
+          await ctx.editMessageText(`${originalText}\n\n❌ Rejected — add a reason?`, {
+            reply_markup: keyboard,
           });
         } else if (action === 'followup') {
-          // Edit original message to remove keyboard and show followup note
           await ctx.editMessageText(
             `${originalText}\n\n💬 _Awaiting follow\\-up instruction\\.\\.\\._`,
             { parse_mode: 'MarkdownV2' },
           );
-          // Send a separate force-reply prompt
           const prompt = await ctx.api.sendMessage(
             this.ownerChatId!,
             '📝 Reply to this message with your follow\\-up instruction:',
@@ -138,19 +166,85 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
               reply_markup: { force_reply: true, selective: true },
             },
           );
-          // Store both message ids for follow-up matching
           await this.db.db
             .update(pendingApprovals)
-            .set({
-              telegramThreadId: String(prompt.message_id),
-              status: 'FOLLOWUP',
-            })
+            .set({ telegramThreadId: String(prompt.message_id), status: 'FOLLOWUP' })
             .where(eq(pendingApprovals.id, approvalId));
         }
       },
     );
 
-    // Handle follow-up text replies
+    // Rejection sub-action: silent or reason
+    this.bot.callbackQuery(
+      /^reject:([^:]+):(silent|reason)$/,
+      async (ctx) => {
+        const fromId = ctx.from?.id ? String(ctx.from.id) : null;
+        if (!this.isOwner(fromId)) {
+          await ctx.answerCallbackQuery({ text: '⛔ Unauthorized' });
+          return;
+        }
+
+        const [, approvalId, subAction] = ctx.match!;
+        await ctx.answerCallbackQuery();
+        const originalText = ctx.msg?.text ?? '';
+
+        if (subAction === 'silent') {
+          await this.approvalSvc.rejectWithReason(approvalId, null);
+          await ctx.editMessageText(`${originalText}\n\n❌ *Rejected*`, { parse_mode: 'Markdown' });
+        } else {
+          await ctx.editMessageText(`${originalText}\n\n❌ _Awaiting rejection reason\\.\\.\\._`, {
+            parse_mode: 'MarkdownV2',
+          });
+          const prompt = await ctx.api.sendMessage(
+            this.ownerChatId!,
+            '📝 Reply to this message with your rejection reason:',
+            {
+              parse_mode: 'MarkdownV2',
+              reply_markup: { force_reply: true, selective: true },
+            },
+          );
+          await this.db.db
+            .update(pendingApprovals)
+            .set({ telegramThreadId: `REJECT_REASON:${prompt.message_id}` })
+            .where(eq(pendingApprovals.id, approvalId));
+        }
+      },
+    );
+
+    // KB proposal callbacks: kbproposal:<proposalId>:approve|reject
+    this.bot.callbackQuery(
+      /^kbproposal:([^:]+):(approve|reject)$/,
+      async (ctx) => {
+        const fromId = ctx.from?.id ? String(ctx.from.id) : null;
+        if (!this.isOwner(fromId)) {
+          await ctx.answerCallbackQuery({ text: '⛔ Unauthorized' });
+          return;
+        }
+
+        const [, proposalId, action] = ctx.match!;
+        await ctx.answerCallbackQuery();
+        const originalText = ctx.msg?.text ?? '';
+
+        try {
+          if (action === 'approve') {
+            await this.selfImproveSvc.approveProposal(proposalId);
+            await ctx.editMessageText(`${originalText}\n\n*Added to Knowledge Base*`, {
+              parse_mode: 'Markdown',
+            });
+          } else {
+            await this.selfImproveSvc.rejectProposal(proposalId);
+            await ctx.editMessageText(`${originalText}\n\n*Skipped*`, {
+              parse_mode: 'Markdown',
+            });
+          }
+        } catch (err) {
+          this.logger.error(`KB proposal ${action} failed: ${err}`);
+          await ctx.editMessageText(`${originalText}\n\nAction failed`, { parse_mode: 'Markdown' });
+        }
+      },
+    );
+
+    // Handle text replies (follow-up instructions + rejection reasons)
     this.bot.on('message:text', async (ctx) => {
       const replyTo = ctx.message.reply_to_message;
       if (!replyTo) return;
@@ -160,7 +254,8 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
 
       const replyToMsgId = String(replyTo.message_id);
 
-      const [approval] = await this.db.db
+      // Check for follow-up reply
+      const [followupApproval] = await this.db.db
         .select()
         .from(pendingApprovals)
         .where(
@@ -171,12 +266,25 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
         )
         .limit(1);
 
-      if (!approval) return;
+      if (followupApproval) {
+        await this.approvalSvc.followup(followupApproval.id, ctx.message.text);
+        await ctx.reply('✅ Follow\\-up received\\. Re\\-evaluating\\.\\.\\.', {
+          parse_mode: 'MarkdownV2',
+        });
+        return;
+      }
 
-      await this.approvalSvc.followup(approval.id, ctx.message.text);
-      await ctx.reply('✅ Follow\\-up received\\. Re\\-evaluating\\.\\.\\.', {
-        parse_mode: 'MarkdownV2',
-      });
+      // Check for rejection reason reply
+      const [rejectApproval] = await this.db.db
+        .select()
+        .from(pendingApprovals)
+        .where(eq(pendingApprovals.telegramThreadId, `REJECT_REASON:${replyToMsgId}`))
+        .limit(1);
+
+      if (rejectApproval) {
+        await this.approvalSvc.rejectWithReason(rejectApproval.id, ctx.message.text);
+        await ctx.reply('✅ Rejected with reason recorded\\.', { parse_mode: 'MarkdownV2' });
+      }
     });
   }
 

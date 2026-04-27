@@ -14,6 +14,7 @@ import ApprovalsPage from '@/pages/ApprovalsPage';
 import RunDetailPage from '@/pages/RunDetailPage';
 import McpPage from '@/pages/McpPage';
 import IntegrationsPage from '@/pages/IntegrationsPage';
+import KnowledgeBasePage from '@/pages/KnowledgeBasePage';
 import AppLayout from '@/components/AppLayout';
 import { useAuthStore } from '@/stores/authStore';
 
@@ -44,6 +45,7 @@ export default function App() {
             <Route path="/agents/:key" element={<AgentDetailPage />} />
             <Route path="/agents/:key/chat" element={<AgentChatPage />} />
             <Route path="/agents/:key/runs" element={<AgentRunsPage />} />
+            <Route path="/knowledge-base" element={<KnowledgeBasePage />} />
             <Route path="/approvals" element={<ApprovalsPage />} />
             <Route path="/runs/:id" element={<RunDetailPage />} />
             <Route path="/mcp" element={<McpPage />} />

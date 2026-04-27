@@ -97,6 +97,7 @@ export const pendingApprovals = pgTable('pending_approvals', {
   telegramThreadId: text('telegram_thread_id'),
   status: approvalStatusEnum('status').notNull(),
   followupMessages: jsonb('followup_messages'),
+  rejectionReason: text('rejection_reason'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   resolvedAt: timestamp('resolved_at'),
   expiresAt: timestamp('expires_at').notNull(),

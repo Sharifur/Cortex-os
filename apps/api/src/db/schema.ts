@@ -14,3 +14,5 @@ export * from '../modules/agents/crisp/schema';
 export * from '../modules/agents/hr/schema';
 export * from '../modules/agents/social/schema';
 export * from '../modules/agents/canva/schema';
+export * from '../modules/agents/shorts/schema';
+export * from '../modules/knowledge-base/schema';

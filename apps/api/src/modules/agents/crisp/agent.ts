@@ -1,5 +1,5 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { eq } from 'drizzle-orm';
+import { eq, and, desc } from 'drizzle-orm';
 import { DbService } from '../../../db/db.service';
 import { agents } from '../../../db/schema';
 import { crispConversations } from './schema';
@@ -7,6 +7,7 @@ import { CrispService } from './crisp.service';
 import { AgentRegistryService } from '../runtime/agent-registry.service';
 import { LlmRouterService } from '../../llm/llm-router.service';
 import { TelegramService } from '../../telegram/telegram.service';
+import { KnowledgeBaseService } from '../../knowledge-base/knowledge-base.service';
 import type {
   IAgent,
   TriggerSpec,
@@ -29,6 +30,7 @@ interface CrispConfig {
 interface CrispSnapshot {
   newMessages: any[];
   config: CrispConfig;
+  threadHistory?: Record<string, { role: 'customer' | 'agent'; text: string }[]>;
 }
 
 const DEFAULT_CONFIG: CrispConfig = {
@@ -50,6 +52,7 @@ export class CrispAgent implements IAgent, OnModuleInit {
     private telegram: TelegramService,
     private crisp: CrispService,
     private registry: AgentRegistryService,
+    private kb: KnowledgeBaseService,
   ) {}
 
   onModuleInit() {
@@ -99,28 +102,62 @@ export class CrispAgent implements IAgent, OnModuleInit {
       return [{ type: 'noop', summary: 'No new Crisp conversations.', payload: {}, riskLevel: 'low' }];
     }
 
+    // Parallel KB fetch (cached where possible)
+    const [alwaysOn, samples, blocklist, rejections] = await Promise.all([
+      this.kb.getAlwaysOnContext(this.key),
+      this.kb.getWritingSamples(this.key),
+      this.kb.getBlocklistRules(this.key),
+      this.kb.getRecentRejections(this.key, 3),
+    ]);
+
+    const template = await this.kb.getPromptTemplate(this.key);
+
     const actions: ProposedAction[] = [];
 
     for (const msg of newMessages) {
       try {
+        // Per-message FTS search + returning visitor memory
+        const [references, previousReplies] = await Promise.all([
+          this.kb.searchEntries(msg.content ?? '', this.key, 5),
+          this.getVisitorHistory(msg.visitorEmail, msg.visitorNickname),
+        ]);
+
+        const kbBlock = this.kb.buildKbPromptBlock({
+          voiceProfile: alwaysOn.find(e => e.entryType === 'voice_profile') ?? null,
+          facts: alwaysOn.filter(e => e.entryType === 'fact'),
+          references,
+          positiveSamples: samples.filter(s => s.polarity === 'positive'),
+          negativeSamples: samples.filter(s => s.polarity === 'negative'),
+          rejections,
+        });
+
+        const visitorMemory = previousReplies.length
+          ? `\n\nPrevious interactions with this visitor:\n${previousReplies
+              .map(r => `Customer: "${r.msg?.slice(0, 150)}" → You replied: "${r.draft?.slice(0, 150)}"`)
+              .join('\n')}`
+          : '';
+
+        const defaultSystem = `You are a customer support agent. Context: ${config.productContext}\nTone: ${config.replyTone}\nWrite a direct reply to the customer message. 2-4 sentences max. No greetings like "Dear" or closings like "Best regards". Just the reply.`;
+        const systemPrompt = (template?.system ?? defaultSystem) + kbBlock + visitorMemory;
+
         const response = await this.llm.complete({
           messages: [
-            {
-              role: 'system',
-              content: `You are a customer support agent. Context: ${config.productContext}\nTone: ${config.replyTone}\nWrite a direct reply to the customer message. 2-4 sentences max. No greetings like "Dear" or closings like "Best regards". Just the reply.`,
-            },
-            {
-              role: 'user',
-              content: msg.content,
-            },
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: msg.content },
           ],
           provider: config.llm.provider as any,
           model: config.llm.model,
           maxTokens: 200,
         });
 
-        const draft = response.content.trim();
+        let draft = response.content.trim();
         if (!draft) continue;
+
+        // Self-critique for medium/high risk (always medium for customer replies)
+        draft = await this.selfCritique(draft, alwaysOn.find(e => e.entryType === 'voice_profile')?.content, blocklist);
+
+        // Blocklist check
+        const violation = blocklist.find(p => draft.toLowerCase().includes(p.toLowerCase()));
 
         await this.db.db
           .insert(crispConversations)
@@ -139,9 +176,9 @@ export class CrispAgent implements IAgent, OnModuleInit {
 
         actions.push({
           type: 'send_reply',
-          summary: `Reply to ${visitorLabel}: "${draft.slice(0, 80)}"`,
+          summary: `Reply to ${visitorLabel}: "${draft.slice(0, 80)}"${violation ? ` ⚠️ Blocklist: "${violation}"` : ''}`,
           payload: { sessionId: msg.sessionId, visitorLabel, message: msg.content, draft },
-          riskLevel: 'medium',
+          riskLevel: violation ? 'high' : 'medium',
         });
       } catch (err) {
         this.logger.warn(`Failed to draft Crisp reply: ${err}`);
@@ -205,16 +242,13 @@ export class CrispAgent implements IAgent, OnModuleInit {
         method: 'GET',
         path: '/crisp/conversations',
         requiresAuth: true,
-        handler: async () =>
-          this.db.db.select().from(crispConversations).limit(50),
+        handler: async () => this.db.db.select().from(crispConversations).limit(50),
       },
       {
         method: 'POST',
         path: '/crisp/webhook',
         requiresAuth: false,
-        handler: async (body) => {
-          return { received: true };
-        },
+        handler: async (_body) => ({ received: true }),
       },
     ];
   }
@@ -222,5 +256,50 @@ export class CrispAgent implements IAgent, OnModuleInit {
   private async getConfig(): Promise<CrispConfig> {
     const [row] = await this.db.db.select().from(agents).where(eq(agents.key, this.key));
     return { ...DEFAULT_CONFIG, ...(row?.config as Partial<CrispConfig> ?? {}) };
+  }
+
+  private async getVisitorHistory(visitorEmail?: string | null, visitorNickname?: string | null) {
+    if (!visitorEmail && !visitorNickname) return [];
+    try {
+      return this.db.db
+        .select({ draft: crispConversations.draftReply, msg: crispConversations.lastMessage })
+        .from(crispConversations)
+        .where(
+          and(
+            visitorEmail ? eq(crispConversations.visitorEmail, visitorEmail) : eq(crispConversations.visitorNickname, visitorNickname!),
+            eq(crispConversations.status, 'replied'),
+          ),
+        )
+        .limit(2)
+        .orderBy(desc(crispConversations.repliedAt));
+    } catch {
+      return [];
+    }
+  }
+
+  private async selfCritique(draft: string, voiceProfile?: string, blocklist?: string[]): Promise<string> {
+    try {
+      const critique = await this.llm.complete({
+        messages: [
+          {
+            role: 'system',
+            content: `You are a strict editor. Review this draft reply.
+Voice: ${voiceProfile ?? 'direct, friendly, no corporate jargon'}
+Avoid: ${blocklist?.join(', ') || 'none specified'}
+If the draft is good, return: {"ok":true}
+If not, rewrite and return: {"ok":false,"revised":"improved reply here"}`,
+          },
+          { role: 'user', content: `Draft: "${draft}"` },
+        ],
+        provider: 'auto',
+        model: 'gpt-4o-mini',
+        maxTokens: 300,
+      });
+      const result = JSON.parse(critique.content);
+      if (!result.ok && result.revised) return result.revised.trim();
+    } catch {
+      // fail-open: use original draft
+    }
+    return draft;
   }
 }

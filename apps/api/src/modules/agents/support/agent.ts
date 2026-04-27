@@ -1,11 +1,12 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { eq, desc, sql } from 'drizzle-orm';
+import { eq, desc, sql, and } from 'drizzle-orm';
 import { DbService } from '../../../db/db.service';
 import { agents } from '../../../db/schema';
 import { supportTickets } from './schema';
 import { AgentRegistryService } from '../runtime/agent-registry.service';
 import { LlmRouterService } from '../../llm/llm-router.service';
 import { TelegramService } from '../../telegram/telegram.service';
+import { KnowledgeBaseService } from '../../knowledge-base/knowledge-base.service';
 import type {
   IAgent,
   TriggerSpec,
@@ -56,6 +57,7 @@ export class SupportAgent implements IAgent, OnModuleInit {
     private llm: LlmRouterService,
     private telegram: TelegramService,
     private registry: AgentRegistryService,
+    private kb: KnowledgeBaseService,
   ) {}
 
   onModuleInit() {
@@ -91,13 +93,43 @@ export class SupportAgent implements IAgent, OnModuleInit {
     const { tickets, config } = ctx.snapshot as SupportSnapshot;
     if (!tickets.length) return [{ type: 'noop', summary: 'No open tickets.', payload: {}, riskLevel: 'low' }];
 
+    const [alwaysOn, samples, blocklist, rejections] = await Promise.all([
+      this.kb.getAlwaysOnContext(this.key),
+      this.kb.getWritingSamples(this.key),
+      this.kb.getBlocklistRules(this.key),
+      this.kb.getRecentRejections(this.key, 3),
+    ]);
+    const template = await this.kb.getPromptTemplate(this.key);
+
     const actions: ProposedAction[] = [];
 
     for (const ticket of tickets) {
       try {
+        const [references, previousTickets] = await Promise.all([
+          this.kb.searchEntries(`${ticket.subject} ${ticket.body?.slice(0, 200) ?? ''}`, this.key, 5),
+          this.getContactHistory(ticket.userEmail),
+        ]);
+
+        const kbBlock = this.kb.buildKbPromptBlock({
+          voiceProfile: alwaysOn.find(e => e.entryType === 'voice_profile') ?? null,
+          facts: alwaysOn.filter(e => e.entryType === 'fact'),
+          references,
+          positiveSamples: samples.filter(s => s.polarity === 'positive'),
+          negativeSamples: samples.filter(s => s.polarity === 'negative'),
+          rejections,
+        });
+
+        const contactMemory = previousTickets.length
+          ? `\n\nPrevious tickets from this user:\n${previousTickets
+              .map(t => `Subject: "${t.subject?.slice(0, 100)}" → You replied: "${t.lastDraft?.slice(0, 150)}"`)
+              .join('\n')}`
+          : '';
+
+        const systemPrompt = (template?.system ?? SYSTEM_PROMPT) + kbBlock + contactMemory;
+
         const response = await this.llm.complete({
           messages: [
-            { role: 'system', content: SYSTEM_PROMPT },
+            { role: 'system', content: systemPrompt },
             { role: 'user', content: `Subject: ${ticket.subject}\n\nBody: ${ticket.body}\n\nFrom: ${ticket.userEmail}` },
           ],
           provider: config.llm.provider as any,
@@ -114,6 +146,14 @@ export class SupportAgent implements IAgent, OnModuleInit {
           continue;
         }
 
+        // Self-critique + blocklist check
+        parsed.reply = await this.selfCritique(
+          parsed.reply,
+          alwaysOn.find(e => e.entryType === 'voice_profile')?.content,
+          blocklist,
+        );
+        const violation = blocklist.find(p => parsed.reply.toLowerCase().includes(p.toLowerCase()));
+
         const needsEscalation = config.escalateKeywords.some(
           (kw) => ticket.body?.toLowerCase().includes(kw),
         );
@@ -122,7 +162,7 @@ export class SupportAgent implements IAgent, OnModuleInit {
 
         actions.push({
           type: actionType,
-          summary: `${actionType === 'escalate_to_owner' ? 'Escalate' : 'Reply'}: [${parsed.priority}] ${ticket.subject} from ${ticket.userEmail}`,
+          summary: `${actionType === 'escalate_to_owner' ? 'Escalate' : 'Reply'}: [${parsed.priority}] ${ticket.subject} from ${ticket.userEmail}${violation ? ` - Blocklist: "${violation}"` : ''}`,
           payload: {
             ticketId: ticket.id,
             subject: ticket.subject,
@@ -131,7 +171,7 @@ export class SupportAgent implements IAgent, OnModuleInit {
             priority: parsed.priority,
             draft: parsed.reply,
           },
-          riskLevel: actionType === 'escalate_to_owner' ? 'high' : 'medium',
+          riskLevel: violation ? 'high' : actionType === 'escalate_to_owner' ? 'high' : 'medium',
         });
       } catch (err) {
         this.logger.warn(`Failed to process ticket ${ticket.id}: ${err}`);
@@ -249,6 +289,46 @@ export class SupportAgent implements IAgent, OnModuleInit {
       )
       .orderBy(desc(supportTickets.createdAt))
       .limit(limit);
+  }
+
+  private async getContactHistory(userEmail: string) {
+    if (!userEmail) return [];
+    try {
+      return this.db.db
+        .select({ subject: supportTickets.subject, lastDraft: supportTickets.lastDraft })
+        .from(supportTickets)
+        .where(and(eq(supportTickets.userEmail, userEmail), eq(supportTickets.status, 'replied')))
+        .orderBy(desc(supportTickets.updatedAt))
+        .limit(2);
+    } catch {
+      return [];
+    }
+  }
+
+  private async selfCritique(draft: string, voiceProfile?: string, blocklist?: string[]): Promise<string> {
+    try {
+      const critique = await this.llm.complete({
+        messages: [
+          {
+            role: 'system',
+            content: `You are a strict editor. Review this support reply draft.
+Voice: ${voiceProfile ?? 'professional, helpful, concise'}
+Avoid: ${blocklist?.join(', ') || 'none specified'}
+If the draft is good, return: {"ok":true}
+If not, rewrite and return: {"ok":false,"revised":"improved reply here"}`,
+          },
+          { role: 'user', content: `Draft: "${draft}"` },
+        ],
+        provider: 'auto',
+        model: 'gpt-4o-mini',
+        maxTokens: 300,
+      });
+      const result = JSON.parse(critique.content);
+      if (!result.ok && result.revised) return result.revised.trim();
+    } catch {
+      // fail-open: use original draft
+    }
+    return draft;
   }
 
   private async getConfig(): Promise<SupportConfig> {

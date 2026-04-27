@@ -7,6 +7,7 @@ import { RedditService } from './reddit.service';
 import { AgentRegistryService } from '../runtime/agent-registry.service';
 import { LlmRouterService } from '../../llm/llm-router.service';
 import { TelegramService } from '../../telegram/telegram.service';
+import { KnowledgeBaseService } from '../../knowledge-base/knowledge-base.service';
 import type {
   IAgent,
   TriggerSpec,
@@ -50,6 +51,7 @@ export class RedditAgent implements IAgent, OnModuleInit {
     private telegram: TelegramService,
     private reddit: RedditService,
     private registry: AgentRegistryService,
+    private kb: KnowledgeBaseService,
   ) {}
 
   onModuleInit() {
@@ -98,15 +100,34 @@ export class RedditAgent implements IAgent, OnModuleInit {
     const { newPosts, config } = ctx.snapshot as RedditSnapshot;
     if (!newPosts.length) return [{ type: 'noop', summary: 'No new Reddit mentions.', payload: {}, riskLevel: 'low' }];
 
+    const [alwaysOn, samples, blocklist, rejections] = await Promise.all([
+      this.kb.getAlwaysOnContext(this.key),
+      this.kb.getWritingSamples(this.key),
+      this.kb.getBlocklistRules(this.key),
+      this.kb.getRecentRejections(this.key, 3),
+    ]);
+    const template = await this.kb.getPromptTemplate(this.key);
+
     const actions: ProposedAction[] = [];
 
     for (const post of newPosts) {
       try {
+        const references = await this.kb.searchEntries(`${post.title} ${post.body?.slice(0, 200) ?? ''}`, this.key, 3);
+        const kbBlock = this.kb.buildKbPromptBlock({
+          voiceProfile: alwaysOn.find(e => e.entryType === 'voice_profile') ?? null,
+          facts: alwaysOn.filter(e => e.entryType === 'fact'),
+          references,
+          positiveSamples: samples.filter(s => s.polarity === 'positive'),
+          negativeSamples: samples.filter(s => s.polarity === 'negative'),
+          rejections,
+        });
+        const defaultSystem = `You are writing a Reddit comment. Tone: ${config.commentTone}. 2-3 sentences max. Must add genuine value. No links. No self-promotion. Just the comment text.`;
+
         const response = await this.llm.complete({
           messages: [
             {
               role: 'system',
-              content: `You are writing a Reddit comment. Tone: ${config.commentTone}. 2-3 sentences max. Must add genuine value. No links. No self-promotion. Just the comment text.`,
+              content: (template?.system ?? defaultSystem) + kbBlock,
             },
             {
               role: 'user',
