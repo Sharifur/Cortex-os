@@ -40,10 +40,11 @@ interface RecentRunSummary {
 }
 
 interface BriefSnapshot {
-  briefType: 'morning' | 'evening';
+  briefType: 'morning' | 'evening' | 'task';
   pendingApprovals: PendingApprovalSummary[];
   recentRuns: RecentRunSummary[];
   config: DailyReminderConfig;
+  taskInstruction?: string;
 }
 
 const MORNING_SYSTEM = `You are a personal AI assistant for Sharifur Rahman, founder of Taskip and Xgenious.
@@ -80,6 +81,16 @@ export class DailyReminderAgent implements IAgent, OnModuleInit {
 
   async buildContext(trigger: TriggerEvent, run: RunContext): Promise<AgentContext> {
     const config = await this.getConfig();
+
+    // Manual task with explicit instructions — skip brief generation
+    const taskInstruction = (trigger.payload as Record<string, string> | undefined)?.instructions;
+    if (taskInstruction) {
+      return {
+        source: trigger,
+        snapshot: { briefType: 'task' as const, taskInstruction, config },
+        followups: (run.context as AgentContext | null)?.followups ?? [],
+      };
+    }
 
     const utcHour = new Date().getUTCHours();
     const briefType: 'morning' | 'evening' = utcHour < 12 ? 'morning' : 'evening';
@@ -154,13 +165,41 @@ export class DailyReminderAgent implements IAgent, OnModuleInit {
   }
 
   async decide(ctx: AgentContext): Promise<ProposedAction[]> {
-    const snapshot = ctx.snapshot as BriefSnapshot & { skip?: boolean };
+    const snapshot = ctx.snapshot as BriefSnapshot & { skip?: boolean; taskInstruction?: string };
     if (snapshot.skip) return [];
 
-    const { briefType, pendingApprovals: pending, recentRuns, config } = snapshot;
+    const { briefType, config } = snapshot;
+
+    // Task-triggered: send the instruction as-is (or let LLM compose a direct reply)
+    if (briefType === 'task' && snapshot.taskInstruction) {
+      const response = await this.llm.complete({
+        provider: config.llm.provider as 'openai' | 'gemini' | 'deepseek' | 'auto',
+        model: config.llm.model,
+        messages: [
+          {
+            role: 'system',
+            content: 'You are a Telegram assistant for Sharifur. Follow the task instruction exactly. Reply with only the message text to send — nothing else.',
+          },
+          { role: 'user', content: snapshot.taskInstruction },
+        ],
+        maxTokens: 200,
+        temperature: 0.5,
+      });
+
+      return [
+        {
+          type: 'send_telegram_brief',
+          summary: `Send task message: ${snapshot.taskInstruction}`,
+          payload: { message: response.content, briefType: 'task' },
+          riskLevel: 'low',
+        },
+      ];
+    }
+
+    const { pendingApprovals: pending, recentRuns } = snapshot;
     const followupNote = ctx.followups.at(-1)?.text;
 
-    const userMsg = this.buildPrompt(briefType, pending, recentRuns, followupNote);
+    const userMsg = this.buildPrompt(briefType as 'morning' | 'evening', pending, recentRuns, followupNote);
     const systemMsg = briefType === 'morning' ? MORNING_SYSTEM : EVENING_SYSTEM;
 
     const response = await this.llm.complete({
