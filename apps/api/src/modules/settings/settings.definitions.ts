@@ -2,7 +2,7 @@ export interface SettingDefinition {
   label: string;
   description?: string;
   isSecret: boolean;
-  group: 'llm' | 'telegram' | 'ses' | 'gmail' | 'whatsapp' | 'linkedin' | 'reddit' | 'crisp' | 'license';
+  group: 'llm' | 'telegram' | 'ses' | 'gmail' | 'whatsapp' | 'linkedin' | 'reddit' | 'crisp' | 'license' | 'storage';
   defaultValue?: string;
   provider?: 'openai' | 'gemini' | 'deepseek' | 'general';
 }
@@ -252,5 +252,46 @@ export const SETTING_DEFINITIONS: Record<string, SettingDefinition> = {
     isSecret: false,
     group: 'license',
     defaultValue: 'xgenious',
+  },
+
+  // Storage — Cloudflare R2 (S3-compatible)
+  storage_endpoint: {
+    label: 'Endpoint',
+    description: '<account-id>.r2.cloudflarestorage.com — find Account ID in Cloudflare Dashboard → R2',
+    isSecret: false,
+    group: 'storage',
+  },
+  storage_access_key: {
+    label: 'Access Key ID',
+    description: 'R2 API token Access Key ID',
+    isSecret: true,
+    group: 'storage',
+  },
+  storage_secret_key: {
+    label: 'Secret Access Key',
+    description: 'R2 API token Secret Access Key',
+    isSecret: true,
+    group: 'storage',
+  },
+  storage_bucket: {
+    label: 'Bucket Name',
+    description: 'e.g. cortex',
+    isSecret: false,
+    group: 'storage',
+    defaultValue: 'cortex',
+  },
+  storage_port: {
+    label: 'Port',
+    description: '443 for R2/HTTPS, 9000 for local MinIO',
+    isSecret: false,
+    group: 'storage',
+    defaultValue: '443',
+  },
+  storage_use_ssl: {
+    label: 'Use SSL',
+    description: 'true for R2 / any HTTPS endpoint, false for local dev',
+    isSecret: false,
+    group: 'storage',
+    defaultValue: 'true',
   },
 };

@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { SESClient, GetSendQuotaCommand } from '@aws-sdk/client-ses';
 import { google } from 'googleapis';
+import { Client as MinioClient } from 'minio';
 import { SettingsService } from '../settings/settings.service';
 import { CrispService } from '../agents/crisp/crisp.service';
 
@@ -26,6 +27,7 @@ export class IntegrationsService {
       case 'ses':       return this.testSes();
       case 'gmail':     return this.testGmail();
       case 'license':   return this.testLicense();
+      case 'storage':   return this.testStorage();
       default:          return { ok: false, message: `Unknown integration: ${key}` };
     }
   }
@@ -224,6 +226,41 @@ export class IntegrationsService {
         return { ok: true, message: `License server reachable — signature valid` };
       }
       return { ok: false, message: `Unexpected HTTP ${res.status}` };
+    } catch (err) {
+      return { ok: false, message: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  private async testStorage(): Promise<TestResult> {
+    const [endpoint, accessKey, secretKey, portSetting, useSslSetting] = await Promise.all([
+      this.settings.getDecrypted('storage_endpoint'),
+      this.settings.getDecrypted('storage_access_key'),
+      this.settings.getDecrypted('storage_secret_key'),
+      this.settings.getDecrypted('storage_port'),
+      this.settings.getDecrypted('storage_use_ssl'),
+    ]);
+    const resolvedEndpoint = endpoint || process.env.MINIO_ENDPOINT;
+    const resolvedAccessKey = accessKey || process.env.MINIO_ACCESS_KEY;
+    const resolvedSecretKey = secretKey || process.env.MINIO_SECRET_KEY;
+    if (!resolvedEndpoint || !resolvedAccessKey || !resolvedSecretKey) {
+      return { ok: false, message: 'Storage credentials not configured' };
+    }
+    try {
+      const rawSsl = useSslSetting ?? process.env.MINIO_USE_SSL;
+      const useSSL = rawSsl ? rawSsl === 'true' : true;
+      const rawPort = portSetting || process.env.MINIO_PORT;
+      const port = rawPort ? parseInt(rawPort) : (useSSL ? 443 : 9000);
+      const client = new MinioClient({
+        endPoint: resolvedEndpoint,
+        port,
+        useSSL,
+        accessKey: resolvedAccessKey,
+        secretKey: resolvedSecretKey,
+      });
+      const buckets = await client.listBuckets();
+      const bucket = (await this.settings.getDecrypted('storage_bucket')) || process.env.MINIO_BUCKET || 'cortex';
+      const found = buckets.some((b) => b.name === bucket);
+      return { ok: true, message: found ? `Bucket "${bucket}" found` : `Connected — bucket "${bucket}" not found yet` };
     } catch (err) {
       return { ok: false, message: err instanceof Error ? err.message : String(err) };
     }

@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Cable, Save, Trash2, Eye, EyeOff, Key, Send, Mail, Copy, Check,
   ExternalLink, MessageSquare, Linkedin, Hash, Bot, FlaskConical,
-  CheckCircle2, XCircle, Loader2, Plus, Globe, ToggleLeft, ToggleRight,
+  CheckCircle2, XCircle, Loader2, Plus, Globe, ToggleLeft, ToggleRight, Database,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -30,6 +30,7 @@ const TABS = [
   { key: 'ses', label: 'Email (SES)', icon: <Mail className="w-4 h-4" /> },
   { key: 'gmail', label: 'Gmail', icon: <Mail className="w-4 h-4" /> },
   { key: 'license', label: 'License Server', icon: <Key className="w-4 h-4" /> },
+  { key: 'storage', label: 'Storage (R2)', icon: <Database className="w-4 h-4" /> },
 ];
 
 async function fetchSettings(token: string): Promise<SettingRow[]> {
@@ -834,6 +835,50 @@ function LicenseTab({ rows, token }: { rows: SettingRow[]; token: string }) {
   );
 }
 
+function StorageTab({ rows, token }: { rows: SettingRow[]; token: string }) {
+  return (
+    <IntegrationLayout
+      integrationKey="storage"
+      rows={rows}
+      token={token}
+      docs={
+        <>
+          <h2 className="text-sm font-semibold mb-4">Cloudflare R2 Setup</h2>
+          <div className="space-y-4">
+            <SetupStep n={1} title="Create an R2 bucket">
+              <p>Go to <strong>Cloudflare Dashboard → R2</strong> and create a bucket (e.g. <code className="bg-muted px-1 rounded">cortex</code>).</p>
+            </SetupStep>
+            <SetupStep n={2} title="Generate an R2 API token">
+              <p>In Cloudflare Dashboard → R2 → <strong>Manage R2 API Tokens</strong> → Create API Token.</p>
+              <p>Grant <strong>Object Read & Write</strong> permissions. Copy the Access Key ID and Secret Access Key — shown only once.</p>
+            </SetupStep>
+            <SetupStep n={3} title="Find your Account ID">
+              <p>In Cloudflare Dashboard → R2, your <strong>Account ID</strong> is shown on the right side of the page.</p>
+              <p>The endpoint format is: <code className="bg-muted px-1 rounded">&lt;account-id&gt;.r2.cloudflarestorage.com</code></p>
+            </SetupStep>
+            <SetupStep n={4} title="Paste credentials in Settings">
+              <p>Set <strong>Endpoint</strong>, <strong>Access Key ID</strong>, <strong>Secret Access Key</strong>, and <strong>Bucket Name</strong>.</p>
+              <p>Leave Port as <code className="bg-muted px-1 rounded">443</code> and Use SSL as <code className="bg-muted px-1 rounded">true</code> for R2.</p>
+            </SetupStep>
+            <SetupStep n={5} title="Test the connection">
+              <p>Click <strong>Test connection</strong>. A successful test confirms the bucket is reachable.</p>
+              <p>Storage is used for knowledge base file ingestion (PDFs, DOCX).</p>
+            </SetupStep>
+          </div>
+          <a
+            href="https://developers.cloudflare.com/r2/api/s3/api/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 text-xs text-primary hover:underline mt-4"
+          >
+            Cloudflare R2 S3-compatible API docs <ExternalLink className="w-3 h-3" />
+          </a>
+        </>
+      }
+    />
+  );
+}
+
 export default function IntegrationsPage() {
   const token = useAuthStore((s) => s.token)!;
   const [activeTab, setActiveTab] = useState('whatsapp');
@@ -905,6 +950,7 @@ export default function IntegrationsPage() {
           {activeTab === 'ses' && <SesTab rows={grouped['ses'] ?? []} token={token} />}
           {activeTab === 'gmail' && <GmailTab rows={grouped['gmail'] ?? []} token={token} />}
           {activeTab === 'license' && <LicenseTab rows={grouped['license'] ?? []} token={token} />}
+          {activeTab === 'storage' && <StorageTab rows={grouped['storage'] ?? []} token={token} />}
         </>
       )}
     </div>
