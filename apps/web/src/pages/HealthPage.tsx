@@ -21,6 +21,7 @@ interface HealthResponse {
 const SERVICE_LABELS: Record<string, string> = {
   postgres: 'PostgreSQL',
   redis: 'Redis',
+  minio: 'MinIO',
   llm: 'LLM Provider',
   telegram: 'Telegram Bot',
   gmail: 'Gmail',
@@ -30,8 +31,10 @@ const SERVICE_LABELS: Record<string, string> = {
   crisp: 'Crisp',
 };
 
-const CORE_SERVICES = ['postgres', 'redis'];
+const CORE_SERVICES = ['postgres', 'redis', 'minio'];
 const INTEGRATION_SERVICES = ['llm', 'telegram', 'gmail', 'whatsapp', 'linkedin', 'reddit', 'crisp'];
+
+const FALLBACK_CHECK: ServiceCheck = { status: 'not_configured' };
 
 function formatUptime(seconds: number): string {
   if (seconds < 60) return `${seconds}s`;
@@ -96,8 +99,8 @@ export default function HealthPage() {
   const loading = isPending && isFetching;
 
   const overallOk = data?.status === 'ok';
-  const coreChecks = CORE_SERVICES.map((k) => ({ name: k, check: data?.checks[k] })).filter((x) => x.check);
-  const integrationChecks = INTEGRATION_SERVICES.map((k) => ({ name: k, check: data?.checks[k] })).filter((x) => x.check);
+  const coreChecks = CORE_SERVICES.map((k) => ({ name: k, check: data?.checks[k] ?? FALLBACK_CHECK }));
+  const integrationChecks = INTEGRATION_SERVICES.map((k) => ({ name: k, check: data?.checks[k] ?? FALLBACK_CHECK }));
 
   const lastChecked = dataUpdatedAt ? new Date(dataUpdatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : null;
 
@@ -156,7 +159,7 @@ export default function HealthPage() {
             {loading
               ? CORE_SERVICES.map((k) => <ServiceSkeleton key={k} />)
               : coreChecks.map(({ name, check }) => (
-                  <ServiceRow key={name} name={name} check={check!} />
+                  <ServiceRow key={name} name={name} check={check} />
                 ))
             }
           </div>
@@ -170,7 +173,7 @@ export default function HealthPage() {
             {loading
               ? INTEGRATION_SERVICES.map((k) => <ServiceSkeleton key={k} />)
               : integrationChecks.map(({ name, check }) => (
-                  <ServiceRow key={name} name={name} check={check!} />
+                  <ServiceRow key={name} name={name} check={check} />
                 ))
             }
           </div>

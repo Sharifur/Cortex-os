@@ -1,6 +1,7 @@
 import { Controller, Get } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import IORedis from 'ioredis';
+import { Client as MinioClient } from 'minio';
 import { DbService } from '../../db/db.service';
 import { SettingsService } from '../settings/settings.service';
 
@@ -23,22 +24,55 @@ export class HealthController {
     const checks: Record<string, ServiceCheck> = {};
 
     // Postgres
-    try {
-      await this.db.db.execute(sql`SELECT 1`);
-      checks.postgres = { status: 'ok' };
-    } catch (err) {
-      checks.postgres = { status: 'error', message: err instanceof Error ? err.message : String(err) };
+    if (!process.env.DATABASE_URL) {
+      checks.postgres = { status: 'not_configured', message: 'DATABASE_URL not set' };
+    } else {
+      try {
+        await this.db.db.execute(sql`SELECT 1`);
+        checks.postgres = { status: 'ok' };
+      } catch (err) {
+        checks.postgres = { status: 'error', message: err instanceof Error ? err.message : String(err) };
+      }
     }
 
     // Redis
-    try {
-      const redis = new IORedis(process.env.REDIS_URL!, { lazyConnect: true, connectTimeout: 3000 });
-      await redis.connect();
-      await redis.ping();
-      await redis.quit();
-      checks.redis = { status: 'ok' };
-    } catch (err) {
-      checks.redis = { status: 'error', message: err instanceof Error ? err.message : String(err) };
+    if (!process.env.REDIS_URL) {
+      checks.redis = { status: 'not_configured', message: 'REDIS_URL not set' };
+    } else {
+      try {
+        const redis = new IORedis(process.env.REDIS_URL, { lazyConnect: true, connectTimeout: 3000 });
+        await redis.connect();
+        await redis.ping();
+        await redis.quit();
+        checks.redis = { status: 'ok' };
+      } catch (err) {
+        checks.redis = { status: 'error', message: err instanceof Error ? err.message : String(err) };
+      }
+    }
+
+    // MinIO
+    const minioEndpoint = process.env.MINIO_ENDPOINT;
+    const minioKey = process.env.MINIO_ACCESS_KEY;
+    const minioSecret = process.env.MINIO_SECRET_KEY;
+    if (!minioEndpoint || !minioKey || !minioSecret) {
+      checks.minio = { status: 'not_configured', message: 'MINIO_ENDPOINT, MINIO_ACCESS_KEY or MINIO_SECRET_KEY not set' };
+    } else {
+      try {
+        const url = new URL(minioEndpoint);
+        const client = new MinioClient({
+          endPoint: url.hostname,
+          port: url.port ? parseInt(url.port) : (url.protocol === 'https:' ? 443 : 9000),
+          useSSL: url.protocol === 'https:',
+          accessKey: minioKey,
+          secretKey: minioSecret,
+        });
+        await new Promise<void>((resolve, reject) => {
+          client.listBuckets((err) => (err ? reject(err) : resolve()));
+        });
+        checks.minio = { status: 'ok' };
+      } catch (err) {
+        checks.minio = { status: 'error', message: err instanceof Error ? err.message : String(err) };
+      }
     }
 
     // LLM — at least one key present
