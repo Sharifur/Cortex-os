@@ -20,6 +20,7 @@ import { GmailModule } from './modules/gmail/gmail.module';
 import { TaskipTrialModule } from './modules/agents/taskip-trial/taskip-trial.module';
 import { DailyReminderModule } from './modules/agents/daily-reminder/daily-reminder.module';
 import { EmailManagerModule } from './modules/agents/email-manager/email-manager.module';
+import { TaskipInternalModule } from './modules/agents/taskip-internal/taskip-internal.module';
 
 @Module({
   imports: [
@@ -59,6 +60,7 @@ import { EmailManagerModule } from './modules/agents/email-manager/email-manager
     TaskipTrialModule,
     DailyReminderModule,
     EmailManagerModule,
+    TaskipInternalModule,
   ],
 })
 export class AppModule {}

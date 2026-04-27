@@ -2,7 +2,14 @@ import { Injectable, Logger } from '@nestjs/common';
 import OpenAI from 'openai';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { SettingsService } from '../settings/settings.service';
-import { ChatMessage, LlmCompleteOpts, LlmResponse } from './llm.types';
+import {
+  ChatMessage,
+  LlmCompleteOpts,
+  LlmResponse,
+  LlmCompleteWithToolsOpts,
+  LlmToolResult,
+  ToolCall,
+} from './llm.types';
 
 @Injectable()
 export class LlmRouterService {
@@ -34,6 +41,81 @@ export class LlmRouterService {
     }
 
     return this.autoRoute(opts);
+  }
+
+  async completeWithTools(opts: LlmCompleteWithToolsOpts): Promise<LlmToolResult> {
+    const provider = opts.provider ?? 'auto';
+
+    if (provider === 'gemini') {
+      throw new Error('Gemini does not support tool calling in this router — use openai or deepseek');
+    }
+
+    const resolvedProvider =
+      provider !== 'auto'
+        ? provider
+        : ((await this.settings.getDecrypted('llm_default_provider')) ?? 'openai');
+
+    if (resolvedProvider === 'deepseek') {
+      return this.callOpenAiStyleWithTools(opts, 'deepseek');
+    }
+    return this.callOpenAiStyleWithTools(opts, 'openai');
+  }
+
+  private async callOpenAiStyleWithTools(
+    opts: LlmCompleteWithToolsOpts,
+    backend: 'openai' | 'deepseek',
+  ): Promise<LlmToolResult> {
+    let apiKey: string | null;
+    let baseURL: string | undefined;
+    let defaultModel: string;
+
+    if (backend === 'deepseek') {
+      apiKey = await this.settings.getDecrypted('deepseek_api_key');
+      baseURL = 'https://api.deepseek.com';
+      defaultModel = (await this.settings.getDecrypted('deepseek_default_model')) ?? 'deepseek-chat';
+    } else {
+      apiKey = await this.settings.getDecrypted('openai_api_key');
+      defaultModel = (await this.settings.getDecrypted('openai_default_model')) ?? 'gpt-4o-mini';
+    }
+
+    if (!apiKey) throw new Error(`${backend} API key not configured`);
+
+    const model = opts.model ?? defaultModel;
+    const client = new OpenAI({ apiKey, ...(baseURL ? { baseURL } : {}) });
+
+    const tools = opts.tools.map((t) => ({
+      type: 'function' as const,
+      function: {
+        name: t.name,
+        description: t.description,
+        parameters: t.parameters as Record<string, unknown>,
+      },
+    }));
+
+    const res = await client.chat.completions.create({
+      model,
+      messages: opts.messages as OpenAI.Chat.ChatCompletionMessageParam[],
+      tools,
+      tool_choice: 'auto',
+      max_tokens: opts.maxTokens,
+      temperature: opts.temperature,
+    });
+
+    const msg = res.choices[0]?.message;
+    if (msg?.tool_calls?.length) {
+      const toolCalls: ToolCall[] = msg.tool_calls
+        .filter((tc): tc is OpenAI.Chat.ChatCompletionMessageToolCall & { function: { name: string; arguments: string } } =>
+          'function' in tc && typeof tc.function?.name === 'string',
+        )
+        .map((tc) => ({
+          id: tc.id,
+          name: tc.function.name,
+          arguments: tc.function.arguments,
+        }));
+      return { type: 'tool_calls', tool_calls: toolCalls, provider: backend, model };
+    }
+
+    return { type: 'text', content: msg?.content ?? '', provider: backend, model };
   }
 
   private async autoRoute(opts: LlmCompleteOpts): Promise<LlmResponse> {

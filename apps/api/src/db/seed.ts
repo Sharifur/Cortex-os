@@ -6,6 +6,15 @@ import * as bcrypt from 'bcrypt';
 
 const AGENT_SEEDS = [
   {
+    key: 'taskip_internal',
+    name: 'Taskip Internal',
+    description: 'On-demand internal ops assistant — look up users, check subscriptions/invoices, extend trials, mark refunds.',
+    enabled: true,
+    config: {
+      llm: { provider: 'openai', model: 'gpt-4o' },
+    },
+  },
+  {
     key: 'email_manager',
     name: 'Email Manager',
     description: 'Polls Gmail every 30 minutes, classifies emails, drafts replies for important senders, auto-archives newsletters and spam.',

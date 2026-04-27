@@ -5,7 +5,7 @@ import {
   Bot, ArrowLeft, ChevronRight, Save, Play,
   ToggleLeft, ToggleRight, Settings, List,
   Mail, Cpu, Layers, Info, BookOpen,
-  CheckCircle2, Circle,
+  CheckCircle2, Circle, MessageSquare,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -1443,6 +1443,257 @@ function EmailManagerSettingsTab({ agent, token }: { agent: AgentDetail; token: 
   );
 }
 
+// ─── Taskip Internal sub-tabs ─────────────────────────────────────────────────
+
+const TASKIP_INTERNAL_TABS = [
+  { key: 'setup', label: 'Setup', icon: BookOpen },
+  { key: 'ask', label: 'Ask', icon: MessageSquare },
+  { key: 'llm', label: 'LLM', icon: Cpu },
+  { key: 'runtime', label: 'Runtime', icon: List },
+] as const;
+
+type TaskipInternalTabKey = typeof TASKIP_INTERNAL_TABS[number]['key'];
+
+interface TaskipInternalConfig {
+  llm: { provider: string; model: string };
+}
+
+function TaskipInternalSetupSubTab({ agent }: { agent: AgentDetail }) {
+  return (
+    <div className="space-y-4">
+      <div className="rounded-xl border border-border bg-card p-5">
+        <h3 className="text-sm font-semibold mb-1">Taskip Internal — Setup Checklist</h3>
+        <p className="text-xs text-muted-foreground mb-5">
+          On-demand assistant for internal Taskip ops. Ask in plain English — it looks up users, subscriptions,
+          and invoices, then proposes write actions (extend trial, mark refund) for your Telegram approval.
+        </p>
+        <div className="space-y-5">
+
+          <SetupStep n={1} title="Add Taskip read-only DB connection" done={false}>
+            <p>Set this env var in Coolify (or your <code className="bg-muted px-1 rounded">.env</code>):</p>
+            <code className="bg-muted px-2 py-1 rounded block mt-1 text-xs font-mono">
+              TASKIP_DB_URL_READONLY=postgres://readonly_user:pass@host:5432/taskip
+            </code>
+            <p className="mt-1">Create a read-only Postgres role in Taskip DB — grant <code className="bg-muted px-1 rounded">SELECT</code> on users, subscriptions, invoices.</p>
+            <p className="mt-1">For write operations (extend_trial, mark_refund) the same connection is reused — those queries need <code className="bg-muted px-1 rounded">UPDATE</code> permission on those tables.</p>
+          </SetupStep>
+
+          <SetupStep n={2} title="Configure OpenAI API key" done={false}>
+            <p>This agent uses function/tool calling — it requires <strong>OpenAI</strong> or <strong>DeepSeek</strong> (Gemini does not support tool calling in this router).</p>
+            <p className="mt-1">Add your key in <strong>Settings → LLM Providers</strong>. Recommended model: <code className="bg-muted px-1 rounded">gpt-4o</code> for accurate reasoning over DB results.</p>
+          </SetupStep>
+
+          <SetupStep n={3} title="Configure Telegram for approval messages" done={false}>
+            <p>Write operations (extend trial, mark refund) require Telegram approval before executing.</p>
+            <p className="mt-1">Ensure your bot token and chat ID are set in <strong>Settings → Telegram</strong>.</p>
+          </SetupStep>
+
+          <SetupStep n={4} title="Test with a manual query" done={agent.enabled}>
+            <p>Go to the <strong>Ask</strong> tab and type a question, for example:</p>
+            <ul className="list-disc list-inside ml-1 mt-1 space-y-0.5">
+              <li><em>Look up user john@example.com</em></li>
+              <li><em>Show me the last 5 invoices for user abc-123</em></li>
+              <li><em>Extend the trial for john@example.com by 7 days</em></li>
+            </ul>
+            <p className="mt-1">The agent will run, query the DB, and send the answer (or an approval request) to Telegram.</p>
+          </SetupStep>
+
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4">
+        <p className="text-xs font-medium text-amber-500 mb-1">Tool calling requirement</p>
+        <p className="text-xs text-muted-foreground">
+          This agent uses LLM function calling. Set the provider to <strong>OpenAI</strong> or <strong>DeepSeek</strong> in the LLM tab — Gemini is not supported for this agent.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function TaskipInternalAskSubTab({ agent, config, token }: {
+  agent: AgentDetail;
+  config: TaskipInternalConfig;
+  token: string;
+}) {
+  const navigate = useNavigate();
+  const [query, setQuery] = useState('');
+
+  const triggerMutation = useMutation({
+    mutationFn: () =>
+      apiFetch(token, `/agents/${agent.key}/trigger`, {
+        method: 'POST',
+        body: JSON.stringify({ triggerType: 'MANUAL', payload: { query } }),
+      }),
+    onSuccess: (run: { id: string }) => navigate(`/runs/${run.id}`),
+  });
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-xl border border-border bg-card p-5">
+        <h3 className="text-sm font-semibold mb-1">Ask Taskip Internal</h3>
+        <p className="text-xs text-muted-foreground mb-4">
+          Ask in plain English. The agent will query the Taskip DB using tools and send the answer to Telegram.
+          Write operations (extend trial, mark refund) require your Telegram approval first.
+        </p>
+        <div className="space-y-3">
+          <textarea
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={`Examples:\n• Look up user john@example.com\n• Show invoices for user abc-123\n• Extend the trial for john@example.com by 7 days\n• Mark invoice inv-456 for user abc-123 as refund`}
+            rows={5}
+            className="w-full font-mono text-sm bg-muted/40 border border-border rounded-lg p-3 resize-none focus:outline-none focus:ring-1 focus:ring-ring text-foreground placeholder:text-muted-foreground/50"
+          />
+          <Button
+            size="sm"
+            onClick={() => triggerMutation.mutate()}
+            disabled={!query.trim() || !agent.enabled || !agent.registered || triggerMutation.isPending}
+            className="gap-1.5"
+          >
+            <Play className="w-3.5 h-3.5" />
+            {triggerMutation.isPending ? 'Starting…' : 'Run query'}
+          </Button>
+          {!agent.registered && (
+            <p className="text-xs text-yellow-500">Agent is not registered in the runtime.</p>
+          )}
+          {triggerMutation.isError && (
+            <p className="text-xs text-destructive">Failed to start run. Is the API server running?</p>
+          )}
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-border bg-card p-5">
+        <h3 className="text-sm font-semibold mb-3">Quick queries</h3>
+        <div className="flex flex-wrap gap-2">
+          {[
+            'Look up user — enter an email',
+            'Show subscriptions for user',
+            'List invoices for user',
+            'Extend trial by 7 days',
+            'Mark invoice as refund',
+          ].map((q) => (
+            <button
+              key={q}
+              onClick={() => setQuery(q)}
+              className="text-xs px-3 py-1.5 rounded-full border border-border text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors"
+            >
+              {q}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TaskipInternalLlmSubTab({ agent, config, onChange, token }: {
+  agent: AgentDetail;
+  config: TaskipInternalConfig;
+  onChange: (patch: Partial<TaskipInternalConfig>) => void;
+  token: string;
+}) {
+  const qc = useQueryClient();
+
+  const configMutation = useMutation({
+    mutationFn: (c: TaskipInternalConfig) =>
+      apiFetch(token, `/agents/${agent.key}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ config: c }),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['agent', agent.key] }),
+  });
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-5">
+      <h3 className="text-sm font-semibold mb-2">LLM Configuration</h3>
+      <p className="text-xs text-muted-foreground mb-4">
+        Only <strong>OpenAI</strong> and <strong>DeepSeek</strong> support tool calling. Gemini is not supported for this agent.
+        Use <code className="bg-muted px-1 rounded">gpt-4o</code> for best accuracy.
+      </p>
+      <div className="space-y-4">
+        <div>
+          <label className="text-xs text-muted-foreground block mb-2">Provider</label>
+          <div className="flex gap-2">
+            {(['openai', 'deepseek'] as const).map((p) => (
+              <button
+                key={p}
+                onClick={() => onChange({ llm: { ...config.llm, provider: p } })}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
+                  config.llm?.provider === p
+                    ? 'bg-primary text-primary-foreground border-primary'
+                    : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground/30'
+                }`}
+              >
+                {p.charAt(0).toUpperCase() + p.slice(1)}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div>
+          <label className="text-xs text-muted-foreground block mb-1">Model</label>
+          <Input
+            value={config.llm?.model ?? ''}
+            onChange={(e) => onChange({ llm: { ...config.llm, model: e.target.value } })}
+            placeholder="gpt-4o"
+            className="text-sm"
+          />
+          <p className="text-xs text-muted-foreground mt-1">
+            Recommended: <code className="bg-muted px-1 rounded">gpt-4o</code> or <code className="bg-muted px-1 rounded">deepseek-chat</code>
+          </p>
+        </div>
+      </div>
+      <SaveRow
+        isPending={configMutation.isPending}
+        isSuccess={configMutation.isSuccess}
+        onClick={() => configMutation.mutate(config)}
+      />
+    </div>
+  );
+}
+
+function TaskipInternalSettingsTab({ agent, token }: { agent: AgentDetail; token: string }) {
+  const [activeSub, setActiveSub] = useState<TaskipInternalTabKey>('setup');
+  const [config, setConfig] = useState<TaskipInternalConfig>(
+    (agent.config as TaskipInternalConfig) ?? {
+      llm: { provider: 'openai', model: 'gpt-4o' },
+    }
+  );
+
+  function handleChange(patch: Partial<TaskipInternalConfig>) {
+    setConfig((prev) => ({ ...prev, ...patch }));
+  }
+
+  return (
+    <div>
+      <div className="flex items-center gap-1 border border-border rounded-lg p-1 mb-5 bg-muted/30 w-fit">
+        {TASKIP_INTERNAL_TABS.map(({ key, label, icon: Icon }) => (
+          <button
+            key={key}
+            onClick={() => setActiveSub(key)}
+            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-md text-sm font-medium transition-colors ${
+              activeSub === key
+                ? 'bg-card text-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            <Icon className="w-3.5 h-3.5" />
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {activeSub === 'setup' && <TaskipInternalSetupSubTab agent={agent} />}
+      {activeSub === 'ask' && (
+        <TaskipInternalAskSubTab agent={agent} config={config} token={token} />
+      )}
+      {activeSub === 'llm' && (
+        <TaskipInternalLlmSubTab agent={agent} config={config} onChange={handleChange} token={token} />
+      )}
+      {activeSub === 'runtime' && <RuntimeSubTab agent={agent} />}
+    </div>
+  );
+}
+
 // ─── Settings tab (orchestrator) ─────────────────────────────────────────────
 
 function SettingsTab({ agent, token }: { agent: AgentDetail; token: string }) {
@@ -1469,6 +1720,7 @@ function SettingsTab({ agent, token }: { agent: AgentDetail; token: string }) {
 
   if (isDailyReminder) return <DailyReminderSettingsTab agent={agent} token={token} />;
   if (isEmailManager) return <EmailManagerSettingsTab agent={agent} token={token} />;
+  if (agent.key === 'taskip_internal') return <TaskipInternalSettingsTab agent={agent} token={token} />;
 
   return (
     <div>
