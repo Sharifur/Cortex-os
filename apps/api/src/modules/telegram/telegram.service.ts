@@ -9,6 +9,8 @@ import { Bot, InlineKeyboard } from 'grammy';
 import { eq, and } from 'drizzle-orm';
 import { SettingsService } from '../settings/settings.service';
 import { ApprovalService } from '../agents/runtime/approval.service';
+import { AgentRuntimeService } from '../agents/runtime/agent-runtime.service';
+import { LlmRouterService } from '../llm/llm-router.service';
 import { DbService } from '../../db/db.service';
 import { pendingApprovals } from '../../db/schema';
 import { SelfImprovementService, KbProposalNotifyEvent } from '../knowledge-base/self-improvement.service';
@@ -22,15 +24,36 @@ const RISK_LABEL: Record<string, string> = {
   high: '[HIGH]',
 };
 
+// Agents available for routing — key must match IAgent.key
+const ROUTABLE_AGENTS = [
+  { key: 'daily_reminder', name: 'Daily Reminder', aliases: ['daily', 'reminder', 'brief', 'status'], desc: 'Status updates, pending tasks, daily briefs, system status' },
+  { key: 'email_manager', name: 'Email Manager', aliases: ['email', 'gmail', 'inbox', 'mail'], desc: 'Email inbox, draft replies, Gmail' },
+  { key: 'crisp', name: 'Crisp', aliases: ['crisp', 'support', 'chat', 'customer'], desc: 'Customer support chats, Crisp live chat conversations' },
+  { key: 'whatsapp', name: 'WhatsApp', aliases: ['whatsapp', 'wa', 'whats'], desc: 'WhatsApp messages' },
+  { key: 'linkedin', name: 'LinkedIn', aliases: ['linkedin', 'li', 'connect', 'outreach'], desc: 'LinkedIn outreach, connections, posts' },
+  { key: 'reddit', name: 'Reddit', aliases: ['reddit', 'subreddit', 'post', 'community'], desc: 'Reddit posts, comments, community monitoring' },
+  { key: 'social', name: 'Social', aliases: ['social', 'twitter', 'tweet', 'schedule'], desc: 'Social media posts, Twitter/X, scheduling' },
+  { key: 'taskip_trial', name: 'Taskip Trial', aliases: ['taskip', 'trial', 'onboard'], desc: 'Taskip trial users, onboarding emails' },
+  { key: 'hr', name: 'HR', aliases: ['hr', 'leave', 'salary', 'payroll', 'employee'], desc: 'Leave requests, salary, HR alerts' },
+  { key: 'canva', name: 'Canva', aliases: ['canva', 'design', 'graphic'], desc: 'Design generation, Canva calendar' },
+  { key: 'shorts', name: 'Shorts', aliases: ['shorts', 'video', 'youtube', 'script'], desc: 'YouTube Shorts scripts, video content' },
+];
+
 @Injectable()
 export class TelegramService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(TelegramService.name);
   private bot: Bot | null = null;
   private ownerChatId: string | null = null;
 
+  // Stores pending route messages: shortId -> { text, expiresAt }
+  private pendingRoutes = new Map<string, { text: string; expiresAt: number }>();
+  private pendingRouteCounter = 0;
+
   constructor(
     private readonly settings: SettingsService,
     private readonly approvalSvc: ApprovalService,
+    private readonly agentRuntime: AgentRuntimeService,
+    private readonly llm: LlmRouterService,
     private readonly db: DbService,
     private readonly selfImproveSvc: SelfImprovementService,
   ) {}
@@ -211,7 +234,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       },
     );
 
-    // KB proposal callbacks: kbproposal:<proposalId>:approve|reject
+    // KB proposal callbacks
     this.bot.callbackQuery(
       /^kbproposal:([^:]+):(approve|reject)$/,
       async (ctx) => {
@@ -244,48 +267,194 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       },
     );
 
-    // Handle text replies (follow-up instructions + rejection reasons)
-    this.bot.on('message:text', async (ctx) => {
-      const replyTo = ctx.message.reply_to_message;
-      if (!replyTo) return;
-
+    // Agent picker callback: route:<pendingId>:<agentKey>
+    this.bot.callbackQuery(/^route:(\d+):(.+)$/, async (ctx) => {
       const fromId = ctx.from?.id ? String(ctx.from.id) : null;
-      if (!this.isOwner(fromId)) return;
-
-      const replyToMsgId = String(replyTo.message_id);
-
-      // Check for follow-up reply
-      const [followupApproval] = await this.db.db
-        .select()
-        .from(pendingApprovals)
-        .where(
-          and(
-            eq(pendingApprovals.telegramThreadId, replyToMsgId),
-            eq(pendingApprovals.status, 'FOLLOWUP'),
-          ),
-        )
-        .limit(1);
-
-      if (followupApproval) {
-        await this.approvalSvc.followup(followupApproval.id, ctx.message.text);
-        await ctx.reply('Follow\\-up received\\. Re\\-evaluating\\.\\.\\.', {
-          parse_mode: 'MarkdownV2',
-        });
+      if (!this.isOwner(fromId)) {
+        await ctx.answerCallbackQuery({ text: 'Unauthorized' });
         return;
       }
 
-      // Check for rejection reason reply
-      const [rejectApproval] = await this.db.db
-        .select()
-        .from(pendingApprovals)
-        .where(eq(pendingApprovals.telegramThreadId, `REJECT_REASON:${replyToMsgId}`))
-        .limit(1);
+      const [, pendingId, agentKey] = ctx.match!;
+      await ctx.answerCallbackQuery();
 
-      if (rejectApproval) {
-        await this.approvalSvc.rejectWithReason(rejectApproval.id, ctx.message.text);
-        await ctx.reply('Rejected with reason recorded\\.', { parse_mode: 'MarkdownV2' });
+      const pending = this.pendingRoutes.get(pendingId);
+      this.pendingRoutes.delete(pendingId);
+
+      if (!pending || Date.now() > pending.expiresAt) {
+        await ctx.editMessageText('This request expired. Please send your message again.');
+        return;
+      }
+
+      const agent = ROUTABLE_AGENTS.find((a) => a.key === agentKey);
+      await ctx.editMessageText(`Routing to *${agent?.name ?? agentKey}*...`, { parse_mode: 'Markdown' });
+
+      try {
+        await this.agentRuntime.triggerAgent(agentKey, 'MANUAL', { instructions: pending.text });
+        await ctx.editMessageText(`Sent to *${agent?.name ?? agentKey}*. Check the run in the dashboard.`, { parse_mode: 'Markdown' });
+      } catch (err) {
+        await ctx.editMessageText(`Failed to trigger ${agentKey}: ${(err as Error).message}`);
       }
     });
+
+    // All incoming text messages
+    this.bot.on('message:text', async (ctx) => {
+      const fromId = ctx.from?.id ? String(ctx.from.id) : null;
+      if (!this.isOwner(fromId)) return;
+
+      const replyTo = ctx.message.reply_to_message;
+      const text = ctx.message.text;
+
+      if (replyTo) {
+        // Existing follow-up / rejection-reason flow
+        const replyToMsgId = String(replyTo.message_id);
+
+        const [followupApproval] = await this.db.db
+          .select()
+          .from(pendingApprovals)
+          .where(
+            and(
+              eq(pendingApprovals.telegramThreadId, replyToMsgId),
+              eq(pendingApprovals.status, 'FOLLOWUP'),
+            ),
+          )
+          .limit(1);
+
+        if (followupApproval) {
+          await this.approvalSvc.followup(followupApproval.id, text);
+          await ctx.reply('Follow\\-up received\\. Re\\-evaluating\\.\\.\\.', {
+            parse_mode: 'MarkdownV2',
+          });
+          return;
+        }
+
+        const [rejectApproval] = await this.db.db
+          .select()
+          .from(pendingApprovals)
+          .where(eq(pendingApprovals.telegramThreadId, `REJECT_REASON:${replyToMsgId}`))
+          .limit(1);
+
+        if (rejectApproval) {
+          await this.approvalSvc.rejectWithReason(rejectApproval.id, text);
+          await ctx.reply('Rejected with reason recorded\\.', { parse_mode: 'MarkdownV2' });
+          return;
+        }
+
+        // Reply that doesn't match an approval — treat as a new instruction
+      }
+
+      // Conversational routing
+      await this.handleConversation(ctx, text);
+    });
+  }
+
+  private async handleConversation(ctx: { reply: (text: string, opts?: object) => Promise<unknown> }, text: string) {
+    // 1. Check for @mention: "@daily_reminder what's my status?"
+    const mentionMatch = text.match(/^@(\S+)\s+([\s\S]+)/i);
+    if (mentionMatch) {
+      const [, mention, instruction] = mentionMatch;
+      const agent = this.resolveAgentByAlias(mention.toLowerCase());
+      if (agent) {
+        await ctx.reply(`Routing to *${agent.name}*...`, { parse_mode: 'Markdown' });
+        try {
+          await this.agentRuntime.triggerAgent(agent.key, 'MANUAL', { instructions: instruction.trim() });
+          await ctx.reply(`Done. *${agent.name}* is running — check the dashboard for results.`, { parse_mode: 'Markdown' });
+        } catch (err) {
+          await ctx.reply(`Failed: ${(err as Error).message}`);
+        }
+        return;
+      }
+    }
+
+    // 2. LLM auto-classify
+    try {
+      const agentKey = await this.classifyWithLlm(text);
+      if (agentKey) {
+        const agent = ROUTABLE_AGENTS.find((a) => a.key === agentKey)!;
+        await ctx.reply(`Routing to *${agent.name}*...`, { parse_mode: 'Markdown' });
+        await this.agentRuntime.triggerAgent(agentKey, 'MANUAL', { instructions: text });
+        await ctx.reply(`Done. *${agent.name}* is running — check the dashboard for results.`, { parse_mode: 'Markdown' });
+        return;
+      }
+    } catch (err) {
+      this.logger.warn(`LLM routing failed: ${(err as Error).message}`);
+    }
+
+    // 3. Show agent picker
+    await this.showAgentPicker(ctx, text);
+  }
+
+  private async classifyWithLlm(text: string): Promise<string | null> {
+    const agentList = ROUTABLE_AGENTS.map((a) => `- ${a.key}: ${a.desc}`).join('\n');
+
+    const response = await this.llm.complete({
+      provider: 'auto',
+      messages: [
+        {
+          role: 'system',
+          content: `You are a router for an AI agent platform. Given a user message, determine which agent key should handle it.
+Available agents:
+${agentList}
+
+Reply with ONLY a JSON object like: {"agent": "agent_key", "confidence": "high"}
+If you cannot determine with high confidence, set agent to null: {"agent": null, "confidence": "low"}
+Never explain. Only output the JSON.`,
+        },
+        { role: 'user', content: text },
+      ],
+      maxTokens: 60,
+      temperature: 0,
+    });
+
+    try {
+      const raw = response.content.trim().replace(/^```json\s*|```$/g, '');
+      const parsed = JSON.parse(raw) as { agent: string | null; confidence: string };
+      if (parsed.confidence === 'high' && parsed.agent) {
+        const valid = ROUTABLE_AGENTS.find((a) => a.key === parsed.agent);
+        return valid ? valid.key : null;
+      }
+    } catch {
+      // ignore parse errors — fall through to picker
+    }
+    return null;
+  }
+
+  private async showAgentPicker(ctx: { reply: (text: string, opts?: object) => Promise<unknown> }, text: string) {
+    this.cleanExpiredRoutes();
+
+    const pendingId = String(++this.pendingRouteCounter);
+    this.pendingRoutes.set(pendingId, { text, expiresAt: Date.now() + 5 * 60 * 1000 });
+
+    const keyboard = new InlineKeyboard();
+    ROUTABLE_AGENTS.forEach((agent, i) => {
+      keyboard.text(agent.name, `route:${pendingId}:${agent.key}`);
+      if (i % 2 === 1) keyboard.row();
+    });
+    if (ROUTABLE_AGENTS.length % 2 !== 0) keyboard.row();
+
+    await ctx.reply(
+      "I'm not sure which agent should handle this. Pick one:",
+      { reply_markup: keyboard },
+    );
+  }
+
+  private resolveAgentByAlias(input: string): typeof ROUTABLE_AGENTS[0] | null {
+    const normalized = input.replace(/_/g, '').toLowerCase();
+    return (
+      ROUTABLE_AGENTS.find(
+        (a) =>
+          a.key === input ||
+          a.key.replace(/_/g, '') === normalized ||
+          a.aliases.some((alias) => alias === normalized || alias === input),
+      ) ?? null
+    );
+  }
+
+  private cleanExpiredRoutes() {
+    const now = Date.now();
+    for (const [key, val] of this.pendingRoutes) {
+      if (now > val.expiresAt) this.pendingRoutes.delete(key);
+    }
   }
 
   private isOwner(fromId: string | null): boolean {

@@ -4,9 +4,10 @@ import { TelegramWebhookController } from './telegram-webhook.controller';
 import { AgentRuntimeModule } from '../agents/runtime/agent-runtime.module';
 import { SettingsModule } from '../settings/settings.module';
 import { KnowledgeBaseModule } from '../knowledge-base/knowledge-base.module';
+import { LlmModule } from '../llm/llm.module';
 
 @Module({
-  imports: [SettingsModule, AgentRuntimeModule, KnowledgeBaseModule],
+  imports: [SettingsModule, AgentRuntimeModule, KnowledgeBaseModule, LlmModule],
   controllers: [TelegramWebhookController],
   providers: [TelegramService],
   exports: [TelegramService],
