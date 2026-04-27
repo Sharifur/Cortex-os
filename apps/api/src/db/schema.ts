@@ -16,3 +16,4 @@ export * from '../modules/agents/social/schema';
 export * from '../modules/agents/canva/schema';
 export * from '../modules/agents/shorts/schema';
 export * from '../modules/knowledge-base/schema';
+export * from './schemas/tasks.schema';

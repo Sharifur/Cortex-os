@@ -1,28 +1,117 @@
 import { Controller, Get } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
+import IORedis from 'ioredis';
 import { DbService } from '../../db/db.service';
+import { SettingsService } from '../settings/settings.service';
+
+type ServiceStatus = 'ok' | 'error' | 'not_configured';
+
+interface ServiceCheck {
+  status: ServiceStatus;
+  message?: string;
+}
 
 @Controller('health')
 export class HealthController {
-  constructor(private db: DbService) {}
+  constructor(
+    private db: DbService,
+    private settings: SettingsService,
+  ) {}
 
   @Get()
   async check() {
-    const checks: Record<string, 'ok' | 'error'> = {};
+    const checks: Record<string, ServiceCheck> = {};
 
+    // Postgres
     try {
       await this.db.db.execute(sql`SELECT 1`);
-      checks.postgres = 'ok';
-    } catch {
-      checks.postgres = 'error';
+      checks.postgres = { status: 'ok' };
+    } catch (err) {
+      checks.postgres = { status: 'error', message: err instanceof Error ? err.message : String(err) };
     }
 
-    const allOk = Object.values(checks).every((v) => v === 'ok');
+    // Redis
+    try {
+      const redis = new IORedis(process.env.REDIS_URL!, { lazyConnect: true, connectTimeout: 3000 });
+      await redis.connect();
+      await redis.ping();
+      await redis.quit();
+      checks.redis = { status: 'ok' };
+    } catch (err) {
+      checks.redis = { status: 'error', message: err instanceof Error ? err.message : String(err) };
+    }
+
+    // LLM — at least one key present
+    const [openaiKey, geminiKey, deepseekKey] = await Promise.all([
+      this.settings.getDecrypted('openai_api_key'),
+      this.settings.getDecrypted('gemini_api_key'),
+      this.settings.getDecrypted('deepseek_api_key'),
+    ]);
+    checks.llm = openaiKey || geminiKey || deepseekKey
+      ? { status: 'ok', message: [openaiKey && 'OpenAI', geminiKey && 'Gemini', deepseekKey && 'DeepSeek'].filter(Boolean).join(', ') }
+      : { status: 'not_configured', message: 'No LLM API key set' };
+
+    // Telegram
+    const [tgToken, tgChatId] = await Promise.all([
+      this.settings.getDecrypted('telegram_bot_token'),
+      this.settings.getDecrypted('telegram_owner_chat_id'),
+    ]);
+    checks.telegram = tgToken && tgChatId
+      ? { status: 'ok' }
+      : { status: 'not_configured', message: !tgToken ? 'Bot token missing' : 'Owner chat ID missing' };
+
+    // Gmail
+    const [gmailId, gmailSecret, gmailToken] = await Promise.all([
+      this.settings.getDecrypted('gmail_client_id'),
+      this.settings.getDecrypted('gmail_client_secret'),
+      this.settings.getDecrypted('gmail_refresh_token'),
+    ]);
+    checks.gmail = gmailId && gmailSecret && gmailToken
+      ? { status: 'ok' }
+      : { status: 'not_configured' };
+
+    // WhatsApp
+    const [waToken, waPhoneId] = await Promise.all([
+      this.settings.getDecrypted('whatsapp_api_token'),
+      this.settings.getDecrypted('whatsapp_phone_number_id'),
+    ]);
+    checks.whatsapp = waToken && waPhoneId
+      ? { status: 'ok' }
+      : { status: 'not_configured' };
+
+    // LinkedIn (Unipile or direct token)
+    const [unipileKey, linkedinToken] = await Promise.all([
+      this.settings.getDecrypted('unipile_api_key'),
+      this.settings.getDecrypted('linkedin_access_token'),
+    ]);
+    checks.linkedin = unipileKey || linkedinToken
+      ? { status: 'ok', message: unipileKey ? 'via Unipile' : 'direct token' }
+      : { status: 'not_configured' };
+
+    // Reddit
+    const [redditId, redditSecret] = await Promise.all([
+      this.settings.getDecrypted('reddit_client_id'),
+      this.settings.getDecrypted('reddit_client_secret'),
+    ]);
+    checks.reddit = redditId && redditSecret
+      ? { status: 'ok' }
+      : { status: 'not_configured' };
+
+    // Crisp
+    const [crispSite, crispApiKey] = await Promise.all([
+      this.settings.getDecrypted('crisp_website_id'),
+      this.settings.getDecrypted('crisp_api_key'),
+    ]);
+    checks.crisp = crispSite && crispApiKey
+      ? { status: 'ok' }
+      : { status: 'not_configured' };
+
+    const coreOk = checks.postgres?.status === 'ok' && checks.redis?.status === 'ok';
 
     return {
-      status: allOk ? 'ok' : 'degraded',
+      status: coreOk ? 'ok' : 'degraded',
       checks,
-      uptime: process.uptime(),
+      uptime: Math.floor(process.uptime()),
       timestamp: new Date().toISOString(),
     };
   }

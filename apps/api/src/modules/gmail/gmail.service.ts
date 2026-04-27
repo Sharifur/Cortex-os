@@ -30,6 +30,10 @@ export class GmailService {
 
   constructor(private readonly settings: SettingsService) {}
 
+  async getFromAddress(): Promise<string> {
+    return (await this.settings.getDecrypted('gmail_from_address')) ?? 'me';
+  }
+
   async isConfigured(): Promise<boolean> {
     const [id, secret, token] = await Promise.all([
       this.settings.getDecrypted('gmail_client_id'),

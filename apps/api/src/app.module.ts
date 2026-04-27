@@ -31,6 +31,8 @@ import { SocialModule } from './modules/agents/social/social.module';
 import { CanvaModule } from './modules/agents/canva/canva.module';
 import { ShortsModule } from './modules/agents/shorts/shorts.module';
 import { KnowledgeBaseModule } from './modules/knowledge-base/knowledge-base.module';
+import { TasksModule } from './modules/tasks/tasks.module';
+import { IntegrationsModule } from './modules/integrations/integrations.module';
 
 @Module({
   imports: [
@@ -81,6 +83,8 @@ import { KnowledgeBaseModule } from './modules/knowledge-base/knowledge-base.mod
     CanvaModule,
     ShortsModule,
     KnowledgeBaseModule,
+    TasksModule,
+    IntegrationsModule,
   ],
 })
 export class AppModule {}

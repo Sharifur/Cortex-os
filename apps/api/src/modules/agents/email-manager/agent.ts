@@ -39,6 +39,8 @@ interface EmailSnapshot {
     receivedAt: string;
   }[];
   config: EmailManagerConfig;
+  taskMode?: boolean;
+  instructions?: string;
 }
 
 const CLASSIFY_SYSTEM = `You are an email classifier for Sharifur Rahman, founder of Taskip and Xgenious.
@@ -78,6 +80,14 @@ export class EmailManagerAgent implements IAgent, OnModuleInit {
 
   async buildContext(trigger: TriggerEvent, run: RunContext): Promise<AgentContext> {
     const config = await this.getConfig();
+    const payload = trigger.payload as Record<string, unknown> | null;
+    if (payload?._taskId) {
+      return {
+        source: trigger,
+        snapshot: { taskMode: true, instructions: (payload.instructions as string) ?? '', newMessages: [], config },
+        followups: [],
+      };
+    }
 
     const isConfigured = await this.gmail.isConfigured();
     if (!isConfigured) {
@@ -120,6 +130,10 @@ export class EmailManagerAgent implements IAgent, OnModuleInit {
 
   async decide(ctx: AgentContext): Promise<ProposedAction[]> {
     const snapshot = ctx.snapshot as EmailSnapshot & { skip?: boolean };
+    if (snapshot.taskMode) {
+      const followupNote = ctx.followups?.at(-1)?.text;
+      return this.decideTaskMode(snapshot.instructions ?? '', snapshot.config, followupNote);
+    }
     if (snapshot.skip || !snapshot.newMessages.length) return [];
 
     const { newMessages, config } = snapshot;
@@ -251,7 +265,7 @@ export class EmailManagerAgent implements IAgent, OnModuleInit {
 
         await this.gmail.sendEmail({
           to: toAddress,
-          from: `Sharifur <${process.env.GMAIL_FROM_ADDRESS ?? 'me'}>`,
+          from: await this.gmail.getFromAddress(),
           subject: replySubject,
           textBody: draft,
         });
@@ -371,6 +385,46 @@ export class EmailManagerAgent implements IAgent, OnModuleInit {
         },
       },
     ];
+  }
+
+  private async decideTaskMode(instructions: string, config: EmailManagerConfig, followupNote?: string): Promise<ProposedAction[]> {
+    const [alwaysOn, samples, blocklist, rejections] = await Promise.all([
+      this.kb.getAlwaysOnContext(this.key),
+      this.kb.getWritingSamples(this.key),
+      this.kb.getBlocklistRules(this.key),
+      this.kb.getRecentRejections(this.key, 3),
+    ]);
+    const template = await this.kb.getPromptTemplate(this.key);
+    const kbBlock = this.kb.buildKbPromptBlock({
+      voiceProfile: alwaysOn.find(e => e.entryType === 'voice_profile') ?? null,
+      facts: alwaysOn.filter(e => e.entryType === 'fact'),
+      references: [],
+      positiveSamples: samples.filter(s => s.polarity === 'positive'),
+      negativeSamples: samples.filter(s => s.polarity === 'negative'),
+      rejections,
+    });
+    const effectiveInstructions = followupNote ? `${instructions}\n\nAdditional note: ${followupNote}` : instructions;
+    const defaultSystem = `You are Sharifur Rahman's email assistant. Write a concise, professional email based on the given instructions. Keep it under 150 words. Be warm but direct. Do not include a subject line — just the email body.`;
+    const response = await this.llm.complete({
+      messages: [
+        { role: 'system', content: (template?.system ?? defaultSystem) + kbBlock },
+        { role: 'user', content: effectiveInstructions },
+      ],
+      provider: config.llm.provider as 'openai' | 'gemini' | 'deepseek' | 'auto',
+      model: config.llm.model,
+      maxTokens: 400,
+      temperature: 0.7,
+    });
+    let draft = response.content.trim();
+    if (!draft) return [{ type: 'noop', summary: 'No draft generated.', payload: {}, riskLevel: 'low' }];
+    draft = await this.selfCritique(draft, alwaysOn.find(e => e.entryType === 'voice_profile')?.content, blocklist);
+    const violation = blocklist.find(p => draft.toLowerCase().includes(p.toLowerCase()));
+    return [{
+      type: 'send_reply',
+      summary: `Email draft: "${draft.slice(0, 80)}"${violation ? ` - Blocklist: "${violation}"` : ''}`,
+      payload: { messageId: '', threadId: '', from: '', subject: instructions.slice(0, 60), draft },
+      riskLevel: violation ? 'high' : 'medium',
+    }];
   }
 
   private async classify(

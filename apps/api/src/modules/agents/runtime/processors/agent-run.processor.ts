@@ -5,7 +5,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Queue, Job } from 'bullmq';
 import { eq } from 'drizzle-orm';
 import { DbService } from '../../../../db/db.service';
-import { agentRuns, agents } from '../../../../db/schema';
+import { agentRuns, agents, tasks as tasksTable } from '../../../../db/schema';
 import { AgentRegistryService } from '../agent-registry.service';
 import { ApprovalService } from '../approval.service';
 import { AgentLogService } from '../agent-log.service';
@@ -97,6 +97,11 @@ export class AgentRunProcessor extends WorkerHost {
         .set({ proposedActions: actions, status: 'AWAITING_APPROVAL' })
         .where(eq(agentRuns.id, runId));
 
+      const awaitingTaskId = (runRow.triggerPayload as Record<string, unknown> | null)?._taskId as string | undefined;
+      if (awaitingTaskId) {
+        await this.db.db.update(tasksTable).set({ status: 'awaiting_approval', updatedAt: new Date() }).where(eq(tasksTable.id, awaitingTaskId));
+      }
+
       for (const action of actions) {
         if (agent.requiresApproval(action)) {
           const approval = await this.approvalSvc.createApproval(runId, action);
@@ -133,6 +138,10 @@ export class AgentRunProcessor extends WorkerHost {
         .set({ status: 'FAILED', error: message, finishedAt: new Date() })
         .where(eq(agentRuns.id, runId));
       await this.logSvc.error(runId, `Run failed: ${message}`);
+      const failedTaskId = (runRow?.triggerPayload as Record<string, unknown> | null)?._taskId as string | undefined;
+      if (failedTaskId) {
+        await this.db.db.update(tasksTable).set({ status: 'failed', updatedAt: new Date() }).where(eq(tasksTable.id, failedTaskId));
+      }
       throw err;
     }
   }

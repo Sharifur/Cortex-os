@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Cable, Save, Trash2, Eye, EyeOff, Key, Send, Mail, Copy, Check,
-  ExternalLink, MessageSquare, Linkedin, Hash, Bot,
+  ExternalLink, MessageSquare, Linkedin, Hash, Bot, FlaskConical,
+  CheckCircle2, XCircle, Loader2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -171,266 +172,404 @@ function FieldsCard({ rows, token }: { rows: SettingRow[]; token: string }) {
   );
 }
 
+interface TestResult {
+  ok: boolean;
+  message: string;
+}
+
+function TestConnectionButton({ integrationKey, token }: { integrationKey: string; token: string }) {
+  const [result, setResult] = useState<TestResult | null>(null);
+  const [testing, setTesting] = useState(false);
+
+  async function runTest() {
+    setTesting(true);
+    setResult(null);
+    try {
+      const res = await fetch(`/integrations/${integrationKey}/test`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data: TestResult = await res.json();
+      setResult(data);
+    } catch {
+      setResult({ ok: false, message: 'Request failed — check server logs' });
+    } finally {
+      setTesting(false);
+    }
+  }
+
+  return (
+    <div className="flex items-center gap-3 flex-wrap">
+      <Button
+        size="sm"
+        variant="outline"
+        className="gap-1.5"
+        onClick={runTest}
+        disabled={testing}
+      >
+        {testing
+          ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          : <FlaskConical className="w-3.5 h-3.5" />
+        }
+        {testing ? 'Testing...' : 'Test connection'}
+      </Button>
+      {result && (
+        <span className={`flex items-center gap-1.5 text-sm font-medium ${result.ok ? 'text-green-400' : 'text-red-400'}`}>
+          {result.ok
+            ? <CheckCircle2 className="w-4 h-4 shrink-0" />
+            : <XCircle className="w-4 h-4 shrink-0" />
+          }
+          {result.message}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function IntegrationLayout({
+  integrationKey,
+  rows,
+  token,
+  docs,
+  extraSettings,
+}: {
+  integrationKey: string;
+  rows: SettingRow[];
+  token: string;
+  docs: React.ReactNode;
+  extraSettings?: React.ReactNode;
+}) {
+  const [sub, setSub] = useState<'settings' | 'docs'>('settings');
+
+  const storedCount = rows.filter((r) => r.stored).length;
+
+  return (
+    <div>
+      <div className="flex items-center gap-1 border border-border rounded-lg p-1 mb-5 bg-muted/30 w-fit">
+        <button
+          onClick={() => setSub('settings')}
+          className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-md text-sm font-medium transition-colors ${
+            sub === 'settings' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          Settings
+          {storedCount > 0 && (
+            <span className="text-xs bg-green-500/15 text-green-400 px-1.5 py-0.5 rounded-full leading-none">
+              {storedCount}/{rows.length}
+            </span>
+          )}
+        </button>
+        <button
+          onClick={() => setSub('docs')}
+          className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-md text-sm font-medium transition-colors ${
+            sub === 'docs' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          Docs
+        </button>
+      </div>
+
+      {sub === 'settings' && (
+        <div className="space-y-4">
+          {extraSettings}
+          <FieldsCard rows={rows} token={token} />
+          <TestConnectionButton integrationKey={integrationKey} token={token} />
+        </div>
+      )}
+      {sub === 'docs' && (
+        <div className="rounded-xl border border-border bg-card p-5">
+          {docs}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function WhatsAppTab({ rows, token }: { rows: SettingRow[]; token: string }) {
   const webhookUrl = `${window.location.origin}/whatsapp/webhook`;
   return (
-    <div className="space-y-4">
-      <div className="rounded-xl border border-border bg-card p-5">
-        <h2 className="text-sm font-semibold mb-1">Webhook URL</h2>
-        <p className="text-xs text-muted-foreground mb-3">
-          Enter this in Meta for Developers → WhatsApp → Configuration → Webhook.
-        </p>
-        <div className="flex items-center gap-2 bg-muted/60 border border-border rounded-lg px-3 py-2">
-          <code className="text-xs font-mono flex-1 break-all text-foreground">{webhookUrl}</code>
-          <CopyButton text={webhookUrl} />
+    <IntegrationLayout
+      integrationKey="whatsapp"
+      rows={rows}
+      token={token}
+      extraSettings={
+        <div className="rounded-xl border border-border bg-card p-5">
+          <h2 className="text-sm font-semibold mb-1">Webhook URL</h2>
+          <p className="text-xs text-muted-foreground mb-3">
+            Enter this in Meta for Developers → WhatsApp → Configuration → Webhook.
+          </p>
+          <div className="flex items-center gap-2 bg-muted/60 border border-border rounded-lg px-3 py-2">
+            <code className="text-xs font-mono flex-1 break-all text-foreground">{webhookUrl}</code>
+            <CopyButton text={webhookUrl} />
+          </div>
         </div>
-      </div>
-
-      <div className="rounded-xl border border-border bg-card p-5">
-        <h2 className="text-sm font-semibold mb-4">Setup Guide</h2>
-        <div className="space-y-4">
-          <SetupStep n={1} title="Create a Meta app">
-            <p>Go to <strong>developers.facebook.com</strong> → My Apps → Create App.</p>
-            <p>Select <strong>Business</strong> type, add the <strong>WhatsApp</strong> product.</p>
-          </SetupStep>
-          <SetupStep n={2} title="Add a phone number">
-            <p>In WhatsApp → API Setup, add and verify your business phone number.</p>
-            <p>Copy the <strong>Phone Number ID</strong> — paste it below.</p>
-          </SetupStep>
-          <SetupStep n={3} title="Generate a system user token">
-            <p>In <strong>Meta Business Suite → Settings → System Users</strong>, create a system user.</p>
-            <p>Generate a token with <code className="bg-muted px-1 rounded">whatsapp_business_messaging</code> permission.</p>
-            <p>This is your <strong>API Token</strong> — paste it below.</p>
-          </SetupStep>
-          <SetupStep n={4} title="Configure the webhook">
-            <p>In WhatsApp → Configuration, set the callback URL to the webhook URL above.</p>
-            <p>Set the verify token to match <strong>Webhook Verify Token</strong> below.</p>
-            <p>Subscribe to <code className="bg-muted px-1 rounded">messages</code> field.</p>
-          </SetupStep>
-        </div>
-        <a
-          href="https://developers.facebook.com/docs/whatsapp/cloud-api/get-started"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-1 text-xs text-primary hover:underline mt-4"
-        >
-          WhatsApp Cloud API docs <ExternalLink className="w-3 h-3" />
-        </a>
-      </div>
-
-      <FieldsCard rows={rows} token={token} />
-    </div>
+      }
+      docs={
+        <>
+          <h2 className="text-sm font-semibold mb-4">Setup Guide</h2>
+          <div className="space-y-4">
+            <SetupStep n={1} title="Create a Meta app">
+              <p>Go to <strong>developers.facebook.com</strong> → My Apps → Create App.</p>
+              <p>Select <strong>Business</strong> type, add the <strong>WhatsApp</strong> product.</p>
+            </SetupStep>
+            <SetupStep n={2} title="Add a phone number">
+              <p>In WhatsApp → API Setup, add and verify your business phone number.</p>
+              <p>Copy the <strong>Phone Number ID</strong> — paste it in Settings.</p>
+            </SetupStep>
+            <SetupStep n={3} title="Generate a system user token">
+              <p>In <strong>Meta Business Suite → Settings → System Users</strong>, create a system user.</p>
+              <p>Generate a token with <code className="bg-muted px-1 rounded">whatsapp_business_messaging</code> permission.</p>
+            </SetupStep>
+            <SetupStep n={4} title="Configure the webhook">
+              <p>In WhatsApp → Configuration, set the callback URL to the webhook URL shown in Settings.</p>
+              <p>Set the verify token to match <strong>Webhook Verify Token</strong>.</p>
+              <p>Subscribe to <code className="bg-muted px-1 rounded">messages</code> field.</p>
+            </SetupStep>
+          </div>
+          <a
+            href="https://developers.facebook.com/docs/whatsapp/cloud-api/get-started"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 text-xs text-primary hover:underline mt-4"
+          >
+            WhatsApp Cloud API docs <ExternalLink className="w-3 h-3" />
+          </a>
+        </>
+      }
+    />
   );
 }
 
 function LinkedInTab({ rows, token }: { rows: SettingRow[]; token: string }) {
   return (
-    <div className="space-y-4">
-      <div className="rounded-xl border border-border bg-card p-5">
-        <h2 className="text-sm font-semibold mb-4">Setup Guide</h2>
-        <div className="space-y-4">
-          <SetupStep n={1} title="Sign up for Unipile (recommended)">
-            <p>Go to <strong>app.unipile.com</strong> and create an account.</p>
-            <p>Connect your LinkedIn account under <strong>Accounts</strong>.</p>
-            <p>In <strong>Settings → API Keys</strong>, generate a key and copy your DSN.</p>
-            <p>Paste <strong>API Key</strong> and <strong>DSN</strong> below — Unipile handles LinkedIn auth.</p>
-          </SetupStep>
-          <SetupStep n={2} title="Or use a direct access token (fallback)">
-            <p>Create a LinkedIn app at <strong>linkedin.com/developers</strong>.</p>
-            <p>Enable <code className="bg-muted px-1 rounded">w_member_social</code> and <code className="bg-muted px-1 rounded">r_liteprofile</code> scopes.</p>
-            <p>Complete the OAuth2 flow and paste the <strong>Access Token</strong> below.</p>
-            <p className="text-yellow-500">Note: direct tokens expire — Unipile is preferred for stability.</p>
-          </SetupStep>
-        </div>
-        <a
-          href="https://docs.unipile.com"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-1 text-xs text-primary hover:underline mt-4"
-        >
-          Unipile docs <ExternalLink className="w-3 h-3" />
-        </a>
-      </div>
-
-      <FieldsCard rows={rows} token={token} />
-    </div>
+    <IntegrationLayout
+      integrationKey="linkedin"
+      rows={rows}
+      token={token}
+      docs={
+        <>
+          <h2 className="text-sm font-semibold mb-4">Setup Guide</h2>
+          <div className="space-y-4">
+            <SetupStep n={1} title="Sign up for Unipile (recommended)">
+              <p>Go to <strong>app.unipile.com</strong> and create an account.</p>
+              <p>Connect your LinkedIn account under <strong>Accounts</strong>.</p>
+              <p>In <strong>Settings → API Keys</strong>, generate a key and copy your DSN.</p>
+              <p>Paste <strong>API Key</strong> and <strong>DSN</strong> in Settings — Unipile handles LinkedIn auth.</p>
+            </SetupStep>
+            <SetupStep n={2} title="Or use a direct access token (fallback)">
+              <p>Create a LinkedIn app at <strong>linkedin.com/developers</strong>.</p>
+              <p>Enable <code className="bg-muted px-1 rounded">w_member_social</code> and <code className="bg-muted px-1 rounded">r_liteprofile</code> scopes.</p>
+              <p>Complete the OAuth2 flow and paste the <strong>Access Token</strong> in Settings.</p>
+              <p className="text-yellow-500">Note: direct tokens expire — Unipile is preferred for stability.</p>
+            </SetupStep>
+          </div>
+          <a
+            href="https://docs.unipile.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 text-xs text-primary hover:underline mt-4"
+          >
+            Unipile docs <ExternalLink className="w-3 h-3" />
+          </a>
+        </>
+      }
+    />
   );
 }
 
 function RedditTab({ rows, token }: { rows: SettingRow[]; token: string }) {
   return (
-    <div className="space-y-4">
-      <div className="rounded-xl border border-border bg-card p-5">
-        <h2 className="text-sm font-semibold mb-4">Setup Guide</h2>
-        <div className="space-y-4">
-          <SetupStep n={1} title="Create a Reddit script app">
-            <p>Go to <strong>reddit.com/prefs/apps</strong> while logged in as the posting account.</p>
-            <p>Click <strong>create another app</strong>, choose type <strong>script</strong>.</p>
-            <p>Set redirect URI to <code className="bg-muted px-1 rounded">http://localhost</code> (not used for script apps).</p>
-          </SetupStep>
-          <SetupStep n={2} title="Copy credentials">
-            <p>The string under the app name is your <strong>Client ID</strong>.</p>
-            <p>The <strong>secret</strong> field is your Client Secret.</p>
-          </SetupStep>
-          <SetupStep n={3} title="Paste credentials below">
-            <p>Enter Client ID, Client Secret, Reddit Username, and Password.</p>
-            <p>The agent uses the OAuth2 password flow — tokens are cached in memory and refreshed automatically.</p>
-          </SetupStep>
-        </div>
-        <a
-          href="https://www.reddit.com/wiki/api"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-1 text-xs text-primary hover:underline mt-4"
-        >
-          Reddit API docs <ExternalLink className="w-3 h-3" />
-        </a>
-      </div>
-
-      <FieldsCard rows={rows} token={token} />
-    </div>
+    <IntegrationLayout
+      integrationKey="reddit"
+      rows={rows}
+      token={token}
+      docs={
+        <>
+          <h2 className="text-sm font-semibold mb-4">Setup Guide</h2>
+          <div className="space-y-4">
+            <SetupStep n={1} title="Create a Reddit script app">
+              <p>Go to <strong>reddit.com/prefs/apps</strong> while logged in as the posting account.</p>
+              <p>Click <strong>create another app</strong>, choose type <strong>script</strong>.</p>
+              <p>Set redirect URI to <code className="bg-muted px-1 rounded">http://localhost</code> (not used for script apps).</p>
+            </SetupStep>
+            <SetupStep n={2} title="Copy credentials">
+              <p>The string under the app name is your <strong>Client ID</strong>.</p>
+              <p>The <strong>secret</strong> field is your Client Secret.</p>
+            </SetupStep>
+            <SetupStep n={3} title="Paste credentials in Settings">
+              <p>Enter Client ID, Client Secret, Reddit Username, and Password.</p>
+              <p>The agent uses the OAuth2 password flow — tokens are cached and refreshed automatically.</p>
+            </SetupStep>
+          </div>
+          <a
+            href="https://www.reddit.com/wiki/api"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 text-xs text-primary hover:underline mt-4"
+          >
+            Reddit API docs <ExternalLink className="w-3 h-3" />
+          </a>
+        </>
+      }
+    />
   );
 }
 
 function CrispTab({ rows, token }: { rows: SettingRow[]; token: string }) {
   return (
-    <div className="space-y-4">
-      <div className="rounded-xl border border-border bg-card p-5">
-        <h2 className="text-sm font-semibold mb-4">Setup Guide</h2>
-        <div className="space-y-4">
-          <SetupStep n={1} title="Log in to Crisp and open your website">
-            <p>Go to <strong>app.crisp.chat</strong> → select your website → <strong>Settings</strong>.</p>
-          </SetupStep>
-          <SetupStep n={2} title="Copy your Website ID">
-            <p>Settings → <strong>Setup</strong> → copy the <strong>Website ID</strong> at the top.</p>
-          </SetupStep>
-          <SetupStep n={3} title="Generate API keys">
-            <p>Settings → <strong>API Keys</strong> → create a new key pair.</p>
-            <p>Copy both the <strong>Identifier</strong> (not secret) and the <strong>Key</strong> (secret).</p>
-          </SetupStep>
-          <SetupStep n={4} title="Paste credentials below">
-            <p>Set Website ID, API Identifier, and API Key. The agent will use basic auth (<code className="bg-muted px-1 rounded">identifier:key</code>) to call the Crisp REST API.</p>
-          </SetupStep>
-        </div>
-        <a
-          href="https://docs.crisp.chat/references/rest-api/v1/"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-1 text-xs text-primary hover:underline mt-4"
-        >
-          Crisp REST API docs <ExternalLink className="w-3 h-3" />
-        </a>
-      </div>
-      <FieldsCard rows={rows} token={token} />
-    </div>
+    <IntegrationLayout
+      integrationKey="crisp"
+      rows={rows}
+      token={token}
+      docs={
+        <>
+          <h2 className="text-sm font-semibold mb-4">Setup Guide</h2>
+          <div className="space-y-4">
+            <SetupStep n={1} title="Log in to Crisp and open your website">
+              <p>Go to <strong>app.crisp.chat</strong> → select your website → <strong>Settings</strong>.</p>
+            </SetupStep>
+            <SetupStep n={2} title="Copy your Website ID">
+              <p>Settings → <strong>Setup</strong> → copy the <strong>Website ID</strong> at the top.</p>
+            </SetupStep>
+            <SetupStep n={3} title="Generate API keys">
+              <p>Settings → <strong>API Keys</strong> → create a new key pair.</p>
+              <p>Copy both the <strong>Identifier</strong> (not secret) and the <strong>Key</strong> (secret).</p>
+            </SetupStep>
+            <SetupStep n={4} title="Paste credentials in Settings">
+              <p>Set Website ID, API Identifier, and API Key. The agent uses basic auth (<code className="bg-muted px-1 rounded">identifier:key</code>).</p>
+            </SetupStep>
+          </div>
+          <a
+            href="https://docs.crisp.chat/references/rest-api/v1/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 text-xs text-primary hover:underline mt-4"
+          >
+            Crisp REST API docs <ExternalLink className="w-3 h-3" />
+          </a>
+        </>
+      }
+    />
   );
 }
 
 function TelegramTab({ rows, token }: { rows: SettingRow[]; token: string }) {
   return (
-    <div className="space-y-4">
-      <div className="rounded-xl border border-border bg-card p-5">
-        <h2 className="text-sm font-semibold mb-4">Setup Guide</h2>
-        <div className="space-y-4">
-          <SetupStep n={1} title="Create a bot">
-            <p>Open Telegram and message <code className="bg-muted px-1 rounded">@BotFather</code></p>
-            <p>Send <code className="bg-muted px-1 rounded">/newbot</code>, choose a name and username.</p>
-            <p>BotFather replies with your <strong>bot token</strong> — copy it below.</p>
-          </SetupStep>
-          <SetupStep n={2} title="Get your Chat ID">
-            <p>Message <code className="bg-muted px-1 rounded">@userinfobot</code> — it replies with your Chat ID.</p>
-            <p>Alternatively, message your bot then visit:</p>
-            <code className="bg-muted px-1.5 py-0.5 rounded block mt-1 text-xs break-all">
-              https://api.telegram.org/bot&lt;TOKEN&gt;/getUpdates
-            </code>
-            <p className="mt-1">Look for <code className="bg-muted px-1 rounded">"chat": {"{"}"id": 123456789{"}"}</code></p>
-          </SetupStep>
-          <SetupStep n={3} title="Paste credentials below">
-            <p>Set both fields. Telegram is used for all Approve / Reject / Follow-up actions.</p>
-          </SetupStep>
-        </div>
-      </div>
-      <FieldsCard rows={rows} token={token} />
-    </div>
+    <IntegrationLayout
+      integrationKey="telegram"
+      rows={rows}
+      token={token}
+      docs={
+        <>
+          <h2 className="text-sm font-semibold mb-4">Setup Guide</h2>
+          <div className="space-y-4">
+            <SetupStep n={1} title="Create a bot">
+              <p>Open Telegram and message <code className="bg-muted px-1 rounded">@BotFather</code></p>
+              <p>Send <code className="bg-muted px-1 rounded">/newbot</code>, choose a name and username.</p>
+              <p>BotFather replies with your <strong>bot token</strong> — copy it into Settings.</p>
+            </SetupStep>
+            <SetupStep n={2} title="Get your Chat ID">
+              <p>Message <code className="bg-muted px-1 rounded">@userinfobot</code> — it replies with your Chat ID.</p>
+              <p>Alternatively, message your bot then visit:</p>
+              <code className="bg-muted px-1.5 py-0.5 rounded block mt-1 text-xs break-all">
+                https://api.telegram.org/bot&lt;TOKEN&gt;/getUpdates
+              </code>
+              <p className="mt-1">Look for <code className="bg-muted px-1 rounded">"chat": {"{"}"id": 123456789{"}"}</code></p>
+            </SetupStep>
+            <SetupStep n={3} title="Paste credentials in Settings">
+              <p>Set both fields. Telegram is used for all Approve / Reject / Follow-up actions.</p>
+            </SetupStep>
+          </div>
+        </>
+      }
+    />
   );
 }
 
 function SesTab({ rows, token }: { rows: SettingRow[]; token: string }) {
   const webhookUrl = `${window.location.origin}/ses/webhook`;
   return (
-    <div className="space-y-4">
-      <div className="rounded-xl border border-border bg-card p-5">
-        <h2 className="text-sm font-semibold mb-1">SNS Webhook URL</h2>
-        <p className="text-xs text-muted-foreground mb-3">
-          Enter this URL when subscribing to your SNS topic for SES bounce and complaint events.
-        </p>
-        <div className="flex items-center gap-2 bg-muted/60 border border-border rounded-lg px-3 py-2">
-          <code className="text-xs font-mono flex-1 break-all text-foreground">{webhookUrl}</code>
-          <CopyButton text={webhookUrl} />
+    <IntegrationLayout
+      integrationKey="ses"
+      rows={rows}
+      token={token}
+      extraSettings={
+        <div className="rounded-xl border border-border bg-card p-5">
+          <h2 className="text-sm font-semibold mb-1">SNS Webhook URL</h2>
+          <p className="text-xs text-muted-foreground mb-3">
+            Enter this URL when subscribing to your SNS topic for SES bounce and complaint events.
+          </p>
+          <div className="flex items-center gap-2 bg-muted/60 border border-border rounded-lg px-3 py-2">
+            <code className="text-xs font-mono flex-1 break-all text-foreground">{webhookUrl}</code>
+            <CopyButton text={webhookUrl} />
+          </div>
         </div>
-      </div>
-
-      <div className="rounded-xl border border-border bg-card p-5">
-        <h2 className="text-sm font-semibold mb-4">SNS Setup Guide</h2>
-        <div className="space-y-4">
-          <SetupStep n={1} title="Create IAM user">
-            <p>In AWS IAM, create a user with <code className="bg-muted px-1 rounded">ses:SendEmail</code> and <code className="bg-muted px-1 rounded">ses:SendRawEmail</code> permissions.</p>
-            <p>Generate an access key and paste below.</p>
-          </SetupStep>
-          <SetupStep n={2} title="Verify sender domain / email">
-            <p>In SES → Verified identities, verify your sending domain or email address.</p>
-          </SetupStep>
-          <SetupStep n={3} title="Create a Configuration Set">
-            <p>In SES → Configuration Sets, create one (e.g. <code className="bg-muted px-1 rounded">ses-monitoring</code>).</p>
-            <p>Add an SNS destination for <strong>Bounce</strong> and <strong>Complaint</strong> events.</p>
-          </SetupStep>
-          <SetupStep n={4} title="Subscribe SNS to the webhook">
-            <p>In your SNS topic → Subscriptions, add an <strong>HTTPS</strong> subscription pointing to the URL above.</p>
-            <p>AWS confirms it automatically.</p>
-          </SetupStep>
-        </div>
-        <a
-          href="https://docs.aws.amazon.com/ses/latest/dg/monitor-sending-activity-using-notifications-sns.html"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-1 text-xs text-primary hover:underline mt-4"
-        >
-          AWS SES SNS docs <ExternalLink className="w-3 h-3" />
-        </a>
-      </div>
-
-      <FieldsCard rows={rows} token={token} />
-    </div>
+      }
+      docs={
+        <>
+          <h2 className="text-sm font-semibold mb-4">SNS Setup Guide</h2>
+          <div className="space-y-4">
+            <SetupStep n={1} title="Create IAM user">
+              <p>In AWS IAM, create a user with <code className="bg-muted px-1 rounded">ses:SendEmail</code> and <code className="bg-muted px-1 rounded">ses:SendRawEmail</code> permissions.</p>
+              <p>Generate an access key and paste in Settings.</p>
+            </SetupStep>
+            <SetupStep n={2} title="Verify sender domain / email">
+              <p>In SES → Verified identities, verify your sending domain or email address.</p>
+            </SetupStep>
+            <SetupStep n={3} title="Create a Configuration Set">
+              <p>In SES → Configuration Sets, create one (e.g. <code className="bg-muted px-1 rounded">ses-monitoring</code>).</p>
+              <p>Add an SNS destination for <strong>Bounce</strong> and <strong>Complaint</strong> events.</p>
+            </SetupStep>
+            <SetupStep n={4} title="Subscribe SNS to the webhook">
+              <p>In your SNS topic → Subscriptions, add an <strong>HTTPS</strong> subscription pointing to the URL in Settings.</p>
+              <p>AWS confirms it automatically.</p>
+            </SetupStep>
+          </div>
+          <a
+            href="https://docs.aws.amazon.com/ses/latest/dg/monitor-sending-activity-using-notifications-sns.html"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 text-xs text-primary hover:underline mt-4"
+          >
+            AWS SES SNS docs <ExternalLink className="w-3 h-3" />
+          </a>
+        </>
+      }
+    />
   );
 }
 
 function GmailTab({ rows, token }: { rows: SettingRow[]; token: string }) {
   return (
-    <div className="space-y-4">
-      <div className="rounded-xl border border-border bg-card p-5">
-        <h2 className="text-sm font-semibold mb-4">OAuth2 Setup Guide</h2>
-        <div className="space-y-4">
-          <SetupStep n={1} title="Create a Google Cloud project">
-            <p>Go to <strong>console.cloud.google.com</strong> → New Project.</p>
-          </SetupStep>
-          <SetupStep n={2} title="Enable Gmail API">
-            <p>APIs & Services → Enable APIs → search <strong>Gmail API</strong> → Enable.</p>
-          </SetupStep>
-          <SetupStep n={3} title="Create OAuth2 credentials">
-            <p>APIs & Services → Credentials → Create Credentials → OAuth client ID.</p>
-            <p>Application type: <strong>Web application</strong>.</p>
-            <p>Authorized redirect URI: <code className="bg-muted px-1 rounded">https://developers.google.com/oauthplayground</code></p>
-          </SetupStep>
-          <SetupStep n={4} title="Get a refresh token via OAuth Playground">
-            <p>Open <a href="https://developers.google.com/oauthplayground" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">OAuth 2.0 Playground</a></p>
-            <p>Gear icon → check <strong>"Use your own OAuth credentials"</strong>, paste Client ID and Secret.</p>
-            <p>Scope: <code className="bg-muted px-1 rounded">https://mail.google.com/</code></p>
-            <p>Authorize → Exchange auth code → copy the <strong>Refresh Token</strong>.</p>
-          </SetupStep>
-        </div>
-      </div>
-      <FieldsCard rows={rows} token={token} />
-    </div>
+    <IntegrationLayout
+      integrationKey="gmail"
+      rows={rows}
+      token={token}
+      docs={
+        <>
+          <h2 className="text-sm font-semibold mb-4">OAuth2 Setup Guide</h2>
+          <div className="space-y-4">
+            <SetupStep n={1} title="Create a Google Cloud project">
+              <p>Go to <strong>console.cloud.google.com</strong> → New Project.</p>
+            </SetupStep>
+            <SetupStep n={2} title="Enable Gmail API">
+              <p>APIs & Services → Enable APIs → search <strong>Gmail API</strong> → Enable.</p>
+            </SetupStep>
+            <SetupStep n={3} title="Create OAuth2 credentials">
+              <p>APIs & Services → Credentials → Create Credentials → OAuth client ID.</p>
+              <p>Application type: <strong>Web application</strong>.</p>
+              <p>Authorized redirect URI: <code className="bg-muted px-1 rounded">https://developers.google.com/oauthplayground</code></p>
+            </SetupStep>
+            <SetupStep n={4} title="Get a refresh token via OAuth Playground">
+              <p>Open <a href="https://developers.google.com/oauthplayground" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">OAuth 2.0 Playground</a></p>
+              <p>Gear icon → check <strong>"Use your own OAuth credentials"</strong>, paste Client ID and Secret.</p>
+              <p>Scope: <code className="bg-muted px-1 rounded">https://mail.google.com/</code></p>
+              <p>Authorize → Exchange auth code → copy the <strong>Refresh Token</strong>.</p>
+            </SetupStep>
+          </div>
+        </>
+      }
+    />
   );
 }
 

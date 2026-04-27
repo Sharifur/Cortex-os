@@ -3,10 +3,11 @@ import { Logger } from '@nestjs/common';
 import { Job } from 'bullmq';
 import { eq } from 'drizzle-orm';
 import { DbService } from '../../../../db/db.service';
-import { agentRuns } from '../../../../db/schema';
+import { agentRuns, tasks as tasksTable } from '../../../../db/schema';
 import { AgentRegistryService } from '../agent-registry.service';
 import { AgentLogService } from '../agent-log.service';
 import { QUEUE_NAMES } from '../../../../common/queue/queue.constants';
+import { computeNextRunAt } from '../../../tasks/task.utils';
 import type { AgentExecuteJobData } from '../types';
 
 @Processor(QUEUE_NAMES.AGENT_EXECUTE)
@@ -37,6 +38,17 @@ export class AgentExecuteProcessor extends WorkerHost {
         .select()
         .from(agentRuns)
         .where(eq(agentRuns.id, runId));
+
+      const taskId = (run?.triggerPayload as Record<string, unknown> | null)?._taskId as string | undefined;
+      if (taskId) {
+        const [task] = await this.db.db.select().from(tasksTable).where(eq(tasksTable.id, taskId));
+        if (task?.recurrence && task.recurrenceTime) {
+          const nextRunAt = computeNextRunAt(task.recurrence, task.recurrenceTime);
+          await this.db.db.update(tasksTable).set({ status: 'pending', nextRunAt, updatedAt: new Date() }).where(eq(tasksTable.id, taskId));
+        } else if (task) {
+          await this.db.db.update(tasksTable).set({ status: 'done', updatedAt: new Date() }).where(eq(tasksTable.id, taskId));
+        }
+      }
 
       const prevResult = (run?.result as unknown[]) ?? [];
 

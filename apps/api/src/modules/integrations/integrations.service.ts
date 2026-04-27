@@ -1,0 +1,210 @@
+import { Injectable } from '@nestjs/common';
+import { SESClient, GetSendQuotaCommand } from '@aws-sdk/client-ses';
+import { google } from 'googleapis';
+import { SettingsService } from '../settings/settings.service';
+
+export interface TestResult {
+  ok: boolean;
+  message: string;
+}
+
+@Injectable()
+export class IntegrationsService {
+  constructor(private readonly settings: SettingsService) {}
+
+  async test(key: string): Promise<TestResult> {
+    switch (key) {
+      case 'whatsapp': return this.testWhatsApp();
+      case 'linkedin':  return this.testLinkedIn();
+      case 'reddit':    return this.testReddit();
+      case 'crisp':     return this.testCrisp();
+      case 'telegram':  return this.testTelegram();
+      case 'ses':       return this.testSes();
+      case 'gmail':     return this.testGmail();
+      default:          return { ok: false, message: `Unknown integration: ${key}` };
+    }
+  }
+
+  private async testWhatsApp(): Promise<TestResult> {
+    const [token, phoneId] = await Promise.all([
+      this.settings.getDecrypted('whatsapp_api_token'),
+      this.settings.getDecrypted('whatsapp_phone_number_id'),
+    ]);
+    if (!token || !phoneId) return { ok: false, message: 'Credentials not configured' };
+
+    try {
+      const res = await fetch(
+        `https://graph.facebook.com/v20.0/${phoneId}?fields=display_phone_number,verified_name&access_token=${token}`,
+        { signal: AbortSignal.timeout(8000) },
+      );
+      const data = await res.json() as any;
+      if (!res.ok) return { ok: false, message: data?.error?.message ?? `HTTP ${res.status}` };
+      return { ok: true, message: `${data.verified_name ?? ''} (${data.display_phone_number ?? phoneId})`.trim() };
+    } catch (err) {
+      return { ok: false, message: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  private async testLinkedIn(): Promise<TestResult> {
+    const [unipileKey, unipileDsn, linkedinToken] = await Promise.all([
+      this.settings.getDecrypted('unipile_api_key'),
+      this.settings.getDecrypted('unipile_dsn'),
+      this.settings.getDecrypted('linkedin_access_token'),
+    ]);
+
+    if (!unipileKey && !linkedinToken) return { ok: false, message: 'Credentials not configured' };
+
+    try {
+      if (unipileKey && unipileDsn) {
+        const res = await fetch(`https://${unipileDsn}/api/v1/me`, {
+          headers: { 'X-API-KEY': unipileKey },
+          signal: AbortSignal.timeout(8000),
+        });
+        const data = await res.json() as any;
+        if (!res.ok) return { ok: false, message: data?.message ?? `HTTP ${res.status}` };
+        const name = data.name ?? data.full_name ?? data.email ?? 'account';
+        return { ok: true, message: `Connected via Unipile — ${name}` };
+      }
+
+      const res = await fetch('https://api.linkedin.com/v2/me', {
+        headers: { Authorization: `Bearer ${linkedinToken}` },
+        signal: AbortSignal.timeout(8000),
+      });
+      const data = await res.json() as any;
+      if (!res.ok) return { ok: false, message: data?.message ?? `HTTP ${res.status}` };
+      const name = `${data.localizedFirstName ?? ''} ${data.localizedLastName ?? ''}`.trim();
+      return { ok: true, message: `Connected — ${name || 'LinkedIn account'}` };
+    } catch (err) {
+      return { ok: false, message: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  private async testReddit(): Promise<TestResult> {
+    const [clientId, clientSecret, username, password] = await Promise.all([
+      this.settings.getDecrypted('reddit_client_id'),
+      this.settings.getDecrypted('reddit_client_secret'),
+      this.settings.getDecrypted('reddit_username'),
+      this.settings.getDecrypted('reddit_password'),
+    ]);
+    if (!clientId || !clientSecret || !username || !password) {
+      return { ok: false, message: 'Credentials not configured' };
+    }
+
+    try {
+      const userAgent = `cortex-os/1.0 by ${username}`;
+      const tokenRes = await fetch('https://www.reddit.com/api/v1/access_token', {
+        method: 'POST',
+        headers: {
+          Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString('base64')}`,
+          'User-Agent': userAgent,
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: new URLSearchParams({ grant_type: 'password', username, password }),
+        signal: AbortSignal.timeout(8000),
+      });
+      const tokenData = await tokenRes.json() as any;
+      if (!tokenRes.ok || tokenData.error) {
+        return { ok: false, message: tokenData.message ?? tokenData.error ?? `HTTP ${tokenRes.status}` };
+      }
+
+      const meRes = await fetch('https://oauth.reddit.com/api/v1/me', {
+        headers: { Authorization: `Bearer ${tokenData.access_token}`, 'User-Agent': userAgent },
+        signal: AbortSignal.timeout(8000),
+      });
+      const me = await meRes.json() as any;
+      if (!meRes.ok) return { ok: false, message: `HTTP ${meRes.status}` };
+      return { ok: true, message: `Connected as u/${me.name ?? username}` };
+    } catch (err) {
+      return { ok: false, message: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  private async testCrisp(): Promise<TestResult> {
+    const [identifier, apiKey, websiteId] = await Promise.all([
+      this.settings.getDecrypted('crisp_api_identifier'),
+      this.settings.getDecrypted('crisp_api_key'),
+      this.settings.getDecrypted('crisp_website_id'),
+    ]);
+    if (!identifier || !apiKey || !websiteId) return { ok: false, message: 'Credentials not configured' };
+
+    try {
+      const auth = `Basic ${Buffer.from(`${identifier}:${apiKey}`).toString('base64')}`;
+      const res = await fetch(`https://api.crisp.chat/v1/website/${websiteId}`, {
+        headers: { Authorization: auth, 'X-Crisp-Tier': 'plugin' },
+        signal: AbortSignal.timeout(8000),
+      });
+      const data = await res.json() as any;
+      if (!res.ok) return { ok: false, message: data?.reason ?? `HTTP ${res.status}` };
+      const siteName = data?.data?.name ?? websiteId;
+      return { ok: true, message: `Connected — ${siteName}` };
+    } catch (err) {
+      return { ok: false, message: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  private async testTelegram(): Promise<TestResult> {
+    const [token, chatId] = await Promise.all([
+      this.settings.getDecrypted('telegram_bot_token'),
+      this.settings.getDecrypted('telegram_owner_chat_id'),
+    ]);
+    if (!token) return { ok: false, message: 'Bot token not configured' };
+
+    try {
+      const res = await fetch(`https://api.telegram.org/bot${token}/getMe`, {
+        signal: AbortSignal.timeout(8000),
+      });
+      const data = await res.json() as any;
+      if (!res.ok || !data.ok) return { ok: false, message: data.description ?? `HTTP ${res.status}` };
+      const botName = data.result?.username ? `@${data.result.username}` : (data.result?.first_name ?? 'bot');
+      const chatNote = chatId ? '' : ' — owner chat ID not set';
+      return { ok: true, message: `${botName}${chatNote}` };
+    } catch (err) {
+      return { ok: false, message: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  private async testSes(): Promise<TestResult> {
+    const [accessKeyId, secretAccessKey, region] = await Promise.all([
+      this.settings.getDecrypted('aws_access_key_id'),
+      this.settings.getDecrypted('aws_secret_access_key'),
+      this.settings.getDecrypted('aws_region'),
+    ]);
+    if (!accessKeyId || !secretAccessKey) return { ok: false, message: 'AWS credentials not configured' };
+
+    try {
+      const client = new SESClient({
+        region: region ?? 'ap-south-1',
+        credentials: { accessKeyId, secretAccessKey },
+        requestHandler: { requestTimeout: 8000 } as any,
+      });
+      const quota = await client.send(new GetSendQuotaCommand({}));
+      const sent = quota.SentLast24Hours ?? 0;
+      const max = quota.Max24HourSend ?? 0;
+      return { ok: true, message: `Quota: ${sent}/${max} emails in last 24h` };
+    } catch (err) {
+      return { ok: false, message: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  private async testGmail(): Promise<TestResult> {
+    const [clientId, clientSecret, refreshToken] = await Promise.all([
+      this.settings.getDecrypted('gmail_client_id'),
+      this.settings.getDecrypted('gmail_client_secret'),
+      this.settings.getDecrypted('gmail_refresh_token'),
+    ]);
+    if (!clientId || !clientSecret || !refreshToken) {
+      return { ok: false, message: 'OAuth2 credentials not configured' };
+    }
+
+    try {
+      const auth = new google.auth.OAuth2(clientId, clientSecret);
+      auth.setCredentials({ refresh_token: refreshToken });
+      const gmail = google.gmail({ version: 'v1', auth });
+      const profile = await gmail.users.getProfile({ userId: 'me' });
+      const email = profile.data.emailAddress ?? 'unknown';
+      return { ok: true, message: `Connected as ${email}` };
+    } catch (err) {
+      return { ok: false, message: err instanceof Error ? err.message : String(err) };
+    }
+  }
+}

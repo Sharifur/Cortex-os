@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { SettingsService } from '../../settings/settings.service';
 
 export interface LinkedInPost {
   id: string;
@@ -11,39 +12,46 @@ export interface LinkedInPost {
 export class LinkedInService {
   private readonly logger = new Logger(LinkedInService.name);
 
-  // Supports Unipile (preferred) or direct LinkedIn OAuth2
-  private readonly unipileKey = process.env.UNIPILE_API_KEY;
-  private readonly unipileDsn = process.env.UNIPILE_DSN;
-  private readonly linkedinToken = process.env.LINKEDIN_ACCESS_TOKEN;
+  constructor(private readonly settings: SettingsService) {}
 
-  isConfigured() {
-    return !!(this.unipileKey || this.linkedinToken);
+  private async getCredentials() {
+    const [unipileKey, unipileDsn, linkedinToken] = await Promise.all([
+      this.settings.getDecrypted('unipile_api_key'),
+      this.settings.getDecrypted('unipile_dsn'),
+      this.settings.getDecrypted('linkedin_access_token'),
+    ]);
+    return { unipileKey, unipileDsn, linkedinToken };
+  }
+
+  async isConfigured(): Promise<boolean> {
+    const { unipileKey, linkedinToken } = await this.getCredentials();
+    return !!(unipileKey || linkedinToken);
   }
 
   async getFeedPosts(limit = 10): Promise<LinkedInPost[]> {
-    if (!this.isConfigured()) {
+    const { unipileKey, unipileDsn, linkedinToken } = await this.getCredentials();
+    if (!unipileKey && !linkedinToken) {
       this.logger.warn('LinkedIn not configured — returning empty feed');
       return [];
     }
 
-    if (this.unipileKey && this.unipileDsn) {
-      return this.getFeedViaUnipile(limit);
+    if (unipileKey && unipileDsn) {
+      return this.getFeedViaUnipile(unipileKey, unipileDsn, limit);
     }
-
-    // Direct LinkedIn API fallback
-    return this.getFeedDirect(limit);
+    return this.getFeedDirect(linkedinToken!, limit);
   }
 
   async postComment(postId: string, comment: string): Promise<void> {
-    if (!this.isConfigured()) {
+    const { unipileKey, unipileDsn, linkedinToken } = await this.getCredentials();
+    if (!unipileKey && !linkedinToken) {
       this.logger.warn('LinkedIn not configured — skipping comment');
       return;
     }
 
-    if (this.unipileKey && this.unipileDsn) {
-      const res = await fetch(`https://${this.unipileDsn}/api/v1/linkedin/posts/${postId}/comments`, {
+    if (unipileKey && unipileDsn) {
+      const res = await fetch(`https://${unipileDsn}/api/v1/linkedin/posts/${postId}/comments`, {
         method: 'POST',
-        headers: { 'X-API-KEY': this.unipileKey, 'Content-Type': 'application/json' },
+        headers: { 'X-API-KEY': unipileKey, 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: comment }),
       });
       if (!res.ok) throw new Error(`Unipile comment failed: ${await res.text()}`);
@@ -53,7 +61,7 @@ export class LinkedInService {
     const res = await fetch('https://api.linkedin.com/v2/socialActions/comments', {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${this.linkedinToken}`,
+        Authorization: `Bearer ${linkedinToken}`,
         'Content-Type': 'application/json',
         'X-Restli-Protocol-Version': '2.0.0',
       },
@@ -66,26 +74,66 @@ export class LinkedInService {
     if (!res.ok) throw new Error(`LinkedIn comment failed: ${await res.text()}`);
   }
 
+  async publishPost(text: string): Promise<void> {
+    const { unipileKey, unipileDsn, linkedinToken } = await this.getCredentials();
+    if (!unipileKey && !linkedinToken) {
+      this.logger.warn('LinkedIn not configured — skipping post publish');
+      return;
+    }
+
+    if (unipileKey && unipileDsn) {
+      const res = await fetch(`https://${unipileDsn}/api/v1/linkedin/posts`, {
+        method: 'POST',
+        headers: { 'X-API-KEY': unipileKey, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
+      if (!res.ok) throw new Error(`Unipile publish failed: ${await res.text()}`);
+      return;
+    }
+
+    const res = await fetch('https://api.linkedin.com/v2/ugcPosts', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${linkedinToken}`,
+        'Content-Type': 'application/json',
+        'X-Restli-Protocol-Version': '2.0.0',
+      },
+      body: JSON.stringify({
+        author: 'urn:li:person:me',
+        lifecycleState: 'PUBLISHED',
+        specificContent: {
+          'com.linkedin.ugc.ShareContent': {
+            shareCommentary: { text },
+            shareMediaCategory: 'NONE',
+          },
+        },
+        visibility: { 'com.linkedin.ugc.MemberNetworkVisibility': 'PUBLIC' },
+      }),
+    });
+    if (!res.ok) throw new Error(`LinkedIn publish failed: ${await res.text()}`);
+  }
+
   async sendDM(profileId: string, message: string): Promise<void> {
-    if (!this.isConfigured()) {
+    const { unipileKey, unipileDsn, linkedinToken } = await this.getCredentials();
+    if (!unipileKey && !linkedinToken) {
       this.logger.warn('LinkedIn not configured — skipping DM');
       return;
     }
 
-    if (this.unipileKey && this.unipileDsn) {
-      const res = await fetch(`https://${this.unipileDsn}/api/v1/linkedin/messages`, {
+    if (unipileKey && unipileDsn) {
+      const res = await fetch(`https://${unipileDsn}/api/v1/linkedin/messages`, {
         method: 'POST',
-        headers: { 'X-API-KEY': this.unipileKey, 'Content-Type': 'application/json' },
+        headers: { 'X-API-KEY': unipileKey, 'Content-Type': 'application/json' },
         body: JSON.stringify({ recipient_id: profileId, text: message }),
       });
       if (!res.ok) throw new Error(`Unipile DM failed: ${await res.text()}`);
     }
   }
 
-  private async getFeedViaUnipile(limit: number): Promise<LinkedInPost[]> {
+  private async getFeedViaUnipile(key: string, dsn: string, limit: number): Promise<LinkedInPost[]> {
     try {
-      const res = await fetch(`https://${this.unipileDsn}/api/v1/linkedin/feed?limit=${limit}`, {
-        headers: { 'X-API-KEY': this.unipileKey! },
+      const res = await fetch(`https://${dsn}/api/v1/linkedin/feed?limit=${limit}`, {
+        headers: { 'X-API-KEY': key },
       });
       if (!res.ok) return [];
       const data = await res.json() as any;
@@ -100,10 +148,10 @@ export class LinkedInService {
     }
   }
 
-  private async getFeedDirect(limit: number): Promise<LinkedInPost[]> {
+  private async getFeedDirect(token: string, limit: number): Promise<LinkedInPost[]> {
     try {
       const res = await fetch(`https://api.linkedin.com/v2/shares?q=owners&owners=urn:li:person:me&count=${limit}`, {
-        headers: { Authorization: `Bearer ${this.linkedinToken}` },
+        headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) return [];
       const data = await res.json() as any;

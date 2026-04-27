@@ -229,7 +229,7 @@ export class WhatsAppAgent implements IAgent, OnModuleInit {
 
     if (action.type === 'auto_reply_holding' || action.type === 'send_reply') {
       const replyText = action.type === 'auto_reply_holding' ? p.holdingMessage : p.draft;
-      if (this.wa.isConfigured() && p.fromNumber) {
+      if (await this.wa.isConfigured() && p.fromNumber) {
         await this.wa.sendMessage(p.fromNumber, replyText);
       }
       await this.markProcessed(p.msgId, 'replied', undefined);
@@ -282,7 +282,7 @@ export class WhatsAppAgent implements IAgent, OnModuleInit {
         requiresAuth: false,
         handler: async (query) => {
           const q = query as any;
-          if (q['hub.verify_token'] === process.env.WHATSAPP_VERIFY_TOKEN) {
+          if (q['hub.verify_token'] === await this.wa.getVerifyToken()) {
             return q['hub.challenge'];
           }
           return 'Forbidden';

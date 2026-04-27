@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { SettingsService } from '../../settings/settings.service';
 
 export interface WaMessage {
   id: string;
@@ -12,24 +13,37 @@ export interface WaMessage {
 @Injectable()
 export class WhatsAppService {
   private readonly logger = new Logger(WhatsAppService.name);
-  private readonly token = process.env.WHATSAPP_API_TOKEN;
-  private readonly phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
   private readonly apiBase = 'https://graph.facebook.com/v20.0';
 
-  isConfigured() {
-    return !!(this.token && this.phoneNumberId);
+  constructor(private readonly settings: SettingsService) {}
+
+  async isConfigured(): Promise<boolean> {
+    const [token, phoneId] = await Promise.all([
+      this.settings.getDecrypted('whatsapp_api_token'),
+      this.settings.getDecrypted('whatsapp_phone_number_id'),
+    ]);
+    return !!(token && phoneId);
+  }
+
+  async getVerifyToken(): Promise<string> {
+    return (await this.settings.getDecrypted('whatsapp_verify_token')) ?? 'cortex-whatsapp-verify';
   }
 
   async sendMessage(to: string, body: string): Promise<void> {
-    if (!this.isConfigured()) {
+    const [token, phoneId] = await Promise.all([
+      this.settings.getDecrypted('whatsapp_api_token'),
+      this.settings.getDecrypted('whatsapp_phone_number_id'),
+    ]);
+
+    if (!token || !phoneId) {
       this.logger.warn('WhatsApp API not configured — skipping send');
       return;
     }
 
-    const res = await fetch(`${this.apiBase}/${this.phoneNumberId}/messages`, {
+    const res = await fetch(`${this.apiBase}/${phoneId}/messages`, {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${this.token}`,
+        Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
