@@ -1469,42 +1469,35 @@ function TaskipInternalSetupSubTab({ agent }: { agent: AgentDetail }) {
         </p>
         <div className="space-y-5">
 
-          <SetupStep n={1} title="Add Taskip read-only DB connection" done={false}>
-            <p>Set this env var in Coolify (or your <code className="bg-muted px-1 rounded">.env</code>):</p>
-            <code className="bg-muted px-2 py-1 rounded block mt-1 text-xs font-mono">
-              TASKIP_DB_URL_READONLY=postgres://readonly_user:pass@host:5432/taskip
-            </code>
-            <p className="mt-1">Create a read-only Postgres role in Taskip DB — grant <code className="bg-muted px-1 rounded">SELECT</code> on users, subscriptions, invoices.</p>
-            <p className="mt-1">For write operations (extend_trial, mark_refund) the same connection is reused — those queries need <code className="bg-muted px-1 rounded">UPDATE</code> permission on those tables.</p>
-          </SetupStep>
-
-          <SetupStep n={2} title="Configure OpenAI API key" done={false}>
-            <p>This agent uses function/tool calling — it requires <strong>OpenAI</strong> or <strong>DeepSeek</strong> (Gemini does not support tool calling in this router).</p>
+          <SetupStep n={1} title="Configure OpenAI or DeepSeek API key" done={false}>
+            <p>This agent uses LLM function/tool calling — only <strong>OpenAI</strong> or <strong>DeepSeek</strong> are supported (Gemini does not support tool calling).</p>
             <p className="mt-1">Add your key in <strong>Settings → LLM Providers</strong>. Recommended model: <code className="bg-muted px-1 rounded">gpt-4o</code> for accurate reasoning over DB results.</p>
+            <p className="mt-1">Then set the provider and model in the <strong>LLM</strong> sub-tab.</p>
           </SetupStep>
 
-          <SetupStep n={3} title="Configure Telegram for approval messages" done={false}>
+          <SetupStep n={2} title="Configure Telegram for approval messages" done={false}>
             <p>Write operations (extend trial, mark refund) require Telegram approval before executing.</p>
             <p className="mt-1">Ensure your bot token and chat ID are set in <strong>Settings → Telegram</strong>.</p>
           </SetupStep>
 
-          <SetupStep n={4} title="Test with a manual query" done={agent.enabled}>
-            <p>Go to the <strong>Ask</strong> tab and type a question, for example:</p>
+          <SetupStep n={3} title="Test with the Chat page" done={agent.enabled}>
+            <p>Open the <strong>Chat</strong> page for this agent and type a question, for example:</p>
             <ul className="list-disc list-inside ml-1 mt-1 space-y-0.5">
               <li><em>Look up user john@example.com</em></li>
               <li><em>Show me the last 5 invoices for user abc-123</em></li>
               <li><em>Extend the trial for john@example.com by 7 days</em></li>
             </ul>
-            <p className="mt-1">The agent will run, query the DB, and send the answer (or an approval request) to Telegram.</p>
+            <p className="mt-1">The agent will query the DB and send the answer (or an approval request) to Telegram.</p>
           </SetupStep>
 
         </div>
       </div>
 
-      <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4">
-        <p className="text-xs font-medium text-amber-500 mb-1">Tool calling requirement</p>
+      <div className="rounded-xl border border-border bg-muted/20 p-4">
+        <p className="text-xs font-medium text-muted-foreground mb-1">Platform prerequisite</p>
         <p className="text-xs text-muted-foreground">
-          This agent uses LLM function calling. Set the provider to <strong>OpenAI</strong> or <strong>DeepSeek</strong> in the LLM tab — Gemini is not supported for this agent.
+          This agent requires <code className="bg-muted px-1 rounded">TASKIP_DB_URL_READONLY</code> to be set in your Coolify environment.
+          That is a one-time platform setup — not specific to this agent. Once set, all Taskip-related agents share the same connection.
         </p>
       </div>
     </div>
@@ -1876,13 +1869,13 @@ export default function AgentDetailPage() {
 
   return (
     <div className="p-8 max-w-4xl mx-auto">
-      <button
-        onClick={() => window.history.back()}
+      <Link
+        to="/agents"
         className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-5"
       >
         <ArrowLeft className="w-3.5 h-3.5" />
         Agents
-      </button>
+      </Link>
 
       {isLoading && !agent && <AgentDetailSkeleton />}
       {isError && !agent && <p className="text-sm text-destructive">Failed to load agent.</p>}

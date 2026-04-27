@@ -44,6 +44,11 @@ export class AgentsController {
     return this.agents.getRuns(key, limit ? parseInt(limit) : 20);
   }
 
+  @Get(':key/conversations')
+  listConversations(@Param('key') key: string) {
+    return this.agents.listConversations(key);
+  }
+
   @Get(':key/conversations/:convId')
   getConversation(@Param('key') key: string, @Param('convId') convId: string) {
     return this.agents.getConversation(key, convId);

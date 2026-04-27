@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { eq, desc, and } from 'drizzle-orm';
+import { eq, desc, and, sql } from 'drizzle-orm';
 import { DbService } from '../../db/db.service';
 import { agents, agentRuns, agentConversations } from '../../db/schema';
 import { AgentRuntimeService } from './runtime/agent-runtime.service';
@@ -79,6 +79,31 @@ export class AgentsService {
         ),
       )
       .orderBy(agentConversations.createdAt);
+  }
+
+  async listConversations(agentKey: string) {
+    const rows = await this.db.db.execute(sql`
+      SELECT
+        conversation_id   AS "conversationId",
+        MIN(created_at)   AS "startedAt",
+        MAX(created_at)   AS "lastActivityAt",
+        COUNT(*)::int     AS "messageCount",
+        (
+          SELECT content
+          FROM agent_conversations ac2
+          WHERE ac2.conversation_id = agent_conversations.conversation_id
+            AND ac2.agent_key = ${agentKey}
+            AND ac2.role = 'user'
+          ORDER BY ac2.created_at
+          LIMIT 1
+        ) AS "preview"
+      FROM agent_conversations
+      WHERE agent_key = ${agentKey}
+      GROUP BY conversation_id
+      ORDER BY MAX(created_at) DESC
+      LIMIT 50
+    `);
+    return rows;
   }
 
   async saveConversationMessage(data: {
