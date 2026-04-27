@@ -964,7 +964,7 @@ function DailyReminderLlmSubTab({
 function DailyReminderSettingsTab({ agent, token }: { agent: AgentDetail; token: string }) {
   const [activeSub, setActiveSub] = useState<DailyReminderTabKey>('setup');
   const [config, setConfig] = useState<DailyReminderConfig>(
-    (agent.config as DailyReminderConfig) ?? {
+    (agent.config as unknown as DailyReminderConfig) ?? {
       morningCron: '30 2 * * *',
       eveningCron: '0 15 * * *',
       enableMorning: true,
@@ -1358,7 +1358,7 @@ function EmailManagerLlmSubTab({ agent, config, onChange, token }: {
 function EmailManagerSettingsTab({ agent, token }: { agent: AgentDetail; token: string }) {
   const [activeSub, setActiveSub] = useState<EmailManagerTabKey>('setup');
   const [config, setConfig] = useState<EmailManagerConfig>(
-    (agent.config as EmailManagerConfig) ?? {
+    (agent.config as unknown as EmailManagerConfig) ?? {
       maxEmailsPerRun: 20,
       importantSenders: [],
       autoArchiveDomains: [],
@@ -1596,7 +1596,7 @@ function TaskipInternalLlmSubTab({ agent, config, onChange, token }: {
 function TaskipInternalSettingsTab({ agent, token }: { agent: AgentDetail; token: string }) {
   const [activeSub, setActiveSub] = useState<TaskipInternalTabKey>('setup');
   const [config, setConfig] = useState<TaskipInternalConfig>(
-    (agent.config as TaskipInternalConfig) ?? {
+    (agent.config as unknown as TaskipInternalConfig) ?? {
       llm: { provider: 'openai', model: 'gpt-4o' },
     }
   );
@@ -1638,7 +1638,7 @@ function TaskipInternalSettingsTab({ agent, token }: { agent: AgentDetail; token
 function SettingsTab({ agent, token }: { agent: AgentDetail; token: string }) {
   const [activeSub, setActiveSub] = useState<SettingsTabKey>('setup');
   const [config, setConfig] = useState<TaskipConfig>(
-    (agent.config as TaskipConfig) ?? {
+    (agent.config as unknown as TaskipConfig) ?? {
       segments: {},
       llm: { provider: 'openai', model: 'gpt-4o-mini' },
       emailProvider: 'gmail',

@@ -22,9 +22,8 @@ export default defineConfig({
         {
           target: 'http://localhost:4000',
           changeOrigin: true,
-          bypass(req: { headers: Record<string, string | undefined> }) {
-            // Page navigations send Accept: text/html — serve the SPA, not the API
-            if (req.headers['accept']?.includes('text/html')) return '/index.html';
+          bypass(req) {
+            if ((req.headers['accept'] as string | undefined)?.includes('text/html')) return '/index.html';
           },
         },
       ]),
