@@ -19,6 +19,7 @@ import { SesModule } from './modules/ses/ses.module';
 import { GmailModule } from './modules/gmail/gmail.module';
 import { TaskipTrialModule } from './modules/agents/taskip-trial/taskip-trial.module';
 import { DailyReminderModule } from './modules/agents/daily-reminder/daily-reminder.module';
+import { EmailManagerModule } from './modules/agents/email-manager/email-manager.module';
 
 @Module({
   imports: [
@@ -57,6 +58,7 @@ import { DailyReminderModule } from './modules/agents/daily-reminder/daily-remin
     GmailModule,
     TaskipTrialModule,
     DailyReminderModule,
+    EmailManagerModule,
   ],
 })
 export class AppModule {}

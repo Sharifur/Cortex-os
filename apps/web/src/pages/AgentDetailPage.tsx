@@ -1037,6 +1037,412 @@ function DailyReminderSettingsTab({ agent, token }: { agent: AgentDetail; token:
   );
 }
 
+// ─── Email Manager sub-tabs ───────────────────────────────────────────────────
+
+const EMAIL_MANAGER_TABS = [
+  { key: 'setup', label: 'Setup', icon: BookOpen },
+  { key: 'general', label: 'General', icon: Settings },
+  { key: 'filters', label: 'Filters', icon: Layers },
+  { key: 'llm', label: 'LLM', icon: Cpu },
+  { key: 'runtime', label: 'Runtime', icon: List },
+] as const;
+
+type EmailManagerTabKey = typeof EMAIL_MANAGER_TABS[number]['key'];
+
+interface EmailManagerConfig {
+  maxEmailsPerRun: number;
+  importantSenders: string[];
+  autoArchiveDomains: string[];
+  llm: { provider: string; model: string };
+}
+
+function EmailManagerSetupSubTab({ agent }: { agent: AgentDetail }) {
+  return (
+    <div className="space-y-4">
+      <div className="rounded-xl border border-border bg-card p-5">
+        <h3 className="text-sm font-semibold mb-1">Email Manager — Setup Checklist</h3>
+        <p className="text-xs text-muted-foreground mb-5">
+          This agent polls your Gmail inbox every 30 minutes, classifies emails, auto-archives newsletters, and
+          drafts replies for important contacts — waiting for your approval before sending.
+        </p>
+        <div className="space-y-5">
+
+          <SetupStep n={1} title="Connect Gmail OAuth2" done={agent.registered}>
+            <p>The agent reads and sends mail via your Gmail account using OAuth2.</p>
+            <ol className="list-decimal list-inside space-y-0.5 ml-1 mt-1">
+              <li>Go to <strong>Google Cloud Console</strong> → create a project → enable <strong>Gmail API</strong></li>
+              <li>Create <strong>OAuth 2.0 credentials</strong> (Web application type)</li>
+              <li>Open <strong>OAuth Playground</strong>, authorise scope: <code className="bg-muted px-1 rounded">https://mail.google.com/</code></li>
+              <li>Exchange auth code → copy the <strong>Refresh Token</strong></li>
+              <li>Paste Client ID, Client Secret, Refresh Token → <strong>Settings → Gmail</strong></li>
+            </ol>
+          </SetupStep>
+
+          <SetupStep n={2} title="Configure LLM provider" done={false}>
+            <p>The agent calls an LLM to classify each email and draft replies.</p>
+            <p className="mt-1">Add an API key in <strong>Settings → LLM Providers</strong>, then set provider + model in the <strong>LLM</strong> sub-tab.</p>
+            <p className="mt-1">Default: <code className="bg-muted px-1 rounded">gpt-4o-mini</code> — cost-effective for high-volume classification.</p>
+          </SetupStep>
+
+          <SetupStep n={3} title="Configure Telegram for reply approvals" done={false}>
+            <p>When a <em>must-reply</em> email arrives, a Telegram message will show the drafted reply and ask for approval before sending.</p>
+            <p className="mt-1">Set up your bot token and chat ID in <strong>Settings → Telegram</strong> if not already done.</p>
+          </SetupStep>
+
+          <SetupStep n={4} title="Set filters" done={false}>
+            <p>In the <strong>Filters</strong> tab, add:</p>
+            <ul className="list-disc list-inside space-y-0.5 ml-1 mt-1">
+              <li><strong>Important senders</strong> — email addresses always classified as must-reply</li>
+              <li><strong>Auto-archive domains</strong> — e.g. <code className="bg-muted px-1 rounded">substack.com</code>, <code className="bg-muted px-1 rounded">mailchimp.com</code></li>
+            </ul>
+          </SetupStep>
+
+          <SetupStep n={5} title="Enable and run a test" done={agent.enabled}>
+            <p>Enable the agent in <strong>General</strong>, then click <strong>Run now</strong>.</p>
+            <p className="mt-1">The agent will classify your current unread emails. You'll get Telegram notifications for nice-to-reply emails and approval requests for must-reply emails with drafted responses.</p>
+          </SetupStep>
+
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EmailManagerGeneralSubTab({ agent, config, onChange, token }: {
+  agent: AgentDetail;
+  config: EmailManagerConfig;
+  onChange: (patch: Partial<EmailManagerConfig>) => void;
+  token: string;
+}) {
+  const qc = useQueryClient();
+  const navigate = useNavigate();
+  const [name, setName] = useState(agent.name);
+  const [description, setDescription] = useState(agent.description ?? '');
+
+  const metaMutation = useMutation({
+    mutationFn: () =>
+      apiFetch(token, `/agents/${agent.key}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ name, description }),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['agent', agent.key] }),
+  });
+
+  const toggleMutation = useMutation({
+    mutationFn: () =>
+      apiFetch(token, `/agents/${agent.key}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ enabled: !agent.enabled }),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['agent', agent.key] }),
+  });
+
+  const configMutation = useMutation({
+    mutationFn: (c: EmailManagerConfig) =>
+      apiFetch(token, `/agents/${agent.key}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ config: c }),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['agent', agent.key] }),
+  });
+
+  const triggerMutation = useMutation({
+    mutationFn: () =>
+      apiFetch(token, `/agents/${agent.key}/trigger`, {
+        method: 'POST',
+        body: JSON.stringify({ triggerType: 'MANUAL' }),
+      }),
+    onSuccess: (run: { id: string }) => navigate(`/runs/${run.id}`),
+  });
+
+  return (
+    <div className="space-y-6">
+      <div className="rounded-xl border border-border bg-card p-5">
+        <h3 className="text-sm font-semibold mb-4">Agent Info</h3>
+        <div className="space-y-4">
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1">Name</label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} className="text-sm" />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1">Description</label>
+            <Input value={description} onChange={(e) => setDescription(e.target.value)} className="text-sm" />
+          </div>
+          <div className="flex items-center justify-between py-1">
+            <div>
+              <p className="text-sm font-medium">Enabled</p>
+              <p className="text-xs text-muted-foreground">Poll Gmail every 30 minutes</p>
+            </div>
+            <BigToggle enabled={agent.enabled} onClick={() => toggleMutation.mutate()} disabled={toggleMutation.isPending} />
+          </div>
+          <SaveRow isPending={metaMutation.isPending} isSuccess={metaMutation.isSuccess} onClick={() => metaMutation.mutate()} />
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-border bg-card p-5">
+        <h3 className="text-sm font-semibold mb-4">Limits</h3>
+        <div>
+          <label className="text-xs text-muted-foreground block mb-1">Max emails per run</label>
+          <Input
+            type="number"
+            min={1}
+            max={100}
+            value={config.maxEmailsPerRun}
+            onChange={(e) => onChange({ maxEmailsPerRun: parseInt(e.target.value) || 20 })}
+            className="text-sm w-32"
+          />
+          <p className="text-xs text-muted-foreground mt-1">Emails fetched from unread inbox per CRON tick.</p>
+        </div>
+        <SaveRow
+          isPending={configMutation.isPending}
+          isSuccess={configMutation.isSuccess}
+          onClick={() => configMutation.mutate(config)}
+        />
+      </div>
+
+      <div className="rounded-xl border border-border bg-card p-5">
+        <h3 className="text-sm font-semibold mb-1">Manual Trigger</h3>
+        <p className="text-xs text-muted-foreground mb-3">Run a poll cycle now.</p>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => triggerMutation.mutate()}
+          disabled={!agent.enabled || !agent.registered || triggerMutation.isPending}
+          className="gap-1.5"
+        >
+          <Play className="w-3.5 h-3.5" />
+          {triggerMutation.isPending ? 'Starting…' : 'Run now'}
+        </Button>
+        {!agent.registered && (
+          <p className="text-xs text-yellow-500 mt-2">Agent is not registered in the runtime.</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function EmailManagerFiltersSubTab({ agent, config, onChange, token }: {
+  agent: AgentDetail;
+  config: EmailManagerConfig;
+  onChange: (patch: Partial<EmailManagerConfig>) => void;
+  token: string;
+}) {
+  const qc = useQueryClient();
+  const [senderInput, setSenderInput] = useState('');
+  const [domainInput, setDomainInput] = useState('');
+
+  const configMutation = useMutation({
+    mutationFn: (c: EmailManagerConfig) =>
+      apiFetch(token, `/agents/${agent.key}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ config: c }),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['agent', agent.key] }),
+  });
+
+  function addSender() {
+    const val = senderInput.trim().toLowerCase();
+    if (!val || config.importantSenders.includes(val)) return;
+    onChange({ importantSenders: [...config.importantSenders, val] });
+    setSenderInput('');
+  }
+
+  function removeSender(s: string) {
+    onChange({ importantSenders: config.importantSenders.filter((x) => x !== s) });
+  }
+
+  function addDomain() {
+    const val = domainInput.trim().toLowerCase();
+    if (!val || config.autoArchiveDomains.includes(val)) return;
+    onChange({ autoArchiveDomains: [...config.autoArchiveDomains, val] });
+    setDomainInput('');
+  }
+
+  function removeDomain(d: string) {
+    onChange({ autoArchiveDomains: config.autoArchiveDomains.filter((x) => x !== d) });
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="rounded-xl border border-border bg-card p-5">
+        <h3 className="text-sm font-semibold mb-1">Important Senders</h3>
+        <p className="text-xs text-muted-foreground mb-4">
+          Emails from these addresses (or partial matches) are always classified as <strong>must-reply</strong> and get a drafted response.
+        </p>
+        <div className="flex gap-2 mb-3">
+          <Input
+            value={senderInput}
+            onChange={(e) => setSenderInput(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && addSender()}
+            placeholder="someone@company.com or @company.com"
+            className="text-sm"
+          />
+          <Button size="sm" variant="outline" onClick={addSender}>Add</Button>
+        </div>
+        {config.importantSenders.length > 0 ? (
+          <div className="flex flex-wrap gap-1.5">
+            {config.importantSenders.map((s) => (
+              <span key={s} className="flex items-center gap-1 text-xs bg-primary/10 text-primary px-2 py-1 rounded-full">
+                {s}
+                <button onClick={() => removeSender(s)} className="hover:text-destructive ml-0.5">×</button>
+              </span>
+            ))}
+          </div>
+        ) : (
+          <p className="text-xs text-muted-foreground italic">No important senders configured.</p>
+        )}
+      </div>
+
+      <div className="rounded-xl border border-border bg-card p-5">
+        <h3 className="text-sm font-semibold mb-1">Auto-archive Domains</h3>
+        <p className="text-xs text-muted-foreground mb-4">
+          Emails from these domains are automatically archived without LLM classification.
+          Good for newsletters, SaaS updates, and bulk senders.
+        </p>
+        <div className="flex gap-2 mb-3">
+          <Input
+            value={domainInput}
+            onChange={(e) => setDomainInput(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && addDomain()}
+            placeholder="substack.com"
+            className="text-sm"
+          />
+          <Button size="sm" variant="outline" onClick={addDomain}>Add</Button>
+        </div>
+        {config.autoArchiveDomains.length > 0 ? (
+          <div className="flex flex-wrap gap-1.5">
+            {config.autoArchiveDomains.map((d) => (
+              <span key={d} className="flex items-center gap-1 text-xs bg-muted text-muted-foreground px-2 py-1 rounded-full">
+                {d}
+                <button onClick={() => removeDomain(d)} className="hover:text-destructive ml-0.5">×</button>
+              </span>
+            ))}
+          </div>
+        ) : (
+          <p className="text-xs text-muted-foreground italic">No auto-archive domains configured.</p>
+        )}
+      </div>
+
+      <SaveRow
+        isPending={configMutation.isPending}
+        isSuccess={configMutation.isSuccess}
+        onClick={() => configMutation.mutate(config)}
+      />
+    </div>
+  );
+}
+
+function EmailManagerLlmSubTab({ agent, config, onChange, token }: {
+  agent: AgentDetail;
+  config: EmailManagerConfig;
+  onChange: (patch: Partial<EmailManagerConfig>) => void;
+  token: string;
+}) {
+  const qc = useQueryClient();
+
+  const configMutation = useMutation({
+    mutationFn: (c: EmailManagerConfig) =>
+      apiFetch(token, `/agents/${agent.key}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ config: c }),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['agent', agent.key] }),
+  });
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-5">
+      <h3 className="text-sm font-semibold mb-4">LLM Configuration</h3>
+      <p className="text-xs text-muted-foreground mb-4">
+        Used for email classification (~20 tokens each) and reply drafting (~300 tokens each).
+        A cheap model like <code className="bg-muted px-1 rounded">gpt-4o-mini</code> is recommended.
+      </p>
+      <div className="space-y-4">
+        <div>
+          <label className="text-xs text-muted-foreground block mb-2">Provider</label>
+          <div className="flex flex-wrap gap-2">
+            {LLM_PROVIDERS.map((p) => (
+              <button
+                key={p}
+                onClick={() => onChange({ llm: { ...config.llm, provider: p } })}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
+                  config.llm?.provider === p
+                    ? 'bg-primary text-primary-foreground border-primary'
+                    : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground/30'
+                }`}
+              >
+                {p === 'auto' ? 'Auto (fallback chain)' : p.charAt(0).toUpperCase() + p.slice(1)}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div>
+          <label className="text-xs text-muted-foreground block mb-1">Model</label>
+          <Input
+            value={config.llm?.model ?? ''}
+            onChange={(e) => onChange({ llm: { ...config.llm, model: e.target.value } })}
+            placeholder="gpt-4o-mini"
+            className="text-sm"
+          />
+        </div>
+      </div>
+      <SaveRow
+        isPending={configMutation.isPending}
+        isSuccess={configMutation.isSuccess}
+        onClick={() => configMutation.mutate(config)}
+      />
+    </div>
+  );
+}
+
+function EmailManagerSettingsTab({ agent, token }: { agent: AgentDetail; token: string }) {
+  const [activeSub, setActiveSub] = useState<EmailManagerTabKey>('setup');
+  const [config, setConfig] = useState<EmailManagerConfig>(
+    (agent.config as EmailManagerConfig) ?? {
+      maxEmailsPerRun: 20,
+      importantSenders: [],
+      autoArchiveDomains: [],
+      llm: { provider: 'auto', model: 'gpt-4o-mini' },
+    }
+  );
+
+  function handleChange(patch: Partial<EmailManagerConfig>) {
+    setConfig((prev) => ({ ...prev, ...patch }));
+  }
+
+  return (
+    <div>
+      <div className="flex items-center gap-1 border border-border rounded-lg p-1 mb-5 bg-muted/30 w-fit">
+        {EMAIL_MANAGER_TABS.map(({ key, label, icon: Icon }) => (
+          <button
+            key={key}
+            onClick={() => setActiveSub(key)}
+            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-md text-sm font-medium transition-colors ${
+              activeSub === key
+                ? 'bg-card text-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            <Icon className="w-3.5 h-3.5" />
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {activeSub === 'setup' && <EmailManagerSetupSubTab agent={agent} />}
+      {activeSub === 'general' && (
+        <EmailManagerGeneralSubTab agent={agent} config={config} onChange={handleChange} token={token} />
+      )}
+      {activeSub === 'filters' && (
+        <EmailManagerFiltersSubTab agent={agent} config={config} onChange={handleChange} token={token} />
+      )}
+      {activeSub === 'llm' && (
+        <EmailManagerLlmSubTab agent={agent} config={config} onChange={handleChange} token={token} />
+      )}
+      {activeSub === 'runtime' && <RuntimeSubTab agent={agent} />}
+    </div>
+  );
+}
+
 // ─── Settings tab (orchestrator) ─────────────────────────────────────────────
 
 function SettingsTab({ agent, token }: { agent: AgentDetail; token: string }) {
@@ -1059,10 +1465,10 @@ function SettingsTab({ agent, token }: { agent: AgentDetail; token: string }) {
 
   const isTaskipTrial = agent.key === 'taskip_trial';
   const isDailyReminder = agent.key === 'daily_reminder';
+  const isEmailManager = agent.key === 'email_manager';
 
-  if (isDailyReminder) {
-    return <DailyReminderSettingsTab agent={agent} token={token} />;
-  }
+  if (isDailyReminder) return <DailyReminderSettingsTab agent={agent} token={token} />;
+  if (isEmailManager) return <EmailManagerSettingsTab agent={agent} token={token} />;
 
   return (
     <div>

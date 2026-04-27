@@ -6,6 +6,18 @@ import * as bcrypt from 'bcrypt';
 
 const AGENT_SEEDS = [
   {
+    key: 'email_manager',
+    name: 'Email Manager',
+    description: 'Polls Gmail every 30 minutes, classifies emails, drafts replies for important senders, auto-archives newsletters and spam.',
+    enabled: false,
+    config: {
+      maxEmailsPerRun: 20,
+      importantSenders: [],
+      autoArchiveDomains: [],
+      llm: { provider: 'auto', model: 'gpt-4o-mini' },
+    },
+  },
+  {
     key: 'daily_reminder',
     name: 'Daily Reminder',
     description: 'Morning brief and evening recap via Telegram. Summarises pending approvals and agent activity.',
