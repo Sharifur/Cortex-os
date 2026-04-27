@@ -82,8 +82,8 @@ All variables go in `apps/api/.env`. Integration credentials (WhatsApp, LinkedIn
 | `REDIS_URL` | Redis connection string, e.g. `redis://localhost:6379` |
 | `JWT_SECRET` | Secret for signing JWT tokens — use a long random string in production |
 | `SETTINGS_ENCRYPTION_KEY` | 32-byte hex string (`openssl rand -hex 32`) — encrypts secrets in the DB |
-| `OWNER_EMAIL` | Email address for the initial admin account (created on first boot) |
-| `OWNER_PASSWORD` | Password for the initial admin account |
+
+> On first boot a default admin is created: `admin@cortex.local` / `changeme123`. Update these from **Settings → Account** after logging in.
 
 ### Required — Telegram (approval notifications)
 

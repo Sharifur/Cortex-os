@@ -161,17 +161,17 @@ const AGENT_SEEDS = [
 ];
 
 async function seed() {
-  // Seed owner
-  const email = process.env.OWNER_EMAIL ?? 'admin@example.com';
-  const password = process.env.OWNER_PASSWORD ?? 'password';
+  // Seed default admin — update email/password from the Settings → Account panel after first login
+  const DEFAULT_EMAIL = 'admin@cortex.local';
+  const DEFAULT_PASSWORD = 'changeme123';
 
   const existing = await db.select().from(users).limit(1);
   if (existing.length === 0) {
-    const hash = await bcrypt.hash(password, 12);
-    await db.insert(users).values({ email, password: hash });
-    console.log(`Owner created: ${email}`);
+    const hash = await bcrypt.hash(DEFAULT_PASSWORD, 12);
+    await db.insert(users).values({ email: DEFAULT_EMAIL, password: hash });
+    console.log(`Default admin created: ${DEFAULT_EMAIL} / ${DEFAULT_PASSWORD}`);
   } else {
-    console.log('Owner already exists, skipping');
+    console.log('Admin already exists, skipping');
   }
 
   // Seed agents (idempotent)

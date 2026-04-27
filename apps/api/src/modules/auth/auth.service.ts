@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException, BadRequestException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, BadRequestException, ConflictException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { eq } from 'drizzle-orm';
 import * as bcrypt from 'bcrypt';
@@ -54,6 +54,15 @@ export class AuthService {
 
     const hashed = await bcrypt.hash(newPassword, 12);
     await this.db.db.update(users).set({ password: hashed }).where(eq(users.id, userId));
+  }
+
+  async updateProfile(userId: string, email: string) {
+    const [conflict] = await this.db.db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.email, email));
+    if (conflict && conflict.id !== userId) throw new ConflictException('Email already in use');
+    await this.db.db.update(users).set({ email }).where(eq(users.id, userId));
   }
 
   async updateTelegramChatId(userId: string, chatId: string) {
