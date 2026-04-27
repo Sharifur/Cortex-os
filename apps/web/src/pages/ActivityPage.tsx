@@ -55,10 +55,18 @@ function shortId(id: string) {
 }
 
 function relTime(iso: string) {
-  const diff = Date.now() - new Date(iso).getTime();
+  const diff = Math.abs(Date.now() - new Date(iso).getTime());
   if (diff < 60_000) return `${Math.floor(diff / 1000)}s ago`;
-  if (diff < 3600_000) return `${Math.floor(diff / 60_000)}m ago`;
-  if (diff < 86400_000) return `${Math.floor(diff / 3600_000)}h ago`;
+  if (diff < 3600_000) {
+    const m = Math.floor(diff / 60_000);
+    const s = Math.floor((diff % 60_000) / 1000);
+    return s > 0 ? `${m}m ${s}s ago` : `${m}m ago`;
+  }
+  if (diff < 86400_000) {
+    const h = Math.floor(diff / 3_600_000);
+    const m = Math.floor((diff % 3_600_000) / 60_000);
+    return m > 0 ? `${h}h ${m}m ago` : `${h}h ago`;
+  }
   return new Date(iso).toLocaleDateString();
 }
 

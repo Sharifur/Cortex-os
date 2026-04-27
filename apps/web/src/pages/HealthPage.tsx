@@ -24,6 +24,7 @@ const SERVICE_LABELS: Record<string, string> = {
   minio: 'MinIO',
   llm: 'LLM Provider',
   telegram: 'Telegram Bot',
+  ses: 'AWS SES',
   gmail: 'Gmail',
   whatsapp: 'WhatsApp',
   linkedin: 'LinkedIn',
@@ -32,7 +33,7 @@ const SERVICE_LABELS: Record<string, string> = {
 };
 
 const CORE_SERVICES = ['postgres', 'redis', 'minio'];
-const INTEGRATION_SERVICES = ['llm', 'telegram', 'gmail', 'whatsapp', 'linkedin', 'reddit', 'crisp'];
+const INTEGRATION_SERVICES = ['llm', 'telegram', 'ses', 'gmail', 'whatsapp', 'linkedin', 'reddit', 'crisp'];
 
 const FALLBACK_CHECK: ServiceCheck = { status: 'not_configured' };
 

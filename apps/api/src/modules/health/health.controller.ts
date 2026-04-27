@@ -140,6 +140,16 @@ export class HealthController {
       ? { status: 'ok' }
       : { status: 'not_configured' };
 
+    // SES (only AWS service used)
+    const [awsKey, awsSecret, awsRegion] = await Promise.all([
+      this.settings.getDecrypted('aws_access_key_id'),
+      this.settings.getDecrypted('aws_secret_access_key'),
+      this.settings.getDecrypted('aws_region'),
+    ]);
+    checks.ses = awsKey && awsSecret && awsRegion
+      ? { status: 'ok', message: awsRegion }
+      : { status: 'not_configured' };
+
     const coreOk = checks.postgres?.status === 'ok' && checks.redis?.status === 'ok';
 
     return {
