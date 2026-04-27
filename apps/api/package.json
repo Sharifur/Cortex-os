@@ -3,13 +3,13 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "build": "../../node_modules/.bin/nest build",
-    "dev": "../../node_modules/.bin/nest start --watch",
-    "start": "node dist/main",
-    "start:worker": "node dist/worker",
-    "db:generate": "../../node_modules/.bin/drizzle-kit generate",
-    "db:migrate": "../../node_modules/.bin/drizzle-kit migrate",
-    "db:seed": "../../node_modules/.bin/ts-node -r tsconfig-paths/register src/db/seed.ts"
+    "build": "nest build",
+    "dev": "nest start --watch",
+    "start": "node dist/src/main",
+    "start:worker": "node dist/src/worker",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:seed": "ts-node -r tsconfig-paths/register src/db/seed.ts"
   },
   "dependencies": {
     "@aws-sdk/client-ses": "^3.1037.0",
