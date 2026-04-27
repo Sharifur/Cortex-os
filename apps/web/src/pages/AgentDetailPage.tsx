@@ -599,12 +599,7 @@ function SetupSubTab({ agent, config }: { agent: AgentDetail; config: TaskipConf
         </p>
         <div className="space-y-5">
 
-          <SetupStep n={1} title="Configure LLM provider" done={false}>
-            <p>Go to <strong>Settings → LLM Providers</strong> and set an API key for OpenAI, Gemini, or DeepSeek.</p>
-            <p>Then set the <strong>Default Provider</strong> or configure a specific one in the LLM sub-tab above.</p>
-          </SetupStep>
-
-          <SetupStep n={2} title="Connect email provider" done={hasEmail}>
+          <SetupStep n={1} title="Connect email provider" done={hasEmail}>
             <p>Choose <strong>Gmail</strong> or <strong>AWS SES</strong> in the Email sub-tab above.</p>
             <p className="font-medium text-foreground/70 mt-1">Gmail (recommended — better inbox delivery):</p>
             <ol className="list-decimal list-inside space-y-0.5 ml-1">
@@ -621,30 +616,12 @@ function SetupSubTab({ agent, config }: { agent: AgentDetail; config: TaskipConf
             </ol>
           </SetupStep>
 
-          <SetupStep n={3} title="Connect Telegram for approvals" done={false}>
-            <p>Every email batch needs your approval before sending.</p>
-            <ol className="list-decimal list-inside space-y-0.5 ml-1">
-              <li>Message <code className="bg-muted px-1 rounded">@BotFather</code> → <code className="bg-muted px-1 rounded">/newbot</code> → get your token</li>
-              <li>Message <code className="bg-muted px-1 rounded">@userinfobot</code> to get your Chat ID</li>
-              <li>Paste both in <strong>Settings → Telegram</strong></li>
-            </ol>
-          </SetupStep>
-
-          <SetupStep n={4} title="Add Taskip read-only database" done={false}>
-            <p>The agent queries your Taskip Postgres DB to find users for each segment.</p>
-            <p>In Coolify (or your <code className="bg-muted px-1 rounded">.env</code> file), set:</p>
-            <code className="bg-muted px-2 py-1 rounded block mt-1 text-xs">
-              TASKIP_DB_URL_READONLY=postgres://user:pass@host:5432/taskip
-            </code>
-            <p className="mt-1">Use a read-only Postgres role — this agent never writes to Taskip DB.</p>
-          </SetupStep>
-
-          <SetupStep n={5} title="Configure segments and limits" done={isRegistered}>
+          <SetupStep n={2} title="Configure segments and limits" done={isRegistered}>
             <p>Use the <strong>Segments</strong> sub-tab to enable the email sequences you want.</p>
             <p>Set daily cap and follow-up limit in <strong>General</strong>.</p>
           </SetupStep>
 
-          <SetupStep n={6} title="Test with a manual run" done={false}>
+          <SetupStep n={3} title="Test with a manual run" done={false}>
             <p>Click <strong>Run now</strong> in the General tab. A Telegram message will arrive asking for approval.</p>
             <p>Approve one email, check that it lands in the inbox, then enable the daily schedule.</p>
           </SetupStep>
@@ -735,31 +712,17 @@ function DailyReminderSetupSubTab({ agent }: { agent: AgentDetail }) {
         </p>
         <div className="space-y-5">
 
-          <SetupStep n={1} title="Configure Telegram bot" done={agent.registered}>
-            <p>The brief is delivered via your Telegram bot. If not yet configured:</p>
-            <ol className="list-decimal list-inside space-y-0.5 ml-1 mt-1">
-              <li>Message <code className="bg-muted px-1 rounded">@BotFather</code> → <code className="bg-muted px-1 rounded">/newbot</code> → copy the token</li>
-              <li>Message <code className="bg-muted px-1 rounded">@userinfobot</code> to get your Chat ID</li>
-              <li>Paste both in <strong>Settings → Telegram</strong></li>
-            </ol>
-          </SetupStep>
-
-          <SetupStep n={2} title="Configure LLM provider" done={false}>
-            <p>The agent uses an LLM to compose the brief text. Go to <strong>Settings → LLM Providers</strong> and add an API key.</p>
-            <p className="mt-1">Then set the provider and model in the <strong>LLM</strong> sub-tab above. Default: <code className="bg-muted px-1 rounded">gpt-4o-mini</code>.</p>
-          </SetupStep>
-
-          <SetupStep n={3} title="Set your timezone schedule" done={false}>
+          <SetupStep n={1} title="Set your timezone schedule" done={false}>
             <p>
               Default schedule: <strong>08:30 Dhaka (02:30 UTC)</strong> for morning, <strong>21:00 Dhaka (15:00 UTC)</strong> for evening.
             </p>
-            <p className="mt-1">If you're in a different timezone, adjust the cron expressions in the <strong>Schedule</strong> sub-tab.</p>
+            <p className="mt-1">Adjust the cron expressions in the <strong>Schedule</strong> sub-tab if needed.</p>
             <p className="mt-1 font-medium text-foreground/70">Cron format: <code className="bg-muted px-1 rounded">MINUTE HOUR * * *</code> (UTC)</p>
           </SetupStep>
 
-          <SetupStep n={4} title="Enable the agent and test" done={agent.enabled}>
+          <SetupStep n={2} title="Enable the agent and test" done={agent.enabled}>
             <p>Toggle the agent <strong>Enabled</strong> in the General tab, then click <strong>Run now</strong>.</p>
-            <p className="mt-1">You should receive a Telegram message within a few seconds. The brief will say "No pending approvals" and list any recent agent activity.</p>
+            <p className="mt-1">You should receive a Telegram message within a few seconds.</p>
           </SetupStep>
 
         </div>
@@ -1079,18 +1042,7 @@ function EmailManagerSetupSubTab({ agent }: { agent: AgentDetail }) {
             </ol>
           </SetupStep>
 
-          <SetupStep n={2} title="Configure LLM provider" done={false}>
-            <p>The agent calls an LLM to classify each email and draft replies.</p>
-            <p className="mt-1">Add an API key in <strong>Settings → LLM Providers</strong>, then set provider + model in the <strong>LLM</strong> sub-tab.</p>
-            <p className="mt-1">Default: <code className="bg-muted px-1 rounded">gpt-4o-mini</code> — cost-effective for high-volume classification.</p>
-          </SetupStep>
-
-          <SetupStep n={3} title="Configure Telegram for reply approvals" done={false}>
-            <p>When a <em>must-reply</em> email arrives, a Telegram message will show the drafted reply and ask for approval before sending.</p>
-            <p className="mt-1">Set up your bot token and chat ID in <strong>Settings → Telegram</strong> if not already done.</p>
-          </SetupStep>
-
-          <SetupStep n={4} title="Set filters" done={false}>
+          <SetupStep n={2} title="Set filters" done={false}>
             <p>In the <strong>Filters</strong> tab, add:</p>
             <ul className="list-disc list-inside space-y-0.5 ml-1 mt-1">
               <li><strong>Important senders</strong> — email addresses always classified as must-reply</li>
@@ -1098,7 +1050,7 @@ function EmailManagerSetupSubTab({ agent }: { agent: AgentDetail }) {
             </ul>
           </SetupStep>
 
-          <SetupStep n={5} title="Enable and run a test" done={agent.enabled}>
+          <SetupStep n={3} title="Enable and run a test" done={agent.enabled}>
             <p>Enable the agent in <strong>General</strong>, then click <strong>Run now</strong>.</p>
             <p className="mt-1">The agent will classify your current unread emails. You'll get Telegram notifications for nice-to-reply emails and approval requests for must-reply emails with drafted responses.</p>
           </SetupStep>
@@ -1469,18 +1421,7 @@ function TaskipInternalSetupSubTab({ agent }: { agent: AgentDetail }) {
         </p>
         <div className="space-y-5">
 
-          <SetupStep n={1} title="Configure OpenAI or DeepSeek API key" done={false}>
-            <p>This agent uses LLM function/tool calling — only <strong>OpenAI</strong> or <strong>DeepSeek</strong> are supported (Gemini does not support tool calling).</p>
-            <p className="mt-1">Add your key in <strong>Settings → LLM Providers</strong>. Recommended model: <code className="bg-muted px-1 rounded">gpt-4o</code> for accurate reasoning over DB results.</p>
-            <p className="mt-1">Then set the provider and model in the <strong>LLM</strong> sub-tab.</p>
-          </SetupStep>
-
-          <SetupStep n={2} title="Configure Telegram for approval messages" done={false}>
-            <p>Write operations (extend trial, mark refund) require Telegram approval before executing.</p>
-            <p className="mt-1">Ensure your bot token and chat ID are set in <strong>Settings → Telegram</strong>.</p>
-          </SetupStep>
-
-          <SetupStep n={3} title="Test with the Chat page" done={agent.enabled}>
+          <SetupStep n={1} title="Test with the Chat page" done={agent.enabled}>
             <p>Open the <strong>Chat</strong> page for this agent and type a question, for example:</p>
             <ul className="list-disc list-inside ml-1 mt-1 space-y-0.5">
               <li><em>Look up user john@example.com</em></li>
@@ -1494,10 +1435,10 @@ function TaskipInternalSetupSubTab({ agent }: { agent: AgentDetail }) {
       </div>
 
       <div className="rounded-xl border border-border bg-muted/20 p-4">
-        <p className="text-xs font-medium text-muted-foreground mb-1">Platform prerequisite</p>
+        <p className="text-xs font-medium text-muted-foreground mb-1">Platform prerequisites</p>
         <p className="text-xs text-muted-foreground">
-          This agent requires <code className="bg-muted px-1 rounded">TASKIP_DB_URL_READONLY</code> to be set in your Coolify environment.
-          That is a one-time platform setup — not specific to this agent. Once set, all Taskip-related agents share the same connection.
+          Requires <code className="bg-muted px-1 rounded">TASKIP_DB_URL_READONLY</code> in Coolify env (shared with all Taskip agents).
+          LLM provider must be <strong>OpenAI</strong> or <strong>DeepSeek</strong> — set in <strong>Settings → LLM Providers</strong> and the LLM sub-tab (Gemini does not support tool calling).
         </p>
       </div>
     </div>
