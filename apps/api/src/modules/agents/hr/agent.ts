@@ -145,7 +145,7 @@ export class HrAgent implements IAgent, OnModuleInit {
         actions.push({
           type: 'notify_owner',
           summary: alert,
-          payload: { message: `🔔 HR Alert: ${alert}` },
+          payload: { message: `HR Alert: ${alert}` },
           riskLevel: 'low',
         });
       }
@@ -230,7 +230,7 @@ export class HrAgent implements IAgent, OnModuleInit {
         })
         .onConflictDoNothing();
       await this.telegram.sendMessage(
-        `✅ Salary sheet for ${p.month} generated — ${p.lineItems.length} employees, ${p.currency} ${p.total.toLocaleString()}`,
+        `Salary sheet for ${p.month} generated — ${p.lineItems.length} employees, ${p.currency} ${p.total.toLocaleString()}`,
       );
       return { success: true, data: { month: p.month } };
     }
@@ -243,7 +243,7 @@ export class HrAgent implements IAgent, OnModuleInit {
           .where(eq(leaveRequests.id, p.leaveId));
       }
       await this.telegram.sendMessage(
-        `✅ Leave request ${p.decision}: ${p.employeeName ?? p.employeeId}\nReason: ${p.reason}`,
+        `Leave request ${p.decision}: ${p.employeeName ?? p.employeeId}\nReason: ${p.reason}`,
       );
       return { success: true };
     }

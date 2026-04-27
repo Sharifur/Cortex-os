@@ -176,7 +176,7 @@ export class CrispAgent implements IAgent, OnModuleInit {
 
         actions.push({
           type: 'send_reply',
-          summary: `Reply to ${visitorLabel}: "${draft.slice(0, 80)}"${violation ? ` ⚠️ Blocklist: "${violation}"` : ''}`,
+          summary: `Reply to ${visitorLabel}: "${draft.slice(0, 80)}"${violation ? ` [Blocklist: "${violation}"]` : ''}`,
           payload: { sessionId: msg.sessionId, visitorLabel, message: msg.content, draft },
           riskLevel: violation ? 'high' : 'medium',
         });
@@ -205,7 +205,7 @@ export class CrispAgent implements IAgent, OnModuleInit {
         .set({ status: 'replied', repliedAt: new Date() })
         .where(eq(crispConversations.sessionId, p.sessionId));
       await this.telegram.sendMessage(
-        `✅ Crisp reply sent to ${p.visitorLabel}\n\nCustomer: "${p.message.slice(0, 200)}"\n\nReply: "${p.draft}"`,
+        `Crisp reply sent to ${p.visitorLabel}\n\nCustomer: "${p.message.slice(0, 200)}"\n\nReply: "${p.draft}"`,
       );
       return { success: true, data: { sessionId: p.sessionId } };
     }

@@ -165,7 +165,7 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
         .update(linkedinPosts)
         .set({ status: 'posted', postedAt: new Date() })
         .where(eq(linkedinPosts.externalId, p.postId));
-      await this.telegram.sendMessage(`✅ LinkedIn comment posted on ${p.authorName}'s post:\n"${p.comment}"`);
+      await this.telegram.sendMessage(`LinkedIn comment posted on ${p.authorName}'s post:\n"${p.comment}"`);
       return { success: true, data: { postId: p.postId } };
     }
 
@@ -177,7 +177,7 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
           .set({ status: 'messaged', lastContactedAt: new Date() })
           .where(eq(linkedinLeads.id, p.leadId));
       }
-      await this.telegram.sendMessage(`✅ LinkedIn DM sent to ${p.name ?? p.profileId}`);
+      await this.telegram.sendMessage(`LinkedIn DM sent to ${p.name ?? p.profileId}`);
       return { success: true };
     }
 

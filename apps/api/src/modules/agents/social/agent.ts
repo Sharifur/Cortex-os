@@ -175,7 +175,7 @@ export class SocialAgent implements IAgent, OnModuleInit {
         .set({ status: 'published', publishedAt: new Date() })
         .where(eq(socialPosts.id, p.postId));
       await this.telegram.sendMessage(
-        `✅ Post published on ${p.brand}/${p.platform}\n"${p.body.slice(0, 120)}"`,
+        `Post published on ${p.brand}/${p.platform}\n"${p.body.slice(0, 120)}"`,
       );
       return { success: true, data: { postId: p.postId } };
     }
@@ -186,7 +186,7 @@ export class SocialAgent implements IAgent, OnModuleInit {
         .set({ status: 'replied', repliedAt: new Date() })
         .where(eq(socialEngagements.id, p.engagementId));
       await this.telegram.sendMessage(
-        `✅ ${action.type === 'reply_to_dm' ? 'DM' : 'Comment'} reply sent to @${p.fromUser} on ${p.platform}\n"${p.draft}"`,
+        `${action.type === 'reply_to_dm' ? 'DM' : 'Comment'} reply sent to @${p.fromUser} on ${p.platform}\n"${p.draft}"`,
       );
       return { success: true };
     }

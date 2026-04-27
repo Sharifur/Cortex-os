@@ -158,7 +158,7 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
     switch (action.type) {
       case 'notify_result': {
         const { message } = action.payload as { message: string; query: string };
-        await this.telegram.sendMessage(`🔍 Taskip Internal\n\n${message}`);
+        await this.telegram.sendMessage(`Taskip Internal\n\n${message}`);
         return { success: true, data: { notified: true } };
       }
 
@@ -187,8 +187,8 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
         });
 
         const msg = result.success
-          ? `✅ Trial extended for user ${userId} by ${days} day(s). New end: ${result.newTrialEndsAt ?? 'unknown'}`
-          : `❌ Failed to extend trial for user ${userId}`;
+          ? `Trial extended for user ${userId} by ${days} day(s). New end: ${result.newTrialEndsAt ?? 'unknown'}`
+          : `Failed to extend trial for user ${userId}`;
         await this.telegram.sendMessage(msg);
         return { success: result.success, data: result };
       }
@@ -211,8 +211,8 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
         });
 
         const msg = result.success
-          ? `✅ Invoice ${invoiceId} for user ${userId} marked as refund_requested`
-          : `❌ Failed to mark refund for invoice ${invoiceId}`;
+          ? `Invoice ${invoiceId} for user ${userId} marked as refund_requested`
+          : `Failed to mark refund for invoice ${invoiceId}`;
         await this.telegram.sendMessage(msg);
         return { success: result.success, data: result };
       }

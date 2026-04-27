@@ -16,10 +16,10 @@ import type { ApprovalCreatedEvent } from './telegram.types';
 import { TELEGRAM_EVENTS } from './telegram.types';
 import type { ProposedAction } from '../agents/runtime/types';
 
-const RISK_EMOJI: Record<string, string> = {
-  low: '🟢',
-  medium: '🟡',
-  high: '🔴',
+const RISK_LABEL: Record<string, string> = {
+  low: '[low]',
+  medium: '[medium]',
+  high: '[HIGH]',
 };
 
 @Injectable()
@@ -86,9 +86,9 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
 
     const text = this.buildApprovalText(event.agentName, event.action, event.runId);
     const keyboard = new InlineKeyboard()
-      .text('✅ Approve', `approval:${event.approvalId}:approve`)
-      .text('❌ Reject', `approval:${event.approvalId}:reject`)
-      .text('💬 Follow up', `approval:${event.approvalId}:followup`);
+      .text('Approve', `approval:${event.approvalId}:approve`)
+      .text('Reject', `approval:${event.approvalId}:reject`)
+      .text('Follow up', `approval:${event.approvalId}:followup`);
 
     try {
       const sent = await this.bot.api.sendMessage(this.ownerChatId, text, {
@@ -132,7 +132,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       async (ctx) => {
         const fromId = ctx.from?.id ? String(ctx.from.id) : null;
         if (!this.isOwner(fromId)) {
-          await ctx.answerCallbackQuery({ text: '⛔ Unauthorized' });
+          await ctx.answerCallbackQuery({ text: 'Unauthorized' });
           return;
         }
 
@@ -143,24 +143,24 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
 
         if (action === 'approve') {
           await this.approvalSvc.approve(approvalId);
-          await ctx.editMessageText(`${originalText}\n\n✅ *Approved*`, {
+          await ctx.editMessageText(`${originalText}\n\n*Approved*`, {
             parse_mode: 'Markdown',
           });
         } else if (action === 'reject') {
           const keyboard = new InlineKeyboard()
-            .text('🚫 Reject silently', `reject:${approvalId}:silent`)
-            .text('📝 Reject + reason', `reject:${approvalId}:reason`);
-          await ctx.editMessageText(`${originalText}\n\n❌ Rejected — add a reason?`, {
+            .text('Reject silently', `reject:${approvalId}:silent`)
+            .text('Reject + reason', `reject:${approvalId}:reason`);
+          await ctx.editMessageText(`${originalText}\n\nRejected — add a reason?`, {
             reply_markup: keyboard,
           });
         } else if (action === 'followup') {
           await ctx.editMessageText(
-            `${originalText}\n\n💬 _Awaiting follow\\-up instruction\\.\\.\\._`,
+            `${originalText}\n\n_Awaiting follow\\-up instruction\\.\\.\\._`,
             { parse_mode: 'MarkdownV2' },
           );
           const prompt = await ctx.api.sendMessage(
             this.ownerChatId!,
-            '📝 Reply to this message with your follow\\-up instruction:',
+            'Reply to this message with your follow\\-up instruction:',
             {
               parse_mode: 'MarkdownV2',
               reply_markup: { force_reply: true, selective: true },
@@ -180,7 +180,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       async (ctx) => {
         const fromId = ctx.from?.id ? String(ctx.from.id) : null;
         if (!this.isOwner(fromId)) {
-          await ctx.answerCallbackQuery({ text: '⛔ Unauthorized' });
+          await ctx.answerCallbackQuery({ text: 'Unauthorized' });
           return;
         }
 
@@ -190,14 +190,14 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
 
         if (subAction === 'silent') {
           await this.approvalSvc.rejectWithReason(approvalId, null);
-          await ctx.editMessageText(`${originalText}\n\n❌ *Rejected*`, { parse_mode: 'Markdown' });
+          await ctx.editMessageText(`${originalText}\n\n*Rejected*`, { parse_mode: 'Markdown' });
         } else {
-          await ctx.editMessageText(`${originalText}\n\n❌ _Awaiting rejection reason\\.\\.\\._`, {
+          await ctx.editMessageText(`${originalText}\n\n_Awaiting rejection reason\\.\\.\\._`, {
             parse_mode: 'MarkdownV2',
           });
           const prompt = await ctx.api.sendMessage(
             this.ownerChatId!,
-            '📝 Reply to this message with your rejection reason:',
+            'Reply to this message with your rejection reason:',
             {
               parse_mode: 'MarkdownV2',
               reply_markup: { force_reply: true, selective: true },
@@ -217,7 +217,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       async (ctx) => {
         const fromId = ctx.from?.id ? String(ctx.from.id) : null;
         if (!this.isOwner(fromId)) {
-          await ctx.answerCallbackQuery({ text: '⛔ Unauthorized' });
+          await ctx.answerCallbackQuery({ text: 'Unauthorized' });
           return;
         }
 
@@ -268,7 +268,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
 
       if (followupApproval) {
         await this.approvalSvc.followup(followupApproval.id, ctx.message.text);
-        await ctx.reply('✅ Follow\\-up received\\. Re\\-evaluating\\.\\.\\.', {
+        await ctx.reply('Follow\\-up received\\. Re\\-evaluating\\.\\.\\.', {
           parse_mode: 'MarkdownV2',
         });
         return;
@@ -283,7 +283,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
 
       if (rejectApproval) {
         await this.approvalSvc.rejectWithReason(rejectApproval.id, ctx.message.text);
-        await ctx.reply('✅ Rejected with reason recorded\\.', { parse_mode: 'MarkdownV2' });
+        await ctx.reply('Rejected with reason recorded\\.', { parse_mode: 'MarkdownV2' });
       }
     });
   }
@@ -297,9 +297,9 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     action: ProposedAction,
     runId: string,
   ): string {
-    const risk = RISK_EMOJI[action.riskLevel] ?? '⚪';
+    const risk = RISK_LABEL[action.riskLevel] ?? '[unknown]';
     return [
-      `🤖 *${agentName}* proposes:`,
+      `*${agentName}* proposes:`,
       `_${action.summary}_`,
       '',
       `Run: \`${runId}\``,

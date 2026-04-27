@@ -228,7 +228,7 @@ export class EmailManagerAgent implements IAgent, OnModuleInit {
           snippet: string;
         };
         await this.telegram.sendMessage(
-          `📬 New email (nice-to-reply)\nFrom: ${from}\nSubject: ${subject}\n\n${snippet}`,
+          `New email (nice-to-reply)\nFrom: ${from}\nSubject: ${subject}\n\n${snippet}`,
         );
         await this.db.db
           .update(emailItems)

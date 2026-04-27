@@ -204,7 +204,7 @@ export class SupportAgent implements IAgent, OnModuleInit {
       }
 
       await this.telegram.sendMessage(
-        `${action.type === 'escalate_to_owner' ? '🚨 Escalated' : '📧 Replied'}: ${p.subject}\nFrom: ${p.userEmail}\n\nDraft:\n${p.draft}`,
+        `${action.type === 'escalate_to_owner' ? 'Escalated' : 'Replied'}: ${p.subject}\nFrom: ${p.userEmail}\n\nDraft:\n${p.draft}`,
       );
     }
 

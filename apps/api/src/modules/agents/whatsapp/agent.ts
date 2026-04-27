@@ -219,7 +219,7 @@ export class WhatsAppAgent implements IAgent, OnModuleInit {
 
     if (action.type === 'notify_telegram_priority') {
       await this.telegram.sendMessage(
-        `📱 ${p.importance.toUpperCase()} WhatsApp\nFrom: ${p.fromName} (${p.fromNumber})\n\n${p.body}\n\n💬 Suggested reply:\n${p.draft}`,
+        `${p.importance.toUpperCase()} WhatsApp\nFrom: ${p.fromName} (${p.fromNumber})\n\n${p.body}\n\nSuggested reply:\n${p.draft}`,
       );
       await this.markProcessed(p.msgId, 'notified', p.importance);
       return { success: true };
@@ -231,7 +231,7 @@ export class WhatsAppAgent implements IAgent, OnModuleInit {
         await this.wa.sendMessage(p.fromNumber, replyText);
       }
       await this.markProcessed(p.msgId, 'replied', undefined);
-      await this.telegram.sendMessage(`✅ Replied to ${p.fromName ?? p.fromNumber}: "${replyText.slice(0, 80)}"`);
+      await this.telegram.sendMessage(`Replied to ${p.fromName ?? p.fromNumber}: "${replyText.slice(0, 80)}"`);
       return { success: true };
     }
 

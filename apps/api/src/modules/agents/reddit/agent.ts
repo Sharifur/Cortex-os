@@ -186,7 +186,7 @@ export class RedditAgent implements IAgent, OnModuleInit {
         .set({ status: 'posted', lastEngagedAt: new Date() })
         .where(eq(redditThreads.threadId, p.threadId));
       await this.telegram.sendMessage(
-        `✅ Reddit comment posted in r/${p.subreddit}\n${p.url}\n\n"${p.comment}"`,
+        `Reddit comment posted in r/${p.subreddit}\n${p.url}\n\n"${p.comment}"`,
       );
       return { success: true, data: { threadId: p.threadId } };
     }

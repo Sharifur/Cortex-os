@@ -167,7 +167,7 @@ export class CanvaAgent implements IAgent, OnModuleInit {
       }
 
       await this.telegram.sendMessage(
-        `✅ Content calendar for ${p.month} saved — ${rows.length} ideas ready for design.`,
+        `Content calendar for ${p.month} saved — ${rows.length} ideas ready for design.`,
       );
       return { success: true, data: { month: p.month, count: rows.length } };
     }
