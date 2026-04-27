@@ -12,6 +12,7 @@ import AgentChatPage from '@/pages/AgentChatPage';
 import ApprovalsPage from '@/pages/ApprovalsPage';
 import RunDetailPage from '@/pages/RunDetailPage';
 import McpPage from '@/pages/McpPage';
+import IntegrationsPage from '@/pages/IntegrationsPage';
 import AppLayout from '@/components/AppLayout';
 import { useAuthStore } from '@/stores/authStore';
 
@@ -46,6 +47,7 @@ export default function App() {
             <Route path="/mcp" element={<McpPage />} />
             <Route path="/activity" element={<ActivityPage />} />
             <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/integrations" element={<IntegrationsPage />} />
             <Route path="/profile" element={<ProfilePage />} />
             <Route path="/change-password" element={<ChangePasswordPage />} />
           </Route>

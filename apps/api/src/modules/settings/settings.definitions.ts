@@ -2,7 +2,7 @@ export interface SettingDefinition {
   label: string;
   description?: string;
   isSecret: boolean;
-  group: 'llm' | 'telegram' | 'ses' | 'gmail' | 'integrations';
+  group: 'llm' | 'telegram' | 'ses' | 'gmail' | 'whatsapp' | 'linkedin' | 'reddit';
   defaultValue?: string;
   provider?: 'openai' | 'gemini' | 'deepseek' | 'general';
 }
@@ -138,5 +138,70 @@ export const SETTING_DEFINITIONS: Record<string, SettingDefinition> = {
     description: 'e.g. Sharifur <sharifur@taskip.net>',
     isSecret: false,
     group: 'gmail',
+  },
+
+  // WhatsApp Business Cloud API
+  whatsapp_api_token: {
+    label: 'API Token (Bearer)',
+    description: 'Permanent system user token from Meta Business Suite → System Users',
+    isSecret: true,
+    group: 'whatsapp',
+  },
+  whatsapp_phone_number_id: {
+    label: 'Phone Number ID',
+    description: 'Found in Meta for Developers → WhatsApp → API Setup',
+    isSecret: false,
+    group: 'whatsapp',
+  },
+  whatsapp_verify_token: {
+    label: 'Webhook Verify Token',
+    description: 'Any random string you choose — must match the value in Meta webhook config',
+    isSecret: true,
+    group: 'whatsapp',
+    defaultValue: 'cortex-whatsapp-verify',
+  },
+
+  // LinkedIn — Unipile (preferred) or direct OAuth2
+  unipile_api_key: {
+    label: 'Unipile API Key',
+    description: 'From app.unipile.com → Settings → API Keys (preferred method)',
+    isSecret: true,
+    group: 'linkedin',
+  },
+  unipile_dsn: {
+    label: 'Unipile DSN',
+    description: 'Your account DSN from Unipile dashboard (e.g. api4.unipile.com:13444)',
+    isSecret: false,
+    group: 'linkedin',
+  },
+  linkedin_access_token: {
+    label: 'LinkedIn Access Token (fallback)',
+    description: 'Direct OAuth2 access token — only used if Unipile is not configured',
+    isSecret: true,
+    group: 'linkedin',
+  },
+
+  // Reddit — script app OAuth2
+  reddit_client_id: {
+    label: 'Client ID',
+    description: 'From reddit.com/prefs/apps → script app → client ID (below app name)',
+    isSecret: false,
+    group: 'reddit',
+  },
+  reddit_client_secret: {
+    label: 'Client Secret',
+    isSecret: true,
+    group: 'reddit',
+  },
+  reddit_username: {
+    label: 'Reddit Username',
+    description: 'The account that will post comments',
+    isSecret: false,
+    group: 'reddit',
+  },
+  reddit_password: {
+    label: 'Reddit Password',
+    isSecret: true,
+    group: 'reddit',
   },
 };

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Settings, Save, Trash2, Eye, EyeOff, Key, Bot, Send, Mail, Zap, Mail as GmailIcon, Copy, Check, ExternalLink } from 'lucide-react';
+import { Settings, Save, Trash2, Eye, EyeOff, Key, Zap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -16,13 +16,6 @@ interface SettingRow {
   provider?: string | null;
   stored: boolean;
 }
-
-const MAIN_TABS = [
-  { key: 'llm', label: 'LLM Providers', icon: <Bot className="w-4 h-4" /> },
-  { key: 'telegram', label: 'Telegram', icon: <Send className="w-4 h-4" /> },
-  { key: 'ses', label: 'Email (SES)', icon: <Mail className="w-4 h-4" /> },
-  { key: 'gmail', label: 'Gmail', icon: <GmailIcon className="w-4 h-4" /> },
-];
 
 const LLM_PROVIDER_TABS = [
   { key: 'openai', label: 'OpenAI' },
@@ -225,179 +218,9 @@ function LlmTab({ rows, token }: { rows: SettingRow[]; token: string }) {
   );
 }
 
-function CopyButton({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false);
-  function copy() {
-    navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  }
-  return (
-    <button onClick={copy} className="p-1.5 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground shrink-0">
-      {copied ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5" />}
-    </button>
-  );
-}
-
-function SetupStep({ n, title, children }: { n: number; title: string; children: React.ReactNode }) {
-  return (
-    <div className="flex gap-3">
-      <div className="w-6 h-6 rounded-full bg-primary/15 text-primary text-xs font-semibold flex items-center justify-center shrink-0 mt-0.5">
-        {n}
-      </div>
-      <div>
-        <p className="text-sm font-medium mb-0.5">{title}</p>
-        <div className="text-xs text-muted-foreground space-y-1">{children}</div>
-      </div>
-    </div>
-  );
-}
-
-function TelegramTab({ rows, token }: { rows: SettingRow[]; token: string }) {
-  return (
-    <div className="space-y-4">
-      {/* Setup guide */}
-      <div className="rounded-xl border border-border bg-card p-5">
-        <h2 className="text-sm font-semibold mb-4">Setup Guide</h2>
-        <div className="space-y-4">
-          <SetupStep n={1} title="Create a bot">
-            <p>Open Telegram and message <code className="bg-muted px-1 rounded">@BotFather</code></p>
-            <p>Send <code className="bg-muted px-1 rounded">/newbot</code>, choose a name and username.</p>
-            <p>BotFather replies with your <strong>bot token</strong> — copy it below.</p>
-          </SetupStep>
-          <SetupStep n={2} title="Get your Chat ID">
-            <p>Message <code className="bg-muted px-1 rounded">@userinfobot</code> on Telegram — it replies with your Chat ID.</p>
-            <p>Alternatively, message your new bot, then visit:</p>
-            <code className="bg-muted px-1.5 py-0.5 rounded block mt-1 text-xs break-all">
-              https://api.telegram.org/bot&lt;TOKEN&gt;/getUpdates
-            </code>
-            <p className="mt-1">Look for <code className="bg-muted px-1 rounded">"chat": {"{"}"id": 123456789{"}"}</code></p>
-          </SetupStep>
-          <SetupStep n={3} title="Paste credentials below">
-            <p>Set both fields. The bot will send Approve / Reject / Follow-up buttons for every agent action.</p>
-          </SetupStep>
-        </div>
-      </div>
-
-      {/* Fields */}
-      <div className="rounded-xl border border-border bg-card">
-        <div className="px-5">
-          {rows.length === 0
-            ? <p className="text-sm text-muted-foreground py-6">No settings in this group.</p>
-            : rows.map((s) => <SettingField key={s.key} setting={s} token={token} />)}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function SesTab({ rows, token }: { rows: SettingRow[]; token: string }) {
-  const webhookUrl = `${window.location.origin}/ses/webhook`;
-
-  return (
-    <div className="space-y-4">
-      {/* Webhook URL */}
-      <div className="rounded-xl border border-border bg-card p-5">
-        <h2 className="text-sm font-semibold mb-1">SNS Webhook URL</h2>
-        <p className="text-xs text-muted-foreground mb-3">
-          Enter this URL when subscribing to your SNS topic for SES bounce and complaint events.
-        </p>
-        <div className="flex items-center gap-2 bg-muted/60 border border-border rounded-lg px-3 py-2">
-          <code className="text-xs font-mono flex-1 break-all text-foreground">{webhookUrl}</code>
-          <CopyButton text={webhookUrl} />
-        </div>
-      </div>
-
-      {/* Setup guide */}
-      <div className="rounded-xl border border-border bg-card p-5">
-        <h2 className="text-sm font-semibold mb-4">SNS Setup Guide</h2>
-        <div className="space-y-4">
-          <SetupStep n={1} title="Create IAM user">
-            <p>In AWS IAM, create a user with <code className="bg-muted px-1 rounded">ses:SendEmail</code> and <code className="bg-muted px-1 rounded">ses:SendRawEmail</code> permissions.</p>
-            <p>Generate an access key and paste below.</p>
-          </SetupStep>
-          <SetupStep n={2} title="Verify sender domain / email">
-            <p>In SES → Verified identities, verify your sending domain or email address.</p>
-          </SetupStep>
-          <SetupStep n={3} title="Create a Configuration Set">
-            <p>In SES → Configuration Sets, create one (e.g. <code className="bg-muted px-1 rounded">ses-monitoring</code>).</p>
-            <p>Add an SNS destination for <strong>Bounce</strong> and <strong>Complaint</strong> events.</p>
-          </SetupStep>
-          <SetupStep n={4} title="Subscribe SNS to the webhook">
-            <p>In your SNS topic → Subscriptions, add an <strong>HTTPS</strong> subscription pointing to the URL above.</p>
-            <p>AWS will send a confirmation request — the webhook confirms it automatically.</p>
-          </SetupStep>
-          <SetupStep n={5} title="Paste credentials below">
-            <p>Set Access Key ID, Secret, Region, From Address, and Configuration Set name.</p>
-          </SetupStep>
-        </div>
-        <a
-          href="https://docs.aws.amazon.com/ses/latest/dg/monitor-sending-activity-using-notifications-sns.html"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-1 text-xs text-primary hover:underline mt-4"
-        >
-          AWS SES SNS notifications docs <ExternalLink className="w-3 h-3" />
-        </a>
-      </div>
-
-      {/* Fields */}
-      <div className="rounded-xl border border-border bg-card">
-        <div className="px-5">
-          {rows.length === 0
-            ? <p className="text-sm text-muted-foreground py-6">No settings in this group.</p>
-            : rows.map((s) => <SettingField key={s.key} setting={s} token={token} />)}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function GmailTab({ rows, token }: { rows: SettingRow[]; token: string }) {
-  return (
-    <div className="space-y-4">
-      {/* Setup guide */}
-      <div className="rounded-xl border border-border bg-card p-5">
-        <h2 className="text-sm font-semibold mb-4">OAuth2 Setup Guide</h2>
-        <div className="space-y-4">
-          <SetupStep n={1} title="Create a Google Cloud project">
-            <p>Go to <strong>console.cloud.google.com</strong> → New Project.</p>
-          </SetupStep>
-          <SetupStep n={2} title="Enable Gmail API">
-            <p>APIs & Services → Enable APIs → search <strong>Gmail API</strong> → Enable.</p>
-          </SetupStep>
-          <SetupStep n={3} title="Create OAuth2 credentials">
-            <p>APIs & Services → Credentials → Create Credentials → OAuth client ID.</p>
-            <p>Application type: <strong>Web application</strong>.</p>
-            <p>Authorized redirect URI: <code className="bg-muted px-1 rounded">https://developers.google.com/oauthplayground</code></p>
-          </SetupStep>
-          <SetupStep n={4} title="Get a refresh token via OAuth Playground">
-            <p>Open <a href="https://developers.google.com/oauthplayground" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">OAuth 2.0 Playground</a></p>
-            <p>Click the gear icon → check <strong>"Use your own OAuth credentials"</strong>, paste your Client ID and Secret.</p>
-            <p>In scope field enter: <code className="bg-muted px-1 rounded">https://mail.google.com/</code></p>
-            <p>Authorize → Exchange auth code for tokens → copy the <strong>Refresh Token</strong>.</p>
-          </SetupStep>
-          <SetupStep n={5} title="Paste credentials below">
-            <p>Set Client ID, Client Secret, Refresh Token, and From Address.</p>
-          </SetupStep>
-        </div>
-      </div>
-
-      {/* Fields */}
-      <div className="rounded-xl border border-border bg-card">
-        <div className="px-5">
-          {rows.length === 0
-            ? <p className="text-sm text-muted-foreground py-6">No settings in this group.</p>
-            : rows.map((s) => <SettingField key={s.key} setting={s} token={token} />)}
-        </div>
-      </div>
-    </div>
-  );
-}
 
 export default function SettingsPage() {
   const token = useAuthStore((s) => s.token)!;
-  const [activeTab, setActiveTab] = useState('llm');
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['settings'],
@@ -418,26 +241,9 @@ export default function SettingsPage() {
         <h1 className="text-2xl font-semibold">Settings</h1>
       </div>
       <p className="text-muted-foreground text-sm mb-6">
-        API keys and configuration. Secrets are encrypted at rest and never shown in plaintext.
+        LLM provider keys and configuration. For external service credentials, see{' '}
+        <a href="/integrations" className="text-primary hover:underline">Integrations</a>.
       </p>
-
-      {/* Main tab bar */}
-      <div className="flex items-center gap-1 border-b border-border mb-6">
-        {MAIN_TABS.map((tab) => (
-          <button
-            key={tab.key}
-            onClick={() => setActiveTab(tab.key)}
-            className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
-              activeTab === tab.key
-                ? 'border-primary text-foreground'
-                : 'border-transparent text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            {tab.icon}
-            {tab.label}
-          </button>
-        ))}
-      </div>
 
       {isLoading && (
         <div className="rounded-xl border border-border bg-card">
@@ -460,14 +266,7 @@ export default function SettingsPage() {
       )}
       {isError && <p className="text-sm text-destructive">Failed to load settings.</p>}
 
-      {!isLoading && !isError && (
-        <>
-          {activeTab === 'llm' && <LlmTab rows={grouped['llm'] ?? []} token={token} />}
-          {activeTab === 'telegram' && <TelegramTab rows={grouped['telegram'] ?? []} token={token} />}
-          {activeTab === 'ses' && <SesTab rows={grouped['ses'] ?? []} token={token} />}
-          {activeTab === 'gmail' && <GmailTab rows={grouped['gmail'] ?? []} token={token} />}
-        </>
-      )}
+      {!isLoading && !isError && <LlmTab rows={grouped['llm'] ?? []} token={token} />}
     </div>
   );
 }
