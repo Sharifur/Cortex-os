@@ -201,7 +201,7 @@ Expected response:
   "checks": {
     "postgres": { "status": "ok" },
     "redis":    { "status": "ok" },
-    "minio":    { "status": "ok" },
+    "storage":  { "status": "ok" },
     "llm":      { "status": "ok", "message": "OpenAI" },
     "telegram": { "status": "ok" }
   }

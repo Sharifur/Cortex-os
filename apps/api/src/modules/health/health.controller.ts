@@ -50,27 +50,36 @@ export class HealthController {
       }
     }
 
-    // MinIO
-    const minioEndpoint = process.env.MINIO_ENDPOINT;
-    const minioKey = process.env.MINIO_ACCESS_KEY;
-    const minioSecret = process.env.MINIO_SECRET_KEY;
-    if (!minioEndpoint || !minioKey || !minioSecret) {
-      checks.minio = { status: 'not_configured', message: 'MINIO_ENDPOINT, MINIO_ACCESS_KEY or MINIO_SECRET_KEY not set' };
+    // Storage (Cloudflare R2 / MinIO) — settings take precedence over env vars
+    const [settingEndpoint, settingAccessKey, settingSecretKey, settingPort, settingUseSsl] = await Promise.all([
+      this.settings.getDecrypted('storage_endpoint'),
+      this.settings.getDecrypted('storage_access_key'),
+      this.settings.getDecrypted('storage_secret_key'),
+      this.settings.getDecrypted('storage_port'),
+      this.settings.getDecrypted('storage_use_ssl'),
+    ]);
+    const storageEndpoint = settingEndpoint || process.env.MINIO_ENDPOINT;
+    const storageAccessKey = settingAccessKey || process.env.MINIO_ACCESS_KEY;
+    const storageSecretKey = settingSecretKey || process.env.MINIO_SECRET_KEY;
+    if (!storageEndpoint || !storageAccessKey || !storageSecretKey) {
+      checks.storage = { status: 'not_configured', message: 'Storage credentials not configured' };
     } else {
       try {
-        const useSSL = process.env.MINIO_USE_SSL === 'true';
-        const port = process.env.MINIO_PORT ? parseInt(process.env.MINIO_PORT) : (useSSL ? 443 : 9000);
+        const rawSsl = settingUseSsl ?? process.env.MINIO_USE_SSL;
+        const useSSL = rawSsl ? rawSsl === 'true' : true;
+        const rawPort = settingPort || process.env.MINIO_PORT;
+        const port = rawPort ? parseInt(rawPort) : (useSSL ? 443 : 9000);
         const client = new MinioClient({
-          endPoint: minioEndpoint,
+          endPoint: storageEndpoint,
           port,
           useSSL,
-          accessKey: minioKey,
-          secretKey: minioSecret,
+          accessKey: storageAccessKey,
+          secretKey: storageSecretKey,
         });
         await client.listBuckets();
-        checks.minio = { status: 'ok' };
+        checks.storage = { status: 'ok' };
       } catch (err) {
-        checks.minio = { status: 'error', message: err instanceof Error ? err.message : String(err) };
+        checks.storage = { status: 'error', message: err instanceof Error ? err.message : String(err) };
       }
     }
 

@@ -11,28 +11,28 @@ Self-hosted AI agent platform for automating founder tasks. Every agent action i
 | Queue | BullMQ |
 | Database | PostgreSQL 16 |
 | Cache | Redis 7 |
-| Storage | MinIO |
+| Storage | Cloudflare R2 (S3-compatible via MinIO client) |
 | Notifications | Telegram (grammy) |
 | Deployment | Coolify (self-hosted VPS) |
 
 ---
 
-## Quick Start
+## Quick Start (local development)
 
 ### Prerequisites
 
 - Node.js 20+
 - PostgreSQL 16
 - Redis 7
-- MinIO (optional — used for file storage)
-- pnpm 8+
+- npm 9+
 
 ### 1. Clone and install
 
 ```bash
-git clone https://github.com/Sharifur/convex-os.git cortex-os
+git clone https://github.com/Sharifur/cortex-os.git
 cd cortex-os
-pnpm install
+npm install --workspace=apps/api
+npm install --workspace=apps/web
 ```
 
 ### 2. Configure environment
@@ -41,20 +41,29 @@ pnpm install
 cp apps/api/.env.example apps/api/.env
 ```
 
-Edit `apps/api/.env` — the required variables are marked below.
+Edit `apps/api/.env` with your local values.
 
 ### 3. Run migrations
 
 ```bash
 cd apps/api
-pnpm drizzle-kit migrate
+node -r dotenv/config dist/src/migrate
+```
+
+Or in development with ts-node:
+
+```bash
+npx ts-node -r dotenv/config src/migrate.ts
 ```
 
 ### 4. Start development
 
 ```bash
-# From repo root
-pnpm dev
+# API
+cd apps/api && npm run start:dev
+
+# Web (separate terminal)
+cd apps/web && npm run dev
 ```
 
 API runs on `http://localhost:3000`, web on `http://localhost:5173`.
@@ -63,7 +72,7 @@ API runs on `http://localhost:3000`, web on `http://localhost:5173`.
 
 ## Environment Variables
 
-All variables go in `apps/api/.env`. Integration credentials (WhatsApp, LinkedIn, Gmail, etc.) are **not** needed as env vars — configure them after login via the **Settings → Integrations** page in the UI.
+All variables go in `apps/api/.env`. Integration credentials (WhatsApp, LinkedIn, Gmail, etc.) are **not** needed as env vars — configure them after login via the **Integrations** page in the UI.
 
 ### Required — Core Infrastructure
 
@@ -72,6 +81,7 @@ All variables go in `apps/api/.env`. Integration credentials (WhatsApp, LinkedIn
 | `DATABASE_URL` | PostgreSQL connection string, e.g. `postgres://user:pass@localhost:5432/cortex` |
 | `REDIS_URL` | Redis connection string, e.g. `redis://localhost:6379` |
 | `JWT_SECRET` | Secret for signing JWT tokens — use a long random string in production |
+| `SETTINGS_ENCRYPTION_KEY` | 32-byte hex string (`openssl rand -hex 32`) — encrypts secrets in the DB |
 | `OWNER_EMAIL` | Email address for the initial admin account (created on first boot) |
 | `OWNER_PASSWORD` | Password for the initial admin account |
 
@@ -93,6 +103,19 @@ All variables go in `apps/api/.env`. Integration credentials (WhatsApp, LinkedIn
 
 > The LLM router tries providers in order: OpenAI → Gemini → DeepSeek. Set at least one.
 
+### Optional — Storage (Cloudflare R2)
+
+Storage credentials can be set here as env vars **or** via the Integrations → Storage tab in the UI. Settings panel takes precedence over env vars.
+
+| Variable | Value for R2 |
+|---|---|
+| `MINIO_ENDPOINT` | `<account-id>.r2.cloudflarestorage.com` |
+| `MINIO_PORT` | `443` |
+| `MINIO_USE_SSL` | `true` |
+| `MINIO_ACCESS_KEY` | R2 API token Access Key ID |
+| `MINIO_SECRET_KEY` | R2 API token Secret Access Key |
+| `MINIO_BUCKET` | Bucket name, e.g. `cortex` |
+
 ### Optional — Taskip integration
 
 | Variable | Description |
@@ -100,17 +123,6 @@ All variables go in `apps/api/.env`. Integration credentials (WhatsApp, LinkedIn
 | `TASKIP_DB_URL_READONLY` | Read-only Postgres URL for Taskip DB (used by the trial email agent) |
 | `TASKIP_API_BASE` | Taskip API base URL, default `https://api.taskip.net` |
 | `TASKIP_WEBHOOK_SECRET` | Webhook secret for Taskip callbacks |
-
-### Optional — Storage
-
-| Variable | Description |
-|---|---|
-| `MINIO_ENDPOINT` | MinIO host, default `localhost` |
-| `MINIO_PORT` | MinIO port, default `9000` |
-| `MINIO_USE_SSL` | `true` / `false` |
-| `MINIO_ACCESS_KEY` | MinIO access key |
-| `MINIO_SECRET_KEY` | MinIO secret key |
-| `MINIO_BUCKET` | Bucket name, default `cortex-os` |
 
 ### App
 
@@ -134,10 +146,12 @@ Configure them after logging in at **Integrations** in the sidebar.
 | **WhatsApp** | Meta for Developers → WhatsApp → API Setup (API Token + Phone Number ID) |
 | **LinkedIn** | Unipile dashboard (preferred) or direct LinkedIn OAuth2 access token |
 | **Reddit** | reddit.com/prefs/apps → create a script app |
-| **Crisp** | Crisp → Settings → Website → API Keys |
+| **Crisp** | Crisp → Settings → Website → API Keys (supports multiple websites) |
 | **Gmail** | Google Cloud Console → Credentials → OAuth2 client (needs `https://mail.google.com/` scope) |
 | **Amazon SES** | AWS IAM → create user with `ses:SendEmail` permission |
 | **Telegram** | Settings → Telegram tab (same bot token as above, stored for runtime use) |
+| **License Server** | Xgenious license server → Dashboard → Public API → Create (xs_... signature) |
+| **Storage (R2)** | Cloudflare Dashboard → R2 → Manage R2 API Tokens |
 
 Use the **Test connection** button on each integration's Settings tab to verify credentials are working.
 
@@ -147,7 +161,7 @@ Use the **Test connection** button on each integration's Settings tab to verify 
 
 | Agent | Key | Trigger | Description |
 |---|---|---|---|
-| Crisp | `crisp` | CRON 15min + webhook | Drafts replies to open Crisp chat conversations |
+| Crisp | `crisp` | CRON 15min + webhook | Instant replies to Crisp chat (auto-send, no approval required) |
 | Support | `support` | CRON 30min + webhook | Triages and replies to support tickets |
 | WhatsApp | `whatsapp` | CRON 10min + webhook | Classifies and replies to WhatsApp Business messages |
 | Email Manager | `email_manager` | CRON 30min | Drafts and sends Gmail replies |
@@ -183,12 +197,23 @@ Every state transition writes to Postgres before acting. No fire-and-forget.
 
 ## Deployment (Coolify)
 
-1. Create a new application in Coolify pointing to this repo
-2. Set all required environment variables in Coolify's env panel
-3. Set build command: `pnpm build`
-4. Set start command: `node dist/main.js` (from `apps/api`)
-5. Attach a managed Postgres 16 and Redis 7 service
-6. Run migrations: execute `pnpm drizzle-kit migrate` via Coolify's console or a release hook
+Three apps are deployed from this monorepo. See `docs/production-release.md` for the full guide.
+
+| App | Dockerfile | Port |
+|---|---|---|
+| `api` | `docker/Dockerfile.api` | 3000 |
+| `worker` | `docker/Dockerfile.api` (override start cmd) | — |
+| `web` | `docker/Dockerfile.web` | 80 |
+
+**Migrations run automatically** — the API container runs `node dist/src/migrate` before starting. No manual migration step needed on deploy.
+
+Coolify services to provision:
+- PostgreSQL 16
+- Redis 7
+- Uptime Kuma (health monitoring)
+- Grafana (metrics dashboard)
+
+Cloudflare R2 is used for file storage (external — provision separately in Cloudflare Dashboard).
 
 ---
 
@@ -214,5 +239,7 @@ All endpoints require `Authorization: Bearer <jwt>` except `/auth/login` and `/h
 | GET | `/knowledge-base/entries` | List KB entries |
 | POST | `/knowledge-base/ingest/document` | Ingest a PDF/DOCX/MD file |
 | POST | `/knowledge-base/ingest/link` | Ingest a URL |
+| GET | `/crisp/websites` | List Crisp websites |
+| POST | `/crisp/websites` | Add a Crisp website |
 
 Full API reference: `docs/09-rest-api.md`
