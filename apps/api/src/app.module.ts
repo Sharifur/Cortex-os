@@ -33,6 +33,7 @@ import { ShortsModule } from './modules/agents/shorts/shorts.module';
 import { KnowledgeBaseModule } from './modules/knowledge-base/knowledge-base.module';
 import { TasksModule } from './modules/tasks/tasks.module';
 import { IntegrationsModule } from './modules/integrations/integrations.module';
+import { DashboardModule } from './modules/dashboard/dashboard.module';
 
 @Module({
   imports: [
@@ -85,6 +86,7 @@ import { IntegrationsModule } from './modules/integrations/integrations.module';
     KnowledgeBaseModule,
     TasksModule,
     IntegrationsModule,
+    DashboardModule,
   ],
 })
 export class AppModule {}

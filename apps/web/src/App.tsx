@@ -17,6 +17,7 @@ import IntegrationsPage from '@/pages/IntegrationsPage';
 import KnowledgeBasePage from '@/pages/KnowledgeBasePage';
 import TasksPage from '@/pages/TasksPage';
 import HealthPage from '@/pages/HealthPage';
+import OpsPage from '@/pages/OpsPage';
 import AppLayout from '@/components/AppLayout';
 import { useAuthStore } from '@/stores/authStore';
 
@@ -53,6 +54,7 @@ export default function App() {
             <Route path="/runs/:id" element={<RunDetailPage />} />
             <Route path="/mcp" element={<McpPage />} />
             <Route path="/activity" element={<ActivityPage />} />
+            <Route path="/ops" element={<OpsPage />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/integrations" element={<IntegrationsPage />} />
             <Route path="/health" element={<HealthPage />} />
