@@ -116,10 +116,11 @@ export class CrispAgent implements IAgent, OnModuleInit {
 
     for (const msg of newMessages) {
       try {
-        // Per-message FTS search + returning visitor memory
-        const [references, previousReplies] = await Promise.all([
+        // Per-message: FTS search + visitor memory + conversation thread (parallel)
+        const [references, previousReplies, threadHistory] = await Promise.all([
           this.kb.searchEntries(msg.content ?? '', this.key, 5),
           this.getVisitorHistory(msg.visitorEmail, msg.visitorNickname),
+          this.crisp.getSessionThread(msg.sessionId, 5),
         ]);
 
         const kbBlock = this.kb.buildKbPromptBlock({
@@ -129,6 +130,7 @@ export class CrispAgent implements IAgent, OnModuleInit {
           positiveSamples: samples.filter(s => s.polarity === 'positive'),
           negativeSamples: samples.filter(s => s.polarity === 'negative'),
           rejections,
+          threadHistory,
         });
 
         const visitorMemory = previousReplies.length

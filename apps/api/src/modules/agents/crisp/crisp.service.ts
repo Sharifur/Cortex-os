@@ -73,6 +73,26 @@ export class CrispService {
     return conversations;
   }
 
+  async getSessionThread(sessionId: string, limit = 5): Promise<{ role: 'customer' | 'agent'; text: string }[]> {
+    try {
+      const { identifier, key, websiteId } = await this.getCredentials();
+      const res = await fetch(
+        `https://api.crisp.chat/v1/website/${websiteId}/conversation/${sessionId}/messages/1`,
+        { headers: { Authorization: this.authHeader(identifier, key), 'X-Crisp-Tier': 'plugin' } },
+      );
+      if (!res.ok) return [];
+      const data = await res.json();
+      const msgs: { role: 'customer' | 'agent'; text: string }[] = [];
+      for (const m of (data.data ?? []).slice(-limit)) {
+        if (m.type !== 'text' || !m.content) continue;
+        msgs.push({ role: m.from === 'user' ? 'customer' : 'agent', text: String(m.content).slice(0, 300) });
+      }
+      return msgs;
+    } catch {
+      return [];
+    }
+  }
+
   async sendReply(sessionId: string, message: string): Promise<void> {
     const { identifier, key, websiteId } = await this.getCredentials();
 

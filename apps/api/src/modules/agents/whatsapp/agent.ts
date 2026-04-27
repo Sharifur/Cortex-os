@@ -111,9 +111,10 @@ export class WhatsAppAgent implements IAgent, OnModuleInit {
         const fromName = msg.fromName ?? msg.from_name ?? fromNumber;
         const preview = (msg.body ?? '').slice(0, 80);
 
-        const [references, previousCount] = await Promise.all([
+        const [references, previousCount, threadHistory] = await Promise.all([
           this.kb.searchEntries(msg.body ?? '', this.key, 5),
           this.getContactMessageCount(fromNumber),
+          this.getThreadHistory(fromNumber),
         ]);
 
         const kbBlock = this.kb.buildKbPromptBlock({
@@ -123,6 +124,7 @@ export class WhatsAppAgent implements IAgent, OnModuleInit {
           positiveSamples: samples.filter(s => s.polarity === 'positive'),
           negativeSamples: samples.filter(s => s.polarity === 'negative'),
           rejections,
+          threadHistory,
         });
 
         const contactNote = previousCount > 0
@@ -320,6 +322,24 @@ export class WhatsAppAgent implements IAgent, OnModuleInit {
       .update(whatsappMessages)
       .set({ status, ...(importance && { importance }), processedAt: new Date() })
       .where(eq(whatsappMessages.id, msgId));
+  }
+
+  private async getThreadHistory(fromNumber: string | undefined): Promise<{ role: 'customer' | 'agent'; text: string }[]> {
+    if (!fromNumber) return [];
+    try {
+      const rows = await this.db.db
+        .select({ body: whatsappMessages.body, status: whatsappMessages.status })
+        .from(whatsappMessages)
+        .where(eq(whatsappMessages.fromNumber, fromNumber))
+        .orderBy(desc(whatsappMessages.receivedAt))
+        .limit(6);
+      return rows
+        .reverse()
+        .slice(0, 5)
+        .map(r => ({ role: 'customer' as const, text: (r.body ?? '').slice(0, 300) }));
+    } catch {
+      return [];
+    }
   }
 
   private async getContactMessageCount(fromNumber: string | undefined): Promise<number> {

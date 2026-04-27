@@ -110,6 +110,10 @@ export class SupportAgent implements IAgent, OnModuleInit {
           this.getContactHistory(ticket.userEmail),
         ]);
 
+        const threadHistory: { role: 'customer' | 'agent'; text: string }[] = ticket.body
+          ? [{ role: 'customer', text: ticket.body.slice(0, 1500) }]
+          : [];
+
         const kbBlock = this.kb.buildKbPromptBlock({
           voiceProfile: alwaysOn.find(e => e.entryType === 'voice_profile') ?? null,
           facts: alwaysOn.filter(e => e.entryType === 'fact'),
@@ -117,6 +121,7 @@ export class SupportAgent implements IAgent, OnModuleInit {
           positiveSamples: samples.filter(s => s.polarity === 'positive'),
           negativeSamples: samples.filter(s => s.polarity === 'negative'),
           rejections,
+          threadHistory,
         });
 
         const contactMemory = previousTickets.length
