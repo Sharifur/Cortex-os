@@ -57,8 +57,8 @@ Set these in Coolify for the `api` and `worker` apps (both use the same image).
 |---|---|---|
 | `JWT_SECRET` | yes | Long random string — used for login tokens and as fallback encryption key |
 | `SETTINGS_ENCRYPTION_KEY` | yes | 32-byte hex string (`openssl rand -hex 32`) — encrypts secrets stored in the DB. **Do not rotate without re-encrypting existing values.** |
-| `OWNER_EMAIL` | yes | Login email for the web UI |
-| `OWNER_PASSWORD` | yes | Login password for the web UI |
+
+> On first boot a default admin is seeded: `admin@cortex.local` / `changeme123`. Log in and update both from **Settings → Account**.
 
 ### Cloudflare R2 (object storage)
 

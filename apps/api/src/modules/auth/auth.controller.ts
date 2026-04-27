@@ -2,6 +2,7 @@ import { Body, Controller, Get, Post, Put, UseGuards, HttpCode } from '@nestjs/c
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
+import { UpdateProfileDto } from './dto/update-profile.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import {
   CurrentUser,
@@ -21,6 +22,17 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   me(@CurrentUser() user: JwtPayload) {
     return this.auth.me(user.sub);
+  }
+
+  @Put('profile')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(200)
+  async updateProfile(
+    @CurrentUser() user: JwtPayload,
+    @Body() dto: UpdateProfileDto,
+  ) {
+    await this.auth.updateProfile(user.sub, dto.email);
+    return { ok: true };
   }
 
   @Put('password')

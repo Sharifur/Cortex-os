@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Settings, Save, Trash2, Eye, EyeOff, Key, Zap } from 'lucide-react';
+import { Settings, Save, Trash2, Eye, EyeOff, Key, Zap, UserCircle, CheckCircle2, XCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -315,6 +315,157 @@ function LlmTab({ rows, token }: { rows: SettingRow[]; token: string }) {
 }
 
 
+function AccountCard({ token }: { token: string }) {
+  const [emailInput, setEmailInput] = useState('');
+  const [editingEmail, setEditingEmail] = useState(false);
+  const [currentPw, setCurrentPw] = useState('');
+  const [newPw, setNewPw] = useState('');
+  const [showPw, setShowPw] = useState(false);
+  const [pwResult, setPwResult] = useState<{ ok: boolean; message: string } | null>(null);
+
+  const { data: profile, isLoading } = useQuery({
+    queryKey: ['auth-me'],
+    queryFn: async () => {
+      const res = await fetch('/auth/me', { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) throw new Error('Failed');
+      return res.json() as Promise<{ id: string; email: string }>;
+    },
+  });
+
+  const qc = useQueryClient();
+
+  const emailMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch('/auth/profile', {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: emailInput }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error((d as any).message ?? 'Failed to update email');
+      }
+    },
+    onSuccess: () => {
+      setEditingEmail(false);
+      setEmailInput('');
+      qc.invalidateQueries({ queryKey: ['auth-me'] });
+    },
+  });
+
+  const pwMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch('/auth/password', {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ currentPassword: currentPw, newPassword: newPw }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error((d as any).message ?? 'Failed');
+      }
+    },
+    onSuccess: () => {
+      setCurrentPw('');
+      setNewPw('');
+      setPwResult({ ok: true, message: 'Password updated' });
+      setTimeout(() => setPwResult(null), 3000);
+    },
+    onError: (err: Error) => {
+      setPwResult({ ok: false, message: err.message });
+    },
+  });
+
+  return (
+    <div className="rounded-xl border border-border bg-card mb-6">
+      <div className="px-5 py-4 border-b border-border flex items-center gap-2">
+        <UserCircle className="w-4 h-4 text-primary" />
+        <span className="text-sm font-semibold">Account</span>
+      </div>
+
+      {/* Email */}
+      <div className="px-5 py-4 border-b border-border">
+        <p className="text-sm font-medium mb-0.5">Login email</p>
+        {isLoading ? (
+          <Skeleton className="h-4 w-48 rounded mt-1" />
+        ) : editingEmail ? (
+          <div className="flex items-center gap-2 mt-2">
+            <Input
+              type="email"
+              value={emailInput}
+              onChange={(e) => setEmailInput(e.target.value)}
+              placeholder="new@email.com"
+              className="text-sm max-w-xs"
+              autoFocus
+            />
+            <Button size="sm" onClick={() => emailMutation.mutate()}
+              disabled={!emailInput || emailMutation.isPending}>
+              <Save className="w-3.5 h-3.5" />Save
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => { setEditingEmail(false); setEmailInput(''); }}>
+              Cancel
+            </Button>
+            {emailMutation.isError && (
+              <span className="text-xs text-destructive">{(emailMutation.error as Error).message}</span>
+            )}
+          </div>
+        ) : (
+          <div className="flex items-center gap-3 mt-1">
+            <code className="text-xs bg-muted px-2 py-1 rounded font-mono text-muted-foreground">
+              {profile?.email ?? '—'}
+            </code>
+            <Button size="sm" variant="outline" className="text-xs" onClick={() => {
+              setEmailInput(profile?.email ?? '');
+              setEditingEmail(true);
+            }}>
+              Update
+            </Button>
+          </div>
+        )}
+      </div>
+
+      {/* Password */}
+      <div className="px-5 py-4">
+        <p className="text-sm font-medium mb-3">Change password</p>
+        <div className="flex flex-col gap-2 max-w-xs">
+          <div className="relative">
+            <Input
+              type={showPw ? 'text' : 'password'}
+              placeholder="Current password"
+              value={currentPw}
+              onChange={(e) => setCurrentPw(e.target.value)}
+              className="text-sm pr-9"
+            />
+            <button type="button" onClick={() => setShowPw((v) => !v)}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+              {showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            </button>
+          </div>
+          <Input
+            type={showPw ? 'text' : 'password'}
+            placeholder="New password (min 8 chars)"
+            value={newPw}
+            onChange={(e) => setNewPw(e.target.value)}
+            className="text-sm"
+          />
+          <div className="flex items-center gap-3">
+            <Button size="sm" onClick={() => pwMutation.mutate()}
+              disabled={!currentPw || newPw.length < 8 || pwMutation.isPending}>
+              <Save className="w-3.5 h-3.5" />Update password
+            </Button>
+            {pwResult && (
+              <span className={`flex items-center gap-1 text-xs font-medium ${pwResult.ok ? 'text-green-400' : 'text-destructive'}`}>
+                {pwResult.ok ? <CheckCircle2 className="w-3.5 h-3.5" /> : <XCircle className="w-3.5 h-3.5" />}
+                {pwResult.message}
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function SettingsPage() {
   const token = useAuthStore((s) => s.token)!;
 
@@ -361,6 +512,8 @@ export default function SettingsPage() {
         </div>
       )}
       {isError && <p className="text-sm text-destructive">Failed to load settings.</p>}
+
+      <AccountCard token={token} />
 
       {!isLoading && !isError && <LlmTab rows={grouped['llm'] ?? []} token={token} />}
     </div>
