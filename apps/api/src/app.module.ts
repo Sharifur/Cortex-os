@@ -25,6 +25,7 @@ import { SupportModule } from './modules/agents/support/support.module';
 import { WhatsAppModule } from './modules/agents/whatsapp/whatsapp.module';
 import { LinkedInModule } from './modules/agents/linkedin/linkedin.module';
 import { RedditModule } from './modules/agents/reddit/reddit.module';
+import { CrispModule } from './modules/agents/crisp/crisp.module';
 
 @Module({
   imports: [
@@ -69,6 +70,7 @@ import { RedditModule } from './modules/agents/reddit/reddit.module';
     WhatsAppModule,
     LinkedInModule,
     RedditModule,
+    CrispModule,
   ],
 })
 export class AppModule {}

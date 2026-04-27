@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Cable, Save, Trash2, Eye, EyeOff, Key, Send, Mail, Copy, Check,
-  ExternalLink, MessageSquare, Linkedin, Hash,
+  ExternalLink, MessageSquare, Linkedin, Hash, Bot,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -24,6 +24,7 @@ const TABS = [
   { key: 'whatsapp', label: 'WhatsApp', icon: <MessageSquare className="w-4 h-4" /> },
   { key: 'linkedin', label: 'LinkedIn', icon: <Linkedin className="w-4 h-4" /> },
   { key: 'reddit', label: 'Reddit', icon: <Hash className="w-4 h-4" /> },
+  { key: 'crisp', label: 'Crisp', icon: <Bot className="w-4 h-4" /> },
   { key: 'telegram', label: 'Telegram', icon: <Send className="w-4 h-4" /> },
   { key: 'ses', label: 'Email (SES)', icon: <Mail className="w-4 h-4" /> },
   { key: 'gmail', label: 'Gmail', icon: <Mail className="w-4 h-4" /> },
@@ -291,6 +292,40 @@ function RedditTab({ rows, token }: { rows: SettingRow[]; token: string }) {
   );
 }
 
+function CrispTab({ rows, token }: { rows: SettingRow[]; token: string }) {
+  return (
+    <div className="space-y-4">
+      <div className="rounded-xl border border-border bg-card p-5">
+        <h2 className="text-sm font-semibold mb-4">Setup Guide</h2>
+        <div className="space-y-4">
+          <SetupStep n={1} title="Log in to Crisp and open your website">
+            <p>Go to <strong>app.crisp.chat</strong> → select your website → <strong>Settings</strong>.</p>
+          </SetupStep>
+          <SetupStep n={2} title="Copy your Website ID">
+            <p>Settings → <strong>Setup</strong> → copy the <strong>Website ID</strong> at the top.</p>
+          </SetupStep>
+          <SetupStep n={3} title="Generate API keys">
+            <p>Settings → <strong>API Keys</strong> → create a new key pair.</p>
+            <p>Copy both the <strong>Identifier</strong> (not secret) and the <strong>Key</strong> (secret).</p>
+          </SetupStep>
+          <SetupStep n={4} title="Paste credentials below">
+            <p>Set Website ID, API Identifier, and API Key. The agent will use basic auth (<code className="bg-muted px-1 rounded">identifier:key</code>) to call the Crisp REST API.</p>
+          </SetupStep>
+        </div>
+        <a
+          href="https://docs.crisp.chat/references/rest-api/v1/"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1 text-xs text-primary hover:underline mt-4"
+        >
+          Crisp REST API docs <ExternalLink className="w-3 h-3" />
+        </a>
+      </div>
+      <FieldsCard rows={rows} token={token} />
+    </div>
+  );
+}
+
 function TelegramTab({ rows, token }: { rows: SettingRow[]; token: string }) {
   return (
     <div className="space-y-4">
@@ -425,12 +460,12 @@ export default function IntegrationsPage() {
         Connect external services. Credentials are encrypted at rest and never shown in plaintext.
       </p>
 
-      <div className="flex items-center gap-1 border-b border-border mb-6 overflow-x-auto">
+      <div className="flex items-center gap-1 border-b border-border mb-6 flex-wrap">
         {TABS.map((tab) => (
           <button
             key={tab.key}
             onClick={() => setActiveTab(tab.key)}
-            className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap ${
+            className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
               activeTab === tab.key
                 ? 'border-primary text-foreground'
                 : 'border-transparent text-muted-foreground hover:text-foreground'
@@ -465,6 +500,7 @@ export default function IntegrationsPage() {
           {activeTab === 'whatsapp' && <WhatsAppTab rows={grouped['whatsapp'] ?? []} token={token} />}
           {activeTab === 'linkedin' && <LinkedInTab rows={grouped['linkedin'] ?? []} token={token} />}
           {activeTab === 'reddit' && <RedditTab rows={grouped['reddit'] ?? []} token={token} />}
+          {activeTab === 'crisp' && <CrispTab rows={grouped['crisp'] ?? []} token={token} />}
           {activeTab === 'telegram' && <TelegramTab rows={grouped['telegram'] ?? []} token={token} />}
           {activeTab === 'ses' && <SesTab rows={grouped['ses'] ?? []} token={token} />}
           {activeTab === 'gmail' && <GmailTab rows={grouped['gmail'] ?? []} token={token} />}

@@ -6,6 +6,18 @@ import * as bcrypt from 'bcrypt';
 
 const AGENT_SEEDS = [
   {
+    key: 'crisp',
+    name: 'Crisp AI Agent',
+    description: 'Monitors open Crisp chat conversations every 15 minutes, drafts AI replies, and sends them to Telegram for approval before posting.',
+    enabled: false,
+    config: {
+      replyTone: 'friendly, concise, and helpful — like a knowledgeable founder replying to a customer',
+      productContext: 'Taskip is a project management SaaS for teams.',
+      maxConversationsPerRun: 10,
+      llm: { provider: 'auto', model: 'gpt-4o-mini' },
+    },
+  },
+  {
     key: 'taskip_internal',
     name: 'Taskip Internal',
     description: 'On-demand internal ops assistant — look up users, check subscriptions/invoices, extend trials, mark refunds.',

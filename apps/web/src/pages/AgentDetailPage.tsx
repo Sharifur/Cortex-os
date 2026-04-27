@@ -1741,7 +1741,7 @@ function SettingsTab({ agent, token }: { agent: AgentDetail; token: string }) {
             <ol className="list-decimal list-inside space-y-0.5 ml-1">
               <li>Go to <strong>reddit.com/prefs/apps</strong> → Create app (script type)</li>
               <li>Copy Client ID (under app name) and Client Secret</li>
-              <li>Add to Coolify: <code className="bg-muted px-1 rounded">REDDIT_CLIENT_ID</code>, <code className="bg-muted px-1 rounded">REDDIT_CLIENT_SECRET</code>, <code className="bg-muted px-1 rounded">REDDIT_USERNAME</code>, <code className="bg-muted px-1 rounded">REDDIT_PASSWORD</code></li>
+              <li>In <strong>Integrations → Reddit</strong> add your credentials</li>
             </ol>
           </SetupStep>
           <SetupStep n={2} title="Set tracked keywords" done={false}>
@@ -1749,6 +1749,32 @@ function SettingsTab({ agent, token }: { agent: AgentDetail; token: string }) {
           </SetupStep>
           <SetupStep n={3} title="Enable and test" done={agent.enabled}>
             <p>Enable and trigger manually. The agent will search Reddit and draft comments — you'll approve each one via Telegram before it posts.</p>
+          </SetupStep>
+        </>}
+      />
+    } />
+  );
+
+  if (agent.key === 'crisp') return (
+    <Phase4SettingsTab agent={agent} token={token} setupContent={
+      <Phase4SetupSubTab
+        agent={agent}
+        title="Crisp AI Agent — Setup Checklist"
+        description="Monitors open Crisp chat conversations every 15 minutes. Drafts AI replies and sends them to Telegram for approval before posting."
+        steps={<>
+          <SetupStep n={1} title="Connect Crisp API" done={agent.registered}>
+            <ol className="list-decimal list-inside space-y-0.5 ml-1">
+              <li>Log in to <strong>app.crisp.chat</strong> and open your website settings</li>
+              <li>Go to <strong>Settings → API Keys</strong> — copy your Identifier and Key</li>
+              <li>Copy your <strong>Website ID</strong> from Settings → Setup</li>
+              <li>Add all three in <strong>Integrations → Crisp</strong></li>
+            </ol>
+          </SetupStep>
+          <SetupStep n={2} title="Set product context and tone" done={false}>
+            <p>In Config JSON set <code className="bg-muted px-1 rounded">productContext</code> (describe your product) and <code className="bg-muted px-1 rounded">replyTone</code> so the AI replies match your voice.</p>
+          </SetupStep>
+          <SetupStep n={3} title="Enable and test" done={agent.enabled}>
+            <p>Enable and trigger manually. The agent will draft replies for open conversations and send them to Telegram for approval.</p>
           </SetupStep>
         </>}
       />

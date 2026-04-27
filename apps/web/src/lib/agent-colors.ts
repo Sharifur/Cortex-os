@@ -120,6 +120,16 @@ const PALETTE: Record<string, AgentColor> = {
     badgeText: 'text-teal-400',
     tabActive: 'border-teal-400 text-teal-400',
   },
+  crisp: {
+    iconBg: 'bg-indigo-500/15',
+    iconText: 'text-indigo-400',
+    border: 'border-indigo-500/30',
+    bubble: 'bg-indigo-500/10',
+    dot: 'bg-indigo-400',
+    badge: 'bg-indigo-500/15',
+    badgeText: 'text-indigo-400',
+    tabActive: 'border-indigo-400 text-indigo-400',
+  },
   support: {
     iconBg: 'bg-red-500/15',
     iconText: 'text-red-400',

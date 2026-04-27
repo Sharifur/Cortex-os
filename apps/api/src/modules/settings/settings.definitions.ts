@@ -2,7 +2,7 @@ export interface SettingDefinition {
   label: string;
   description?: string;
   isSecret: boolean;
-  group: 'llm' | 'telegram' | 'ses' | 'gmail' | 'whatsapp' | 'linkedin' | 'reddit';
+  group: 'llm' | 'telegram' | 'ses' | 'gmail' | 'whatsapp' | 'linkedin' | 'reddit' | 'crisp';
   defaultValue?: string;
   provider?: 'openai' | 'gemini' | 'deepseek' | 'general';
 }
@@ -203,5 +203,25 @@ export const SETTING_DEFINITIONS: Record<string, SettingDefinition> = {
     label: 'Reddit Password',
     isSecret: true,
     group: 'reddit',
+  },
+
+  // Crisp live chat
+  crisp_website_id: {
+    label: 'Website ID',
+    description: 'From Crisp → Settings → Website → Setup → Website ID',
+    isSecret: false,
+    group: 'crisp',
+  },
+  crisp_api_identifier: {
+    label: 'API Identifier',
+    description: 'From Crisp → Settings → Website → API Keys → Identifier',
+    isSecret: false,
+    group: 'crisp',
+  },
+  crisp_api_key: {
+    label: 'API Key',
+    description: 'From Crisp → Settings → Website → API Keys → Key (treat as secret)',
+    isSecret: true,
+    group: 'crisp',
   },
 };
