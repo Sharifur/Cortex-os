@@ -58,11 +58,12 @@ export class HealthController {
       checks.minio = { status: 'not_configured', message: 'MINIO_ENDPOINT, MINIO_ACCESS_KEY or MINIO_SECRET_KEY not set' };
     } else {
       try {
-        const url = new URL(minioEndpoint);
+        const useSSL = process.env.MINIO_USE_SSL === 'true';
+        const port = process.env.MINIO_PORT ? parseInt(process.env.MINIO_PORT) : (useSSL ? 443 : 9000);
         const client = new MinioClient({
-          endPoint: url.hostname,
-          port: url.port ? parseInt(url.port) : (url.protocol === 'https:' ? 443 : 9000),
-          useSSL: url.protocol === 'https:',
+          endPoint: minioEndpoint,
+          port,
+          useSSL,
           accessKey: minioKey,
           secretKey: minioSecret,
         });
