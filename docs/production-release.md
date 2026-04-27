@@ -1,5 +1,19 @@
 # Cortex OS — Production Release Guide
 
+## Table of Contents
+
+- [1. Infrastructure services](#1-infrastructure-services)
+- [2. Application overview](#2-application-overview)
+- [3. Coolify deployment — API](#3-coolify-deployment--api)
+- [4. Coolify deployment — Worker](#4-coolify-deployment--worker)
+- [5. Coolify deployment — Web](#5-coolify-deployment--web)
+- [6. Environment variables](#6-environment-variables)
+- [7. First-run checklist](#7-first-run-checklist)
+- [8. Post-deploy verification](#8-post-deploy-verification)
+- [9. Ongoing operations](#9-ongoing-operations)
+
+---
+
 ## 1. Infrastructure services
 
 ### Coolify one-click services
@@ -13,40 +27,104 @@ Provision these from Coolify → Services before deploying the apps.
 | Uptime Kuma | latest | Ping `/health` every 60s for uptime monitoring |
 | Grafana | latest | Dashboard over Prometheus metrics |
 
+After provisioning, note the **internal hostnames** Coolify assigns to Postgres and Redis — use them in `DATABASE_URL` and `REDIS_URL`.
+
 ### External service
 
 | Service | Purpose |
 |---|---|
-| Cloudflare R2 | S3-compatible object storage for knowledge base file ingestion (PDFs, DOCX). Free tier: 10GB storage, no egress fees. |
+| Cloudflare R2 | S3-compatible object storage for knowledge base file ingestion (PDFs, DOCX). Free tier: 10 GB storage, no egress fees. |
 
-Create a bucket named `cortex` (or your preferred name) in Cloudflare Dashboard → R2, then generate an R2 API token with Object Read & Write permissions.
-
----
-
-## 2. Application services
-
-Three apps built from the same monorepo. Deploy all three in Coolify.
-
-| App | Dockerfile | Start command | Port |
-|---|---|---|---|
-| `api` | `docker/Dockerfile.api` | *(default CMD)* | 3000 |
-| `worker` | `docker/Dockerfile.api` | `node -r dotenv/config dist/src/worker` | — |
-| `web` | `docker/Dockerfile.web` | *(static, served by Caddy)* | 80 |
-
-**Migrations run automatically** — the API container runs `node dist/src/migrate` before starting. No manual migration step needed on deploy.
+Create a bucket (e.g. `cortex`) in Cloudflare Dashboard → R2, then generate an R2 API token with **Object Read & Write** permissions.
 
 ---
 
-## 3. Environment variables
+## 2. Application overview
 
-Set these in Coolify for the `api` and `worker` apps (both use the same image).
+Three Coolify applications built from the same GitHub repo.
+
+| App | Base Directory | Build pack | Start command | Port | Domain |
+|---|---|---|---|---|---|
+| `api` | `apps/api` | Nixpacks | `node dist/src/migrate && node dist/src/main` | 3000 | `api.yourdomain.com` |
+| `worker` | `apps/api` | Nixpacks | `node dist/src/worker` | — | *(no domain)* |
+| `web` | `apps/web` | Nixpacks | *(auto-detected)* | 80 | `yourdomain.com` |
+
+**Migrations run automatically** — the API start command runs `dist/src/migrate` before `dist/src/main`. No manual step needed on deploy.
+
+---
+
+## 3. Coolify deployment — API
+
+1. **New Resource → Application** → connect GitHub repo → select the `main` branch.
+2. **General tab:**
+   - Build pack: `Nixpacks`
+   - Base Directory: `apps/api`
+   - Start Command: `node dist/src/migrate && node dist/src/main`
+   - Ports Exposes: `3000`
+   - Domain: `https://api.yourdomain.com`
+3. **Healthchecks tab:**
+   - Type: `HTTP`
+   - Method: `GET`
+   - Host: `localhost`
+   - Port: `3000`
+   - Path: `/health`
+   - Return Code: `200`
+   - Start Period: `30` seconds (migrations can take a few seconds on first boot)
+4. **Environment Variables tab:** paste all variables from [Section 6](#6-environment-variables).
+5. **Save → Deploy.**
+
+Check logs for:
+```
+Migrations complete
+[NestApplication] Nest application successfully started
+```
+
+---
+
+## 4. Coolify deployment — Worker
+
+1. **New Resource → Application** → same GitHub repo → same branch.
+2. **General tab:**
+   - Build pack: `Nixpacks`
+   - Base Directory: `apps/api`
+   - Start Command: `node dist/src/worker`
+   - Ports Exposes: *(leave empty — no HTTP port)*
+   - Domain: *(leave empty)*
+3. **Healthchecks tab:** disable healthcheck (worker has no HTTP endpoint).
+4. **Environment Variables tab:** same variables as the API app.
+5. **Save → Deploy.**
+
+---
+
+## 5. Coolify deployment — Web
+
+1. **New Resource → Application** → same GitHub repo → same branch.
+2. **General tab:**
+   - Build pack: `Nixpacks`
+   - Base Directory: `apps/web`
+   - Start Command: *(leave empty — Nixpacks auto-detects Vite and serves static files)*
+   - Ports Exposes: `80`
+   - Domain: `https://yourdomain.com`
+3. **Environment Variables tab:**
+   - `VITE_API_URL` = `https://api.yourdomain.com`
+4. **Healthchecks tab:**
+   - Type: `HTTP`, Port: `80`, Path: `/`
+5. **Save → Deploy.**
+
+> The web app uses `VITE_API_URL` to reach the API. This variable is baked into the static build by Vite — set it before deploying.
+
+---
+
+## 6. Environment variables
+
+Set these in Coolify for the **`api`** and **`worker`** apps (both use the same image, both need the same vars).
 
 ### Core
 
 | Variable | Required | Example / Notes |
 |---|---|---|
-| `DATABASE_URL` | yes | `postgresql://user:pass@host:5432/cortex` |
-| `REDIS_URL` | yes | `redis://host:6379` |
+| `DATABASE_URL` | yes | `postgresql://user:pass@postgres-hostname:5432/cortex` |
+| `REDIS_URL` | yes | `redis://redis-hostname:6379` |
 | `PORT` | no | `3000` (default) |
 | `NODE_ENV` | yes | `production` |
 | `LOG_LEVEL` | no | `info` (default in production) |
@@ -55,23 +133,10 @@ Set these in Coolify for the `api` and `worker` apps (both use the same image).
 
 | Variable | Required | Notes |
 |---|---|---|
-| `JWT_SECRET` | yes | Long random string — used for login tokens and as fallback encryption key |
-| `SETTINGS_ENCRYPTION_KEY` | yes | 32-byte hex string (`openssl rand -hex 32`) — encrypts secrets stored in the DB. **Do not rotate without re-encrypting existing values.** |
+| `JWT_SECRET` | yes | Long random string — signs login tokens |
+| `SETTINGS_ENCRYPTION_KEY` | yes | 32-byte hex string (`openssl rand -hex 32`) — encrypts secrets in the DB. **Do not rotate without re-encrypting existing values.** |
 
-> On first boot a default admin is seeded: `admin@cortex.local` / `changeme123`. Log in and update both from **Settings → Account**.
-
-### Cloudflare R2 (object storage)
-
-The app uses the MinIO client which is S3-compatible — point it at R2 with these values.
-
-| Variable | Required | Value for R2 |
-|---|---|---|
-| `MINIO_ENDPOINT` | yes | `<account-id>.r2.cloudflarestorage.com` — find Account ID in Cloudflare Dashboard → R2 |
-| `MINIO_PORT` | yes | `443` |
-| `MINIO_USE_SSL` | yes | `true` |
-| `MINIO_ACCESS_KEY` | yes | R2 API token Access Key ID |
-| `MINIO_SECRET_KEY` | yes | R2 API token Secret Access Key |
-| `MINIO_BUCKET` | yes | Bucket name, e.g. `cortex` |
+> Default admin on first boot: **`admin@cortex.local`** / **`changeme123`**. Log in and update from **Settings → Account**.
 
 ### Telegram
 
@@ -89,7 +154,20 @@ The app uses the MinIO client which is S3-compatible — point it at R2 with the
 | `GEMINI_API_KEY` | Google AI Studio key |
 | `DEEPSEEK_API_KEY` | DeepSeek API key |
 
-The LLM router falls back in order: OpenAI → Gemini → DeepSeek. Configure at least one.
+The LLM router falls back in order: OpenAI → Gemini → DeepSeek.
+
+### Cloudflare R2 (object storage)
+
+Can also be configured via **Integrations → Storage** in the UI — settings take precedence over env vars.
+
+| Variable | Required | Value for R2 |
+|---|---|---|
+| `MINIO_ENDPOINT` | yes | `<account-id>.r2.cloudflarestorage.com` |
+| `MINIO_PORT` | yes | `443` |
+| `MINIO_USE_SSL` | yes | `true` |
+| `MINIO_ACCESS_KEY` | yes | R2 API token Access Key ID |
+| `MINIO_SECRET_KEY` | yes | R2 API token Secret Access Key |
+| `MINIO_BUCKET` | yes | Bucket name, e.g. `cortex` |
 
 ### AWS SES (email sending)
 
@@ -100,7 +178,7 @@ The LLM router falls back in order: OpenAI → Gemini → DeepSeek. Configure at
 | `AWS_REGION` | e.g. `ap-south-1` |
 | `SES_CONFIG_SET` | e.g. `ses-monitoring` |
 
-### Taskip internal (taskip_internal + taskip_trial agents)
+### Taskip internal
 
 | Variable | Notes |
 |---|---|
@@ -110,37 +188,16 @@ The LLM router falls back in order: OpenAI → Gemini → DeepSeek. Configure at
 
 ---
 
-## 4. Coolify deployment steps
-
-1. **Create Coolify services** — PostgreSQL 16, Redis 7, Uptime Kuma, Grafana. Note the internal hostnames Coolify assigns to Postgres and Redis.
-   **Create the R2 bucket** in Cloudflare Dashboard → R2 and generate an API token.
-
-2. **Add a new application** from the GitHub repo for each of the three apps.
-
-3. For `api` and `worker`: set Dockerfile path to `docker/Dockerfile.api`. Override the start command for `worker` to:
-   ```
-   node -r dotenv/config dist/src/worker
-   ```
-
-4. **Paste all environment variables** from section 3 into Coolify's env editor for `api` and `worker`.
-
-5. **Deploy `api` first** — it seeds the database on first run. Check logs for `Migrations complete` and the `[NestApplication] Nest application successfully started` line.
-
-6. **Deploy `worker`** — it connects to the same DB/Redis and processes the BullMQ queues.
-
-7. **Deploy `web`** — point Coolify to `docker/Dockerfile.web`. No env vars needed (it talks to the API via the browser).
-
-8. **Configure a domain and HTTPS** for `api` and `web` in Coolify. The web frontend proxies all `/auth`, `/agents`, `/runs` etc. paths to the API — make sure the reverse proxy is set up correctly.
-
----
-
-## 5. First-run checklist
+## 7. First-run checklist
 
 After the first successful deploy, open the web UI and complete setup.
 
-### Settings page (`/settings`)
+### Settings → Account
 
-Configure at minimum:
+- [ ] Update login email (default: `admin@cortex.local`)
+- [ ] Update password (default: `changeme123`)
+
+### Settings page (`/settings`)
 
 - [ ] Default LLM provider + API key(s)
 - [ ] Default models for OpenAI / Gemini / DeepSeek
@@ -148,18 +205,17 @@ Configure at minimum:
 
 ### Integrations page (`/integrations`)
 
-Configure each service you intend to use:
-
 | Tab | What to fill in |
 |---|---|
-| Telegram | Bot token + Owner chat ID. Hit **Test connection** — it must show "chat verified" before agents can send messages. |
-| Crisp | Add one website entry per Crisp site (label, Website ID, Identifier, API Key). Configure webhook URL in each Crisp website's Settings → Integrations → Webhooks, event `message:send`. |
+| Telegram | Bot token + Owner chat ID. Hit **Test connection** — must show "chat verified". |
+| Crisp | Add one entry per Crisp site (label, Website ID, Identifier, API Key). Add webhook URL in Crisp → Settings → Integrations → Webhooks, event `message:send`. |
 | WhatsApp | API token, Phone Number ID. Set webhook URL in Meta for Developers. |
 | LinkedIn | Unipile API key + DSN (recommended) or direct access token. |
 | Reddit | Client ID, secret, username, password. |
 | Email (SES) | AWS credentials, from address. |
 | Gmail | OAuth2 client ID, secret, refresh token. |
-| License Server | URL, API Signature (xs\_...), default Envato account slug. |
+| License Server | URL, API Signature (`xs_...`), default Envato account slug. |
+| Storage (R2) | Endpoint, Access Key, Secret Key, bucket name. Or set via env vars. |
 
 ### Agents page (`/agents`)
 
@@ -181,11 +237,9 @@ Enable only the agents you want active. All are disabled by default.
 | `hr` | HR management tasks | — |
 | `canva` | Canva design + social content | Canva MCP |
 
-Each agent has a **Setup** sub-tab on its detail page with configuration fields specific to that agent.
-
 ---
 
-## 6. Post-deploy verification
+## 8. Post-deploy verification
 
 ### Health check
 
@@ -212,21 +266,22 @@ Expected response:
 
 ### Telegram smoke test
 
-Go to Integrations → Telegram → **Test connection**. It must return "chat verified". If it returns "chat ID not reachable", send `/start` to your bot in Telegram and test again.
+Go to Integrations → Telegram → **Test connection**. Must return "chat verified". If it returns "chat ID not reachable", send `/start` to your bot in Telegram first.
 
 ### Agent run smoke test
 
-On the Agents page, find `daily_reminder`, open it, and click **Run now**. Within a few seconds you should receive a Telegram message. Check the Activity page for the run status.
+Agents page → `daily_reminder` → **Run now**. You should receive a Telegram message within a few seconds. Check the Activity page for run status.
 
 ---
 
-## 7. Ongoing operations
+## 9. Ongoing operations
 
 | Task | How |
 |---|---|
-| Deploy new version | Push to `main` — Coolify auto-deploys if webhook is configured |
-| Add new migrations | Write SQL in `apps/api/drizzle/` — applied automatically on next deploy |
-| Rotate `SETTINGS_ENCRYPTION_KEY` | Re-encrypt all secrets in `platform_settings` before changing the key |
-| View agent logs | Activity page in the web UI, or `docker logs` on the api container |
-| Approve pending actions | Telegram `Approve` / `Reject` buttons, or Approvals page in the web UI |
+| Deploy new version | Push to `main` — Coolify auto-deploys if the GitHub webhook is configured |
+| Add new migrations | Write SQL in `apps/api/drizzle/` — applied automatically on next API deploy |
+| Rotate `SETTINGS_ENCRYPTION_KEY` | Re-encrypt all rows in `platform_settings` before swapping the key |
+| View agent logs | Activity page in the web UI, or Coolify → api → Logs |
+| Approve pending actions | Telegram Approve / Reject buttons, or Approvals page in the web UI |
 | Add knowledge base content | Knowledge Base page → Import tab (URL, PDF, DOCX, Markdown) |
+| Update admin email/password | Settings → Account |
