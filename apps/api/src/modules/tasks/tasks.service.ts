@@ -12,6 +12,7 @@ interface CreateTaskDto {
   recurrence?: string;
   recurrenceTime?: string;
   runNow?: boolean;
+  scheduledAt?: string; // ISO string for one-time scheduled tasks
 }
 
 interface UpdateTaskDto {
@@ -44,7 +45,9 @@ export class TasksService {
     const nextRunAt =
       dto.recurrence && dto.recurrenceTime
         ? computeNextRunAt(dto.recurrence, dto.recurrenceTime)
-        : null;
+        : dto.scheduledAt
+          ? new Date(dto.scheduledAt)
+          : null;
 
     const [row] = await this.db.db
       .insert(tasks)

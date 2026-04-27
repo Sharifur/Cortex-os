@@ -177,10 +177,10 @@ function TaskCard({
                   {RECURRENCE_LABEL[task.recurrence]} {formatRecurrenceTime(task.recurrenceTime)}
                 </span>
               )}
-              {task.status === 'pending' && task.recurrence && task.nextRunAt && (
+              {task.status === 'pending' && task.nextRunAt && (
                 <span className="text-xs text-muted-foreground flex items-center gap-1">
                   <Clock className="w-3 h-3" />
-                  Next: {formatNextRun(task.nextRunAt)}
+                  {task.recurrence ? 'Next:' : 'Runs at:'} {formatNextRun(task.nextRunAt)}
                 </span>
               )}
             </div>
@@ -219,6 +219,8 @@ function TaskCard({
   );
 }
 
+type ScheduleMode = 'now' | 'scheduled' | 'save';
+
 interface CreateForm {
   title: string;
   agentKey: string;
@@ -226,7 +228,9 @@ interface CreateForm {
   recurring: boolean;
   recurrence: 'daily' | 'weekly' | 'weekdays';
   recurrenceTimeDhaka: string;
-  runNow: boolean;
+  scheduleMode: ScheduleMode;
+  scheduledDate: string; // YYYY-MM-DD local
+  scheduledTime: string; // HH:MM local (Dhaka)
 }
 
 function CreateTaskPanel({
@@ -237,6 +241,16 @@ function CreateTaskPanel({
   onClose: () => void;
 }) {
   const queryClient = useQueryClient();
+  // Default scheduled date/time = today + 1 hour, Dhaka local
+  const defaultDate = (() => {
+    const d = new Date(Date.now() + 3600_000 + 6 * 3600_000); // UTC+6
+    return d.toISOString().slice(0, 10);
+  })();
+  const defaultTime = (() => {
+    const d = new Date(Date.now() + 3600_000 + 6 * 3600_000);
+    return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
+  })();
+
   const [form, setForm] = useState<CreateForm>({
     title: '',
     agentKey: AGENT_OPTIONS[0].key,
@@ -244,7 +258,9 @@ function CreateTaskPanel({
     recurring: false,
     recurrence: 'daily',
     recurrenceTimeDhaka: '09:00',
-    runNow: true,
+    scheduleMode: 'now',
+    scheduledDate: defaultDate,
+    scheduledTime: defaultTime,
   });
   const [error, setError] = useState('');
 
@@ -267,16 +283,32 @@ function CreateTaskPanel({
     setError('');
     if (!form.title.trim()) { setError('Title is required.'); return; }
     if (!form.instructions.trim()) { setError('Instructions are required.'); return; }
+
     const body: Record<string, unknown> = {
       title: form.title.trim(),
       agentKey: form.agentKey,
       instructions: form.instructions.trim(),
-      runNow: form.recurring ? false : form.runNow,
     };
+
     if (form.recurring) {
       body.recurrence = form.recurrence;
       body.recurrenceTime = dhakaToUtcTime(form.recurrenceTimeDhaka);
+    } else if (form.scheduleMode === 'now') {
+      body.runNow = true;
+    } else if (form.scheduleMode === 'scheduled') {
+      if (!form.scheduledDate || !form.scheduledTime) {
+        setError('Please pick a date and time.');
+        return;
+      }
+      // Combine local Dhaka date+time and convert to UTC ISO
+      const [h, m] = form.scheduledTime.split(':').map(Number);
+      const [yr, mo, dy] = form.scheduledDate.split('-').map(Number);
+      const dhakaMs = Date.UTC(yr, mo - 1, dy, h, m, 0) - 6 * 3600_000;
+      if (dhakaMs <= Date.now()) { setError('Scheduled time must be in the future.'); return; }
+      body.scheduledAt = new Date(dhakaMs).toISOString();
     }
+    // 'save' mode: no runNow, no scheduledAt — just saves as pending
+
     createMutation.mutate(body);
   }
 
@@ -364,15 +396,49 @@ function CreateTaskPanel({
           </div>
         )}
         {!form.recurring && (
-          <div className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              id="runNow"
-              checked={form.runNow}
-              onChange={(e) => set('runNow', e.target.checked)}
-              className="h-4 w-4 rounded border border-input accent-primary"
-            />
-            <label htmlFor="runNow" className="text-sm cursor-pointer">Run immediately</label>
+          <div className="space-y-3">
+            <div className="flex items-center gap-1 rounded-lg border border-border bg-muted/30 p-1 w-fit">
+              {([
+                { id: 'now', label: 'Run now' },
+                { id: 'scheduled', label: 'Schedule for' },
+                { id: 'save', label: 'Save only' },
+              ] as { id: ScheduleMode; label: string }[]).map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => set('scheduleMode', opt.id)}
+                  className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                    form.scheduleMode === opt.id
+                      ? 'bg-card text-foreground shadow-sm'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+            {form.scheduleMode === 'scheduled' && (
+              <div className="flex items-center gap-3">
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground mb-1 block">Date</label>
+                  <Input
+                    type="date"
+                    value={form.scheduledDate}
+                    onChange={(e) => set('scheduledDate', e.target.value)}
+                    className="text-sm w-40"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground mb-1 block">Time (Dhaka)</label>
+                  <Input
+                    type="time"
+                    value={form.scheduledTime}
+                    onChange={(e) => set('scheduledTime', e.target.value)}
+                    className="text-sm w-32"
+                  />
+                </div>
+              </div>
+            )}
           </div>
         )}
         {error && <p className="text-xs text-destructive">{error}</p>}

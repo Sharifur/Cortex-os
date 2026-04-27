@@ -32,6 +32,7 @@ export class TasksController {
     recurrence?: string;
     recurrenceTime?: string;
     runNow?: boolean;
+    scheduledAt?: string;
   }) {
     return this.tasksService.create(dto);
   }
