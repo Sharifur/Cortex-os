@@ -30,6 +30,8 @@ interface SocialSnapshot {
   duePosts: any[];
   pendingEngagements: any[];
   config: SocialConfig;
+  taskMode?: boolean;
+  instructions?: string;
 }
 
 const DEFAULT_CONFIG: SocialConfig = {
@@ -67,6 +69,14 @@ export class SocialAgent implements IAgent, OnModuleInit {
 
   async buildContext(trigger: TriggerEvent, run: RunContext): Promise<AgentContext> {
     const config = await this.getConfig();
+    const payload = trigger.payload as Record<string, unknown> | null;
+    if (payload?._taskId) {
+      return {
+        source: trigger,
+        snapshot: { taskMode: true, instructions: (payload.instructions as string) ?? '', config, duePosts: [], pendingEngagements: [] },
+        followups: [],
+      };
+    }
     const now = new Date();
 
     const duePosts = await this.db.db
@@ -84,7 +94,12 @@ export class SocialAgent implements IAgent, OnModuleInit {
   }
 
   async decide(ctx: AgentContext): Promise<ProposedAction[]> {
-    const { duePosts, pendingEngagements, config } = ctx.snapshot as SocialSnapshot;
+    const snap = ctx.snapshot as SocialSnapshot;
+    if (snap.taskMode) {
+      const followupNote = ctx.followups?.at(-1)?.text;
+      return this.decideTaskMode(snap.instructions ?? '', snap.config, followupNote);
+    }
+    const { duePosts, pendingEngagements, config } = snap;
     const actions: ProposedAction[] = [];
 
     const [alwaysOn, samples, blocklist, rejections] = await Promise.all([
@@ -268,6 +283,46 @@ export class SocialAgent implements IAgent, OnModuleInit {
         },
       },
     ];
+  }
+
+  private async decideTaskMode(instructions: string, config: SocialConfig, followupNote?: string): Promise<ProposedAction[]> {
+    const [alwaysOn, samples, blocklist, rejections] = await Promise.all([
+      this.kb.getAlwaysOnContext(this.key),
+      this.kb.getWritingSamples(this.key),
+      this.kb.getBlocklistRules(this.key),
+      this.kb.getRecentRejections(this.key, 3),
+    ]);
+    const template = await this.kb.getPromptTemplate(this.key);
+    const kbBlock = this.kb.buildKbPromptBlock({
+      voiceProfile: alwaysOn.find(e => e.entryType === 'voice_profile') ?? null,
+      facts: alwaysOn.filter(e => e.entryType === 'fact'),
+      references: [],
+      positiveSamples: samples.filter(s => s.polarity === 'positive'),
+      negativeSamples: samples.filter(s => s.polarity === 'negative'),
+      rejections,
+    });
+    const effectiveInstructions = followupNote ? `${instructions}\n\nAdditional note: ${followupNote}` : instructions;
+    const platform = config.platforms[0] ?? 'instagram';
+    const defaultSystem = `You are a social media manager. Write a post for ${platform}. Tone: ${config.replyTone}. 100-200 words. Engaging and authentic. Return just the post text.`;
+    const response = await this.llm.complete({
+      messages: [
+        { role: 'system', content: (template?.system ?? defaultSystem) + kbBlock },
+        { role: 'user', content: effectiveInstructions },
+      ],
+      provider: config.llm.provider as any,
+      model: config.llm.model,
+      maxTokens: 400,
+    });
+    let draft = response.content.trim();
+    if (!draft) return [{ type: 'noop', summary: 'No draft generated.', payload: {}, riskLevel: 'low' }];
+    draft = await this.selfCritique(draft, alwaysOn.find(e => e.entryType === 'voice_profile')?.content, blocklist);
+    const violation = blocklist.find(p => draft.toLowerCase().includes(p.toLowerCase()));
+    return [{
+      type: 'publish_post',
+      summary: `Social post draft (${platform}): "${draft.slice(0, 80)}"${violation ? ` - Blocklist: "${violation}"` : ''}`,
+      payload: { postId: '', brand: config.brands[0] ?? '', platform, body: draft, mediaUrls: [] },
+      riskLevel: violation ? 'high' : 'medium',
+    }];
   }
 
   private async selfCritique(draft: string, voiceProfile?: string, blocklist?: string[]): Promise<string> {

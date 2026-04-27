@@ -30,6 +30,8 @@ interface LinkedInConfig {
 interface LinkedInSnapshot {
   feedPosts: any[];
   config: LinkedInConfig;
+  taskMode?: boolean;
+  instructions?: string;
 }
 
 const DEFAULT_CONFIG: LinkedInConfig = {
@@ -67,12 +69,25 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
 
   async buildContext(trigger: TriggerEvent, run: RunContext): Promise<AgentContext> {
     const config = await this.getConfig();
+    const payload = trigger.payload as Record<string, unknown> | null;
+    if (payload?._taskId) {
+      return {
+        source: trigger,
+        snapshot: { taskMode: true, instructions: (payload.instructions as string) ?? '', config, feedPosts: [] },
+        followups: [],
+      };
+    }
     const feedPosts = await this.li.getFeedPosts(20);
     return { source: trigger, snapshot: { feedPosts, config }, followups: [] };
   }
 
   async decide(ctx: AgentContext): Promise<ProposedAction[]> {
-    const { feedPosts, config } = ctx.snapshot as LinkedInSnapshot;
+    const snap = ctx.snapshot as LinkedInSnapshot;
+    if (snap.taskMode) {
+      const followupNote = ctx.followups?.at(-1)?.text;
+      return this.decideTaskMode(snap.config, snap.instructions ?? '', followupNote);
+    }
+    const { feedPosts, config } = snap;
 
     const relevant = feedPosts
       .filter((p) =>
@@ -181,6 +196,12 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
       return { success: true };
     }
 
+    if (action.type === 'publish_post') {
+      await this.li.publishPost(p.draft);
+      await this.telegram.sendMessage(`LinkedIn post published:\n\n"${p.draft.slice(0, 300)}"`);
+      return { success: true, data: { published: true } };
+    }
+
     return { success: true };
   }
 
@@ -246,6 +267,45 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
         },
       },
     ];
+  }
+
+  private async decideTaskMode(config: LinkedInConfig, instructions: string, followupNote?: string): Promise<ProposedAction[]> {
+    const [alwaysOn, samples, blocklist, rejections] = await Promise.all([
+      this.kb.getAlwaysOnContext(this.key),
+      this.kb.getWritingSamples(this.key),
+      this.kb.getBlocklistRules(this.key),
+      this.kb.getRecentRejections(this.key, 3),
+    ]);
+    const template = await this.kb.getPromptTemplate(this.key);
+    const kbBlock = this.kb.buildKbPromptBlock({
+      voiceProfile: alwaysOn.find(e => e.entryType === 'voice_profile') ?? null,
+      facts: alwaysOn.filter(e => e.entryType === 'fact'),
+      references: [],
+      positiveSamples: samples.filter(s => s.polarity === 'positive'),
+      negativeSamples: samples.filter(s => s.polarity === 'negative'),
+      rejections,
+    });
+    const effectiveInstructions = followupNote ? `${instructions}\n\nAdditional note: ${followupNote}` : instructions;
+    const defaultSystem = `You are writing a LinkedIn post for a SaaS founder. Write engaging, authentic content that adds value. No hashtag spam. No corporate jargon. 150-300 words. Return just the post text, nothing else.`;
+    const response = await this.llm.complete({
+      messages: [
+        { role: 'system', content: (template?.system ?? defaultSystem) + kbBlock },
+        { role: 'user', content: effectiveInstructions },
+      ],
+      provider: config.llm.provider as any,
+      model: config.llm.model,
+      maxTokens: 600,
+    });
+    let draft = response.content.trim();
+    if (!draft) return [{ type: 'noop', summary: 'No draft generated.', payload: {}, riskLevel: 'low' }];
+    draft = await this.selfCritique(draft, alwaysOn.find(e => e.entryType === 'voice_profile')?.content, blocklist);
+    const violation = blocklist.find(p => draft.toLowerCase().includes(p.toLowerCase()));
+    return [{
+      type: 'publish_post',
+      summary: `LinkedIn post draft: "${draft.slice(0, 80)}"${violation ? ` - Blocklist: "${violation}"` : ''}`,
+      payload: { draft },
+      riskLevel: violation ? 'high' : 'medium',
+    }];
   }
 
   private async selfCritique(draft: string, voiceProfile?: string, blocklist?: string[]): Promise<string> {

@@ -30,6 +30,8 @@ interface RedditConfig {
 interface RedditSnapshot {
   newPosts: any[];
   config: RedditConfig;
+  taskMode?: boolean;
+  instructions?: string;
 }
 
 const DEFAULT_CONFIG: RedditConfig = {
@@ -64,6 +66,14 @@ export class RedditAgent implements IAgent, OnModuleInit {
 
   async buildContext(trigger: TriggerEvent, run: RunContext): Promise<AgentContext> {
     const config = await this.getConfig();
+    const payload = trigger.payload as Record<string, unknown> | null;
+    if (payload?._taskId) {
+      return {
+        source: trigger,
+        snapshot: { taskMode: true, instructions: (payload.instructions as string) ?? '', config, newPosts: [] },
+        followups: [],
+      };
+    }
 
     const trackedKeywords = await this.db.db
       .select()
@@ -97,7 +107,12 @@ export class RedditAgent implements IAgent, OnModuleInit {
   }
 
   async decide(ctx: AgentContext): Promise<ProposedAction[]> {
-    const { newPosts, config } = ctx.snapshot as RedditSnapshot;
+    const snap = ctx.snapshot as RedditSnapshot;
+    if (snap.taskMode) {
+      const followupNote = ctx.followups?.at(-1)?.text;
+      return this.decideTaskMode(snap.instructions ?? '', snap.config, followupNote);
+    }
+    const { newPosts, config } = snap;
     if (!newPosts.length) return [{ type: 'noop', summary: 'No new Reddit mentions.', payload: {}, riskLevel: 'low' }];
 
     const [alwaysOn, samples, blocklist, rejections] = await Promise.all([
@@ -269,6 +284,45 @@ export class RedditAgent implements IAgent, OnModuleInit {
       .onConflictDoNothing()
       .returning();
     return row;
+  }
+
+  private async decideTaskMode(instructions: string, config: RedditConfig, followupNote?: string): Promise<ProposedAction[]> {
+    const [alwaysOn, samples, blocklist, rejections] = await Promise.all([
+      this.kb.getAlwaysOnContext(this.key),
+      this.kb.getWritingSamples(this.key),
+      this.kb.getBlocklistRules(this.key),
+      this.kb.getRecentRejections(this.key, 3),
+    ]);
+    const template = await this.kb.getPromptTemplate(this.key);
+    const kbBlock = this.kb.buildKbPromptBlock({
+      voiceProfile: alwaysOn.find(e => e.entryType === 'voice_profile') ?? null,
+      facts: alwaysOn.filter(e => e.entryType === 'fact'),
+      references: [],
+      positiveSamples: samples.filter(s => s.polarity === 'positive'),
+      negativeSamples: samples.filter(s => s.polarity === 'negative'),
+      rejections,
+    });
+    const effectiveInstructions = followupNote ? `${instructions}\n\nAdditional note: ${followupNote}` : instructions;
+    const defaultSystem = `You are writing a Reddit comment. Tone: ${config.commentTone}. 2-3 sentences max. Must add genuine value. No links. No self-promotion. Just the comment text.`;
+    const response = await this.llm.complete({
+      messages: [
+        { role: 'system', content: (template?.system ?? defaultSystem) + kbBlock },
+        { role: 'user', content: effectiveInstructions },
+      ],
+      provider: config.llm.provider as any,
+      model: config.llm.model,
+      maxTokens: 200,
+    });
+    let draft = response.content.trim();
+    if (!draft) return [{ type: 'noop', summary: 'No draft generated.', payload: {}, riskLevel: 'low' }];
+    draft = await this.selfCritique(draft, alwaysOn.find(e => e.entryType === 'voice_profile')?.content, blocklist);
+    const violation = blocklist.find(p => draft.toLowerCase().includes(p.toLowerCase()));
+    return [{
+      type: 'post_comment',
+      summary: `Reddit comment draft: "${draft.slice(0, 80)}"${violation ? ` - Blocklist: "${violation}"` : ''}`,
+      payload: { threadId: '', subreddit: '', title: instructions.slice(0, 60), url: '', comment: draft },
+      riskLevel: violation ? 'high' : 'medium',
+    }];
   }
 
   private async selfCritique(draft: string, voiceProfile?: string, blocklist?: string[]): Promise<string> {

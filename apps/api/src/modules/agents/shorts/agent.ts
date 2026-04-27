@@ -30,6 +30,8 @@ interface ShortsConfig {
 
 interface ShortsSnapshot {
   config: ShortsConfig;
+  taskMode?: boolean;
+  instructions?: string;
 }
 
 interface ShortScript {
@@ -94,11 +96,21 @@ export class ShortsAgent implements IAgent, OnModuleInit {
 
   async buildContext(trigger: TriggerEvent, _run: RunContext): Promise<AgentContext> {
     const config = await this.getConfig();
+    const payload = trigger.payload as Record<string, unknown> | null;
+    if (payload?._taskId) {
+      return {
+        source: trigger,
+        snapshot: { taskMode: true, instructions: (payload.instructions as string) ?? '', config },
+        followups: [],
+      };
+    }
     return { source: trigger, snapshot: { config }, followups: [] };
   }
 
   async decide(ctx: AgentContext): Promise<ProposedAction[]> {
-    const { config } = ctx.snapshot as ShortsSnapshot;
+    const snap = ctx.snapshot as ShortsSnapshot;
+    const { config } = snap;
+    const topicOverride = snap.taskMode ? snap.instructions : undefined;
 
     const [alwaysOn, samples, rejections] = await Promise.all([
       this.kb.getAlwaysOnContext(this.key),
@@ -107,8 +119,8 @@ export class ShortsAgent implements IAgent, OnModuleInit {
     ]);
     const template = await this.kb.getPromptTemplate(this.key);
 
-    const topicList = config.topics.join(', ');
-    const searchQuery = `YouTube Shorts content ${config.brands.join(' ')} ${config.topics[0]}`;
+    const topicList = topicOverride ?? config.topics.join(', ');
+    const searchQuery = topicOverride ?? `YouTube Shorts content ${config.brands.join(' ')} ${config.topics[0]}`;
     const references = await this.kb.searchEntries(searchQuery, this.key, 5);
 
     const kbBlock = this.kb.buildKbPromptBlock({
@@ -123,7 +135,14 @@ export class ShortsAgent implements IAgent, OnModuleInit {
     const baseSystem = template?.system
       ?? SHORTS_SYSTEM.replace('${0}', String(config.targetDurationSecs));
 
-    const userPrompt = `Generate ${config.videosPerRun} YouTube Shorts scripts.
+    const userPrompt = topicOverride
+      ? `Generate ${config.videosPerRun} YouTube Shorts scripts on this topic/style: ${topicOverride}
+Brands: ${config.brands.join(', ')}
+Duration: ~${config.targetDurationSecs} seconds each
+Style: ${config.contentStyle}
+
+Return a JSON array of ${config.videosPerRun} script objects. No markdown, no explanation — only the JSON array.`
+      : `Generate ${config.videosPerRun} YouTube Shorts scripts.
 Topics to choose from: ${topicList}
 Brands: ${config.brands.join(', ')}
 Duration: ~${config.targetDurationSecs} seconds each
