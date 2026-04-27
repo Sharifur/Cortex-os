@@ -25,6 +25,7 @@ interface CrispConfig {
   replyTone: string;
   productContext: string;
   maxConversationsPerRun: number;
+  autoReply: boolean;
   llm: { provider: string; model: string };
 }
 
@@ -38,6 +39,7 @@ const DEFAULT_CONFIG: CrispConfig = {
   replyTone: 'friendly, concise, and helpful — like a knowledgeable founder replying to a customer',
   productContext: 'Taskip is a project management SaaS for teams.',
   maxConversationsPerRun: 10,
+  autoReply: true,
   llm: { provider: 'auto', model: 'gpt-4o-mini' },
 };
 
@@ -76,22 +78,26 @@ export class CrispAgent implements IAgent, OnModuleInit {
     if (trigger.type === 'WEBHOOK' && trigger.payload) {
       const msg = this.crisp.parseWebhookMessage(trigger.payload);
       if (msg) {
-        const existing = await this.db.db
-          .select()
+        const [existing] = await this.db.db
+          .select({ lastMessage: crispConversations.lastMessage })
           .from(crispConversations)
           .where(eq(crispConversations.sessionId, msg.sessionId))
           .limit(1);
-        if (!existing.length) newMessages.push(msg);
+        if (!existing || existing.lastMessage !== msg.content) {
+          newMessages.push(msg);
+        }
       }
     } else {
       const conversations = await this.crisp.getOpenConversations(config.maxConversationsPerRun);
       for (const conv of conversations) {
-        const existing = await this.db.db
-          .select()
+        const [existing] = await this.db.db
+          .select({ lastMessage: crispConversations.lastMessage })
           .from(crispConversations)
           .where(eq(crispConversations.sessionId, conv.sessionId))
           .limit(1);
-        if (!existing.length) newMessages.push(conv);
+        if (!existing || existing.lastMessage !== conv.content) {
+          newMessages.push(conv);
+        }
       }
     }
 
@@ -170,6 +176,7 @@ export class CrispAgent implements IAgent, OnModuleInit {
         // Blocklist check
         const violation = blocklist.find(p => draft.toLowerCase().includes(p.toLowerCase()));
 
+        const receivedAt = new Date(msg.timestamp ? msg.timestamp * 1000 : Date.now());
         await this.db.db
           .insert(crispConversations)
           .values({
@@ -179,16 +186,26 @@ export class CrispAgent implements IAgent, OnModuleInit {
             visitorNickname: msg.visitorNickname ?? null,
             lastMessage: msg.content.slice(0, 2000),
             draftReply: draft,
-            receivedAt: new Date(msg.timestamp ? msg.timestamp * 1000 : Date.now()),
+            status: 'new',
+            receivedAt,
           })
-          .onConflictDoNothing();
+          .onConflictDoUpdate({
+            target: crispConversations.sessionId,
+            set: {
+              lastMessage: msg.content.slice(0, 2000),
+              draftReply: draft,
+              status: 'new',
+              receivedAt,
+              repliedAt: null,
+            },
+          });
 
         const visitorLabel = msg.visitorNickname ?? msg.visitorEmail ?? msg.sessionId.slice(-8);
 
         actions.push({
           type: 'send_reply',
           summary: `Reply to ${visitorLabel}: "${draft.slice(0, 80)}"${violation ? ` [Blocklist: "${violation}"]` : ''}`,
-          payload: { sessionId: msg.sessionId, visitorLabel, message: msg.content, draft },
+          payload: { sessionId: msg.sessionId, visitorLabel, message: msg.content, draft, autoReply: config.autoReply ?? true },
           riskLevel: violation ? 'high' : 'medium',
         });
       } catch (err) {
@@ -202,7 +219,10 @@ export class CrispAgent implements IAgent, OnModuleInit {
   }
 
   requiresApproval(action: ProposedAction): boolean {
-    return action.type === 'send_reply';
+    if (action.type === 'send_reply') {
+      return !(action.payload as any).autoReply;
+    }
+    return false;
   }
 
   async execute(action: ProposedAction): Promise<ActionResult> {
@@ -216,7 +236,7 @@ export class CrispAgent implements IAgent, OnModuleInit {
         .set({ status: 'replied', repliedAt: new Date() })
         .where(eq(crispConversations.sessionId, p.sessionId));
       await this.telegram.sendMessage(
-        `Crisp reply sent to ${p.visitorLabel}\n\nCustomer: "${p.message.slice(0, 200)}"\n\nReply: "${p.draft}"`,
+        `Crisp [auto-sent] to ${p.visitorLabel}\n\nCustomer: "${p.message.slice(0, 200)}"\n\nReply: "${p.draft}"`,
       );
       return { success: true, data: { sessionId: p.sessionId } };
     }
