@@ -25,4 +25,4 @@ COPY --from=builder /app/apps/api/drizzle ./drizzle
 ENV NODE_ENV=production
 EXPOSE 3000
 
-CMD ["node", "dist/main"]
+CMD ["sh", "-c", "node -r dotenv/config dist/src/migrate && node -r dotenv/config dist/src/main"]
