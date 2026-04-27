@@ -45,6 +45,17 @@ const OPENAI_EMBEDDING_MODELS = [
   { label: 'text-embedding-3-small', value: 'text-embedding-3-small' },
 ];
 
+const GEMINI_TEXT_MODELS = [
+  { label: 'Gemini 3.1 Pro', value: 'gemini-3.1-pro' },
+  { label: 'Gemini 3.1 Flash', value: 'gemini-3.1-flash' },
+  { label: 'Gemini 3.1 Flash-Lite', value: 'gemini-3.1-flash-lite' },
+  { label: 'Gemini 2.5 Pro', value: 'gemini-2.5-pro' },
+  { label: 'Gemini 2.5 Flash', value: 'gemini-2.5-flash' },
+  { label: 'Gemini 2.5 Flash-Lite', value: 'gemini-2.5-flash-lite' },
+  { label: 'Gemini 2.0 Flash', value: 'gemini-2.0-flash' },
+  { label: 'Gemini 2.0 Pro', value: 'gemini-2.0-pro' },
+];
+
 const DEFAULT_PROVIDER_OPTIONS = [
   { value: 'auto', label: 'Auto (fallback chain)', desc: 'OpenAI → Gemini → DeepSeek' },
   { value: 'openai', label: 'OpenAI' },
@@ -244,6 +255,7 @@ function DefaultProviderSelector({ current, token }: { current: string; token: s
 const MODEL_SELECT_KEYS: Record<string, { label: string; value: string }[]> = {
   openai_default_model: OPENAI_TEXT_MODELS,
   openai_embedding_model: OPENAI_EMBEDDING_MODELS,
+  gemini_default_model: GEMINI_TEXT_MODELS,
 };
 
 function LlmTab({ rows, token }: { rows: SettingRow[]; token: string }) {
