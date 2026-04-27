@@ -133,8 +133,11 @@ export class SocialAgent implements IAgent, OnModuleInit {
           maxTokens: 100,
         });
 
-        const draft = response.content.trim();
+        let draft = response.content.trim();
         if (!draft) continue;
+
+        draft = await this.selfCritique(draft, alwaysOn.find(e => e.entryType === 'voice_profile')?.content, blocklist);
+        const violation = blocklist.find(p => draft.toLowerCase().includes(p.toLowerCase()));
 
         await this.db.db
           .update(socialEngagements)
@@ -143,9 +146,9 @@ export class SocialAgent implements IAgent, OnModuleInit {
 
         actions.push({
           type: eng.type === 'dm' ? 'reply_to_dm' : 'reply_to_comment',
-          summary: `Reply to @${eng.fromUser} (${eng.platform} ${eng.type}): "${draft.slice(0, 60)}"`,
+          summary: `Reply to @${eng.fromUser} (${eng.platform} ${eng.type}): "${draft.slice(0, 60)}"${violation ? ` - Blocklist: "${violation}"` : ''}`,
           payload: { engagementId: eng.id, platform: eng.platform, fromUser: eng.fromUser, originalBody: eng.body, draft },
-          riskLevel: eng.type === 'dm' ? 'high' : 'medium',
+          riskLevel: violation ? 'high' : eng.type === 'dm' ? 'high' : 'medium',
         });
       } catch (err) {
         this.logger.warn(`Failed to draft reply: ${err}`);
@@ -265,6 +268,32 @@ export class SocialAgent implements IAgent, OnModuleInit {
         },
       },
     ];
+  }
+
+  private async selfCritique(draft: string, voiceProfile?: string, blocklist?: string[]): Promise<string> {
+    try {
+      const critique = await this.llm.complete({
+        messages: [
+          {
+            role: 'system',
+            content: `You are a strict editor. Review this social media reply draft.
+Voice: ${voiceProfile ?? 'friendly, professional, adds value'}
+Avoid: ${blocklist?.join(', ') || 'none specified'}
+If the draft is good, return: {"ok":true}
+If not, rewrite and return: {"ok":false,"revised":"improved reply here"}`,
+          },
+          { role: 'user', content: `Draft: "${draft}"` },
+        ],
+        provider: 'auto',
+        model: 'gpt-4o-mini',
+        maxTokens: 150,
+      });
+      const result = JSON.parse(critique.content);
+      if (!result.ok && result.revised) return result.revised.trim();
+    } catch {
+      // fail-open
+    }
+    return draft;
   }
 
   private async getConfig(): Promise<SocialConfig> {

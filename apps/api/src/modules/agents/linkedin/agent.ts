@@ -121,8 +121,11 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
           maxTokens: 120,
         });
 
-        const comment = response.content.trim();
+        let comment = response.content.trim();
         if (!comment) continue;
+
+        comment = await this.selfCritique(comment, alwaysOn.find(e => e.entryType === 'voice_profile')?.content, blocklist);
+        const violation = blocklist.find(p => comment.toLowerCase().includes(p.toLowerCase()));
 
         await this.db.db
           .insert(linkedinPosts)
@@ -136,9 +139,9 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
 
         actions.push({
           type: 'post_comment',
-          summary: `Comment on ${post.authorName}'s post: "${comment.slice(0, 80)}"`,
+          summary: `Comment on ${post.authorName}'s post: "${comment.slice(0, 80)}"${violation ? ` - Blocklist: "${violation}"` : ''}`,
           payload: { postId: post.id, authorName: post.authorName, comment },
-          riskLevel: 'medium',
+          riskLevel: violation ? 'high' : 'medium',
         });
       } catch (err) {
         this.logger.warn(`Failed to draft LinkedIn comment: ${err}`);
@@ -243,6 +246,32 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
         },
       },
     ];
+  }
+
+  private async selfCritique(draft: string, voiceProfile?: string, blocklist?: string[]): Promise<string> {
+    try {
+      const critique = await this.llm.complete({
+        messages: [
+          {
+            role: 'system',
+            content: `You are a strict editor. Review this LinkedIn comment draft.
+Voice: ${voiceProfile ?? 'professional, concise, adds value'}
+Avoid: ${blocklist?.join(', ') || 'none specified'}
+If the draft is good, return: {"ok":true}
+If not, rewrite and return: {"ok":false,"revised":"improved comment here"}`,
+          },
+          { role: 'user', content: `Draft: "${draft}"` },
+        ],
+        provider: 'auto',
+        model: 'gpt-4o-mini',
+        maxTokens: 200,
+      });
+      const result = JSON.parse(critique.content);
+      if (!result.ok && result.revised) return result.revised.trim();
+    } catch {
+      // fail-open
+    }
+    return draft;
   }
 
   private async getConfig(): Promise<LinkedInConfig> {

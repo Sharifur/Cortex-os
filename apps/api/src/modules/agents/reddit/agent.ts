@@ -139,8 +139,11 @@ export class RedditAgent implements IAgent, OnModuleInit {
           maxTokens: 150,
         });
 
-        const comment = response.content.trim();
+        let comment = response.content.trim();
         if (!comment) continue;
+
+        comment = await this.selfCritique(comment, alwaysOn.find(e => e.entryType === 'voice_profile')?.content, blocklist);
+        const violation = blocklist.find(p => comment.toLowerCase().includes(p.toLowerCase()));
 
         await this.db.db
           .insert(redditThreads)
@@ -156,9 +159,9 @@ export class RedditAgent implements IAgent, OnModuleInit {
 
         actions.push({
           type: 'post_comment',
-          summary: `Reply in r/${post.subreddit}: "${post.title.slice(0, 60)}"`,
+          summary: `Reply in r/${post.subreddit}: "${post.title.slice(0, 60)}"${violation ? ` - Blocklist: "${violation}"` : ''}`,
           payload: { threadId: post.id, subreddit: post.subreddit, title: post.title, url: post.url, comment },
-          riskLevel: 'medium',
+          riskLevel: violation ? 'high' : 'medium',
         });
       } catch (err) {
         this.logger.warn(`Failed to draft Reddit comment: ${err}`);
@@ -266,6 +269,32 @@ export class RedditAgent implements IAgent, OnModuleInit {
       .onConflictDoNothing()
       .returning();
     return row;
+  }
+
+  private async selfCritique(draft: string, voiceProfile?: string, blocklist?: string[]): Promise<string> {
+    try {
+      const critique = await this.llm.complete({
+        messages: [
+          {
+            role: 'system',
+            content: `You are a strict editor. Review this Reddit comment draft.
+Voice: ${voiceProfile ?? 'helpful, genuine, no promotion'}
+Avoid: ${blocklist?.join(', ') || 'none specified'}
+If the draft is good, return: {"ok":true}
+If not, rewrite and return: {"ok":false,"revised":"improved comment here"}`,
+          },
+          { role: 'user', content: `Draft: "${draft}"` },
+        ],
+        provider: 'auto',
+        model: 'gpt-4o-mini',
+        maxTokens: 200,
+      });
+      const result = JSON.parse(critique.content);
+      if (!result.ok && result.revised) return result.revised.trim();
+    } catch {
+      // fail-open
+    }
+    return draft;
   }
 
   private async getConfig(): Promise<RedditConfig> {

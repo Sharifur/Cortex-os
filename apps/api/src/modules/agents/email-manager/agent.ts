@@ -164,7 +164,9 @@ export class EmailManagerAgent implements IAgent, OnModuleInit {
           negativeSamples: samples.filter(s => s.polarity === 'negative'),
           rejections,
         });
-        const draft = await this.draftReply(msg, config, template?.system, kbBlock);
+        let draft = await this.draftReply(msg, config, template?.system, kbBlock);
+        draft = await this.selfCritique(draft, alwaysOn.find(e => e.entryType === 'voice_profile')?.content, blocklist);
+        const violation = blocklist.find(p => draft.toLowerCase().includes(p.toLowerCase()));
 
         await this.db.db
           .update(emailItems)
@@ -173,7 +175,7 @@ export class EmailManagerAgent implements IAgent, OnModuleInit {
 
         actions.push({
           type: 'send_reply',
-          summary: `Reply to "${msg.subject}" from ${msg.from}`,
+          summary: `Reply to "${msg.subject}" from ${msg.from}${violation ? ` - Blocklist: "${violation}"` : ''}`,
           payload: {
             messageId: msg.id,
             threadId: msg.threadId,
@@ -181,7 +183,7 @@ export class EmailManagerAgent implements IAgent, OnModuleInit {
             subject: msg.subject,
             draft,
           },
-          riskLevel: 'medium',
+          riskLevel: violation ? 'high' : 'medium',
         });
       } else {
         // nice-to-reply — notify only
@@ -423,6 +425,32 @@ export class EmailManagerAgent implements IAgent, OnModuleInit {
       temperature: 0.7,
     });
     return res.content.trim();
+  }
+
+  private async selfCritique(draft: string, voiceProfile?: string, blocklist?: string[]): Promise<string> {
+    try {
+      const critique = await this.llm.complete({
+        messages: [
+          {
+            role: 'system',
+            content: `You are a strict editor. Review this email reply draft.
+Voice: ${voiceProfile ?? 'warm, direct, under 100 words'}
+Avoid: ${blocklist?.join(', ') || 'none specified'}
+If the draft is good, return: {"ok":true}
+If not, rewrite and return: {"ok":false,"revised":"improved reply here"}`,
+          },
+          { role: 'user', content: `Draft: "${draft}"` },
+        ],
+        provider: 'auto',
+        model: 'gpt-4o-mini',
+        maxTokens: 250,
+      });
+      const result = JSON.parse(critique.content);
+      if (!result.ok && result.revised) return result.revised.trim();
+    } catch {
+      // fail-open
+    }
+    return draft;
   }
 
   private async getConfig(): Promise<EmailManagerConfig> {
