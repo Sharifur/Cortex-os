@@ -1755,6 +1755,76 @@ function SettingsTab({ agent, token }: { agent: AgentDetail; token: string }) {
     } />
   );
 
+  if (agent.key === 'hr') return (
+    <Phase4SettingsTab agent={agent} token={token} setupContent={
+      <Phase4SetupSubTab
+        agent={agent}
+        title="HR Manager Agent — Setup Checklist"
+        description="Generates monthly salary sheets on the 25th, processes leave requests, and sends daily alerts for probation endings and contract expirations."
+        steps={<>
+          <SetupStep n={1} title="Add employees" done={agent.registered}>
+            <p>Use the API route <code className="bg-muted px-1 rounded">POST /hr/leave-request</code> to submit leave requests, or add employees directly via the DB.</p>
+            <p className="mt-1">Employee fields: name, email, role, salary, joinedAt, probationUntil, contractEndsAt, leaveBalance.</p>
+          </SetupStep>
+          <SetupStep n={2} title="Configure company settings" done={false}>
+            <p>In Config JSON set <code className="bg-muted px-1 rounded">companyName</code>, <code className="bg-muted px-1 rounded">currency</code> (default: BDT), and <code className="bg-muted px-1 rounded">workingDaysPerMonth</code>.</p>
+          </SetupStep>
+          <SetupStep n={3} title="Enable and test" done={agent.enabled}>
+            <p>Enable and trigger manually. The agent will scan for HR alerts and pending leave requests, then send Telegram approvals.</p>
+            <p className="mt-1">Salary sheet is auto-triggered on the 25th of each month.</p>
+          </SetupStep>
+        </>}
+      />
+    } />
+  );
+
+  if (agent.key === 'social') return (
+    <Phase4SettingsTab agent={agent} token={token} setupContent={
+      <Phase4SetupSubTab
+        agent={agent}
+        title="Social Media Handler — Setup Checklist"
+        description="Publishes scheduled posts and drafts replies to comments/DMs across FB, IG, X, and LinkedIn for Taskip and Xgenious."
+        steps={<>
+          <SetupStep n={1} title="Schedule posts" done={agent.registered}>
+            <p>Use <code className="bg-muted px-1 rounded">POST /social/schedule</code> to queue posts:</p>
+            <code className="bg-muted px-1.5 py-0.5 rounded block mt-1 text-xs">
+              {"{ brand, platform, postBody, mediaUrls, scheduledFor }"}
+            </code>
+            <p className="mt-1">The agent publishes due posts on each hourly sweep.</p>
+          </SetupStep>
+          <SetupStep n={2} title="Push incoming engagements" done={false}>
+            <p>POST comments/DMs to <code className="bg-muted px-1 rounded">POST /social/engagement</code> from your social platform webhooks.</p>
+            <p className="mt-1">The agent drafts replies every 30 minutes and sends them to Telegram for approval.</p>
+          </SetupStep>
+          <SetupStep n={3} title="Enable and test" done={agent.enabled}>
+            <p>Enable and schedule a test post. Trigger manually to see the agent pick it up and request Telegram approval.</p>
+          </SetupStep>
+        </>}
+      />
+    } />
+  );
+
+  if (agent.key === 'canva') return (
+    <Phase4SettingsTab agent={agent} token={token} setupContent={
+      <Phase4SetupSubTab
+        agent={agent}
+        title="Canva + Social Content Agent — Setup Checklist"
+        description="Generates a 30-idea monthly content calendar on the 1st of each month. Approved ideas can be turned into Canva designs and reel scripts."
+        steps={<>
+          <SetupStep n={1} title="Set brand voice and targets" done={false}>
+            <p>In Config JSON set <code className="bg-muted px-1 rounded">brandVoice</code> (how your brand sounds), <code className="bg-muted px-1 rounded">brands</code> (array), <code className="bg-muted px-1 rounded">formats</code> (carousel, reel, post, etc.), and <code className="bg-muted px-1 rounded">targetCount</code> (default 30).</p>
+          </SetupStep>
+          <SetupStep n={2} title="Enable and test" done={agent.enabled}>
+            <p>Enable and trigger manually. The agent generates a full calendar and sends it to Telegram as a single batch approval.</p>
+          </SetupStep>
+          <SetupStep n={3} title="Design approved ideas" done={false}>
+            <p>After approving the calendar, use the MCP tool <code className="bg-muted px-1 rounded">draft_reel_script</code> to generate scripts, or connect Canva via the MCP page to auto-create designs.</p>
+          </SetupStep>
+        </>}
+      />
+    } />
+  );
+
   if (agent.key === 'crisp') return (
     <Phase4SettingsTab agent={agent} token={token} setupContent={
       <Phase4SetupSubTab

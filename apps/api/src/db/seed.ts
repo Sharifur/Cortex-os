@@ -6,6 +6,43 @@ import * as bcrypt from 'bcrypt';
 
 const AGENT_SEEDS = [
   {
+    key: 'hr',
+    name: 'HR Manager Agent',
+    description: 'Generates salary sheets on the 25th, processes leave requests, and sends daily HR alerts (probation endings, contract expirations).',
+    enabled: false,
+    config: {
+      companyName: 'Xgenious',
+      currency: 'BDT',
+      workingDaysPerMonth: 26,
+      llm: { provider: 'auto', model: 'gpt-4o-mini' },
+    },
+  },
+  {
+    key: 'social',
+    name: 'Social Media Handler',
+    description: 'Publishes scheduled posts and drafts replies to comments/DMs across FB, IG, X, and LinkedIn for Taskip and Xgenious.',
+    enabled: false,
+    config: {
+      brands: ['taskip', 'xgenious'],
+      platforms: ['fb', 'ig', 'x', 'linkedin'],
+      replyTone: 'friendly, professional, adds value — never salesy',
+      llm: { provider: 'auto', model: 'gpt-4o-mini' },
+    },
+  },
+  {
+    key: 'canva',
+    name: 'Canva + Social Content Agent',
+    description: 'Generates a 30-idea monthly content calendar on the 1st of each month and creates Canva designs for approved ideas.',
+    enabled: false,
+    config: {
+      brands: ['taskip', 'xgenious'],
+      formats: ['carousel', 'reel', 'post', 'story', 'youtube'],
+      targetCount: 30,
+      brandVoice: 'educational, relatable, and slightly witty — for SaaS founders and project managers',
+      llm: { provider: 'openai', model: 'gpt-4o' },
+    },
+  },
+  {
     key: 'crisp',
     name: 'Crisp AI Agent',
     description: 'Monitors open Crisp chat conversations every 15 minutes, drafts AI replies, and sends them to Telegram for approval before posting.',
