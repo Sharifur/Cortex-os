@@ -9,6 +9,7 @@ import { AgentsModule } from '../agents.module';
 import { LlmModule } from '../../llm/llm.module';
 import { TelegramModule } from '../../telegram/telegram.module';
 import { GmailModule } from '../../gmail/gmail.module';
+import { SettingsModule } from '../../settings/settings.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { GmailModule } from '../../gmail/gmail.module';
     LlmModule,
     TelegramModule,
     GmailModule,
+    SettingsModule,
     BullModule.registerQueue({ name: TASKIP_EMAIL_SWEEP_QUEUE }),
   ],
   providers: [

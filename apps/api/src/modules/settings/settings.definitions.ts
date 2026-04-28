@@ -2,7 +2,7 @@ export interface SettingDefinition {
   label: string;
   description?: string;
   isSecret: boolean;
-  group: 'llm' | 'telegram' | 'ses' | 'gmail' | 'whatsapp' | 'linkedin' | 'reddit' | 'crisp' | 'license' | 'storage';
+  group: 'llm' | 'telegram' | 'ses' | 'gmail' | 'whatsapp' | 'linkedin' | 'reddit' | 'crisp' | 'license' | 'storage' | 'insight';
   defaultValue?: string;
   provider?: 'openai' | 'gemini' | 'deepseek' | 'general';
 }
@@ -293,5 +293,25 @@ export const SETTING_DEFINITIONS: Record<string, SettingDefinition> = {
     isSecret: false,
     group: 'storage',
     defaultValue: 'true',
+  },
+
+  // Taskip Insight API
+  insight_base_url: {
+    label: 'Base URL',
+    description: 'e.g. https://taskip.net/api/internal/insight',
+    isSecret: false,
+    group: 'insight',
+  },
+  insight_agent_key_primary: {
+    label: 'Agent Key — Primary',
+    description: 'Sent in X-Insight-Agent-Key header',
+    isSecret: true,
+    group: 'insight',
+  },
+  insight_agent_key_secondary: {
+    label: 'Agent Key — Secondary (rotation)',
+    description: 'Optional. Used as fallback during zero-downtime key rotation',
+    isSecret: true,
+    group: 'insight',
   },
 };

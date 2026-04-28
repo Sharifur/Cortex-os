@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Cable, Save, Trash2, Eye, EyeOff, Key, Send, Mail, Copy, Check,
   ExternalLink, MessageSquare, Linkedin, Hash, Bot, FlaskConical,
-  CheckCircle2, XCircle, Loader2, Plus, Globe, ToggleLeft, ToggleRight, Database,
+  CheckCircle2, XCircle, Loader2, Plus, Globe, ToggleLeft, ToggleRight, Database, Sparkles,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -31,6 +31,7 @@ const TABS = [
   { key: 'gmail', label: 'Gmail', icon: <Mail className="w-4 h-4" /> },
   { key: 'license', label: 'License Server', icon: <Key className="w-4 h-4" /> },
   { key: 'storage', label: 'Storage (R2)', icon: <Database className="w-4 h-4" /> },
+  { key: 'insight', label: 'Taskip Insight', icon: <Sparkles className="w-4 h-4" /> },
 ];
 
 async function fetchSettings(token: string): Promise<SettingRow[]> {
@@ -835,6 +836,53 @@ function LicenseTab({ rows, token }: { rows: SettingRow[]; token: string }) {
   );
 }
 
+function InsightTab({ rows, token }: { rows: SettingRow[]; token: string }) {
+  return (
+    <IntegrationLayout
+      integrationKey="insight"
+      rows={rows}
+      token={token}
+      docs={
+        <>
+          <h2 className="text-sm font-semibold mb-4">Taskip Insight API</h2>
+          <p className="text-xs text-muted-foreground mb-4">
+            Server-to-server integration with Taskip's Insight module. The Taskip Internal agent uses these
+            credentials to read cohort segmentation, workspace overviews (with volume metrics + session blocks),
+            and write back marketing suggestions.
+          </p>
+          <div className="space-y-4">
+            <SetupStep n={1} title="Get the agent key from the Taskip backend">
+              <p>
+                In Taskip, set <code className="bg-muted px-1 rounded">INSIGHT_AGENT_KEY_PRIMARY</code> (and optionally
+                <code className="bg-muted px-1 rounded">INSIGHT_AGENT_KEY_SECONDARY</code> for zero-downtime rotation).
+                Copy the same value here.
+              </p>
+            </SetupStep>
+            <SetupStep n={2} title="Set the base URL">
+              <p>
+                Format: <code className="bg-muted px-1 rounded">https://taskip.net/api/internal/insight</code>.
+                Trailing slash is stripped automatically.
+              </p>
+            </SetupStep>
+            <SetupStep n={3} title="Test the connection">
+              <p>
+                Open <strong>Agents → Taskip Internal → Setup</strong> and use the <strong>Test connection</strong> button
+                with a sample workspace UUID. A reachable response shows the schema version (currently <code className="bg-muted px-1 rounded">1</code>).
+              </p>
+            </SetupStep>
+            <SetupStep n={4} title="Rotation procedure">
+              <p>
+                When rotating: paste the new key into the <strong>Secondary</strong> slot (both keys are accepted),
+                deploy Taskip with the new key as primary, then promote the secondary into the primary slot here and clear the secondary.
+              </p>
+            </SetupStep>
+          </div>
+        </>
+      }
+    />
+  );
+}
+
 function StorageTab({ rows, token }: { rows: SettingRow[]; token: string }) {
   return (
     <IntegrationLayout
@@ -951,6 +999,7 @@ export default function IntegrationsPage() {
           {activeTab === 'gmail' && <GmailTab rows={grouped['gmail'] ?? []} token={token} />}
           {activeTab === 'license' && <LicenseTab rows={grouped['license'] ?? []} token={token} />}
           {activeTab === 'storage' && <StorageTab rows={grouped['storage'] ?? []} token={token} />}
+          {activeTab === 'insight' && <InsightTab rows={grouped['insight'] ?? []} token={token} />}
         </>
       )}
     </div>

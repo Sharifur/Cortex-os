@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { randomUUID } from 'crypto';
+import { SettingsService } from '../../settings/settings.service';
 
 export type InsightCohort =
   | 'serious_trial'
@@ -140,20 +141,24 @@ export class InsightApiError extends Error {
 export class TaskipInsightService {
   private readonly logger = new Logger(TaskipInsightService.name);
 
-  private get baseUrl(): string | null {
-    const raw = process.env.INSIGHT_BASE_URL?.trim();
+  constructor(private readonly settings: SettingsService) {}
+
+  private async getBaseUrl(): Promise<string | null> {
+    const raw = (await this.settings.getDecrypted('insight_base_url'))?.trim();
     return raw ? raw.replace(/\/$/, '') : null;
   }
 
-  private get keys(): string[] {
-    return [
-      process.env.INSIGHT_AGENT_KEY_PRIMARY,
-      process.env.INSIGHT_AGENT_KEY_SECONDARY,
-    ].filter((k): k is string => typeof k === 'string' && k.length > 0);
+  private async getKeys(): Promise<string[]> {
+    const [primary, secondary] = await Promise.all([
+      this.settings.getDecrypted('insight_agent_key_primary'),
+      this.settings.getDecrypted('insight_agent_key_secondary'),
+    ]);
+    return [primary, secondary].filter((k): k is string => typeof k === 'string' && k.length > 0);
   }
 
-  isConfigured(): boolean {
-    return !!this.baseUrl && this.keys.length > 0;
+  async isConfigured(): Promise<boolean> {
+    const [base, keys] = await Promise.all([this.getBaseUrl(), this.getKeys()]);
+    return !!base && keys.length > 0;
   }
 
   async getOverview(workspaceUuid: string): Promise<InsightWorkspaceOverview> {
@@ -186,16 +191,21 @@ export class TaskipInsightService {
   }
 
   async status(probeWorkspaceUuid?: string): Promise<InsightStatus> {
+    const [base, primary, secondary] = await Promise.all([
+      this.getBaseUrl(),
+      this.settings.getDecrypted('insight_agent_key_primary'),
+      this.settings.getDecrypted('insight_agent_key_secondary'),
+    ]);
     const status: InsightStatus = {
-      configured: this.isConfigured(),
-      baseUrl: this.baseUrl,
-      hasPrimary: !!process.env.INSIGHT_AGENT_KEY_PRIMARY,
-      hasSecondary: !!process.env.INSIGHT_AGENT_KEY_SECONDARY,
+      configured: !!base && !!primary,
+      baseUrl: base,
+      hasPrimary: !!primary,
+      hasSecondary: !!secondary,
       reachable: false,
       schemaVersion: null,
     };
     if (!status.configured) {
-      status.error = 'INSIGHT_BASE_URL or INSIGHT_AGENT_KEY_PRIMARY not set';
+      status.error = 'Set Insight base URL and primary key in Settings → Insight';
       return status;
     }
     if (!probeWorkspaceUuid) {
@@ -222,15 +232,15 @@ export class TaskipInsightService {
   }
 
   private async rawRequest(method: 'GET' | 'POST', path: string, body?: unknown): Promise<{ status: number; headers: Headers; json: unknown }> {
-    if (!this.baseUrl) {
-      throw new InsightApiError(0, path, 'INSIGHT_BASE_URL not configured');
+    const [base, keys] = await Promise.all([this.getBaseUrl(), this.getKeys()]);
+    if (!base) {
+      throw new InsightApiError(0, path, 'Insight base URL not configured (Settings → Insight)');
     }
-    const keys = this.keys;
     if (keys.length === 0) {
-      throw new InsightApiError(0, path, 'No INSIGHT_AGENT_KEY_PRIMARY/SECONDARY configured');
+      throw new InsightApiError(0, path, 'No Insight agent key configured (Settings → Insight)');
     }
 
-    const url = `${this.baseUrl}${path.startsWith('/') ? path : `/${path}`}`;
+    const url = `${base}${path.startsWith('/') ? path : `/${path}`}`;
     const requestId = randomUUID();
     let lastErr: InsightApiError | null = null;
 
