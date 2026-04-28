@@ -1,4 +1,5 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, Res } from '@nestjs/common';
+import { FastifyReply } from 'fastify';
 import { sql } from 'drizzle-orm';
 import IORedis from 'ioredis';
 import { Client as MinioClient } from 'minio';
@@ -20,7 +21,7 @@ export class HealthController {
   ) {}
 
   @Get()
-  async check() {
+  async check(@Res() reply: FastifyReply) {
     const checks: Record<string, ServiceCheck> = {};
 
     // Postgres
@@ -51,120 +52,80 @@ export class HealthController {
     }
 
     // Storage (Cloudflare R2 / MinIO) — settings take precedence over env vars
-    const [settingEndpoint, settingAccessKey, settingSecretKey, settingPort, settingUseSsl] = await Promise.all([
-      this.settings.getDecrypted('storage_endpoint'),
-      this.settings.getDecrypted('storage_access_key'),
-      this.settings.getDecrypted('storage_secret_key'),
-      this.settings.getDecrypted('storage_port'),
-      this.settings.getDecrypted('storage_use_ssl'),
-    ]);
-    const storageEndpoint = settingEndpoint || process.env.MINIO_ENDPOINT;
-    const storageAccessKey = settingAccessKey || process.env.MINIO_ACCESS_KEY;
-    const storageSecretKey = settingSecretKey || process.env.MINIO_SECRET_KEY;
-    if (!storageEndpoint || !storageAccessKey || !storageSecretKey) {
-      checks.storage = { status: 'not_configured', message: 'Storage credentials not configured' };
-    } else {
-      try {
-        const rawSsl = settingUseSsl ?? process.env.MINIO_USE_SSL;
-        const useSSL = rawSsl ? rawSsl === 'true' : true;
-        const rawPort = settingPort || process.env.MINIO_PORT;
-        const port = rawPort ? parseInt(rawPort) : (useSSL ? 443 : 9000);
-        const client = new MinioClient({
-          endPoint: storageEndpoint,
-          port,
-          useSSL,
-          accessKey: storageAccessKey,
-          secretKey: storageSecretKey,
-        });
-        await client.listBuckets();
-        checks.storage = { status: 'ok' };
-      } catch (err) {
-        checks.storage = { status: 'error', message: err instanceof Error ? err.message : String(err) };
+    try {
+      const [settingEndpoint, settingAccessKey, settingSecretKey, settingPort, settingUseSsl] = await Promise.all([
+        this.settings.getDecrypted('storage_endpoint'),
+        this.settings.getDecrypted('storage_access_key'),
+        this.settings.getDecrypted('storage_secret_key'),
+        this.settings.getDecrypted('storage_port'),
+        this.settings.getDecrypted('storage_use_ssl'),
+      ]);
+      const storageEndpoint = settingEndpoint || process.env.MINIO_ENDPOINT;
+      const storageAccessKey = settingAccessKey || process.env.MINIO_ACCESS_KEY;
+      const storageSecretKey = settingSecretKey || process.env.MINIO_SECRET_KEY;
+      if (!storageEndpoint || !storageAccessKey || !storageSecretKey) {
+        checks.storage = { status: 'not_configured', message: 'Storage credentials not configured' };
+      } else {
+        try {
+          const rawSsl = settingUseSsl ?? process.env.MINIO_USE_SSL;
+          const useSSL = rawSsl ? rawSsl === 'true' : true;
+          const rawPort = settingPort || process.env.MINIO_PORT;
+          const port = rawPort ? parseInt(rawPort) : (useSSL ? 443 : 9000);
+          const client = new MinioClient({
+            endPoint: storageEndpoint,
+            port,
+            useSSL,
+            accessKey: storageAccessKey,
+            secretKey: storageSecretKey,
+          });
+          await client.listBuckets();
+          checks.storage = { status: 'ok' };
+        } catch (err) {
+          checks.storage = { status: 'error', message: err instanceof Error ? err.message : String(err) };
+        }
       }
+    } catch (err) {
+      checks.storage = { status: 'error', message: `Settings read failed: ${err instanceof Error ? err.message : String(err)}` };
     }
 
     // LLM — at least one key present
-    const [openaiKey, geminiKey, deepseekKey] = await Promise.all([
-      this.settings.getDecrypted('openai_api_key'),
-      this.settings.getDecrypted('gemini_api_key'),
-      this.settings.getDecrypted('deepseek_api_key'),
-    ]);
-    checks.llm = openaiKey || geminiKey || deepseekKey
-      ? { status: 'ok', message: [openaiKey && 'OpenAI', geminiKey && 'Gemini', deepseekKey && 'DeepSeek'].filter(Boolean).join(', ') }
-      : { status: 'not_configured', message: 'No LLM API key set' };
+    try {
+      const [openaiKey, geminiKey, deepseekKey] = await Promise.all([
+        this.settings.getDecrypted('openai_api_key'),
+        this.settings.getDecrypted('gemini_api_key'),
+        this.settings.getDecrypted('deepseek_api_key'),
+      ]);
+      checks.llm = openaiKey || geminiKey || deepseekKey
+        ? { status: 'ok', message: [openaiKey && 'OpenAI', geminiKey && 'Gemini', deepseekKey && 'DeepSeek'].filter(Boolean).join(', ') }
+        : { status: 'not_configured', message: 'No LLM API key set' };
+    } catch {
+      checks.llm = { status: 'not_configured', message: 'Settings read failed' };
+    }
 
     // Telegram
-    const [tgToken, tgChatId] = await Promise.all([
-      this.settings.getDecrypted('telegram_bot_token'),
-      this.settings.getDecrypted('telegram_owner_chat_id'),
-    ]);
-    checks.telegram = tgToken && tgChatId
-      ? { status: 'ok' }
-      : { status: 'not_configured', message: !tgToken ? 'Bot token missing' : 'Owner chat ID missing' };
-
-    // Gmail
-    const [gmailId, gmailSecret, gmailToken] = await Promise.all([
-      this.settings.getDecrypted('gmail_client_id'),
-      this.settings.getDecrypted('gmail_client_secret'),
-      this.settings.getDecrypted('gmail_refresh_token'),
-    ]);
-    checks.gmail = gmailId && gmailSecret && gmailToken
-      ? { status: 'ok' }
-      : { status: 'not_configured' };
-
-    // WhatsApp
-    const [waToken, waPhoneId] = await Promise.all([
-      this.settings.getDecrypted('whatsapp_api_token'),
-      this.settings.getDecrypted('whatsapp_phone_number_id'),
-    ]);
-    checks.whatsapp = waToken && waPhoneId
-      ? { status: 'ok' }
-      : { status: 'not_configured' };
-
-    // LinkedIn (Unipile or direct token)
-    const [unipileKey, linkedinToken] = await Promise.all([
-      this.settings.getDecrypted('unipile_api_key'),
-      this.settings.getDecrypted('linkedin_access_token'),
-    ]);
-    checks.linkedin = unipileKey || linkedinToken
-      ? { status: 'ok', message: unipileKey ? 'via Unipile' : 'direct token' }
-      : { status: 'not_configured' };
-
-    // Reddit
-    const [redditId, redditSecret] = await Promise.all([
-      this.settings.getDecrypted('reddit_client_id'),
-      this.settings.getDecrypted('reddit_client_secret'),
-    ]);
-    checks.reddit = redditId && redditSecret
-      ? { status: 'ok' }
-      : { status: 'not_configured' };
-
-    // Crisp
-    const [crispSite, crispApiKey] = await Promise.all([
-      this.settings.getDecrypted('crisp_website_id'),
-      this.settings.getDecrypted('crisp_api_key'),
-    ]);
-    checks.crisp = crispSite && crispApiKey
-      ? { status: 'ok' }
-      : { status: 'not_configured' };
-
-    // SES (only AWS service used)
-    const [awsKey, awsSecret, awsRegion] = await Promise.all([
-      this.settings.getDecrypted('aws_access_key_id'),
-      this.settings.getDecrypted('aws_secret_access_key'),
-      this.settings.getDecrypted('aws_region'),
-    ]);
-    checks.ses = awsKey && awsSecret && awsRegion
-      ? { status: 'ok', message: awsRegion }
-      : { status: 'not_configured' };
+    try {
+      const [tgToken, tgChatId] = await Promise.all([
+        this.settings.getDecrypted('telegram_bot_token'),
+        this.settings.getDecrypted('telegram_owner_chat_id'),
+      ]);
+      checks.telegram = tgToken && tgChatId
+        ? { status: 'ok' }
+        : { status: 'not_configured', message: !tgToken ? 'Bot token missing' : 'Owner chat ID missing' };
+    } catch {
+      checks.telegram = { status: 'not_configured', message: 'Settings read failed' };
+    }
 
     const coreOk = checks.postgres?.status === 'ok' && checks.redis?.status === 'ok';
+    const coreConfigured =
+      checks.postgres?.status !== 'not_configured' && checks.redis?.status !== 'not_configured';
 
-    return {
+    const httpStatus = coreConfigured && !coreOk ? 503 : 200;
+
+    return reply.code(httpStatus).send({
       status: coreOk ? 'ok' : 'degraded',
       checks,
       uptime: Math.floor(process.uptime()),
       timestamp: new Date().toISOString(),
-    };
+    });
   }
 }

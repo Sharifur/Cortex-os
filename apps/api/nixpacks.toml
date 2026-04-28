@@ -1,0 +1,5 @@
+[phases.setup]
+nixPkgs = ['nodejs_22']
+
+[start]
+cmd = 'node dist/src/main'
