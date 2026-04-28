@@ -8,6 +8,7 @@ import {
 import { ValidationPipe } from '@nestjs/common';
 import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module';
+import { HtmlExceptionFilter } from './common/filters/html-exception.filter';
 import { AgentRunProcessor } from './modules/agents/runtime/processors/agent-run.processor';
 import { AgentExecuteProcessor } from './modules/agents/runtime/processors/agent-execute.processor';
 import { AgentFollowupProcessor } from './modules/agents/runtime/processors/agent-followup.processor';
@@ -25,6 +26,7 @@ async function bootstrap() {
   app.useGlobalPipes(
     new ValidationPipe({ transform: true, whitelist: true }),
   );
+  app.useGlobalFilters(new HtmlExceptionFilter());
 
   const port = parseInt(process.env.PORT ?? '3000');
   await app.listen(port, '0.0.0.0');
