@@ -55,6 +55,8 @@ import { PurchaseVerifyModule } from './modules/agents/purchase-verify/purchase-
         connection: new IORedis(process.env.REDIS_URL!, {
           maxRetriesPerRequest: null,
           enableReadyCheck: false,
+          connectTimeout: 3000,
+          lazyConnect: true,
         }),
       }),
     }),
