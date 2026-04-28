@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { Bot, LogOut, LayoutDashboard, Settings, Activity, User, KeyRound, ChevronDown, AlertTriangle, Plug, Cable, BookOpen, CheckSquare, HeartPulse, Radio } from 'lucide-react';
+import { Bot, LogOut, LayoutDashboard, Settings, Activity, User, KeyRound, ChevronDown, AlertTriangle, Plug, Cable, BookOpen, CheckSquare, HeartPulse, Radio, Mail } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 import { useQuery } from '@tanstack/react-query';
 
@@ -23,6 +23,7 @@ const NAV = [
   { to: '/agents', icon: <Bot className="w-4 h-4" />, label: 'Agents' },
   { to: '/knowledge-base', icon: <BookOpen className="w-4 h-4" />, label: 'Knowledge' },
   { to: '/tasks', icon: <CheckSquare className="w-4 h-4" />, label: 'Tasks' },
+  { to: '/inbox', icon: <Mail className="w-4 h-4" />, label: 'Inbox' },
   { to: '/approvals', icon: <AlertTriangle className="w-4 h-4" />, label: 'Approvals', badge: true },
   { to: '/integrations', icon: <Cable className="w-4 h-4" />, label: 'Integrations' },
   { to: '/mcp', icon: <Plug className="w-4 h-4" />, label: 'MCP' },

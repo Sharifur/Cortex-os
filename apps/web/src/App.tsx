@@ -16,6 +16,7 @@ import McpPage from '@/pages/McpPage';
 import IntegrationsPage from '@/pages/IntegrationsPage';
 import KnowledgeBasePage from '@/pages/KnowledgeBasePage';
 import TasksPage from '@/pages/TasksPage';
+import InboxPage from '@/pages/InboxPage';
 import HealthPage from '@/pages/HealthPage';
 import OpsPage from '@/pages/OpsPage';
 import AppLayout from '@/components/AppLayout';
@@ -50,6 +51,7 @@ export default function App() {
             <Route path="/agents/:key/runs" element={<AgentRunsPage />} />
             <Route path="/knowledge-base" element={<KnowledgeBasePage />} />
             <Route path="/tasks" element={<TasksPage />} />
+            <Route path="/inbox" element={<InboxPage />} />
             <Route path="/approvals" element={<ApprovalsPage />} />
             <Route path="/runs/:id" element={<RunDetailPage />} />
             <Route path="/mcp" element={<McpPage />} />
