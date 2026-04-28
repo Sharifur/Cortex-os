@@ -1425,7 +1425,7 @@ function TaskipInternalSetupSubTab({ agent }: { agent: AgentDetail }) {
         <h3 className="text-sm font-semibold mb-1">Taskip Internal — Setup Checklist</h3>
         <p className="text-xs text-muted-foreground mb-5">
           On-demand assistant for internal Taskip ops. Ask in plain English — it looks up users, subscriptions,
-          and invoices, then proposes write actions (extend trial, mark refund) for your Telegram approval.
+          and invoices, then proposes write actions (extend trial, mark refund, marketing suggestion) for your Telegram approval.
         </p>
         <div className="space-y-5">
 
@@ -1434,21 +1434,100 @@ function TaskipInternalSetupSubTab({ agent }: { agent: AgentDetail }) {
             <ul className="list-disc list-inside ml-1 mt-1 space-y-0.5">
               <li><em>Look up user john@example.com</em></li>
               <li><em>Show me the last 5 invoices for user abc-123</em></li>
-              <li><em>Extend the trial for john@example.com by 7 days</em></li>
+              <li><em>List at_risk_paid workspaces with score below 40</em></li>
+              <li><em>Drill into workspace acme and propose a retention outreach</em></li>
             </ul>
-            <p className="mt-1">The agent will query the DB and send the answer (or an approval request) to Telegram.</p>
+            <p className="mt-1">The agent will query the DB / Insight API and send the answer (or an approval request) to Telegram.</p>
           </SetupStep>
 
         </div>
       </div>
 
+      <TaskipInsightStatusCard />
+
       <div className="rounded-xl border border-border bg-muted/20 p-4">
         <p className="text-xs font-medium text-muted-foreground mb-1">Platform prerequisites</p>
         <p className="text-xs text-muted-foreground">
           Requires <code className="bg-muted px-1 rounded">TASKIP_DB_URL_READONLY</code> in Coolify env (shared with all Taskip agents).
+          For the Insight API: set <code className="bg-muted px-1 rounded">INSIGHT_BASE_URL</code>, <code className="bg-muted px-1 rounded">INSIGHT_AGENT_KEY_PRIMARY</code>, and optionally <code className="bg-muted px-1 rounded">INSIGHT_AGENT_KEY_SECONDARY</code> (for zero-downtime rotation).
           LLM provider must be <strong>OpenAI</strong> or <strong>DeepSeek</strong> — set in <strong>Settings → LLM Providers</strong> and the LLM sub-tab (Gemini does not support tool calling).
         </p>
       </div>
+    </div>
+  );
+}
+
+function TaskipInsightStatusCard() {
+  const token = useAuthStore((s) => s.token);
+  const [probeUuid, setProbeUuid] = useState('');
+  const [status, setStatus] = useState<{
+    configured: boolean;
+    baseUrl: string | null;
+    hasPrimary: boolean;
+    hasSecondary: boolean;
+    reachable: boolean;
+    schemaVersion: number | null;
+    error?: string;
+  } | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  async function check() {
+    if (!token) return;
+    setLoading(true);
+    try {
+      const qs = probeUuid ? `?workspaceUuid=${encodeURIComponent(probeUuid)}` : '';
+      const res = await apiFetch(token, `/taskip-internal/insight/status${qs}`);
+      setStatus(res as never);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-5">
+      <h3 className="text-sm font-semibold mb-1">Insight API connection</h3>
+      <p className="text-xs text-muted-foreground mb-4">
+        Server-to-server integration with Taskip's Insight module (cohort segmentation, workspace overview, marketing-suggestion writeback).
+        Secrets are read from environment variables — values are never returned, only their presence.
+      </p>
+
+      <div className="grid grid-cols-2 gap-2 text-xs mb-4">
+        <Indicator label="INSIGHT_BASE_URL" on={!!status?.baseUrl} value={status?.baseUrl ?? undefined} />
+        <Indicator label="Key — primary" on={!!status?.hasPrimary} />
+        <Indicator label="Key — secondary (rotation)" on={!!status?.hasSecondary} optional />
+        <Indicator label="Schema version" on={status?.schemaVersion === 1} value={status?.schemaVersion?.toString()} />
+      </div>
+
+      <div className="flex gap-2 items-center">
+        <Input
+          value={probeUuid}
+          onChange={(e) => setProbeUuid(e.target.value)}
+          placeholder="Sample workspace UUID (optional, e.g. acme)"
+          className="text-xs"
+        />
+        <Button size="sm" onClick={check} disabled={loading || !token}>
+          {loading ? 'Checking…' : 'Test connection'}
+        </Button>
+      </div>
+
+      {status?.error && (
+        <p className="text-xs text-destructive mt-3">{status.error}</p>
+      )}
+      {status?.reachable && (
+        <p className="text-xs text-emerald-500 mt-3">
+          Reachable. Schema version: {status.schemaVersion ?? 'unknown'}.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function Indicator({ label, on, value, optional }: { label: string; on: boolean; value?: string; optional?: boolean }) {
+  return (
+    <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-border bg-muted/20">
+      <span className={`h-1.5 w-1.5 rounded-full ${on ? 'bg-emerald-400' : optional ? 'bg-slate-500' : 'bg-rose-400'}`}></span>
+      <span className="text-muted-foreground">{label}</span>
+      {value && <span className="ml-auto font-mono text-[11px] text-foreground/80 truncate max-w-[140px]">{value}</span>}
     </div>
   );
 }
