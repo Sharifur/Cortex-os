@@ -11,11 +11,15 @@ import { AppModule } from './app.module';
 import { runMigrations } from './db/migrate';
 
 async function bootstrap() {
+  const t0 = Date.now();
+
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
     new FastifyAdapter(),
     { bufferLogs: true },
   );
+
+  console.log(`[bootstrap] NestFactory.create: ${Date.now() - t0}ms`);
 
   app.useLogger(app.get(Logger));
   app.useGlobalPipes(
@@ -24,6 +28,8 @@ async function bootstrap() {
 
   const port = parseInt(process.env.PORT ?? '3000');
   await app.listen(port, '0.0.0.0');
+
+  console.log(`[bootstrap] app.listen: ${Date.now() - t0}ms`);
 
   await runMigrations();
 }
