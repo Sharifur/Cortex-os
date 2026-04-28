@@ -8,7 +8,7 @@ import {
 import { ValidationPipe } from '@nestjs/common';
 import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module';
-import { HtmlExceptionFilter } from './common/filters/html-exception.filter';
+import { RequestLogExceptionFilter } from './modules/debug-logs/request-log.filter';
 import { AgentRunProcessor } from './modules/agents/runtime/processors/agent-run.processor';
 import { AgentExecuteProcessor } from './modules/agents/runtime/processors/agent-execute.processor';
 import { AgentFollowupProcessor } from './modules/agents/runtime/processors/agent-followup.processor';
@@ -27,7 +27,7 @@ async function bootstrap() {
   app.useGlobalPipes(
     new ValidationPipe({ transform: true, whitelist: true }),
   );
-  app.useGlobalFilters(new HtmlExceptionFilter());
+  app.useGlobalFilters(app.get(RequestLogExceptionFilter));
 
   const allowList = (process.env.CORS_ORIGINS ?? 'https://cortex.xgenious.com,http://localhost:5173')
     .split(',')

@@ -34,6 +34,7 @@ import { KnowledgeBaseModule } from './modules/knowledge-base/knowledge-base.mod
 import { TasksModule } from './modules/tasks/tasks.module';
 import { IntegrationsModule } from './modules/integrations/integrations.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
+import { DebugLogsModule } from './modules/debug-logs/debug-logs.module';
 import { PurchaseVerifyModule } from './modules/agents/purchase-verify/purchase-verify.module';
 
 @Module({
@@ -91,6 +92,7 @@ import { PurchaseVerifyModule } from './modules/agents/purchase-verify/purchase-
     TasksModule,
     IntegrationsModule,
     DashboardModule,
+    DebugLogsModule,
     PurchaseVerifyModule,
   ],
 })
