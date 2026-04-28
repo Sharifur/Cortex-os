@@ -1449,7 +1449,7 @@ function TaskipInternalSetupSubTab({ agent }: { agent: AgentDetail }) {
         <p className="text-xs font-medium text-muted-foreground mb-1">Platform prerequisites</p>
         <p className="text-xs text-muted-foreground">
           Requires <code className="bg-muted px-1 rounded">TASKIP_DB_URL_READONLY</code> in Coolify env (shared with all Taskip agents).
-          For the Insight API: set <code className="bg-muted px-1 rounded">INSIGHT_BASE_URL</code>, <code className="bg-muted px-1 rounded">INSIGHT_AGENT_KEY_PRIMARY</code>, and optionally <code className="bg-muted px-1 rounded">INSIGHT_AGENT_KEY_SECONDARY</code> (for zero-downtime rotation).
+          Configure the Insight API credentials in <a href="/integrations" className="text-primary hover:underline">Integrations → Taskip Insight</a>.
           LLM provider must be <strong>OpenAI</strong> or <strong>DeepSeek</strong> — set in <strong>Settings → LLM Providers</strong> and the LLM sub-tab (Gemini does not support tool calling).
         </p>
       </div>
