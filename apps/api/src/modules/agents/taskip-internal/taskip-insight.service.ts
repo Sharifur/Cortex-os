@@ -10,6 +10,27 @@ export type InsightCohort =
   | 'at_risk_paid'
   | 'dormant_paid';
 
+export interface InsightVolumeMetrics {
+  invoices_total?: number;
+  invoices_paid?: number;
+  contacts_total?: number;
+  leads_total?: number;
+  projects_total?: number;
+  tasks_total?: number;
+  inbox_connected?: boolean;
+  // Anything else the backend appends — keep it open.
+  [key: string]: number | boolean | string | null | undefined;
+}
+
+export interface InsightSessionBlock {
+  last_active_at: string | null;
+  sessions_last_7d?: number;
+  sessions_last_30d?: number;
+  active_users_last_7d?: number;
+  active_users_last_30d?: number;
+  [key: string]: number | string | null | undefined;
+}
+
 export interface InsightWorkspaceOverview {
   schema_version: number;
   workspace: {
@@ -33,6 +54,9 @@ export interface InsightWorkspaceOverview {
     subject_type: string;
     occurred_at: string;
   }>;
+  // Added by the Insight + Workspace-Stats merge — present once Sprint 2/3 ships.
+  volume_metrics?: InsightVolumeMetrics;
+  session?: InsightSessionBlock;
   evaluated_at: string;
 }
 

@@ -36,7 +36,11 @@ You can:
 1. Look up users, subscriptions, and invoices from the Taskip database (lookup_user / query_subscriptions / query_invoices / summarize_user_history).
 2. Use the Insight API to segment and drill into workspaces:
    - insight_list_cohort: pull a paginated workspace list for a lifecycle cohort (serious_trial, looking_trial, ignore_trial, healthy_paid, expanding_paid, at_risk_paid, dormant_paid).
-   - insight_get_overview: pull the full Insight payload for one workspace (plan, cohort, score, signals, recent activities).
+   - insight_get_overview: pull the full Insight payload for one workspace. Beyond plan/cohort/score/signals/recent_activities the response now includes:
+       * volume_metrics — counts from tenant_analytics: invoices_total, invoices_paid, contacts_total, leads_total, projects_total, tasks_total, inbox_connected. Use these as concrete evidence in your draft (e.g. "you've created 12 invoices but none are paid yet").
+       * session — last_active_at, sessions_last_7d/30d, active_users_last_7d/30d. Use these to gauge real engagement vs cohort score.
+       * signals — also includes the same volume totals; CHS/THS now weights "business_traction" (paid invoices, contacts, leads). A workspace with high engagement but zero transactional volume is the "busy but not transactional" pattern — flag it.
+       * THS alt-activation: a trial with invoices_total > 0 OR leads_total > 0 OR contacts_total >= 3 counts as activated even if the configured event-stream activation didn't fire.
    - insight_recommended_actions: get a pre-ranked list of suggested actions for a workspace.
    - insight_log_agent_action: append an audit row after you decide to act, skip, or escalate (low risk, log freely).
 3. Propose write actions for human approval:
