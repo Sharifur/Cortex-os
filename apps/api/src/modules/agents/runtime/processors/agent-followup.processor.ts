@@ -13,9 +13,13 @@ import type { AgentFollowupJobData, TriggerEvent, AgentContext } from '../types'
 
 const MAX_FOLLOWUPS = 5;
 
-@Processor(QUEUE_NAMES.AGENT_FOLLOWUP)
+@Processor(QUEUE_NAMES.AGENT_FOLLOWUP, { autorun: false })
 export class AgentFollowupProcessor extends WorkerHost {
   private readonly logger = new Logger(AgentFollowupProcessor.name);
+
+  startWorker(): void {
+    this.worker.run().catch((err) => this.logger.error('Worker crashed', err));
+  }
 
   constructor(
     private db: DbService,

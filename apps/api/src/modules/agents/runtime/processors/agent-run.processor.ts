@@ -16,9 +16,13 @@ import type { ApprovalCreatedEvent } from '../../../telegram/telegram.types';
 
 const MAX_FOLLOWUPS = 5;
 
-@Processor(QUEUE_NAMES.AGENT_RUN)
+@Processor(QUEUE_NAMES.AGENT_RUN, { autorun: false })
 export class AgentRunProcessor extends WorkerHost {
   private readonly logger = new Logger(AgentRunProcessor.name);
+
+  startWorker(): void {
+    this.worker.run().catch((err) => this.logger.error('Worker crashed', err));
+  }
 
   constructor(
     private db: DbService,

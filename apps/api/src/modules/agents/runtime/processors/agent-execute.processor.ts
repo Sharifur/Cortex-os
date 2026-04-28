@@ -10,9 +10,13 @@ import { QUEUE_NAMES } from '../../../../common/queue/queue.constants';
 import { computeNextRunAt } from '../../../tasks/task.utils';
 import type { AgentExecuteJobData } from '../types';
 
-@Processor(QUEUE_NAMES.AGENT_EXECUTE)
+@Processor(QUEUE_NAMES.AGENT_EXECUTE, { autorun: false })
 export class AgentExecuteProcessor extends WorkerHost {
   private readonly logger = new Logger(AgentExecuteProcessor.name);
+
+  startWorker(): void {
+    this.worker.run().catch((err) => this.logger.error('Worker crashed', err));
+  }
 
   constructor(
     private db: DbService,
