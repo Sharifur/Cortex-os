@@ -3,6 +3,7 @@ nixPkgs = ['nodejs_22', 'curl']
 
 [variables]
 NODE_ENV = 'production'
+BUILD_TIMESTAMP = '2026-04-28'
 
 [start]
 cmd = 'node dist/src/main'
