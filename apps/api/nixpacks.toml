@@ -1,5 +1,8 @@
 [phases.setup]
 nixPkgs = ['nodejs_22']
 
+[variables]
+NODE_ENV = 'production'
+
 [start]
 cmd = 'node dist/src/main'

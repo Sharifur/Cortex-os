@@ -54,6 +54,7 @@ import { PurchaseVerifyModule } from './modules/agents/purchase-verify/purchase-
       useFactory: () => ({
         connection: new IORedis(process.env.REDIS_URL!, {
           maxRetriesPerRequest: null,
+          enableReadyCheck: false,
         }),
       }),
     }),
