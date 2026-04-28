@@ -29,6 +29,23 @@ async function bootstrap() {
   );
   app.useGlobalFilters(new HtmlExceptionFilter());
 
+  const allowList = (process.env.CORS_ORIGINS ?? 'https://cortex.xgenious.com,http://localhost:5173')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  app.enableCors({
+    origin: (origin, cb) => {
+      if (!origin) return cb(null, true);
+      if (allowList.includes('*') || allowList.includes(origin)) return cb(null, true);
+      return cb(new Error(`CORS: origin ${origin} not allowed`), false);
+    },
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-Id'],
+    credentials: false,
+    maxAge: 86400,
+  });
+
   const port = parseInt(process.env.PORT ?? '3000');
   await app.listen(port, '0.0.0.0');
 
