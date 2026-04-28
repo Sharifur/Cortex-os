@@ -7,6 +7,7 @@ import { LlmRouterService } from '../../llm/llm-router.service';
 import { TelegramService } from '../../telegram/telegram.service';
 import { TaskipInternalDbService } from './taskip-internal-db.service';
 import { TaskipInsightService, type InsightCohort, type InsightMarketingSuggestion } from './taskip-insight.service';
+import { TaskipInternalEmailService, type TaskipEmailPurpose } from './taskip-internal-email.service';
 import type { LlmToolMessage, ToolDefinition } from '../../llm/llm.types';
 import type {
   IAgent,
@@ -41,6 +42,8 @@ You can:
 3. Propose write actions for human approval:
    - extend_trial / mark_refund (Taskip DB)
    - insight_submit_marketing_suggestion (Insight marketing-suggestions queue)
+   - send_email (Gmail outbound — marketing, follow-up, or offer)
+4. Track sent emails and replies via list_sent_emails / sync_email_replies (read-only).
 
 Recommended workflow when asked to "find at-risk customers" or similar:
   Phase 1 — call insight_list_cohort to segment.
@@ -64,6 +67,7 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
     private telegram: TelegramService,
     private taskipDb: TaskipInternalDbService,
     private insight: TaskipInsightService,
+    private emails: TaskipInternalEmailService,
     private registry: AgentRegistryService,
   ) {}
 
@@ -159,6 +163,16 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
           }];
         }
 
+        if (tc.name === 'send_email') {
+          const summary = `Send ${args.purpose ?? 'other'} email to ${args.recipient} — "${(args.subject as string ?? '').slice(0, 60)}"`;
+          return [{
+            type: 'send_email',
+            summary,
+            payload: { ...args, _query: query },
+            riskLevel: 'high',
+          }];
+        }
+
         // Read-only tools — execute and feed result back
         const toolResult = await this.executeReadTool(tc.name, args);
         messages.push({
@@ -180,7 +194,8 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
   requiresApproval(action: ProposedAction): boolean {
     return action.type === 'extend_trial'
       || action.type === 'mark_refund'
-      || action.type === 'insight_submit_marketing_suggestion';
+      || action.type === 'insight_submit_marketing_suggestion'
+      || action.type === 'send_email';
   }
 
   async execute(action: ProposedAction): Promise<ActionResult> {
@@ -244,6 +259,30 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
           : `Failed to mark refund for invoice ${invoiceId}`;
         await this.telegram.sendMessage(msg);
         return { success: result.success, data: result };
+      }
+
+      case 'send_email': {
+        const { _query, purpose, recipient, subject, body, workspaceUuid } = action.payload as {
+          _query?: string;
+          purpose?: TaskipEmailPurpose;
+          recipient: string;
+          subject: string;
+          body: string;
+          workspaceUuid?: string;
+        };
+        const result = await this.emails.send({
+          purpose: purpose ?? 'other',
+          recipient,
+          subject,
+          body,
+          workspaceUuid,
+          metadata: _query ? { query: _query } : undefined,
+        });
+        const msg = result.status === 'sent'
+          ? `Email sent to ${recipient} — "${subject}". Tracked as ${result.id}.`
+          : `Failed to send email to ${recipient}: ${result.error}`;
+        await this.telegram.sendMessage(msg);
+        return { success: result.status === 'sent', data: result };
       }
 
       case 'insight_submit_marketing_suggestion': {
@@ -369,6 +408,43 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
           return this.insight.status(workspaceUuid);
         },
       },
+      {
+        method: 'GET',
+        path: '/taskip-internal/inbox',
+        requiresAuth: true,
+        handler: async (params) => {
+          const { limit, purpose, workspaceUuid } = params as {
+            limit?: string;
+            purpose?: TaskipEmailPurpose;
+            workspaceUuid?: string;
+          };
+          return this.emails.listSent({
+            limit: limit ? parseInt(limit, 10) : undefined,
+            purpose,
+            workspaceUuid,
+          });
+        },
+      },
+      {
+        method: 'GET',
+        path: '/taskip-internal/inbox/:id',
+        requiresAuth: true,
+        handler: async (params) => {
+          const { id } = params as { id: string };
+          const detail = await this.emails.getDetail(id);
+          if (!detail) throw new Error('Email not found');
+          return detail;
+        },
+      },
+      {
+        method: 'POST',
+        path: '/taskip-internal/inbox/:id/sync',
+        requiresAuth: true,
+        handler: async (params) => {
+          const { id } = params as { id: string };
+          return this.emails.syncReplies(id);
+        },
+      },
     ];
   }
 
@@ -401,6 +477,14 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
           return await this.insight.getOverview(args.workspace_uuid as string);
         case 'insight_recommended_actions':
           return await this.insight.getRecommendedActions(args.workspace_uuid as string);
+        case 'list_sent_emails':
+          return await this.emails.listSent({
+            limit: args.limit as number | undefined,
+            purpose: args.purpose as TaskipEmailPurpose | undefined,
+            workspaceUuid: args.workspaceUuid as string | undefined,
+          });
+        case 'sync_email_replies':
+          return await this.emails.syncReplies(args.emailId as string);
         case 'insight_log_agent_action': {
           const { workspace_uuid, action_type, result, reason, payload } = args as {
             workspace_uuid: string;
@@ -550,6 +634,42 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
             },
           },
           required: ['workspace_uuid', 'template_key', 'title', 'description', 'priority', 'channel', 'recommended_due_at', 'idempotency_key'],
+        },
+      },
+      {
+        name: 'send_email',
+        description: 'Send a Gmail email (marketing, follow-up, or offer). Tracked in the agent inbox so replies can be matched. Requires approval before sending.',
+        parameters: {
+          type: 'object',
+          properties: {
+            purpose: { type: 'string', enum: ['marketing', 'followup', 'offer', 'other'] },
+            recipient: { type: 'string', description: 'recipient email address' },
+            subject: { type: 'string' },
+            body: { type: 'string', description: 'plain text body' },
+            workspaceUuid: { type: 'string', description: 'optional — link this email to a Taskip workspace' },
+          },
+          required: ['purpose', 'recipient', 'subject', 'body'],
+        },
+      },
+      {
+        name: 'list_sent_emails',
+        description: 'List previously-sent emails tracked by this agent (newest first). Use to check whether a recipient already received outreach.',
+        parameters: {
+          type: 'object',
+          properties: {
+            limit: { type: 'number', description: 'default 50, max 200' },
+            purpose: { type: 'string', enum: ['marketing', 'followup', 'offer', 'other'] },
+            workspaceUuid: { type: 'string' },
+          },
+        },
+      },
+      {
+        name: 'sync_email_replies',
+        description: 'Pull the Gmail thread for a tracked email and record any new replies. Returns the count of replies added.',
+        parameters: {
+          type: 'object',
+          properties: { emailId: { type: 'string', description: 'tracked email id (from list_sent_emails)' } },
+          required: ['emailId'],
         },
       },
       {

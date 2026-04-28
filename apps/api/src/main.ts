@@ -14,6 +14,7 @@ import { AgentExecuteProcessor } from './modules/agents/runtime/processors/agent
 import { AgentFollowupProcessor } from './modules/agents/runtime/processors/agent-followup.processor';
 import { ApprovalSweepProcessor } from './modules/agents/runtime/processors/approval-sweep.processor';
 import { TaskSweepProcessor } from './modules/tasks/task-sweep.processor';
+import { TaskipInternalEmailSweepProcessor } from './modules/agents/taskip-internal/taskip-internal-email-sweep.processor';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestFastifyApplication>(
@@ -36,6 +37,7 @@ async function bootstrap() {
   app.get(AgentFollowupProcessor).startWorker();
   app.get(ApprovalSweepProcessor).startWorker();
   app.get(TaskSweepProcessor).startWorker();
+  app.get(TaskipInternalEmailSweepProcessor).startWorker();
 }
 
 bootstrap();

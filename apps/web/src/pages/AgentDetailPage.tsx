@@ -1408,6 +1408,7 @@ function EmailManagerSettingsTab({ agent, token }: { agent: AgentDetail; token: 
 
 const TASKIP_INTERNAL_TABS = [
   { key: 'setup', label: 'Setup', icon: BookOpen },
+  { key: 'inbox', label: 'Inbox', icon: Mail },
   { key: 'llm', label: 'LLM', icon: Cpu },
   { key: 'runtime', label: 'Runtime', icon: List },
 ] as const;
@@ -1704,10 +1705,165 @@ function TaskipInternalSettingsTab({ agent, token }: { agent: AgentDetail; token
       </div>
 
       {activeSub === 'setup' && <TaskipInternalSetupSubTab agent={agent} />}
+      {activeSub === 'inbox' && <TaskipInternalInboxSubTab token={token} />}
       {activeSub === 'llm' && (
         <TaskipInternalLlmSubTab agent={agent} config={config} onChange={handleChange} token={token} />
       )}
       {activeSub === 'runtime' && <RuntimeSubTab agent={agent} />}
+    </div>
+  );
+}
+
+interface TaskipInboxRow {
+  id: string;
+  purpose: string;
+  workspaceUuid: string | null;
+  recipient: string;
+  subject: string;
+  body: string;
+  status: string;
+  error: string | null;
+  replyCount: number;
+  lastReplyAt: string | null;
+  lastSyncedAt: string | null;
+  sentAt: string;
+}
+
+interface TaskipInboxReply {
+  id: string;
+  fromAddress: string;
+  snippet: string | null;
+  body: string | null;
+  receivedAt: string;
+}
+
+function TaskipInternalInboxSubTab({ token }: { token: string }) {
+  const qc = useQueryClient();
+  const [purpose, setPurpose] = useState<string>('');
+  const [openId, setOpenId] = useState<string | null>(null);
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['taskip-internal-inbox', purpose],
+    queryFn: async () => {
+      const qs = purpose ? `?purpose=${encodeURIComponent(purpose)}` : '';
+      return apiFetch(token, `/taskip-internal/inbox${qs}`) as Promise<TaskipInboxRow[]>;
+    },
+  });
+
+  const detailQuery = useQuery({
+    queryKey: ['taskip-internal-inbox-detail', openId],
+    queryFn: () => apiFetch(token, `/taskip-internal/inbox/${openId}`) as Promise<{ email: TaskipInboxRow; replies: TaskipInboxReply[] }>,
+    enabled: !!openId,
+  });
+
+  const syncMutation = useMutation({
+    mutationFn: (id: string) => apiFetch(token, `/taskip-internal/inbox/${id}/sync`, { method: 'POST' }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['taskip-internal-inbox'] });
+      qc.invalidateQueries({ queryKey: ['taskip-internal-inbox-detail', openId] });
+    },
+  });
+
+  const rows = data ?? [];
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-xl border border-border bg-card p-5">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="text-sm font-semibold mb-1">Outbound emails</h3>
+            <p className="text-xs text-muted-foreground">
+              Every Gmail email this agent sends is tracked here, including replies pulled from the same Gmail thread.
+              Replies are auto-synced every 10 minutes for emails sent in the last 14 days.
+            </p>
+          </div>
+          <select
+            value={purpose}
+            onChange={(e) => setPurpose(e.target.value)}
+            className="text-xs bg-muted/40 border border-border rounded-md px-2 py-1.5 text-foreground"
+          >
+            <option value="">All purposes</option>
+            <option value="marketing">Marketing</option>
+            <option value="followup">Follow-up</option>
+            <option value="offer">Offer</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+
+        {isLoading && <p className="text-xs text-muted-foreground">Loading…</p>}
+        {!isLoading && rows.length === 0 && (
+          <p className="text-xs text-muted-foreground">No emails sent yet.</p>
+        )}
+
+        <div className="divide-y divide-border">
+          {rows.map((r) => (
+            <button
+              key={r.id}
+              onClick={() => setOpenId(r.id === openId ? null : r.id)}
+              className="w-full text-left py-3 px-1 hover:bg-muted/30 transition-colors"
+            >
+              <div className="flex items-center gap-3">
+                <span className={`shrink-0 text-[10px] px-2 py-0.5 rounded-full uppercase tracking-wider font-semibold ${
+                  r.status === 'sent' ? 'bg-emerald-500/10 text-emerald-400'
+                    : 'bg-rose-500/10 text-rose-400'
+                }`}>{r.purpose}</span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium truncate">{r.subject}</p>
+                  <p className="text-xs text-muted-foreground truncate">to {r.recipient}</p>
+                </div>
+                <div className="text-right text-xs text-muted-foreground shrink-0">
+                  <div>{new Date(r.sentAt).toLocaleString()}</div>
+                  <div className="mt-0.5">
+                    {r.replyCount > 0 ? (
+                      <span className="text-emerald-400">{r.replyCount} repl{r.replyCount === 1 ? 'y' : 'ies'}</span>
+                    ) : (
+                      <span>no replies</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {openId === r.id && (
+                <div className="mt-3 pt-3 border-t border-border">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Button
+                      size="sm"
+                      onClick={(e) => { e.stopPropagation(); syncMutation.mutate(r.id); }}
+                      disabled={syncMutation.isPending}
+                    >
+                      {syncMutation.isPending ? 'Syncing…' : 'Sync replies now'}
+                    </Button>
+                    {r.lastSyncedAt && (
+                      <span className="text-[11px] text-muted-foreground">last synced {new Date(r.lastSyncedAt).toLocaleString()}</span>
+                    )}
+                  </div>
+
+                  {r.status === 'failed' && r.error && (
+                    <p className="text-xs text-destructive mb-2">{r.error}</p>
+                  )}
+
+                  <pre className="text-xs whitespace-pre-wrap font-mono bg-muted/30 rounded-md p-3 mb-3">{r.body}</pre>
+
+                  {detailQuery.data && detailQuery.data.email.id === r.id && detailQuery.data.replies.length > 0 && (
+                    <div className="space-y-2">
+                      <p className="text-xs font-semibold text-muted-foreground">Replies</p>
+                      {detailQuery.data.replies.map((reply) => (
+                        <div key={reply.id} className="rounded-md border border-border bg-muted/20 p-3">
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-xs font-medium">{reply.fromAddress}</span>
+                            <span className="text-[11px] text-muted-foreground">{new Date(reply.receivedAt).toLocaleString()}</span>
+                          </div>
+                          <p className="text-xs text-muted-foreground whitespace-pre-wrap">{reply.body || reply.snippet}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </button>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
