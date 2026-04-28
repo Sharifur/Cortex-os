@@ -1,0 +1,17 @@
+providers = ['node']
+
+[phases.setup]
+nixPkgs = ['nodejs_22']
+
+[phases.install]
+cmds = ['npm install']
+
+[phases.build]
+cmds = ['npm run build']
+
+[variables]
+NODE_ENV = 'production'
+PORT = '3000'
+
+[start]
+cmd = 'npx serve -s dist -l 3000'
