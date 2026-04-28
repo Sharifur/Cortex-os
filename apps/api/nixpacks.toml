@@ -1,6 +1,12 @@
 [phases.setup]
 nixPkgs = ['nodejs_22', 'curl']
 
+[phases.install]
+cmds = ['npm ci']
+
+[phases.build]
+cmds = ['npm run build', 'npm prune --omit=dev']
+
 [variables]
 NODE_ENV = 'production'
 
