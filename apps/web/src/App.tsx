@@ -17,6 +17,7 @@ import IntegrationsPage from '@/pages/IntegrationsPage';
 import KnowledgeBasePage from '@/pages/KnowledgeBasePage';
 import TasksPage from '@/pages/TasksPage';
 import InboxPage from '@/pages/InboxPage';
+import DebugLogsPage from '@/pages/DebugLogsPage';
 import HealthPage from '@/pages/HealthPage';
 import OpsPage from '@/pages/OpsPage';
 import AppLayout from '@/components/AppLayout';
@@ -52,6 +53,7 @@ export default function App() {
             <Route path="/knowledge-base" element={<KnowledgeBasePage />} />
             <Route path="/tasks" element={<TasksPage />} />
             <Route path="/inbox" element={<InboxPage />} />
+            <Route path="/debug-logs" element={<DebugLogsPage />} />
             <Route path="/approvals" element={<ApprovalsPage />} />
             <Route path="/runs/:id" element={<RunDetailPage />} />
             <Route path="/mcp" element={<McpPage />} />

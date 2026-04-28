@@ -12,7 +12,7 @@ export class AuthService {
     private jwt: JwtService,
   ) {}
 
-  async login(email: string, password: string) {
+  async login(email: string, password: string, rememberMe = false) {
     const [user] = await this.db.db
       .select()
       .from(users)
@@ -23,8 +23,9 @@ export class AuthService {
     const valid = await bcrypt.compare(password, user.password);
     if (!valid) throw new UnauthorizedException('Invalid credentials');
 
-    const token = this.jwt.sign({ sub: user.id, email: user.email });
-    return { access_token: token };
+    const expiresIn = rememberMe ? '14d' : (process.env.JWT_EXPIRY ?? '24h');
+    const token = this.jwt.sign({ sub: user.id, email: user.email }, { expiresIn });
+    return { access_token: token, expires_in: expiresIn };
   }
 
   async me(userId: string) {
