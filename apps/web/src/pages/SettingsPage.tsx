@@ -318,7 +318,8 @@ function LlmTab({ rows, token }: { rows: SettingRow[]; token: string }) {
 function AccountCard({ token }: { token: string }) {
   const [emailInput, setEmailInput] = useState('');
   const [editingEmail, setEditingEmail] = useState(false);
-  const [currentPw, setCurrentPw] = useState('');
+  const [nameInput, setNameInput] = useState('');
+  const [editingName, setEditingName] = useState(false);
   const [newPw, setNewPw] = useState('');
   const [showPw, setShowPw] = useState(false);
   const [pwResult, setPwResult] = useState<{ ok: boolean; message: string } | null>(null);
@@ -328,7 +329,7 @@ function AccountCard({ token }: { token: string }) {
     queryFn: async () => {
       const res = await fetch('/auth/me', { headers: { Authorization: `Bearer ${token}` } });
       if (!res.ok) throw new Error('Failed');
-      return res.json() as Promise<{ id: string; email: string }>;
+      return res.json() as Promise<{ id: string; email: string; name: string | null }>;
     },
   });
 
@@ -339,7 +340,7 @@ function AccountCard({ token }: { token: string }) {
       const res = await fetch('/auth/profile', {
         method: 'PUT',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: emailInput }),
+        body: JSON.stringify({ email: emailInput, name: profile?.name ?? undefined }),
       });
       if (!res.ok) {
         const d = await res.json().catch(() => ({}));
@@ -353,12 +354,31 @@ function AccountCard({ token }: { token: string }) {
     },
   });
 
+  const nameMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch('/auth/profile', {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: profile?.email ?? '', name: nameInput.trim() }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error((d as any).message ?? 'Failed to update name');
+      }
+    },
+    onSuccess: () => {
+      setEditingName(false);
+      setNameInput('');
+      qc.invalidateQueries({ queryKey: ['auth-me'] });
+    },
+  });
+
   const pwMutation = useMutation({
     mutationFn: async () => {
       const res = await fetch('/auth/password', {
         method: 'PUT',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ currentPassword: currentPw, newPassword: newPw }),
+        body: JSON.stringify({ newPassword: newPw }),
       });
       if (!res.ok) {
         const d = await res.json().catch(() => ({}));
@@ -366,7 +386,6 @@ function AccountCard({ token }: { token: string }) {
       }
     },
     onSuccess: () => {
-      setCurrentPw('');
       setNewPw('');
       setPwResult({ ok: true, message: 'Password updated' });
       setTimeout(() => setPwResult(null), 3000);
@@ -381,6 +400,44 @@ function AccountCard({ token }: { token: string }) {
       <div className="px-5 py-4 border-b border-border flex items-center gap-2">
         <UserCircle className="w-4 h-4 text-primary" />
         <span className="text-sm font-semibold">Account</span>
+      </div>
+
+      {/* Name */}
+      <div className="px-5 py-4 border-b border-border">
+        <p className="text-sm font-medium mb-0.5">Display name</p>
+        {isLoading ? (
+          <Skeleton className="h-4 w-48 rounded mt-1" />
+        ) : editingName ? (
+          <div className="flex items-center gap-2 mt-2">
+            <Input
+              value={nameInput}
+              onChange={(e) => setNameInput(e.target.value)}
+              placeholder="Your name"
+              className="text-sm max-w-xs"
+              autoFocus
+            />
+            <Button size="sm" onClick={() => nameMutation.mutate()}
+              disabled={nameMutation.isPending}>
+              <Save className="w-3.5 h-3.5" />Save
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => { setEditingName(false); setNameInput(''); }}>
+              Cancel
+            </Button>
+            {nameMutation.isError && (
+              <span className="text-xs text-destructive">{(nameMutation.error as Error).message}</span>
+            )}
+          </div>
+        ) : (
+          <div className="flex items-center gap-3 mt-1">
+            <span className="text-xs text-muted-foreground">{profile?.name ?? 'Not set'}</span>
+            <Button size="sm" variant="outline" className="text-xs" onClick={() => {
+              setNameInput(profile?.name ?? '');
+              setEditingName(true);
+            }}>
+              {profile?.name ? 'Update' : 'Set name'}
+            </Button>
+          </div>
+        )}
       </div>
 
       {/* Email */}
@@ -431,9 +488,9 @@ function AccountCard({ token }: { token: string }) {
           <div className="relative">
             <Input
               type={showPw ? 'text' : 'password'}
-              placeholder="Current password"
-              value={currentPw}
-              onChange={(e) => setCurrentPw(e.target.value)}
+              placeholder="New password (min 8 chars)"
+              value={newPw}
+              onChange={(e) => setNewPw(e.target.value)}
               className="text-sm pr-9"
             />
             <button type="button" onClick={() => setShowPw((v) => !v)}
@@ -441,16 +498,9 @@ function AccountCard({ token }: { token: string }) {
               {showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
             </button>
           </div>
-          <Input
-            type={showPw ? 'text' : 'password'}
-            placeholder="New password (min 8 chars)"
-            value={newPw}
-            onChange={(e) => setNewPw(e.target.value)}
-            className="text-sm"
-          />
           <div className="flex items-center gap-3">
             <Button size="sm" onClick={() => pwMutation.mutate()}
-              disabled={!currentPw || newPw.length < 8 || pwMutation.isPending}>
+              disabled={newPw.length < 8 || pwMutation.isPending}>
               <Save className="w-3.5 h-3.5" />Update password
             </Button>
             {pwResult && (

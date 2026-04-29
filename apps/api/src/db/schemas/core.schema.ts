@@ -49,6 +49,7 @@ export const users = pgTable('users', {
     .primaryKey()
     .$defaultFn(() => createId()),
   email: text('email').notNull().unique(),
+  name: text('name'),
   password: text('password').notNull(),
   telegramChatId: text('telegram_chat_id'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
