@@ -38,6 +38,22 @@ async function bootstrap() {
   );
 
   const fastify = app.getHttpAdapter().getInstance();
+
+  // Preserve raw JSON body for webhook HMAC verification (overrides default JSON parser)
+  fastify.removeContentTypeParser?.('application/json');
+  fastify.addContentTypeParser(
+    'application/json',
+    { parseAs: 'string' },
+    ((req: unknown, body: string, done: (err: Error | null, parsed?: unknown) => void) => {
+      (req as { rawBody?: string }).rawBody = body;
+      try {
+        done(null, body && body.length ? JSON.parse(body) : {});
+      } catch (err) {
+        done(err as Error);
+      }
+    }) as never,
+  );
+
   fastify.addHook('onSend', async (_req: unknown, reply: { header: (k: string, v: string) => unknown }, payload: unknown) => {
     reply.header('X-Content-Type-Options', 'nosniff');
     reply.header('X-Frame-Options', 'DENY');

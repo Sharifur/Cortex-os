@@ -116,6 +116,12 @@ export const SETTING_DEFINITIONS: Record<string, SettingDefinition> = {
     isSecret: false,
     group: 'ses',
   },
+  ses_webhook_token: {
+    label: 'Webhook URL Token',
+    description: 'Random secret appended to the SNS subscription URL (e.g. /ses/webhook?t=…). Required to accept any SNS notification.',
+    isSecret: true,
+    group: 'ses',
+  },
   ses_configuration_set: {
     label: 'Configuration Set',
     isSecret: false,
@@ -167,6 +173,12 @@ export const SETTING_DEFINITIONS: Record<string, SettingDefinition> = {
     isSecret: true,
     group: 'whatsapp',
     defaultValue: 'cortex-whatsapp-verify',
+  },
+  whatsapp_app_secret: {
+    label: 'App Secret',
+    description: 'From Meta for Developers → App Settings → Basic → App Secret. Used to verify X-Hub-Signature-256 on inbound webhooks.',
+    isSecret: true,
+    group: 'whatsapp',
   },
 
   // LinkedIn — Unipile (preferred) or direct OAuth2
@@ -229,6 +241,12 @@ export const SETTING_DEFINITIONS: Record<string, SettingDefinition> = {
   crisp_api_key: {
     label: 'API Key',
     description: 'From Crisp → Settings → Website → API Keys → Key (treat as secret)',
+    isSecret: true,
+    group: 'crisp',
+  },
+  crisp_webhook_signing_secret: {
+    label: 'Webhook Signing Secret',
+    description: 'From Crisp → Settings → Website → Hooks → "View signing secret". Used to verify incoming webhook HMAC.',
     isSecret: true,
     group: 'crisp',
   },

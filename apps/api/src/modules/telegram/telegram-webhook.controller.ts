@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import type { Update } from 'grammy/types';
 import { TelegramService } from './telegram.service';
+import { safeEqualString } from '../../common/webhooks/verify';
 
 @Controller('telegram')
 export class TelegramWebhookController {
@@ -20,7 +21,10 @@ export class TelegramWebhookController {
     @Headers('x-telegram-bot-api-secret-token') secret: string,
   ) {
     const expected = process.env.TELEGRAM_WEBHOOK_SECRET;
-    if (expected && secret !== expected) {
+    if (!expected) {
+      throw new UnauthorizedException('Telegram webhook secret not configured');
+    }
+    if (!safeEqualString(secret ?? '', expected)) {
       throw new UnauthorizedException('Invalid webhook secret');
     }
 

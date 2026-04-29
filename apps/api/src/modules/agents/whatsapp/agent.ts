@@ -8,6 +8,8 @@ import { AgentRegistryService } from '../runtime/agent-registry.service';
 import { LlmRouterService } from '../../llm/llm-router.service';
 import { TelegramService } from '../../telegram/telegram.service';
 import { KnowledgeBaseService } from '../../knowledge-base/knowledge-base.service';
+import { SettingsService } from '../../settings/settings.service';
+import { hmacHex, safeEqualHex } from '../../../common/webhooks/verify';
 import type {
   IAgent,
   TriggerSpec,
@@ -61,6 +63,7 @@ export class WhatsAppAgent implements IAgent, OnModuleInit {
     private wa: WhatsAppService,
     private registry: AgentRegistryService,
     private kb: KnowledgeBaseService,
+    private settings: SettingsService,
   ) {}
 
   onModuleInit() {
@@ -292,6 +295,15 @@ export class WhatsAppAgent implements IAgent, OnModuleInit {
         method: 'POST',
         path: '/whatsapp/webhook',
         requiresAuth: false,
+        verifySignature: async (rawBody, headers) => {
+          const secret = await this.settings.getDecrypted('whatsapp_app_secret');
+          if (!secret) return false;
+          const header = (headers['x-hub-signature-256'] as string | undefined)?.trim();
+          if (!header || !header.startsWith('sha256=')) return false;
+          const sig = header.slice('sha256='.length);
+          const expected = hmacHex('sha256', secret, rawBody);
+          return safeEqualHex(sig, expected);
+        },
         handler: async (body) => {
           const messages = this.wa.parseWebhookMessages(body);
           await this.ingestWebhook(messages);
