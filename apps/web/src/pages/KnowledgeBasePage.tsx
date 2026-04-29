@@ -11,6 +11,29 @@ function parseAgentKeys(csv: string): string[] {
   return csv.split(',').map((s) => s.trim()).filter(Boolean);
 }
 
+function AgentPills({ csv, fallback }: { csv?: string | null; fallback?: string }) {
+  const tags = csv ? parseAgentKeys(csv) : [];
+  if (tags.length === 0) {
+    return fallback ? (
+      <span className="text-[10px] px-1.5 py-0.5 rounded-full border border-dashed border-border text-muted-foreground">
+        {fallback}
+      </span>
+    ) : null;
+  }
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1">
+      {tags.map((t) => (
+        <span
+          key={t}
+          className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/15 text-primary font-medium"
+        >
+          {t}
+        </span>
+      ))}
+    </span>
+  );
+}
+
 function AgentMultiSelect({ value, onChange, placeholder }: {
   value: string;
   onChange: (next: string) => void;
@@ -361,11 +384,9 @@ function EntriesTab({ token }: { token: string }) {
                   {entry.parentDocId && <span className="text-xs text-muted-foreground">chunk</span>}
                   <span className="text-xs text-muted-foreground">{entry.category}</span>
                   {entry.priority !== 50 && <span className="text-xs text-muted-foreground">p:{entry.priority}</span>}
+                  <AgentPills csv={entry.agentKeys} fallback="all agents" />
                 </div>
                 <p className="text-xs text-muted-foreground mt-0.5 truncate">{entry.content}</p>
-                {entry.agentKeys && (
-                  <p className="text-xs text-muted-foreground mt-0.5">Agents: {entry.agentKeys}</p>
-                )}
               </div>
               {!entry.parentDocId && (
                 <button
@@ -470,12 +491,12 @@ function SamplesTab({ token }: { token: string }) {
           {filtered.map((s: any) => (
             <div key={s.id} className="bg-card border border-border rounded-lg px-4 py-3 flex items-start gap-3">
               <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-sm font-medium">{s.context}</span>
                   <span className={`text-xs px-1.5 py-0.5 rounded-full ${s.polarity === 'positive' ? 'bg-green-500/15 text-green-400' : 'bg-red-500/15 text-red-400'}`}>
                     {s.polarity === 'positive' ? '✓' : '✗'} {s.polarity}
                   </span>
-                  {s.agentKeys && <span className="text-xs text-muted-foreground">{s.agentKeys}</span>}
+                  <AgentPills csv={s.agentKeys} fallback="all agents" />
                 </div>
                 <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{s.sampleText}</p>
               </div>
@@ -874,6 +895,10 @@ function TemplatesTab({ token }: { token: string }) {
             <div className="flex items-center gap-3 px-4 py-3 border-b border-border">
               <Code className="w-4 h-4 text-primary" />
               <span className="text-sm font-mono font-medium">{t.key}</span>
+              {(() => {
+                const agentPrefix = typeof t.key === 'string' && t.key.includes('.') ? t.key.split('.')[0] : '';
+                return agentPrefix ? <AgentPills csv={agentPrefix} /> : null;
+              })()}
               <span className="text-xs text-muted-foreground ml-auto">v{t.version}</span>
               <button onClick={() => setEditing(editing?.id === t.id ? null : t)} className="text-muted-foreground hover:text-foreground p-1">
                 {editing?.id === t.id ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
