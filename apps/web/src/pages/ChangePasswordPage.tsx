@@ -5,14 +5,14 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useAuthStore } from '@/stores/authStore';
 
-async function changePassword(token: string, currentPassword: string, newPassword: string) {
+async function changePassword(token: string, newPassword: string) {
   const res = await fetch('/auth/password', {
     method: 'PUT',
     headers: {
       Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ currentPassword, newPassword }),
+    body: JSON.stringify({ newPassword }),
   });
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
@@ -58,18 +58,16 @@ function PasswordField({
 export default function ChangePasswordPage() {
   const token = useAuthStore((s) => s.token)!;
 
-  const [current, setCurrent] = useState('');
   const [next, setNext] = useState('');
   const [confirm, setConfirm] = useState('');
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState('');
 
   const mutation = useMutation({
-    mutationFn: () => changePassword(token, current, next),
+    mutationFn: () => changePassword(token, next),
     onSuccess: () => {
       setSuccess(true);
       setError('');
-      setCurrent('');
       setNext('');
       setConfirm('');
       setTimeout(() => setSuccess(false), 5000);
@@ -108,12 +106,6 @@ export default function ChangePasswordPage() {
         </div>
         <form onSubmit={handleSubmit} className="px-5 py-5 space-y-4">
           <PasswordField
-            label="Current password"
-            value={current}
-            onChange={setCurrent}
-            placeholder="Enter current password"
-          />
-          <PasswordField
             label="New password"
             value={next}
             onChange={setNext}
@@ -141,7 +133,7 @@ export default function ChangePasswordPage() {
 
           <Button
             type="submit"
-            disabled={!current || !next || !confirm || mutation.isPending}
+            disabled={!next || !confirm || mutation.isPending}
             className="w-full sm:w-auto"
           >
             {mutation.isPending ? 'Updating…' : 'Update Password'}
