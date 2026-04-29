@@ -1,7 +1,7 @@
 import { Controller, Get, Header } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import { DbService } from '../../db/db.service';
-import { homePage } from '../../common/pages';
+import { homePage, faviconSvg } from '../../common/pages';
 
 @Controller()
 export class RootController {
@@ -9,6 +9,20 @@ export class RootController {
   @Header('Content-Type', 'text/html; charset=utf-8')
   index(): string {
     return homePage();
+  }
+
+  @Get('favicon.svg')
+  @Header('Content-Type', 'image/svg+xml')
+  @Header('Cache-Control', 'public, max-age=86400')
+  favicon(): string {
+    return faviconSvg();
+  }
+
+  @Get('favicon.ico')
+  @Header('Content-Type', 'image/svg+xml')
+  @Header('Cache-Control', 'public, max-age=86400')
+  faviconIco(): string {
+    return faviconSvg();
   }
 }
 
