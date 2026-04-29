@@ -2,12 +2,21 @@ export interface SettingDefinition {
   label: string;
   description?: string;
   isSecret: boolean;
-  group: 'llm' | 'telegram' | 'ses' | 'gmail' | 'whatsapp' | 'linkedin' | 'reddit' | 'crisp' | 'license' | 'storage' | 'insight' | 'safety';
+  group: 'general' | 'llm' | 'telegram' | 'ses' | 'gmail' | 'whatsapp' | 'linkedin' | 'reddit' | 'crisp' | 'license' | 'storage' | 'insight' | 'safety';
   defaultValue?: string;
   provider?: 'openai' | 'gemini' | 'deepseek' | 'general';
 }
 
 export const SETTING_DEFINITIONS: Record<string, SettingDefinition> = {
+  // General — platform-wide
+  timezone: {
+    label: 'Timezone',
+    description: 'IANA timezone used for scheduling, daily reminders, business-hours checks, and Telegram timestamps.',
+    isSecret: false,
+    group: 'general',
+    defaultValue: 'UTC',
+  },
+
   // LLM — general
   llm_default_provider: {
     label: 'Default Provider',

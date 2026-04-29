@@ -38,8 +38,9 @@ export class RunsController {
     }
 
     reply.raw.setHeader('Content-Type', 'text/event-stream');
-    reply.raw.setHeader('Cache-Control', 'no-cache');
+    reply.raw.setHeader('Cache-Control', 'no-cache, no-transform');
     reply.raw.setHeader('Connection', 'keep-alive');
+    reply.raw.setHeader('X-Accel-Buffering', 'no');
     reply.raw.setHeader('Access-Control-Allow-Origin', '*');
     reply.raw.flushHeaders();
 
@@ -48,6 +49,12 @@ export class RunsController {
         reply.raw.write(`data: ${JSON.stringify(data)}\n\n`);
       }
     };
+
+    const heartbeat = setInterval(() => {
+      if (!reply.raw.writableEnded) {
+        reply.raw.write(`: heartbeat ${Date.now()}\n\n`);
+      }
+    }, 20_000);
 
     const initial = await this.runs.getRecentLogs(100);
     for (const entry of initial) {
@@ -60,6 +67,7 @@ export class RunsController {
 
     reply.raw.on('close', () => {
       this.events.removeListener('log.created', handler);
+      clearInterval(heartbeat);
     });
   }
 
@@ -73,15 +81,18 @@ export class RunsController {
   @Get(':id/logs')
   async streamLogs(@Param('id') id: string, @Res() reply: FastifyReply) {
     reply.raw.setHeader('Content-Type', 'text/event-stream');
-    reply.raw.setHeader('Cache-Control', 'no-cache');
+    reply.raw.setHeader('Cache-Control', 'no-cache, no-transform');
     reply.raw.setHeader('Connection', 'keep-alive');
+    reply.raw.setHeader('X-Accel-Buffering', 'no');
     reply.raw.setHeader('Access-Control-Allow-Origin', '*');
     reply.raw.flushHeaders();
 
     let lastCreatedAt: Date | undefined;
 
     const send = (data: unknown) => {
-      reply.raw.write(`data: ${JSON.stringify(data)}\n\n`);
+      if (!reply.raw.writableEnded) {
+        reply.raw.write(`data: ${JSON.stringify(data)}\n\n`);
+      }
     };
 
     const poll = async () => {
@@ -100,6 +111,7 @@ export class RunsController {
         if (done) {
           send({ type: 'done' });
           clearInterval(timer);
+          clearInterval(heartbeat);
           reply.raw.end();
         }
       } catch {
@@ -109,7 +121,15 @@ export class RunsController {
 
     await poll();
     const timer = setInterval(poll, 1000);
+    const heartbeat = setInterval(() => {
+      if (!reply.raw.writableEnded) {
+        reply.raw.write(`: heartbeat ${Date.now()}\n\n`);
+      }
+    }, 20_000);
 
-    reply.raw.on('close', () => clearInterval(timer));
+    reply.raw.on('close', () => {
+      clearInterval(timer);
+      clearInterval(heartbeat);
+    });
   }
 }

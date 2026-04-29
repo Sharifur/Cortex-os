@@ -13,6 +13,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useAuthStore } from '@/stores/authStore';
 import { agentColor } from '@/lib/agent-colors';
 import { getAgentSuggestions } from '@/lib/agentTaskSuggestions';
+import { isGreetingExact } from '@/lib/greetings';
 
 interface AgentDetail {
   id: string;
@@ -1540,6 +1541,7 @@ function TaskipInternalAskSubTab({ agent, config, token }: {
 }) {
   const navigate = useNavigate();
   const [query, setQuery] = useState('');
+  const [greetingNotice, setGreetingNotice] = useState<string | null>(null);
 
   const triggerMutation = useMutation({
     mutationFn: () =>
@@ -1549,6 +1551,17 @@ function TaskipInternalAskSubTab({ agent, config, token }: {
       }),
     onSuccess: (run: { id: string }) => navigate(`/runs/${run.id}`),
   });
+
+  function runQuery() {
+    const q = query.trim();
+    if (!q) return;
+    if (isGreetingExact(q)) {
+      setGreetingNotice(`That looks like a greeting — ask a specific question (e.g. "Look up user john@example.com") so ${agent.name} can do something useful.`);
+      return;
+    }
+    setGreetingNotice(null);
+    triggerMutation.mutate();
+  }
 
   return (
     <div className="space-y-4">
@@ -1568,13 +1581,16 @@ function TaskipInternalAskSubTab({ agent, config, token }: {
           />
           <Button
             size="sm"
-            onClick={() => triggerMutation.mutate()}
+            onClick={runQuery}
             disabled={!query.trim() || !agent.enabled || !agent.registered || triggerMutation.isPending}
             className="gap-1.5"
           >
             <Play className="w-3.5 h-3.5" />
             {triggerMutation.isPending ? 'Starting…' : 'Run query'}
           </Button>
+          {greetingNotice && (
+            <p className="text-xs text-amber-500">{greetingNotice}</p>
+          )}
           {!agent.registered && (
             <p className="text-xs text-yellow-500">Agent is not registered in the runtime.</p>
           )}

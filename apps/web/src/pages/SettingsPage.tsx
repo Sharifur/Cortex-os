@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Settings, Save, Trash2, Eye, EyeOff, Key, Zap, UserCircle, CheckCircle2, XCircle, Loader2 } from 'lucide-react';
+import { Settings, Save, Trash2, Eye, EyeOff, Key, Zap, UserCircle, CheckCircle2, XCircle, Loader2, Globe } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -404,6 +404,93 @@ function FallbackOrderPanel({ setting, token, providers }: {
   );
 }
 
+function getTimezones(): string[] {
+  type IntlWithSupported = typeof Intl & { supportedValuesOf?: (key: string) => string[] };
+  const i = Intl as IntlWithSupported;
+  if (typeof i.supportedValuesOf === 'function') {
+    try { return i.supportedValuesOf('timeZone'); } catch { /* fall through */ }
+  }
+  return ['UTC', 'Asia/Dhaka', 'Asia/Kolkata', 'Asia/Singapore', 'Asia/Tokyo', 'Europe/London', 'Europe/Berlin', 'America/New_York', 'America/Los_Angeles'];
+}
+
+function TimezoneField({ setting, token }: { setting: SettingRow; token: string }) {
+  const qc = useQueryClient();
+  const tzs = useMemo(() => getTimezones(), []);
+  const browserTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const mutation = useMutation({
+    mutationFn: (val: string) => upsertSetting(token, setting.key, val),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['settings'] }),
+  });
+
+  const current = setting.value || 'UTC';
+
+  return (
+    <div className="py-4 border-b border-border last:border-0">
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-0.5">
+            <Globe className="w-3.5 h-3.5 text-muted-foreground" />
+            <span className="text-sm font-medium">{setting.label}</span>
+            {mutation.isPending && <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />}
+            {!mutation.isPending && mutation.isSuccess && (
+              <span className="text-xs bg-green-500/10 text-green-500 px-1.5 py-0.5 rounded">saved</span>
+            )}
+          </div>
+          {setting.description && (
+            <p className="text-xs text-muted-foreground mb-2">{setting.description}</p>
+          )}
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              value={current}
+              onChange={(e) => mutation.mutate(e.target.value)}
+              disabled={mutation.isPending}
+              className="bg-muted border border-border rounded-md px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50 disabled:cursor-not-allowed min-w-[260px]"
+            >
+              {tzs.map((tz) => (
+                <option key={tz} value={tz}>{tz}</option>
+              ))}
+            </select>
+            {browserTz && current !== browserTz && (
+              <button
+                onClick={() => mutation.mutate(browserTz)}
+                disabled={mutation.isPending}
+                className="text-xs text-primary hover:underline disabled:opacity-50"
+              >
+                Use browser timezone ({browserTz})
+              </button>
+            )}
+          </div>
+          <p className="text-[11px] text-muted-foreground mt-1.5">
+            Local time now: <code className="font-mono">{new Date().toLocaleString(undefined, { timeZone: current })}</code>
+          </p>
+          {mutation.isError && (
+            <p className="text-xs text-destructive mt-1">{(mutation.error as Error)?.message ?? 'Failed to save'}</p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function GeneralTab({ rows, token }: { rows: SettingRow[]; token: string }) {
+  if (!rows.length) return null;
+  return (
+    <div className="rounded-xl border border-border bg-card mb-6">
+      <div className="px-5 py-3 border-b border-border flex items-center gap-2">
+        <Globe className="w-4 h-4 text-primary" />
+        <span className="text-sm font-semibold">General</span>
+      </div>
+      <div className="px-5">
+        {rows.map((s) => (
+          s.key === 'timezone'
+            ? <TimezoneField key={s.key} setting={s} token={token} />
+            : <SettingField key={s.key} setting={s} token={token} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function LlmTab({ rows, token }: { rows: SettingRow[]; token: string }) {
   const [activeProvider, setActiveProvider] = useState('openai');
 
@@ -530,7 +617,12 @@ export default function SettingsPage() {
         <a href="/change-password" className="text-primary hover:underline">Change Password</a>.
       </p>
 
-      {!isLoading && !isError && <LlmTab rows={grouped['llm'] ?? []} token={token} />}
+      {!isLoading && !isError && (
+        <>
+          <GeneralTab rows={grouped['general'] ?? []} token={token} />
+          <LlmTab rows={grouped['llm'] ?? []} token={token} />
+        </>
+      )}
     </div>
   );
 }

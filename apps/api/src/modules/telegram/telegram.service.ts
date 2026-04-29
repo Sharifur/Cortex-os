@@ -17,6 +17,7 @@ import { SelfImprovementService, KbProposalNotifyEvent } from '../knowledge-base
 import type { ApprovalCreatedEvent } from './telegram.types';
 import { TELEGRAM_EVENTS } from './telegram.types';
 import type { ProposedAction } from '../agents/runtime/types';
+import { GREETING_SET, normalizeForGreeting } from './greetings';
 
 const RISK_LABEL: Record<string, string> = {
   low: '[low]',
@@ -363,7 +364,13 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async handleConversation(ctx: { reply: (text: string, opts?: object) => Promise<unknown> }, text: string) {
-    // 0. Detect timed reminder before routing to any agent
+    // 0. Smalltalk / greeting / help — answer directly, don't pick an agent
+    if (this.isSmalltalk(text)) {
+      await ctx.reply(this.smalltalkReply(text), { parse_mode: 'Markdown' });
+      return;
+    }
+
+    // 1. Detect timed reminder (absolute or relative) before routing
     try {
       const reminder = await this.detectReminder(text);
       if (reminder) {
@@ -384,7 +391,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       this.logger.warn(`Reminder detection failed: ${(err as Error).message}`);
     }
 
-    // 1. Check for @mention: "@daily_reminder what's my status?"
+    // 2. Check for @mention: "@daily_reminder what's my status?"
     const mentionMatch = text.match(/^@(\S+)\s+([\s\S]+)/i);
     if (mentionMatch) {
       const [, mention, instruction] = mentionMatch;
@@ -401,7 +408,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
-    // 2. LLM auto-classify
+    // 3. LLM auto-classify
     try {
       const agentKey = await this.classifyWithLlm(text);
       if (agentKey) {
@@ -415,8 +422,114 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       this.logger.warn(`LLM routing failed: ${(err as Error).message}`);
     }
 
-    // 3. Show agent picker
+    // 4. Show agent picker as last resort
     await this.showAgentPicker(ctx, text);
+  }
+
+  // Single-word greetings / acknowledgments / goodbyes. All lowercase, no punctuation.
+  private static SMALLTALK_WORDS: readonly string[] = [
+    // English greetings
+    'hi', 'hii', 'hiii', 'hiiii', 'hello', 'helo', 'hellooo', 'hey', 'heyy', 'heya', 'heyo', 'hiya',
+    'yo', 'yoo', 'sup', 'wassup', 'wazzup', 'howdy', 'greetings', 'salutations',
+    'morning', 'afternoon', 'evening', 'night', 'gm', 'gn', 'ge', 'ga',
+    // Other languages
+    'hola', 'bonjour', 'ciao', 'aloha', 'namaste', 'namaskar', 'nomoshkar',
+    'salam', 'salaam', 'slm', 'assalamualaikum', 'walaikumassalam', 'walaikumsalam', 'marhaba',
+    'kemon', 'kemne', 'kemoncho', 'bhalo', 'achi', 'vai', 'bhai', 'bhaiya', 'apu', 'apa', 'apurokom',
+    // Acknowledgments / fillers
+    'ok', 'okk', 'okay', 'kk', 'k', 'alright', 'aight', 'sure', 'fine', 'cool', 'nice', 'great',
+    'awesome', 'amazing', 'perfect', 'brilliant', 'lovely', 'sweet', 'neat', 'gotcha', 'roger',
+    'ack', 'acked', 'noted', 'understood', 'right', 'yep', 'yeah', 'yup', 'yes', 'yo', 'yass',
+    'no', 'nope', 'nah', 'naah',
+    // Thanks
+    'thanks', 'thx', 'thnx', 'tnx', 'ty', 'tysm', 'thankyou', 'thanku', 'thanq', 'cheers', 'kudos',
+    // Goodbyes
+    'bye', 'byee', 'byeee', 'goodbye', 'cya', 'cyaa', 'ttyl', 'gtg', 'peace', 'later', 'farewell',
+    'tata',
+    // Help / capability
+    'help', 'menu', 'commands', 'command', 'options', 'option', 'capabilities', 'capability',
+    'start', 'about',
+  ];
+
+  private static SMALLTALK_PHRASES: readonly RegExp[] = [
+    /^good\s*(morning|afternoon|evening|night|day)$/i,
+    /^how\s+(are|r)\s+(you|u|ya|yall|y'all)\b.*$/i,
+    /^how(\s+are)?\s+things\b.*$/i,
+    /^how(\s+is|'s|s)\s+it\s+going\b.*$/i,
+    /^how\s+do\s+you\s+do\b.*$/i,
+    /^what'?s\s+up\b.*$/i,
+    /^whats\s*up\b.*$/i,
+    /^thank\s+you(\s+(so\s+much|very\s+much|very\s+kindly))?$/i,
+    /^thanks\s+(a\s+lot|a\s+ton|a\s+bunch|so\s+much|very\s+much)$/i,
+    /^much\s+(appreciated|thanks)$/i,
+    /^appreciate\s+(it|that|you)$/i,
+    /^got\s+it$/i,
+    /^all\s+good$/i,
+    /^no\s+(worries|problem|prob|probs)$/i,
+    /^see\s+(you|ya|u)(\s+(later|soon|tomorrow))?$/i,
+    /^talk\s+(to\s+you\s+)?later$/i,
+    /^take\s+care$/i,
+    /^have\s+a\s+(good|great|nice)\s+(day|one|night|evening)$/i,
+    /^what\s+can\s+you\s+do\b.*$/i,
+    /^who\s+(are|r)\s+you\b.*$/i,
+    /^what\s+(are|r)\s+you\b.*$/i,
+    /^who\s+is\s+this\b.*$/i,
+    /^assalamu?\s*alaikum.*$/i,
+    /^kemon\s+acho\b.*$/i,
+    /^bhalo\s+achi\b.*$/i,
+  ];
+
+  private isSmalltalk(text: string): boolean {
+    const normalized = normalizeForGreeting(text);
+    if (!normalized) return true;
+    if (normalized.length === 1) return true;
+
+    // Fast O(1) lookup against the curated 500+ greeting list.
+    if (GREETING_SET.has(normalized)) return true;
+
+    // Telegram slash commands — always smalltalk.
+    if (/^\/(start|help|menu|about)\b/i.test(text.trim())) return true;
+
+    // Multi-word phrase patterns (catches free-form variations).
+    for (const re of TelegramService.SMALLTALK_PHRASES) {
+      if (re.test(normalized)) return true;
+    }
+
+    // Token-only check: every token must be a known smalltalk word.
+    const tokens = normalized.split(' ').filter(Boolean);
+    if (tokens.length === 0) return true;
+    if (tokens.length <= 4) {
+      const all = tokens.every((tok) => TelegramService.SMALLTALK_WORDS.includes(tok));
+      if (all) return true;
+    }
+
+    return false;
+  }
+
+  private smalltalkReply(text: string): string {
+    const t = text.trim().toLowerCase();
+    if (/^(thanks|thank\s+you|thx|thnx|tnx|ty|tysm|thanku|thanq|much\s+(appreciated|thanks)|appreciate\s+(it|that|you)|cheers|kudos)\b/i.test(t)) {
+      return 'You got it.';
+    }
+    if (/^(bye|byee|goodbye|cya|ttyl|gtg|peace|later|farewell|tata|see\s+(you|ya|u)|take\s+care|talk\s+(to\s+you\s+)?later)\b/i.test(t)) {
+      return 'Talk later.';
+    }
+    if (/^(ok+|okk|okay|kk|k|alright|aight|sure|fine|cool|nice|great|awesome|amazing|perfect|brilliant|lovely|sweet|neat|gotcha|roger|ack|noted|understood|right|yep|yeah|yup|yes|no|nope|nah|naah)\b/i.test(t)) {
+      return 'Noted.';
+    }
+    const agentList = ROUTABLE_AGENTS.map((a) => `• *${a.name}* — ${a.desc}`).join('\n');
+    return [
+      'Hi. I route messages to your agents.',
+      '',
+      'Try things like:',
+      '• `remind me to drink water in 5 minutes`',
+      '• `draft a reply to the latest email`',
+      '• `give me today\'s status`',
+      '• `@linkedin connect with the new sign-ups`',
+      '',
+      '*Agents available:*',
+      agentList,
+    ].join('\n');
   }
 
   private async classifyWithLlm(text: string): Promise<string | null> {
@@ -427,13 +540,41 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       messages: [
         {
           role: 'system',
-          content: `You are a router for an AI agent platform. Given a user message, determine which agent key should handle it.
+          content: `You route a single user message to ONE agent in an AI agent platform.
+
 Available agents:
 ${agentList}
 
-Reply with ONLY a JSON object like: {"agent": "agent_key", "confidence": "high"}
-If you cannot determine with high confidence, set agent to null: {"agent": null, "confidence": "low"}
-Never explain. Only output the JSON.`,
+Decision rules:
+- Pick the single best-matching agent. Bias toward picking an agent rather than null — only use null for pure greetings or off-topic messages.
+- Reminders, motivational messages, daily briefs, status checks, scheduled notes → daily_reminder
+- Anything about emails, inbox, drafting replies, Gmail → email_manager
+- Customer support / live chat / Crisp conversations → crisp
+- LinkedIn connections, outreach, DMs, posts → linkedin
+- Reddit threads, comments, monitoring keywords → reddit
+- Twitter/X, Facebook, social posts, scheduling → social
+- WhatsApp messages or numbers → whatsapp
+- Trial signups, onboarding emails for Taskip → taskip_trial
+- Leave / salary / payroll / employee questions → hr
+- Designs, banners, posters, Canva → canva
+- YouTube Shorts, video scripts, short-form video → shorts
+
+Output ONLY JSON, no prose, no markdown:
+{"agent": "<agent_key>", "confidence": "high|medium|low"}
+Use {"agent": null, "confidence": "low"} only for greetings, thanks, or genuinely unrelated chatter.
+
+Examples:
+"send me a motivational message in 5 min" -> {"agent":"daily_reminder","confidence":"high"}
+"remind me to call mom at 8pm" -> {"agent":"daily_reminder","confidence":"high"}
+"what's my status today?" -> {"agent":"daily_reminder","confidence":"high"}
+"draft a reply to the latest email from Bob" -> {"agent":"email_manager","confidence":"high"}
+"any new support chats?" -> {"agent":"crisp","confidence":"high"}
+"connect with the new sign-ups on LinkedIn" -> {"agent":"linkedin","confidence":"high"}
+"write a youtube short about productivity" -> {"agent":"shorts","confidence":"high"}
+"design a banner for the landing page" -> {"agent":"canva","confidence":"high"}
+"how many trial users today" -> {"agent":"taskip_trial","confidence":"high"}
+"approve John's leave request" -> {"agent":"hr","confidence":"high"}
+"hello" -> {"agent":null,"confidence":"low"}`,
         },
         { role: 'user', content: text },
       ],
@@ -444,7 +585,7 @@ Never explain. Only output the JSON.`,
     try {
       const raw = response.content.trim().replace(/^```json\s*|```$/g, '');
       const parsed = JSON.parse(raw) as { agent: string | null; confidence: string };
-      if (parsed.confidence === 'high' && parsed.agent) {
+      if ((parsed.confidence === 'high' || parsed.confidence === 'medium') && parsed.agent) {
         const valid = ROUTABLE_AGENTS.find((a) => a.key === parsed.agent);
         return valid ? valid.key : null;
       }
@@ -475,31 +616,52 @@ Never explain. Only output the JSON.`,
 
   private async detectReminder(text: string): Promise<{ message: string; sendAt: Date; sendAtLabel: string } | null> {
     const nowUtc = new Date();
-    // User is in Asia/Dhaka (UTC+6)
-    const nowLocal = nowUtc.toLocaleString('en-US', { timeZone: 'Asia/Dhaka', hour12: false });
-    const utcOffsetMs = 6 * 60 * 60 * 1000;
+    const tz = (await this.settings.getDecrypted('timezone')) || 'UTC';
+    const nowLocal = nowUtc.toLocaleString('en-US', { timeZone: tz, hour12: false });
+
+    // Fast path: relative-duration patterns ("in 5 min", "after 2 hours", "in next 30 minutes")
+    const rel = this.parseRelativeDuration(text);
+    if (rel) {
+      const sendAt = new Date(nowUtc.getTime() + rel.minutes * 60 * 1000);
+      return {
+        message: rel.message,
+        sendAt,
+        sendAtLabel:
+          sendAt.toLocaleString('en-US', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: true }) +
+          ` (in ${rel.minutes} min)`,
+      };
+    }
 
     const response = await this.llm.complete({
       provider: 'auto',
       messages: [
         {
           role: 'system',
-          content: `You detect timed reminders in user messages. Current UTC time: ${nowUtc.toISOString()}. User is in Asia/Dhaka (UTC+6), local time: ${nowLocal}.
+          content: `You detect timed reminders in user messages. Current UTC time: ${nowUtc.toISOString()}. User timezone: ${tz}, local time now: ${nowLocal}.
 
-If the message is a reminder/schedule request with a specific time, return JSON:
-{"isReminder": true, "message": "<clean reminder text>", "targetLocalHHMM": "HH:MM", "targetLocalLabel": "9:00 PM", "sendMinutesBefore": 10}
+A "reminder" is any request to be notified later — either at a specific time ("at 9pm"), or after a delay ("in 5 minutes", "after 2 hours"), or at a relative date ("tomorrow at 10am").
 
-- message: short, clear reminder text (e.g. "Go to Nurul Ami Bhai's office")
-- targetLocalHHMM: 24h format of the event time in Asia/Dhaka
-- sendMinutesBefore: how many minutes before the event to send the reminder (default 10)
-- If the time has already passed today, assume tomorrow.
+If it IS a reminder, return ONE of these two shapes:
 
-If not a reminder, return: {"isReminder": false}
-Only output JSON.`,
+(a) Absolute clock time today/tomorrow:
+{"isReminder": true, "kind": "absolute", "message": "<clean reminder text>", "targetLocalHHMM": "HH:MM", "targetLocalLabel": "9:00 PM", "sendMinutesBefore": 0}
+
+(b) Relative delay from now:
+{"isReminder": true, "kind": "relative", "message": "<clean reminder text>", "delayMinutes": 5}
+
+Rules:
+- "in 5 min" / "after 5 minutes" / "in next 5min" → kind=relative, delayMinutes=5
+- "at 9pm" / "9:30 in the evening" → kind=absolute, targetLocalHHMM in 24h, sendMinutesBefore=0 (or whatever the user says, e.g. "10 min before 9pm" → sendMinutesBefore=10)
+- "tomorrow at 10am" → kind=absolute, targetLocalHHMM="10:00" (assume tomorrow if past)
+- message: short, clean reminder text. For "send me a motivational message in 5 min" → message="Send a motivational message".
+- If absolute time already passed today, assume tomorrow.
+
+If NOT a reminder, return: {"isReminder": false}
+Output ONLY JSON, no prose.`,
         },
         { role: 'user', content: text },
       ],
-      maxTokens: 120,
+      maxTokens: 150,
       temperature: 0,
     });
 
@@ -507,36 +669,85 @@ Only output JSON.`,
       const raw = response.content.trim().replace(/^```json\s*|```$/g, '');
       const parsed = JSON.parse(raw) as {
         isReminder: boolean;
+        kind?: 'absolute' | 'relative';
         message?: string;
         targetLocalHHMM?: string;
         targetLocalLabel?: string;
         sendMinutesBefore?: number;
+        delayMinutes?: number;
       };
 
-      if (!parsed.isReminder || !parsed.message || !parsed.targetLocalHHMM) return null;
+      if (!parsed.isReminder || !parsed.message) return null;
 
-      const [hh, mm] = parsed.targetLocalHHMM.split(':').map(Number);
-      const sendBefore = parsed.sendMinutesBefore ?? 10;
+      if (parsed.kind === 'relative' && parsed.delayMinutes && parsed.delayMinutes > 0) {
+        const sendAt = new Date(nowUtc.getTime() + parsed.delayMinutes * 60 * 1000);
+        return {
+          message: parsed.message,
+          sendAt,
+          sendAtLabel:
+            sendAt.toLocaleString('en-US', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: true }) +
+            ` (in ${parsed.delayMinutes} min)`,
+        };
+      }
 
-      // Build target datetime in UTC
-      const nowDhaka = new Date(nowUtc.getTime() + utcOffsetMs);
-      const targetDhaka = new Date(nowDhaka);
-      targetDhaka.setHours(hh, mm, 0, 0);
-      if (targetDhaka <= nowDhaka) targetDhaka.setDate(targetDhaka.getDate() + 1);
+      if (parsed.targetLocalHHMM) {
+        const [hh, mm] = parsed.targetLocalHHMM.split(':').map(Number);
+        const sendBefore = parsed.sendMinutesBefore ?? 0;
+        const sendAt = this.computeNextLocalTimeUtc(hh, mm, tz, nowUtc, sendBefore);
+        const localLabel = sendAt.toLocaleString('en-US', {
+          timeZone: tz,
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: true,
+        });
+        const eventLabel = parsed.targetLocalLabel ?? parsed.targetLocalHHMM;
+        const beforeLabel = sendBefore > 0 ? ` (${sendBefore}min before ${eventLabel})` : '';
+        return { message: parsed.message, sendAt, sendAtLabel: localLabel + beforeLabel };
+      }
 
-      const sendAtDhaka = new Date(targetDhaka.getTime() - sendBefore * 60 * 1000);
-      const sendAtUtc = new Date(sendAtDhaka.getTime() - utcOffsetMs);
-
-      const sendAtLabel = sendAtDhaka.toLocaleTimeString('en-US', {
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: true,
-      }) + ` (${sendBefore}min before ${parsed.targetLocalLabel ?? parsed.targetLocalHHMM})`;
-
-      return { message: parsed.message, sendAt: sendAtUtc, sendAtLabel };
+      return null;
     } catch {
       return null;
     }
+  }
+
+  private parseRelativeDuration(text: string): { minutes: number; message: string } | null {
+    const m = text.match(/\b(?:in|after|after\s+next|in\s+next)\s+(\d+)\s*(s|sec|secs|second|seconds|m|min|mins|minute|minutes|h|hr|hrs|hour|hours)\b/i);
+    if (!m) return null;
+    const value = parseInt(m[1], 10);
+    const unit = m[2].toLowerCase();
+    let minutes: number;
+    if (/^(s|sec|secs|second|seconds)$/.test(unit)) minutes = Math.max(1, Math.round(value / 60));
+    else if (/^(h|hr|hrs|hour|hours)$/.test(unit)) minutes = value * 60;
+    else minutes = value;
+    if (minutes < 1 || minutes > 60 * 24 * 7) return null;
+
+    let message = text.replace(m[0], '').trim();
+    message = message.replace(/^(please\s+)?(can\s+you\s+)?(send|remind|tell|message|text)\s+me\s+(to\s+|about\s+)?/i, '').trim();
+    message = message.replace(/^(a|an)\s+/i, '').trim();
+    if (!message) message = text.trim();
+    message = message.charAt(0).toUpperCase() + message.slice(1);
+    return { minutes, message };
+  }
+
+  private computeNextLocalTimeUtc(hh: number, mm: number, tz: string, now: Date, minutesBefore: number): Date {
+    // Find the next UTC instant where local-time-in-tz equals hh:mm.
+    const nowParts = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz, hour12: false,
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+    }).formatToParts(now);
+    const get = (k: string) => Number(nowParts.find((p) => p.type === k)?.value ?? '0');
+    const localY = get('year'), localMo = get('month'), localD = get('day');
+    const localH = get('hour'), localMi = get('minute');
+
+    const offsetMin = (localH * 60 + localMi) - (now.getUTCHours() * 60 + now.getUTCMinutes());
+    let candidateUtc = Date.UTC(localY, localMo - 1, localD, hh, mm, 0) - offsetMin * 60 * 1000;
+    const nowMs = now.getTime();
+    if (candidateUtc - minutesBefore * 60 * 1000 <= nowMs) {
+      candidateUtc += 24 * 60 * 60 * 1000;
+    }
+    return new Date(candidateUtc - minutesBefore * 60 * 1000);
   }
 
   private resolveAgentByAlias(input: string): typeof ROUTABLE_AGENTS[0] | null {

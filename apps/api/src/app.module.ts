@@ -36,6 +36,7 @@ import { IntegrationsModule } from './modules/integrations/integrations.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { DebugLogsModule } from './modules/debug-logs/debug-logs.module';
 import { PurchaseVerifyModule } from './modules/agents/purchase-verify/purchase-verify.module';
+import { ContactsModule } from './modules/contacts/contacts.module';
 
 @Module({
   imports: [
@@ -94,6 +95,7 @@ import { PurchaseVerifyModule } from './modules/agents/purchase-verify/purchase-
     DashboardModule,
     DebugLogsModule,
     PurchaseVerifyModule,
+    ContactsModule,
   ],
 })
 export class AppModule {}

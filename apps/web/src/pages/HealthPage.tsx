@@ -100,8 +100,8 @@ export default function HealthPage() {
   const loading = isPending && isFetching;
 
   const overallOk = data?.status === 'ok';
-  const coreChecks = CORE_SERVICES.map((k) => ({ name: k, check: data?.checks[k] ?? FALLBACK_CHECK }));
-  const integrationChecks = INTEGRATION_SERVICES.map((k) => ({ name: k, check: data?.checks[k] ?? FALLBACK_CHECK }));
+  const coreChecks = CORE_SERVICES.map((k) => ({ name: k, check: data?.checks?.[k] ?? FALLBACK_CHECK }));
+  const integrationChecks = INTEGRATION_SERVICES.map((k) => ({ name: k, check: data?.checks?.[k] ?? FALLBACK_CHECK }));
 
   const lastChecked = dataUpdatedAt ? new Date(dataUpdatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : null;
 

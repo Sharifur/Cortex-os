@@ -12,6 +12,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useAuthStore } from '@/stores/authStore';
 import { agentColor } from '@/lib/agent-colors';
 import { getAgentSuggestions } from '@/lib/agentTaskSuggestions';
+import { isGreetingExact } from '@/lib/greetings';
 
 interface AgentInfo {
   key: string;
@@ -326,6 +327,36 @@ function ChatTab({
     const q = input.trim();
     if (!q || triggerMutation.isPending || isThinking) return;
     setInput('');
+
+    if (isGreetingExact(q)) {
+      const userMsg: ConvMessage = {
+        id: `u-${Date.now()}`,
+        role: 'user',
+        content: q,
+        runId: null,
+        requiresApproval: false,
+        createdAt: new Date().toISOString(),
+      };
+      const greetingReply: ConvMessage = {
+        id: `a-greet-${Date.now()}`,
+        role: 'agent',
+        content: `Hi — I'm ${agent.name}. Ask me something specific so I can help, or pick one of the suggestions.`,
+        runId: null,
+        requiresApproval: false,
+        createdAt: new Date().toISOString(),
+      };
+      setMessages((prev) => [...prev, userMsg, greetingReply]);
+      apiFetch(token, `/agents/${agent.key}/conversations/message`, {
+        method: 'POST',
+        body: JSON.stringify({ conversationId: convId, role: 'user', content: q }),
+      }).catch(() => {});
+      apiFetch(token, `/agents/${agent.key}/conversations/message`, {
+        method: 'POST',
+        body: JSON.stringify({ conversationId: convId, role: 'agent', content: greetingReply.content }),
+      }).catch(() => {});
+      return;
+    }
+
     triggerMutation.mutate(q);
   }
 
