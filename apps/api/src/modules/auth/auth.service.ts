@@ -1,12 +1,12 @@
-import { Injectable, UnauthorizedException, ConflictException, HttpException, HttpStatus, Optional } from '@nestjs/common';
+import { Injectable, UnauthorizedException, ConflictException, HttpException, HttpStatus } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { eq } from 'drizzle-orm';
 import * as bcrypt from 'bcrypt';
 import { DbService } from '../../db/db.service';
 import { users } from '../../db/schema';
 import { LoginThrottleService } from './login-throttle.service';
 import { AuthSessionService } from './auth-session.service';
-import { TelegramService } from '../telegram/telegram.service';
 
 @Injectable()
 export class AuthService {
@@ -15,7 +15,7 @@ export class AuthService {
     private jwt: JwtService,
     private throttle: LoginThrottleService,
     private sessions: AuthSessionService,
-    @Optional() private telegram?: TelegramService,
+    private events: EventEmitter2,
   ) {}
 
   async login(email: string, password: string, rememberMe: boolean, ip: string, userAgent?: string) {
@@ -57,10 +57,8 @@ export class AuthService {
     const ttlSeconds = rememberMe ? 14 * 24 * 60 * 60 : 24 * 60 * 60;
     const session = await this.sessions.create({ userId: user.id, ip, userAgent, ttlSeconds });
 
-    if (session.isNewIp && this.telegram) {
-      void this.telegram.sendMessage(
-        `Cortex OS: new login for ${user.email}\nIP: ${ip}\nUA: ${(userAgent ?? '—').slice(0, 120)}`,
-      ).catch(() => undefined);
+    if (session.isNewIp) {
+      this.events.emit('auth.login.new_ip', { email: user.email, ip, userAgent });
     }
 
     const token = this.jwt.sign(
