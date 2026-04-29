@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAuthStore } from '@/stores/authStore';
 import { agentColor } from '@/lib/agent-colors';
+import { getAgentSuggestions } from '@/lib/agentTaskSuggestions';
 
 interface AgentInfo {
   key: string;
@@ -19,6 +20,25 @@ interface AgentInfo {
   enabled: boolean;
   registered: boolean;
   triggers: { type: string; cron?: string }[];
+}
+
+function SuggestionChips({ agentKey, onPick }: { agentKey: string; onPick: (s: string) => void }) {
+  const items = getAgentSuggestions(agentKey);
+  if (items.length === 0) return null;
+  return (
+    <div className="flex flex-wrap gap-1.5 pb-2 px-1">
+      {items.map((s) => (
+        <button
+          key={s}
+          type="button"
+          onClick={() => onPick(s)}
+          className="text-[11px] px-2.5 py-1 rounded-full border border-border text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors"
+        >
+          {s}
+        </button>
+      ))}
+    </div>
+  );
 }
 
 interface ConvMessage {
@@ -422,6 +442,13 @@ function ChatTab({
         {!agent.enabled && (
           <p className="text-xs text-amber-500 mb-2 px-1">Agent is disabled — enable it in Settings to chat.</p>
         )}
+        <SuggestionChips
+          agentKey={agent.key}
+          onPick={(s) => {
+            setInput(s);
+            textareaRef.current?.focus();
+          }}
+        />
         <div className="flex gap-2 items-end">
           <textarea
             ref={textareaRef}
@@ -495,6 +522,7 @@ function TasksTab({
       {/* New task */}
       <div className={`rounded-xl border ${color.border} bg-card p-4 space-y-3`}>
         <h3 className="text-sm font-semibold">Assign New Task</h3>
+        <SuggestionChips agentKey={agent.key} onPick={setTaskInput} />
         <textarea
           value={taskInput}
           onChange={(e) => setTaskInput(e.target.value)}
