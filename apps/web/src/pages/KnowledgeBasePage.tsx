@@ -634,7 +634,7 @@ function ImportTab({ token }: { token: string }) {
       {/* Type selector */}
       <div className="bg-card border border-border rounded-xl p-1.5 flex gap-1">
         <button
-          onClick={() => { setImportType('document'); setUploadResult(null); setUploadError(''); }}
+          onClick={() => { setImportType('document'); setFileResults({}); }}
           className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-medium transition-colors ${
             importType === 'document'
               ? 'bg-primary text-primary-foreground'
