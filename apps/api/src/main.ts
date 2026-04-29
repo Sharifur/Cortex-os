@@ -34,13 +34,14 @@ async function bootstrap() {
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
     new FastifyAdapter({ trustProxy: true }),
-    { bufferLogs: true },
+    { bufferLogs: true, bodyParser: false },
   );
 
   const fastify = app.getHttpAdapter().getInstance();
 
-  // Preserve raw JSON body for webhook HMAC verification (overrides default JSON parser)
-  fastify.removeContentTypeParser?.('application/json');
+  // Preserve raw JSON body for webhook HMAC verification.
+  // bodyParser:false above prevents Nest from installing its own JSON parser,
+  // so ours is the only one registered for application/json.
   fastify.addContentTypeParser(
     'application/json',
     { parseAs: 'string' },
