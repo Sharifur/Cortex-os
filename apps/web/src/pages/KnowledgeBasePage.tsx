@@ -7,6 +7,55 @@ const KB_AGENTS = ['crisp', 'support', 'whatsapp', 'email_manager', 'linkedin', 
 const ENTRY_TYPES = ['reference', 'fact', 'voice_profile', 'blocklist'];
 const CATEGORIES = ['general', 'product', 'policy', 'faq', 'document', 'webpage', 'other'];
 
+function parseAgentKeys(csv: string): string[] {
+  return csv.split(',').map((s) => s.trim()).filter(Boolean);
+}
+
+function AgentMultiSelect({ value, onChange, placeholder }: {
+  value: string;
+  onChange: (next: string) => void;
+  placeholder?: string;
+}) {
+  const selected = parseAgentKeys(value);
+  const toggle = (key: string) => {
+    const next = selected.includes(key) ? selected.filter((s) => s !== key) : [...selected, key];
+    onChange(next.join(','));
+  };
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 bg-background border border-border rounded-lg px-2 py-1.5 min-h-[38px]">
+      {selected.length === 0 && (
+        <span className="text-xs text-muted-foreground px-1">{placeholder ?? 'Pick agents (blank = all)'}</span>
+      )}
+      {KB_AGENTS.map((a) => {
+        const on = selected.includes(a);
+        return (
+          <button
+            key={a}
+            type="button"
+            onClick={() => toggle(a)}
+            className={`text-[11px] px-2 py-0.5 rounded-full border transition-colors ${
+              on
+                ? 'bg-primary text-primary-foreground border-primary'
+                : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground/30'
+            }`}
+          >
+            {a}
+          </button>
+        );
+      })}
+      {selected.length > 0 && (
+        <button
+          type="button"
+          onClick={() => onChange('')}
+          className="ml-auto text-[11px] text-muted-foreground hover:text-foreground"
+        >
+          clear
+        </button>
+      )}
+    </div>
+  );
+}
+
 async function apiFetch(token: string, path: string, opts?: RequestInit) {
   const res = await fetch(path, {
     ...opts,
@@ -119,12 +168,10 @@ function EntryModal({ entry, onClose, onSave }: {
               />
             </div>
             <div>
-              <label className="text-xs text-muted-foreground mb-1 block">Agent Keys (blank = all)</label>
-              <input
-                className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none"
+              <label className="text-xs text-muted-foreground mb-1 block">Agents (blank = all)</label>
+              <AgentMultiSelect
                 value={form.agentKeys}
-                onChange={e => setForm(f => ({ ...f, agentKeys: e.target.value }))}
-                placeholder="crisp,support"
+                onChange={(next) => setForm((f) => ({ ...f, agentKeys: next }))}
               />
             </div>
           </div>
@@ -198,12 +245,10 @@ function SampleModal({ sample, onClose, onSave }: {
               </select>
             </div>
             <div>
-              <label className="text-xs text-muted-foreground mb-1 block">Agent Keys (blank = all)</label>
-              <input
-                className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none"
+              <label className="text-xs text-muted-foreground mb-1 block">Agents (blank = all)</label>
+              <AgentMultiSelect
                 value={form.agentKeys}
-                onChange={e => setForm(f => ({ ...f, agentKeys: e.target.value }))}
-                placeholder="crisp,reddit"
+                onChange={(next) => setForm((f) => ({ ...f, agentKeys: next }))}
               />
             </div>
           </div>
@@ -466,12 +511,40 @@ function ImportTab({ token }: { token: string }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [importType, setImportType] = useState<'document' | 'url'>('document');
 
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
   const [fileAgentKeys, setFileAgentKeys] = useState('');
   const [fileCategory, setFileCategory] = useState('document');
   const [uploading, setUploading] = useState(false);
-  const [uploadResult, setUploadResult] = useState<{ chunks: number; title?: string } | null>(null);
-  const [uploadError, setUploadError] = useState('');
+  const [fileResults, setFileResults] = useState<Record<string, { ok: boolean; chunks?: number; title?: string; error?: string }>>({});
+  const [activeFileName, setActiveFileName] = useState<string | null>(null);
+
+  function addFiles(picked: File[]) {
+    if (!picked.length) return;
+    setFiles((prev) => {
+      const existing = new Set(prev.map((f) => `${f.name}:${f.size}`));
+      const next = [...prev];
+      for (const f of picked) {
+        const key = `${f.name}:${f.size}`;
+        if (!existing.has(key)) {
+          next.push(f);
+          existing.add(key);
+        }
+      }
+      return next;
+    });
+    setFileResults({});
+  }
+
+  function removeFile(idx: number) {
+    setFiles((prev) => prev.filter((_, i) => i !== idx));
+  }
+
+  function clearFiles() {
+    setFiles([]);
+    setFileResults({});
+    setActiveFileName(null);
+    if (fileRef.current) fileRef.current.value = '';
+  }
 
   const [url, setUrl] = useState('');
   const [linkAgentKeys, setLinkAgentKeys] = useState('');
@@ -493,23 +566,28 @@ function ImportTab({ token }: { token: string }) {
   });
 
   async function handleFileUpload() {
-    if (!file) return;
-    setUploading(true); setUploadError(''); setUploadResult(null);
-    try {
-      const buf = await file.arrayBuffer();
-      const base64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
-      const result = await apiFetch(token, '/knowledge-base/ingest/document', {
-        method: 'POST',
-        body: JSON.stringify({ filename: file.name, mimeType: file.type, data: base64, agentKeys: fileAgentKeys || undefined, category: fileCategory }),
-      });
-      setUploadResult(result);
-      qc.invalidateQueries({ queryKey: ['kb-imports', 'kb-entries'] });
-      setFile(null);
-    } catch (err: any) {
-      setUploadError(err.message ?? 'Upload failed');
-    } finally {
-      setUploading(false);
+    if (!files.length) return;
+    setUploading(true);
+    setFileResults({});
+
+    for (const f of files) {
+      setActiveFileName(f.name);
+      try {
+        const buf = await f.arrayBuffer();
+        const base64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+        const result = await apiFetch(token, '/knowledge-base/ingest/document', {
+          method: 'POST',
+          body: JSON.stringify({ filename: f.name, mimeType: f.type, data: base64, agentKeys: fileAgentKeys || undefined, category: fileCategory }),
+        });
+        setFileResults((prev) => ({ ...prev, [f.name]: { ok: true, chunks: result.chunks, title: result.title } }));
+      } catch (err: unknown) {
+        setFileResults((prev) => ({ ...prev, [f.name]: { ok: false, error: (err as Error).message ?? 'Upload failed' } }));
+      }
     }
+
+    setActiveFileName(null);
+    qc.invalidateQueries({ queryKey: ['kb-imports', 'kb-entries'] });
+    setUploading(false);
   }
 
   async function handleLinkImport() {
@@ -570,38 +648,87 @@ function ImportTab({ token }: { token: string }) {
           <div
             className="border-2 border-dashed border-border rounded-lg p-8 text-center cursor-pointer hover:border-primary/50 transition-colors"
             onClick={() => fileRef.current?.click()}
-            onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) { setFile(f); setUploadResult(null); setUploadError(''); } }}
+            onDrop={e => { e.preventDefault(); addFiles(Array.from(e.dataTransfer.files)); }}
             onDragOver={e => e.preventDefault()}
           >
             <Upload className="w-7 h-7 mx-auto mb-2 text-muted-foreground" />
-            {file ? (
+            {files.length > 0 ? (
               <div>
-                <p className="text-sm font-medium">{file.name}</p>
-                <p className="text-xs text-muted-foreground mt-0.5">{(file.size / 1024).toFixed(0)} KB</p>
+                <p className="text-sm font-medium">{files.length} file{files.length === 1 ? '' : 's'} selected</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Click or drop more to add</p>
               </div>
             ) : (
               <>
-                <p className="text-sm text-muted-foreground">Drag & drop or click to choose a file</p>
-                <p className="text-xs text-muted-foreground mt-1">PDF, DOCX, DOC, MD — max 10MB</p>
+                <p className="text-sm text-muted-foreground">Drag & drop or click to choose files</p>
+                <p className="text-xs text-muted-foreground mt-1">PDF, DOCX, DOC, MD — multi-select, max 10MB each</p>
               </>
             )}
-            <input ref={fileRef} type="file" accept=".pdf,.docx,.doc,.md" className="hidden" onChange={e => { setFile(e.target.files?.[0] ?? null); setUploadResult(null); setUploadError(''); }} />
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".pdf,.docx,.doc,.md"
+              multiple
+              className="hidden"
+              onChange={e => { addFiles(Array.from(e.target.files ?? [])); }}
+            />
           </div>
+
+          {files.length > 0 && (
+            <div className="border border-border rounded-lg divide-y divide-border max-h-64 overflow-y-auto">
+              {files.map((f, idx) => {
+                const res = fileResults[f.name];
+                const inProgress = uploading && activeFileName === f.name;
+                return (
+                  <div key={`${f.name}:${f.size}:${idx}`} className="flex items-center gap-2 px-3 py-2">
+                    <FileText className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-medium truncate">{f.name}</p>
+                      <p className="text-[11px] text-muted-foreground">
+                        {(f.size / 1024).toFixed(0)} KB
+                        {res?.ok && <span className="ml-2 text-green-400">✓ {res.chunks} chunks{res.title ? ` — ${res.title}` : ''}</span>}
+                        {res && !res.ok && <span className="ml-2 text-destructive">✗ {res.error}</span>}
+                        {inProgress && <span className="ml-2 text-primary">uploading…</span>}
+                      </p>
+                    </div>
+                    {!uploading && (
+                      <button
+                        onClick={() => removeFile(idx)}
+                        className="text-muted-foreground hover:text-destructive p-1"
+                        title="Remove"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
           <div className="grid grid-cols-2 gap-3">
-            <input className="bg-background border border-border rounded-lg px-3 py-1.5 text-sm focus:outline-none" placeholder="Agent keys (optional)" value={fileAgentKeys} onChange={e => setFileAgentKeys(e.target.value)} />
+            <AgentMultiSelect value={fileAgentKeys} onChange={setFileAgentKeys} placeholder="Agents (optional)" />
             <select className="bg-background border border-border rounded-lg px-3 py-1.5 text-sm focus:outline-none" value={fileCategory} onChange={e => setFileCategory(e.target.value)}>
               {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
           </div>
-          {uploadError && <p className="text-xs text-destructive">{uploadError}</p>}
-          {uploadResult && <p className="text-xs text-green-400">✓ Imported {uploadResult.chunks} chunks from "{uploadResult.title ?? file?.name}"</p>}
-          <button
-            onClick={handleFileUpload}
-            disabled={!file || uploading}
-            className="w-full py-2 bg-primary text-primary-foreground text-sm rounded-lg hover:opacity-90 disabled:opacity-50"
-          >
-            {uploading ? 'Importing…' : 'Import Document'}
-          </button>
+
+          <div className="flex gap-2">
+            <button
+              onClick={handleFileUpload}
+              disabled={!files.length || uploading}
+              className="flex-1 py-2 bg-primary text-primary-foreground text-sm rounded-lg hover:opacity-90 disabled:opacity-50"
+            >
+              {uploading ? `Importing… (${Object.keys(fileResults).length}/${files.length})` : `Import ${files.length || ''} ${files.length === 1 ? 'document' : 'documents'}`.trim()}
+            </button>
+            {files.length > 0 && !uploading && (
+              <button
+                onClick={clearFiles}
+                className="px-4 py-2 border border-border text-sm rounded-lg text-muted-foreground hover:text-foreground"
+              >
+                Clear
+              </button>
+            )}
+          </div>
         </div>
       )}
 
@@ -615,7 +742,7 @@ function ImportTab({ token }: { token: string }) {
             onChange={e => { setUrl(e.target.value); setLinkResult(null); setLinkError(''); }}
           />
           <div className="grid grid-cols-2 gap-3">
-            <input className="bg-background border border-border rounded-lg px-3 py-1.5 text-sm focus:outline-none" placeholder="Agent keys (optional)" value={linkAgentKeys} onChange={e => setLinkAgentKeys(e.target.value)} />
+            <AgentMultiSelect value={linkAgentKeys} onChange={setLinkAgentKeys} placeholder="Agents (optional)" />
             <select className="bg-background border border-border rounded-lg px-3 py-1.5 text-sm focus:outline-none" value={linkCategory} onChange={e => setLinkCategory(e.target.value)}>
               {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
@@ -661,8 +788,10 @@ function ImportTab({ token }: { token: string }) {
 function TemplatesTab({ token }: { token: string }) {
   const qc = useQueryClient();
   const [editing, setEditing] = useState<any | null>(null);
-  const [addForm, setAddForm] = useState({ key: '', system: '', userTemplate: '' });
+  const [addForm, setAddForm] = useState({ agent: KB_AGENTS[0], purpose: 'reply', system: '', userTemplate: '' });
   const [showAdd, setShowAdd] = useState(false);
+
+  const composedKey = addForm.agent && addForm.purpose ? `${addForm.agent}.${addForm.purpose.trim()}` : '';
 
   const { data: templates = [], isLoading } = useQuery<any[]>({
     queryKey: ['kb-templates'],
@@ -671,7 +800,7 @@ function TemplatesTab({ token }: { token: string }) {
 
   const createMut = useMutation({
     mutationFn: (body: any) => apiFetch(token, '/knowledge-base/templates', { method: 'POST', body: JSON.stringify(body) }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['kb-templates'] }); setShowAdd(false); setAddForm({ key: '', system: '', userTemplate: '' }); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['kb-templates'] }); setShowAdd(false); setAddForm({ agent: KB_AGENTS[0], purpose: 'reply', system: '', userTemplate: '' }); },
   });
 
   const updateMut = useMutation({
@@ -695,13 +824,42 @@ function TemplatesTab({ token }: { token: string }) {
 
       {showAdd && (
         <div className="bg-card border border-border rounded-xl p-4 space-y-3">
-          <input className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none" placeholder="Key (e.g. crisp.reply)" value={addForm.key} onChange={e => setAddForm(f => ({ ...f, key: e.target.value }))} />
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">Agent</label>
+              <select
+                className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none"
+                value={addForm.agent}
+                onChange={e => setAddForm(f => ({ ...f, agent: e.target.value }))}
+              >
+                {KB_AGENTS.map(a => <option key={a} value={a}>{a}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">Purpose</label>
+              <input
+                className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none"
+                placeholder="reply"
+                value={addForm.purpose}
+                onChange={e => setAddForm(f => ({ ...f, purpose: e.target.value }))}
+              />
+            </div>
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            Key: <code className="font-mono bg-muted px-1 rounded">{composedKey || '<agent>.<purpose>'}</code>
+          </p>
           <textarea className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none resize-none" rows={6} placeholder="System prompt..." value={addForm.system} onChange={e => setAddForm(f => ({ ...f, system: e.target.value }))} />
           <p className="text-xs text-muted-foreground">{addForm.system.length} chars</p>
           <textarea className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none resize-none" rows={3} placeholder="User template (optional)..." value={addForm.userTemplate} onChange={e => setAddForm(f => ({ ...f, userTemplate: e.target.value }))} />
           <div className="flex justify-end gap-2">
             <button onClick={() => setShowAdd(false)} className="px-3 py-1.5 text-sm text-muted-foreground border border-border rounded-lg">Cancel</button>
-            <button onClick={() => createMut.mutate(addForm)} disabled={!addForm.key || !addForm.system} className="px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded-lg disabled:opacity-50">Save</button>
+            <button
+              onClick={() => createMut.mutate({ key: composedKey, system: addForm.system, userTemplate: addForm.userTemplate })}
+              disabled={!composedKey || !addForm.purpose.trim() || !addForm.system}
+              className="px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded-lg disabled:opacity-50"
+            >
+              Save
+            </button>
           </div>
         </div>
       )}
