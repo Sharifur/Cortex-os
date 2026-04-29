@@ -9,6 +9,7 @@ import { ValidationPipe } from '@nestjs/common';
 import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module';
 import { RequestLogExceptionFilter } from './modules/debug-logs/request-log.filter';
+import { runMigrations } from './db/migrate';
 import { AgentRunProcessor } from './modules/agents/runtime/processors/agent-run.processor';
 import { AgentExecuteProcessor } from './modules/agents/runtime/processors/agent-execute.processor';
 import { AgentFollowupProcessor } from './modules/agents/runtime/processors/agent-followup.processor';
@@ -30,6 +31,18 @@ function assertJwtSecret(): void {
 
 async function bootstrap() {
   assertJwtSecret();
+
+  if (process.env.RUN_MIGRATIONS_ON_BOOT !== 'false') {
+    try {
+      await runMigrations();
+      // eslint-disable-next-line no-console
+      console.log('[bootstrap] migrations up-to-date');
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('[bootstrap] migrations failed:', (err as Error).message);
+      throw err;
+    }
+  }
 
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,

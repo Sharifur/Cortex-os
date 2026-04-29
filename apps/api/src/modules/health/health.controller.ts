@@ -2,6 +2,7 @@ import { Controller, Get, Header } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import IORedis from 'ioredis';
 import { DbService } from '../../db/db.service';
+import { SettingsService } from '../settings/settings.service';
 import { homePage, faviconSvg } from '../../common/pages';
 
 type ServiceStatus = 'ok' | 'error' | 'not_configured';
@@ -32,14 +33,38 @@ export class RootController {
 
 @Controller('health')
 export class HealthController {
-  constructor(private db: DbService) {}
+  constructor(
+    private db: DbService,
+    private settings: SettingsService,
+  ) {}
 
   @Get()
   async check() {
+    const [postgres, redis, llm, telegram, ses, gmail, whatsapp, linkedin, reddit, crisp] = await Promise.all([
+      this.checkPostgres(),
+      this.checkRedis(),
+      this.checkLlm(),
+      this.checkAllPresent(['telegram_bot_token', 'telegram_owner_chat_id']),
+      this.checkAllPresent(['aws_access_key_id', 'aws_secret_access_key', 'ses_from_address']),
+      this.checkAllPresent(['gmail_client_id', 'gmail_client_secret', 'gmail_refresh_token']),
+      this.checkAllPresent(['whatsapp_api_token', 'whatsapp_phone_number_id']),
+      this.checkLinkedIn(),
+      this.checkAllPresent(['reddit_client_id', 'reddit_client_secret', 'reddit_username', 'reddit_password']),
+      this.checkCrisp(),
+    ]);
+
     const checks: Record<string, ServiceCheck> = {
-      postgres: await this.checkPostgres(),
-      redis: await this.checkRedis(),
+      postgres,
+      redis,
       minio: this.checkMinio(),
+      llm,
+      telegram,
+      ses,
+      gmail,
+      whatsapp,
+      linkedin,
+      reddit,
+      crisp,
     };
 
     const coreOk = checks.postgres.status === 'ok';
@@ -86,5 +111,58 @@ export class HealthController {
     const secret = process.env.MINIO_SECRET_KEY;
     if (!endpoint || !access || !secret) return { status: 'not_configured' };
     return { status: 'ok', message: 'Credentials present (no live probe)' };
+  }
+
+  private async checkAllPresent(keys: string[]): Promise<ServiceCheck> {
+    const values = await Promise.all(keys.map((k) => this.settings.getDecrypted(k)));
+    const missing = keys.filter((_, i) => !values[i]);
+    if (missing.length === keys.length) return { status: 'not_configured' };
+    if (missing.length > 0) return { status: 'error', message: `Missing: ${missing.join(', ')}` };
+    return { status: 'ok' };
+  }
+
+  private async checkLlm(): Promise<ServiceCheck> {
+    const [openai, gemini, deepseek] = await Promise.all([
+      this.settings.getDecrypted('openai_api_key'),
+      this.settings.getDecrypted('gemini_api_key'),
+      this.settings.getDecrypted('deepseek_api_key'),
+    ]);
+    const providers = [
+      openai && 'OpenAI',
+      gemini && 'Gemini',
+      deepseek && 'DeepSeek',
+    ].filter(Boolean) as string[];
+    if (providers.length === 0) return { status: 'not_configured' };
+    return { status: 'ok', message: providers.join(' · ') };
+  }
+
+  private async checkLinkedIn(): Promise<ServiceCheck> {
+    const [unipile, oauth] = await Promise.all([
+      this.settings.getDecrypted('unipile_api_key'),
+      this.settings.getDecrypted('linkedin_access_token'),
+    ]);
+    if (unipile) return { status: 'ok', message: 'Unipile' };
+    if (oauth) return { status: 'ok', message: 'Direct OAuth' };
+    return { status: 'not_configured' };
+  }
+
+  private async checkCrisp(): Promise<ServiceCheck> {
+    try {
+      const [{ count: siteCount }] = await this.db.db.execute<{ count: number }>(sql`
+        SELECT COUNT(*)::int AS count FROM crisp_websites WHERE enabled = true
+      `);
+      if (siteCount > 0) {
+        return { status: 'ok', message: `${siteCount} website${siteCount === 1 ? '' : 's'} configured` };
+      }
+    } catch {
+      // table may not exist yet; fall through to legacy settings check
+    }
+    const [identifier, key, websiteId] = await Promise.all([
+      this.settings.getDecrypted('crisp_api_identifier'),
+      this.settings.getDecrypted('crisp_api_key'),
+      this.settings.getDecrypted('crisp_website_id'),
+    ]);
+    if (identifier && key && websiteId) return { status: 'ok', message: 'Legacy single-site' };
+    return { status: 'not_configured' };
   }
 }

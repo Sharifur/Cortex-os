@@ -43,8 +43,9 @@ export class ApprovalsController {
     }
 
     reply.raw.setHeader('Content-Type', 'text/event-stream');
-    reply.raw.setHeader('Cache-Control', 'no-cache');
+    reply.raw.setHeader('Cache-Control', 'no-cache, no-transform');
     reply.raw.setHeader('Connection', 'keep-alive');
+    reply.raw.setHeader('X-Accel-Buffering', 'no');
     reply.raw.setHeader('Access-Control-Allow-Origin', '*');
     reply.raw.flushHeaders();
 
@@ -53,6 +54,12 @@ export class ApprovalsController {
         reply.raw.write(`data: ${JSON.stringify(data)}\n\n`);
       }
     };
+
+    const heartbeat = setInterval(() => {
+      if (!reply.raw.writableEnded) {
+        reply.raw.write(`: heartbeat ${Date.now()}\n\n`);
+      }
+    }, 20_000);
 
     const snapshot = await this.approvals.getPending();
     send({ type: 'snapshot', data: snapshot });
@@ -66,6 +73,7 @@ export class ApprovalsController {
     reply.raw.on('close', () => {
       this.events.removeListener('approval.created', onCreate);
       this.events.removeListener('approval.removed', onRemove);
+      clearInterval(heartbeat);
     });
   }
 
