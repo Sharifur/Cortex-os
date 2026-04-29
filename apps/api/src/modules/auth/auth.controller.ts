@@ -1,4 +1,5 @@
-import { Body, Controller, Get, Post, Put, UseGuards, HttpCode } from '@nestjs/common';
+import { Body, Controller, Get, Ip, Post, Put, Req, UseGuards, HttpCode } from '@nestjs/common';
+import type { FastifyRequest } from 'fastify';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
@@ -14,8 +15,9 @@ export class AuthController {
   constructor(private auth: AuthService) {}
 
   @Post('login')
-  login(@Body() dto: LoginDto) {
-    return this.auth.login(dto.email, dto.password, !!dto.rememberMe);
+  login(@Body() dto: LoginDto, @Req() req: FastifyRequest, @Ip() ip: string) {
+    const realIp = (req.headers['x-forwarded-for'] as string | undefined)?.split(',')[0]?.trim() || ip || 'unknown';
+    return this.auth.login(dto.email, dto.password, !!dto.rememberMe, realIp);
   }
 
   @Get('me')
