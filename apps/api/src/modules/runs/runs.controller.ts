@@ -37,12 +37,16 @@ export class RunsController {
       return;
     }
 
-    reply.raw.setHeader('Content-Type', 'text/event-stream');
+    reply.raw.statusCode = 200;
+    reply.raw.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
     reply.raw.setHeader('Cache-Control', 'no-cache, no-transform');
     reply.raw.setHeader('Connection', 'keep-alive');
     reply.raw.setHeader('X-Accel-Buffering', 'no');
     reply.raw.setHeader('Access-Control-Allow-Origin', '*');
     reply.raw.flushHeaders();
+
+    // Primer flush so reverse proxies don't buffer the response.
+    reply.raw.write(`: connected ${Date.now()}\n\n`);
 
     const send = (data: unknown) => {
       if (!reply.raw.writableEnded) {
@@ -80,12 +84,14 @@ export class RunsController {
   @UseGuards(JwtAuthGuard)
   @Get(':id/logs')
   async streamLogs(@Param('id') id: string, @Res() reply: FastifyReply) {
-    reply.raw.setHeader('Content-Type', 'text/event-stream');
+    reply.raw.statusCode = 200;
+    reply.raw.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
     reply.raw.setHeader('Cache-Control', 'no-cache, no-transform');
     reply.raw.setHeader('Connection', 'keep-alive');
     reply.raw.setHeader('X-Accel-Buffering', 'no');
     reply.raw.setHeader('Access-Control-Allow-Origin', '*');
     reply.raw.flushHeaders();
+    reply.raw.write(`: connected ${Date.now()}\n\n`);
 
     let lastCreatedAt: Date | undefined;
 

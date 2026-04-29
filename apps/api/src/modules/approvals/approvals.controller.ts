@@ -42,12 +42,19 @@ export class ApprovalsController {
       return;
     }
 
-    reply.raw.setHeader('Content-Type', 'text/event-stream');
+    reply.raw.statusCode = 200;
+    reply.raw.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
     reply.raw.setHeader('Cache-Control', 'no-cache, no-transform');
     reply.raw.setHeader('Connection', 'keep-alive');
     reply.raw.setHeader('X-Accel-Buffering', 'no');
     reply.raw.setHeader('Access-Control-Allow-Origin', '*');
     reply.raw.flushHeaders();
+
+    // Send a primer comment immediately so any reverse proxy (Traefik, nginx,
+    // Caddy) flushes the response and locks the content-type before its idle
+    // timer or response-buffering kicks in. Without this, proxies sometimes
+    // hold the response and then return their own HTML 504 page.
+    reply.raw.write(`: connected ${Date.now()}\n\n`);
 
     const send = (data: unknown) => {
       if (!reply.raw.writableEnded) {
@@ -61,7 +68,15 @@ export class ApprovalsController {
       }
     }, 20_000);
 
-    const snapshot = await this.approvals.getPending();
+    let snapshot: unknown;
+    try {
+      snapshot = await this.approvals.getPending();
+    } catch (err) {
+      send({ type: 'error', message: (err as Error).message });
+      clearInterval(heartbeat);
+      reply.raw.end();
+      return;
+    }
     send({ type: 'snapshot', data: snapshot });
 
     const onCreate = (approval: unknown) => send({ type: 'created', data: approval });
