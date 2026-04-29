@@ -28,8 +28,9 @@ export class RequestLogExceptionFilter implements ExceptionFilter {
 
     const path = stripQuery(req.url ?? '');
     const isAuthRoute = path.startsWith('/auth/');
+    const isScannerNoise = isInternetScannerProbe(path);
 
-    void this.logs.record({
+    if (!isScannerNoise) void this.logs.record({
       method: req.method ?? 'GET',
       path,
       statusCode: status,
@@ -53,6 +54,31 @@ export class RequestLogExceptionFilter implements ExceptionFilter {
 
     res.status(status).send(typeof payload === 'string' ? { message: payload, statusCode: status } : payload);
   }
+}
+
+// Internet bots constantly probe public IPs for vulnerable apps (WordPress,
+// phpMyAdmin, env files, etc.). They have nothing to do with our app — drop
+// them from debug logs so the error list stays focused on real issues.
+const SCANNER_PATTERNS = [
+  /^\/wp-/i,                              // /wp-login.php, /wp-admin/, /wp-content/
+  /^\/wordpress\b/i,
+  /^\/xmlrpc\.php/i,
+  /^\/phpmyadmin\b/i,
+  /^\/pma\b/i,
+  /^\/myadmin\b/i,
+  /^\/administrator\b/i,                  // joomla
+  /^\/admin\.php/i,
+  /^\/\.env\b/i,
+  /^\/\.git\b/i,
+  /^\/\.aws\b/i,
+  /^\/\.well-known\/security\.txt$/i,
+  /^\/(boaform|cgi-bin|hudson|jenkins|owa|ews|autodiscover|sftp-config|setup\.php|shell\.php|webdav|webmail|backup\.zip|\.DS_Store|sitemap\.xml\.gz)/i,
+  /\.(php|asp|aspx|cgi|do|jsp|jspx)(?:$|\?|\/)/i, // any path ending in .php / .asp / etc
+];
+
+function isInternetScannerProbe(path: string): boolean {
+  if (!path || path === '/') return false;
+  return SCANNER_PATTERNS.some((re) => re.test(path));
 }
 
 function stripQuery(url: string): string {
