@@ -33,6 +33,7 @@ export class AuthService {
       .select({
         id: users.id,
         email: users.email,
+        name: users.name,
         telegramChatId: users.telegramChatId,
         createdAt: users.createdAt,
       })
@@ -54,13 +55,15 @@ export class AuthService {
     await this.db.db.update(users).set({ password: hashed }).where(eq(users.id, userId));
   }
 
-  async updateProfile(userId: string, email: string) {
+  async updateProfile(userId: string, email: string, name?: string) {
     const [conflict] = await this.db.db
       .select({ id: users.id })
       .from(users)
       .where(eq(users.email, email));
     if (conflict && conflict.id !== userId) throw new ConflictException('Email already in use');
-    await this.db.db.update(users).set({ email }).where(eq(users.id, userId));
+    const patch: { email: string; name?: string | null } = { email };
+    if (typeof name === 'string') patch.name = name.trim() || null;
+    await this.db.db.update(users).set(patch).where(eq(users.id, userId));
   }
 
   async updateTelegramChatId(userId: string, chatId: string) {

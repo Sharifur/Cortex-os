@@ -31,7 +31,7 @@ export class AuthController {
     @CurrentUser() user: JwtPayload,
     @Body() dto: UpdateProfileDto,
   ) {
-    await this.auth.updateProfile(user.sub, dto.email);
+    await this.auth.updateProfile(user.sub, dto.email, dto.name);
     return { ok: true };
   }
 
