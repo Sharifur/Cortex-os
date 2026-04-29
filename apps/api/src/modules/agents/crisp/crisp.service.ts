@@ -1,9 +1,10 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { eq } from 'drizzle-orm';
+import { and, desc, eq, isNotNull, isNull, lte, or, sql } from 'drizzle-orm';
 import { DbService } from '../../../db/db.service';
 import { SettingsService } from '../../settings/settings.service';
+import { ContactsService } from '../../contacts/contacts.service';
 import { encrypt, decrypt, maskSecret } from '../../../common/crypto/crypto.util';
-import { crispWebsites } from './schema';
+import { crispWebsites, crispConversations } from './schema';
 
 export interface CrispMessage {
   sessionId: string;
@@ -37,6 +38,7 @@ export class CrispService {
   constructor(
     private db: DbService,
     private settings: SettingsService,
+    private contactsSvc: ContactsService,
   ) {}
 
   // ── Website CRUD ──────────────────────────────────────────────────────────
@@ -70,13 +72,20 @@ export class CrispService {
     return row;
   }
 
-  async updateWebsite(id: string, dto: { label?: string; enabled?: boolean }) {
+  async updateWebsite(
+    id: string,
+    dto: { label?: string; websiteId?: string; identifier?: string; apiKey?: string; enabled?: boolean },
+  ) {
     const [existing] = await this.db.db.select().from(crispWebsites).where(eq(crispWebsites.id, id));
     if (!existing) throw new NotFoundException(`Crisp website not found: ${id}`);
-    await this.db.db
-      .update(crispWebsites)
-      .set({ ...(dto.label !== undefined && { label: dto.label }), ...(dto.enabled !== undefined && { enabled: dto.enabled }) })
-      .where(eq(crispWebsites.id, id));
+    const set: Record<string, unknown> = {};
+    if (dto.label !== undefined) set.label = dto.label;
+    if (dto.websiteId !== undefined) set.websiteId = dto.websiteId;
+    if (dto.identifier !== undefined) set.identifier = dto.identifier;
+    if (dto.apiKey !== undefined && dto.apiKey.length > 0) set.apiKey = encrypt(dto.apiKey);
+    if (dto.enabled !== undefined) set.enabled = dto.enabled;
+    if (Object.keys(set).length === 0) return;
+    await this.db.db.update(crispWebsites).set(set).where(eq(crispWebsites.id, id));
   }
 
   async deleteWebsite(id: string) {
@@ -254,6 +263,111 @@ export class CrispService {
     const [row] = await this.db.db.select().from(crispWebsites).where(eq(crispWebsites.id, id));
     if (!row) return null;
     return { websiteId: row.websiteId, identifier: row.identifier, key: decrypt(row.apiKey) };
+  }
+
+  // ── Conversations / follow-ups ────────────────────────────────────────────
+
+  async listConversations(opts: { followUp?: boolean; status?: string; limit?: number } = {}) {
+    const where = [];
+    if (opts.followUp === true) where.push(eq(crispConversations.followUp, true));
+    if (opts.status) where.push(eq(crispConversations.status, opts.status));
+    return this.db.db
+      .select()
+      .from(crispConversations)
+      .where(where.length ? and(...where) : undefined)
+      .orderBy(desc(crispConversations.receivedAt))
+      .limit(Math.min(opts.limit ?? 100, 500));
+  }
+
+  async getConversationBySession(sessionId: string) {
+    const [row] = await this.db.db
+      .select()
+      .from(crispConversations)
+      .where(eq(crispConversations.sessionId, sessionId))
+      .limit(1);
+    return row ?? null;
+  }
+
+  async setFollowUp(sessionId: string, dto: { followUp: boolean; note?: string | null; dueAt?: string | null }) {
+    const conv = await this.getConversationBySession(sessionId);
+    if (!conv) throw new NotFoundException(`Crisp conversation not found: ${sessionId}`);
+
+    const due = dto.dueAt ? new Date(dto.dueAt) : null;
+    const set: Record<string, unknown> = {
+      followUp: dto.followUp,
+      followUpNote: dto.note ?? null,
+      followUpDueAt: due,
+      followUpNotifiedAt: null,
+    };
+    if (!dto.followUp) {
+      set.followUpResolvedAt = new Date();
+    } else {
+      set.followUpResolvedAt = null;
+    }
+    await this.db.db.update(crispConversations).set(set).where(eq(crispConversations.sessionId, sessionId));
+
+    if (conv.contactId) {
+      await this.contactsSvc.addActivity(
+        conv.contactId,
+        dto.followUp ? 'follow_up_set' : 'follow_up_resolved',
+        dto.followUp
+          ? `Follow-up flagged on Crisp conversation${dto.note ? ': ' + dto.note.slice(0, 200) : ''}`
+          : 'Follow-up resolved on Crisp conversation',
+        { refId: sessionId, meta: { dueAt: dto.dueAt ?? null } },
+      );
+    }
+    return this.getConversationBySession(sessionId);
+  }
+
+  async listDueFollowUps(now: Date) {
+    return this.db.db
+      .select()
+      .from(crispConversations)
+      .where(
+        and(
+          eq(crispConversations.followUp, true),
+          isNotNull(crispConversations.followUpDueAt),
+          lte(crispConversations.followUpDueAt, now),
+          or(
+            isNull(crispConversations.followUpNotifiedAt),
+            // also re-notify if the due time was bumped after the last notification
+            sql`${crispConversations.followUpNotifiedAt} < ${crispConversations.followUpDueAt}`,
+          )!,
+        ),
+      )
+      .limit(50);
+  }
+
+  async markFollowUpNotified(sessionId: string) {
+    await this.db.db
+      .update(crispConversations)
+      .set({ followUpNotifiedAt: new Date() })
+      .where(eq(crispConversations.sessionId, sessionId));
+  }
+
+  /**
+   * Upsert a Contact for a Crisp visitor and link the conversation row.
+   * Identity rule: sourceRef is `${websiteId}:${sessionId}` (stable for the
+   * Crisp visitor's session). Email/displayName are patched in when learned.
+   */
+  async upsertContactForCrisp(input: {
+    sessionId: string;
+    websiteId: string;
+    email?: string | null;
+    nickname?: string | null;
+  }): Promise<string> {
+    const contact = await this.contactsSvc.upsertBySource({
+      source: 'crisp',
+      sourceRef: `${input.websiteId}:${input.sessionId}`,
+      websiteTag: input.websiteId,
+      email: input.email ?? null,
+      displayName: input.nickname ?? null,
+    });
+    await this.db.db
+      .update(crispConversations)
+      .set({ contactId: contact.id })
+      .where(eq(crispConversations.sessionId, input.sessionId));
+    return contact.id;
   }
 
   private async callTest(creds: CrispCredentials): Promise<{ ok: boolean; message: string }> {

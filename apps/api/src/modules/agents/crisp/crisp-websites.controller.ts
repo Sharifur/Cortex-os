@@ -30,7 +30,10 @@ export class CrispWebsitesController {
   }
 
   @Patch(':id')
-  update(@Param('id') id: string, @Body() dto: { label?: string; enabled?: boolean }) {
+  update(
+    @Param('id') id: string,
+    @Body() dto: { label?: string; websiteId?: string; identifier?: string; apiKey?: string; enabled?: boolean },
+  ) {
     return this.crisp.updateWebsite(id, dto);
   }
 

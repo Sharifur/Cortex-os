@@ -10,6 +10,7 @@ import { TelegramService } from '../../telegram/telegram.service';
 import { KnowledgeBaseService } from '../../knowledge-base/knowledge-base.service';
 import { PurchaseVerifyService } from '../purchase-verify/purchase-verify.service';
 import { SettingsService } from '../../settings/settings.service';
+import { ContactsService } from '../../contacts/contacts.service';
 import { hmacHex, safeEqualHex } from '../../../common/webhooks/verify';
 import type {
   IAgent,
@@ -60,6 +61,7 @@ export class CrispAgent implements IAgent, OnModuleInit {
     private kb: KnowledgeBaseService,
     private purchaseVerify: PurchaseVerifyService,
     private settings: SettingsService,
+    private contactsSvc: ContactsService,
   ) {}
 
   onModuleInit() {
@@ -196,12 +198,33 @@ export class CrispAgent implements IAgent, OnModuleInit {
             target: crispConversations.sessionId,
             set: {
               lastMessage: msg.content.slice(0, 2000),
+              visitorEmail: msg.visitorEmail ?? null,
+              visitorNickname: msg.visitorNickname ?? null,
               draftReply: draft,
               status: 'new',
               receivedAt,
               repliedAt: null,
             },
           });
+
+        // Upsert contact + log activity. Visitor identified by Crisp sessionId;
+        // if the visitor later supplies an email, the existing row is patched.
+        try {
+          const contactId = await this.crisp.upsertContactForCrisp({
+            sessionId: msg.sessionId,
+            websiteId: msg.websiteId,
+            email: msg.visitorEmail,
+            nickname: msg.visitorNickname,
+          });
+          await this.contactsSvc.addActivity(
+            contactId,
+            'crisp_message',
+            `Crisp message: "${msg.content.slice(0, 200)}"`,
+            { refId: msg.sessionId, meta: { websiteId: msg.websiteId } },
+          );
+        } catch (err) {
+          this.logger.warn(`Failed to upsert contact for Crisp ${msg.sessionId}: ${(err as Error).message}`);
+        }
 
         const visitorLabel = msg.visitorNickname ?? msg.visitorEmail ?? msg.sessionId.slice(-8);
 

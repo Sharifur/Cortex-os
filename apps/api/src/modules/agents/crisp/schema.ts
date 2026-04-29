@@ -12,6 +12,12 @@ export const crispConversations = pgTable('crisp_conversations', {
   status: text('status').notNull().default('new'), // new | replied | ignored | escalated
   receivedAt: timestamp('received_at').notNull(),
   repliedAt: timestamp('replied_at'),
+  contactId: text('contact_id'),
+  followUp: boolean('follow_up').notNull().default(false),
+  followUpNote: text('follow_up_note'),
+  followUpDueAt: timestamp('follow_up_due_at'),
+  followUpNotifiedAt: timestamp('follow_up_notified_at'),
+  followUpResolvedAt: timestamp('follow_up_resolved_at'),
 });
 
 export const crispWebsites = pgTable('crisp_websites', {

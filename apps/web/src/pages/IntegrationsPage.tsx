@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Cable, Save, Trash2, Eye, EyeOff, Key, Send, Mail, Copy, Check,
   ExternalLink, MessageSquare, Linkedin, Hash, Bot, FlaskConical,
-  CheckCircle2, XCircle, Loader2, Plus, Globe, ToggleLeft, ToggleRight, Database, Sparkles, Shield,
+  CheckCircle2, XCircle, Loader2, Plus, Globe, ToggleLeft, ToggleRight, Database, Sparkles, Shield, Pencil,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -438,6 +438,25 @@ function CrispTab({ token }: { token: string }) {
   const [showKey, setShowKey] = useState(false);
   const [testResults, setTestResults] = useState<Record<string, { ok: boolean; message: string }>>({});
   const [testingId, setTestingId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState({ label: '', websiteId: '', identifier: '', apiKey: '' });
+  const [editShowKey, setEditShowKey] = useState(false);
+
+  const editMutation = useMutation({
+    mutationFn: async ({ id, patch }: { id: string; patch: Partial<{ label: string; websiteId: string; identifier: string; apiKey: string }> }) => {
+      const res = await fetch(`/crisp/websites/${id}`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch),
+      });
+      if (!res.ok) throw new Error('Failed to update');
+    },
+    onSuccess: () => {
+      setEditingId(null);
+      setEditForm({ label: '', websiteId: '', identifier: '', apiKey: '' });
+      qc.invalidateQueries({ queryKey: ['crisp-websites'] });
+    },
+  });
 
   const { data: sites = [], isLoading } = useQuery<CrispWebsite[]>({
     queryKey: ['crisp-websites'],
@@ -570,6 +589,7 @@ function CrispTab({ token }: { token: string }) {
                       </span>
                     </div>
                     <p className="text-xs text-muted-foreground font-mono">{site.websiteId}</p>
+                    <p className="text-xs text-muted-foreground/80 font-mono mt-0.5">id: {site.identifier} · key: {site.apiKeyMasked}</p>
                     {testResults[site.id] && (
                       <span className={`flex items-center gap-1 text-xs mt-1 ${testResults[site.id].ok ? 'text-green-400' : 'text-red-400'}`}>
                         {testResults[site.id].ok ? <CheckCircle2 className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
@@ -578,22 +598,91 @@ function CrispTab({ token }: { token: string }) {
                     )}
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="text-muted-foreground px-2"
+                      onClick={() => {
+                        setEditingId(site.id);
+                        setEditForm({ label: site.label, websiteId: site.websiteId, identifier: site.identifier, apiKey: '' });
+                        setEditShowKey(false);
+                      }}
+                      title="Edit"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                    </Button>
                     <Button size="sm" variant="ghost" className="text-muted-foreground px-2"
-                      onClick={() => testSite(site.id)} disabled={testingId === site.id}>
+                      onClick={() => testSite(site.id)} disabled={testingId === site.id} title="Test connection">
                       {testingId === site.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FlaskConical className="w-3.5 h-3.5" />}
                     </Button>
                     <Button size="sm" variant="ghost" className="text-muted-foreground px-2"
-                      onClick={() => toggleMutation.mutate({ id: site.id, enabled: !site.enabled })}>
+                      onClick={() => toggleMutation.mutate({ id: site.id, enabled: !site.enabled })} title={site.enabled ? 'Disable' : 'Enable'}>
                       {site.enabled
                         ? <ToggleRight className="w-4 h-4 text-green-500" />
                         : <ToggleLeft className="w-4 h-4" />}
                     </Button>
                     <Button size="sm" variant="ghost" className="text-muted-foreground hover:text-destructive px-2"
-                      onClick={() => deleteMutation.mutate(site.id)}>
+                      onClick={() => deleteMutation.mutate(site.id)} title="Delete">
                       <Trash2 className="w-3.5 h-3.5" />
                     </Button>
                   </div>
                 </div>
+                {editingId === site.id && (
+                  <div className="mt-4 pt-4 border-t border-border space-y-3">
+                    <p className="text-sm font-medium">Edit website</p>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-xs text-muted-foreground mb-1 block">Label</label>
+                        <Input value={editForm.label} onChange={(e) => setEditForm((f) => ({ ...f, label: e.target.value }))} className="text-sm" />
+                      </div>
+                      <div>
+                        <label className="text-xs text-muted-foreground mb-1 block">Website ID</label>
+                        <Input value={editForm.websiteId} onChange={(e) => setEditForm((f) => ({ ...f, websiteId: e.target.value }))} className="text-sm" />
+                      </div>
+                      <div>
+                        <label className="text-xs text-muted-foreground mb-1 block">API Identifier</label>
+                        <Input value={editForm.identifier} onChange={(e) => setEditForm((f) => ({ ...f, identifier: e.target.value }))} className="text-sm" />
+                      </div>
+                      <div>
+                        <label className="text-xs text-muted-foreground mb-1 block">API Key (leave blank to keep)</label>
+                        <div className="relative">
+                          <Input
+                            type={editShowKey ? 'text' : 'password'}
+                            placeholder="enter new secret to replace"
+                            value={editForm.apiKey}
+                            onChange={(e) => setEditForm((f) => ({ ...f, apiKey: e.target.value }))}
+                            className="text-sm pr-9"
+                          />
+                          <button type="button" onClick={() => setEditShowKey((v) => !v)}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                            {editShowKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        onClick={() => editMutation.mutate({
+                          id: site.id,
+                          patch: {
+                            label: editForm.label,
+                            websiteId: editForm.websiteId,
+                            identifier: editForm.identifier,
+                            ...(editForm.apiKey ? { apiKey: editForm.apiKey } : {}),
+                          },
+                        })}
+                        disabled={editMutation.isPending || !editForm.label || !editForm.websiteId || !editForm.identifier}
+                      >
+                        {editMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : <Save className="w-3.5 h-3.5 mr-1" />}
+                        Save changes
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => { setEditingId(null); setEditForm({ label: '', websiteId: '', identifier: '', apiKey: '' }); }}>
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </div>
             ))}
 
