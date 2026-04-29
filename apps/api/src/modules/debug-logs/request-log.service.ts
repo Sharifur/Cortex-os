@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { and, desc, eq, gte, sql, ilike, lt, or } from 'drizzle-orm';
+import { and, desc, eq, gte, sql, ilike, lt, or, inArray } from 'drizzle-orm';
 import { DbService } from '../../db/db.service';
 import { requestLogs } from '../../db/schema';
 
@@ -86,6 +86,30 @@ export class RequestLogService {
     const rows = await this.db.db
       .delete(requestLogs)
       .where(lt(requestLogs.createdAt, cutoff))
+      .returning({ id: requestLogs.id });
+    return rows.length;
+  }
+
+  async deleteAll(): Promise<number> {
+    const rows = await this.db.db
+      .delete(requestLogs)
+      .returning({ id: requestLogs.id });
+    return rows.length;
+  }
+
+  async deleteByMinStatus(minStatus: number): Promise<number> {
+    const rows = await this.db.db
+      .delete(requestLogs)
+      .where(gte(requestLogs.statusCode, minStatus))
+      .returning({ id: requestLogs.id });
+    return rows.length;
+  }
+
+  async deleteByIds(ids: string[]): Promise<number> {
+    if (!ids.length) return 0;
+    const rows = await this.db.db
+      .delete(requestLogs)
+      .where(inArray(requestLogs.id, ids))
       .returning({ id: requestLogs.id });
     return rows.length;
   }
