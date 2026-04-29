@@ -516,6 +516,82 @@ function AccountCard({ token }: { token: string }) {
   );
 }
 
+interface SessionRow {
+  id: string;
+  ip: string | null;
+  userAgent: string | null;
+  createdAt: string;
+  lastUsedAt: string;
+  expiresAt: string;
+  revokedAt: string | null;
+}
+
+function SessionsCard({ token }: { token: string }) {
+  const qc = useQueryClient();
+  const sessionsQ = useQuery({
+    queryKey: ['auth-sessions'],
+    queryFn: async () => {
+      const res = await fetch('/auth/sessions', { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) throw new Error('failed');
+      return res.json() as Promise<SessionRow[]>;
+    },
+  });
+
+  const revoke = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await fetch(`/auth/sessions/${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error('Failed to revoke');
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['auth-sessions'] }),
+  });
+
+  const rows = sessionsQ.data ?? [];
+
+  return (
+    <div className="rounded-xl border border-border bg-card mb-6">
+      <div className="px-5 py-4 border-b border-border">
+        <p className="text-sm font-semibold">Active sessions</p>
+        <p className="text-xs text-muted-foreground mt-0.5">
+          Each successful login creates a session. Revoke any session you don't recognize.
+        </p>
+      </div>
+      <div className="divide-y divide-border">
+        {sessionsQ.isLoading && <p className="text-xs text-muted-foreground p-5">Loading…</p>}
+        {!sessionsQ.isLoading && rows.length === 0 && (
+          <p className="text-xs text-muted-foreground p-5">No sessions recorded yet.</p>
+        )}
+        {rows.map((s) => {
+          const expired = new Date(s.expiresAt).getTime() < Date.now();
+          const revoked = !!s.revokedAt;
+          return (
+            <div key={s.id} className="flex items-center gap-3 px-5 py-3">
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-mono text-foreground/90">{s.ip ?? 'unknown ip'}</p>
+                <p className="text-[11px] text-muted-foreground truncate">{s.userAgent ?? 'unknown ua'}</p>
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  Created {new Date(s.createdAt).toLocaleString()} · Last used {new Date(s.lastUsedAt).toLocaleString()}
+                </p>
+              </div>
+              <span className={`text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full font-semibold ${
+                revoked ? 'bg-rose-500/15 text-rose-400'
+                  : expired ? 'bg-slate-500/15 text-slate-400'
+                  : 'bg-emerald-500/15 text-emerald-400'
+              }`}>{revoked ? 'revoked' : expired ? 'expired' : 'active'}</span>
+              {!revoked && !expired && (
+                <Button size="sm" variant="outline" disabled={revoke.isPending}
+                  onClick={() => revoke.mutate(s.id)}>Revoke</Button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export default function SettingsPage() {
   const token = useAuthStore((s) => s.token)!;
 
@@ -564,6 +640,7 @@ export default function SettingsPage() {
       {isError && <p className="text-sm text-destructive">Failed to load settings.</p>}
 
       <AccountCard token={token} />
+      <SessionsCard token={token} />
 
       {!isLoading && !isError && <LlmTab rows={grouped['llm'] ?? []} token={token} />}
     </div>

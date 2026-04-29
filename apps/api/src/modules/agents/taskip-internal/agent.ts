@@ -8,6 +8,7 @@ import { TelegramService } from '../../telegram/telegram.service';
 import { TaskipInternalDbService } from './taskip-internal-db.service';
 import { TaskipInsightService, type InsightCohort, type InsightMarketingSuggestion } from './taskip-insight.service';
 import { TaskipInternalEmailService, type TaskipEmailPurpose } from './taskip-internal-email.service';
+import { KillSwitchService, type KillSwitchAction } from '../../safety/kill-switch.service';
 import type { LlmToolMessage, ToolDefinition } from '../../llm/llm.types';
 import type {
   IAgent,
@@ -72,6 +73,7 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
     private taskipDb: TaskipInternalDbService,
     private insight: TaskipInsightService,
     private emails: TaskipInternalEmailService,
+    private killSwitch: KillSwitchService,
     private registry: AgentRegistryService,
   ) {}
 
@@ -203,6 +205,15 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
   }
 
   async execute(action: ProposedAction): Promise<ActionResult> {
+    const killSwitchActions: KillSwitchAction[] = ['extend_trial', 'mark_refund', 'send_email', 'insight_submit_marketing_suggestion'];
+    if (killSwitchActions.includes(action.type as KillSwitchAction)) {
+      const blocked = await this.killSwitch.isBlocked(action.type as KillSwitchAction);
+      if (blocked) {
+        const msg = `Blocked by kill switch: ${action.type}`;
+        await this.telegram.sendMessage(msg);
+        return { success: false, error: msg };
+      }
+    }
     switch (action.type) {
       case 'notify_result': {
         const { message } = action.payload as { message: string; query: string };

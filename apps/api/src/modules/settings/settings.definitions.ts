@@ -2,7 +2,7 @@ export interface SettingDefinition {
   label: string;
   description?: string;
   isSecret: boolean;
-  group: 'llm' | 'telegram' | 'ses' | 'gmail' | 'whatsapp' | 'linkedin' | 'reddit' | 'crisp' | 'license' | 'storage' | 'insight';
+  group: 'llm' | 'telegram' | 'ses' | 'gmail' | 'whatsapp' | 'linkedin' | 'reddit' | 'crisp' | 'license' | 'storage' | 'insight' | 'safety';
   defaultValue?: string;
   provider?: 'openai' | 'gemini' | 'deepseek' | 'general';
 }
@@ -116,6 +116,12 @@ export const SETTING_DEFINITIONS: Record<string, SettingDefinition> = {
     isSecret: false,
     group: 'ses',
   },
+  ses_webhook_token: {
+    label: 'Webhook URL Token',
+    description: 'Random secret appended to the SNS subscription URL (e.g. /ses/webhook?t=…). Required to accept any SNS notification.',
+    isSecret: true,
+    group: 'ses',
+  },
   ses_configuration_set: {
     label: 'Configuration Set',
     isSecret: false,
@@ -167,6 +173,12 @@ export const SETTING_DEFINITIONS: Record<string, SettingDefinition> = {
     isSecret: true,
     group: 'whatsapp',
     defaultValue: 'cortex-whatsapp-verify',
+  },
+  whatsapp_app_secret: {
+    label: 'App Secret',
+    description: 'From Meta for Developers → App Settings → Basic → App Secret. Used to verify X-Hub-Signature-256 on inbound webhooks.',
+    isSecret: true,
+    group: 'whatsapp',
   },
 
   // LinkedIn — Unipile (preferred) or direct OAuth2
@@ -229,6 +241,12 @@ export const SETTING_DEFINITIONS: Record<string, SettingDefinition> = {
   crisp_api_key: {
     label: 'API Key',
     description: 'From Crisp → Settings → Website → API Keys → Key (treat as secret)',
+    isSecret: true,
+    group: 'crisp',
+  },
+  crisp_webhook_signing_secret: {
+    label: 'Webhook Signing Secret',
+    description: 'From Crisp → Settings → Website → Hooks → "View signing secret". Used to verify incoming webhook HMAC.',
     isSecret: true,
     group: 'crisp',
   },
@@ -313,5 +331,35 @@ export const SETTING_DEFINITIONS: Record<string, SettingDefinition> = {
     description: 'Optional. Used as fallback during zero-downtime key rotation',
     isSecret: true,
     group: 'insight',
+  },
+
+  // Safety — global kill switches for agent write actions
+  kill_extend_trial: {
+    label: 'Block extend_trial',
+    description: 'When true, the taskip_internal agent cannot extend trials even if approved',
+    isSecret: false,
+    group: 'safety',
+    defaultValue: 'false',
+  },
+  kill_mark_refund: {
+    label: 'Block mark_refund',
+    description: 'When true, blocks the refund-marking action',
+    isSecret: false,
+    group: 'safety',
+    defaultValue: 'false',
+  },
+  kill_send_email: {
+    label: 'Block send_email',
+    description: 'When true, blocks the Gmail outbound action across agents',
+    isSecret: false,
+    group: 'safety',
+    defaultValue: 'false',
+  },
+  kill_marketing_suggestion: {
+    label: 'Block insight_submit_marketing_suggestion',
+    description: 'When true, blocks marketing-suggestion writeback to Taskip',
+    isSecret: false,
+    group: 'safety',
+    defaultValue: 'false',
   },
 };

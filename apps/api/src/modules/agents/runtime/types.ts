@@ -54,6 +54,8 @@ export interface AgentApiRoute {
   path: string;
   handler: (req: unknown, res: unknown) => Promise<unknown>;
   requiresAuth: boolean;
+  /** Optional signature check. Called with (rawBody, headers, query). Return true if the request is authentic. */
+  verifySignature?: (rawBody: string, headers: Record<string, string | string[] | undefined>, query: Record<string, string>) => Promise<boolean>;
 }
 
 export interface McpToolDefinition {

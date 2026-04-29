@@ -84,7 +84,16 @@ function UserMenu() {
           </button>
           <div className="h-px bg-border mx-2 my-1" />
           <button
-            onClick={() => { logout(); navigate('/login'); }}
+            onClick={async () => {
+              try {
+                const tok = useAuthStore.getState().token;
+                if (tok) {
+                  await fetch('/auth/logout', { method: 'POST', headers: { Authorization: `Bearer ${tok}` } });
+                }
+              } catch { /* ignore */ }
+              logout();
+              navigate('/login');
+            }}
             className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
           >
             <LogOut className="w-4 h-4" />

@@ -9,6 +9,8 @@ import { LlmRouterService } from '../../llm/llm-router.service';
 import { TelegramService } from '../../telegram/telegram.service';
 import { KnowledgeBaseService } from '../../knowledge-base/knowledge-base.service';
 import { PurchaseVerifyService } from '../purchase-verify/purchase-verify.service';
+import { SettingsService } from '../../settings/settings.service';
+import { hmacHex, safeEqualHex } from '../../../common/webhooks/verify';
 import type {
   IAgent,
   TriggerSpec,
@@ -57,6 +59,7 @@ export class CrispAgent implements IAgent, OnModuleInit {
     private registry: AgentRegistryService,
     private kb: KnowledgeBaseService,
     private purchaseVerify: PurchaseVerifyService,
+    private settings: SettingsService,
   ) {}
 
   onModuleInit() {
@@ -279,6 +282,14 @@ export class CrispAgent implements IAgent, OnModuleInit {
         method: 'POST',
         path: '/crisp/webhook',
         requiresAuth: false,
+        verifySignature: async (rawBody, headers) => {
+          const secret = await this.settings.getDecrypted('crisp_webhook_signing_secret');
+          if (!secret) return false;
+          const sig = (headers['x-crisp-signature'] as string | undefined)?.trim();
+          if (!sig) return false;
+          const expected = hmacHex('sha256', secret, rawBody);
+          return safeEqualHex(sig, expected);
+        },
         handler: async (_body) => ({ received: true }),
       },
     ];

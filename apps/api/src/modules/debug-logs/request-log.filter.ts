@@ -26,16 +26,19 @@ export class RequestLogExceptionFilter implements ExceptionFilter {
     const errorMessage = (exception as Error)?.message ?? String(exception);
     const errorStack = (exception as Error)?.stack;
 
+    const path = stripQuery(req.url ?? '');
+    const isAuthRoute = path.startsWith('/auth/');
+
     void this.logs.record({
       method: req.method ?? 'GET',
-      path: stripQuery(req.url ?? ''),
+      path,
       statusCode: status,
       requestId: (req.headers['x-request-id'] as string | undefined),
       ip: ((req as unknown as { ip?: string }).ip) ?? (req.headers['x-forwarded-for'] as string | undefined),
       userAgent: req.headers['user-agent'] as string | undefined,
       queryString: extractQuery(req.url ?? ''),
-      requestBody: safeStringify(redactBody(req.body)),
-      responseBody: safeStringify(payload),
+      requestBody: isAuthRoute ? '[redacted: auth route]' : safeStringify(redactBody(req.body)),
+      responseBody: isAuthRoute ? '[redacted: auth route]' : safeStringify(payload),
       errorMessage,
       errorStack,
     });

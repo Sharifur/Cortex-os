@@ -1,31 +1,85 @@
-import { Injectable, UnauthorizedException, BadRequestException, ConflictException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, ConflictException, HttpException, HttpStatus, Optional } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { eq } from 'drizzle-orm';
 import * as bcrypt from 'bcrypt';
 import { DbService } from '../../db/db.service';
 import { users } from '../../db/schema';
+import { LoginThrottleService } from './login-throttle.service';
+import { AuthSessionService } from './auth-session.service';
+import { TelegramService } from '../telegram/telegram.service';
 
 @Injectable()
 export class AuthService {
   constructor(
     private db: DbService,
     private jwt: JwtService,
+    private throttle: LoginThrottleService,
+    private sessions: AuthSessionService,
+    @Optional() private telegram?: TelegramService,
   ) {}
 
-  async login(email: string, password: string, rememberMe = false) {
+  async login(email: string, password: string, rememberMe: boolean, ip: string, userAgent?: string) {
+    const ipKey = `ip:${ip}`;
+    const emailKey = `email:${email.toLowerCase()}`;
+
+    for (const k of [ipKey, emailKey]) {
+      const lock = this.throttle.isLocked(k);
+      if (lock.locked) {
+        throw new HttpException(
+          { message: `Too many failed attempts. Try again in ${Math.ceil(lock.retryAfterSec / 60)} min.`, statusCode: HttpStatus.TOO_MANY_REQUESTS },
+          HttpStatus.TOO_MANY_REQUESTS,
+        );
+      }
+    }
+
     const [user] = await this.db.db
       .select()
       .from(users)
       .where(eq(users.email, email));
 
-    if (!user) throw new UnauthorizedException('Invalid credentials');
+    if (!user) {
+      this.throttle.registerFail(ipKey);
+      this.throttle.registerFail(emailKey);
+      throw new UnauthorizedException('Invalid credentials');
+    }
 
     const valid = await bcrypt.compare(password, user.password);
-    if (!valid) throw new UnauthorizedException('Invalid credentials');
+    if (!valid) {
+      this.throttle.registerFail(ipKey);
+      this.throttle.registerFail(emailKey);
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    this.throttle.registerSuccess(ipKey);
+    this.throttle.registerSuccess(emailKey);
 
     const expiresIn = rememberMe ? '14d' : (process.env.JWT_EXPIRY ?? '24h');
-    const token = this.jwt.sign({ sub: user.id, email: user.email }, { expiresIn });
+    const ttlSeconds = rememberMe ? 14 * 24 * 60 * 60 : 24 * 60 * 60;
+    const session = await this.sessions.create({ userId: user.id, ip, userAgent, ttlSeconds });
+
+    if (session.isNewIp && this.telegram) {
+      void this.telegram.sendMessage(
+        `Cortex OS: new login for ${user.email}\nIP: ${ip}\nUA: ${(userAgent ?? '—').slice(0, 120)}`,
+      ).catch(() => undefined);
+    }
+
+    const token = this.jwt.sign(
+      { sub: user.id, email: user.email },
+      { expiresIn, jwtid: session.jti },
+    );
     return { access_token: token, expires_in: expiresIn };
+  }
+
+  async logout(jti?: string): Promise<void> {
+    if (jti) await this.sessions.revokeByJti(jti);
+  }
+
+  async listSessions(userId: string) {
+    return this.sessions.listForUser(userId);
+  }
+
+  async revokeSession(userId: string, sessionId: string): Promise<void> {
+    await this.sessions.revokeById(userId, sessionId);
   }
 
   async me(userId: string) {

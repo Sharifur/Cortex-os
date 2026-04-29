@@ -4,18 +4,32 @@ import './index.css';
 import App from './App.tsx';
 
 const API_BASE = (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, '');
-if (API_BASE) {
-  const originalFetch = window.fetch.bind(window);
-  window.fetch = (input, init) => {
+const originalFetch = window.fetch.bind(window);
+
+window.fetch = async (input, init) => {
+  let target = input;
+  if (API_BASE) {
     if (typeof input === 'string' && input.startsWith('/')) {
-      return originalFetch(API_BASE + input, init);
+      target = API_BASE + input;
+    } else if (input instanceof URL && input.origin === window.location.origin) {
+      target = API_BASE + input.pathname + input.search;
     }
-    if (input instanceof URL && input.origin === window.location.origin) {
-      return originalFetch(API_BASE + input.pathname + input.search, init);
+  }
+  const res = await originalFetch(target, init);
+
+  // Auto-logout on 401 from authenticated calls (skip the login endpoint itself)
+  const url = typeof target === 'string' ? target : (target as URL | Request).toString();
+  const isLogin = url.endsWith('/auth/login');
+  if (res.status === 401 && !isLogin) {
+    try {
+      localStorage.removeItem('cortex-auth');
+    } catch { /* ignore */ }
+    if (window.location.pathname !== '/login') {
+      window.location.assign('/login');
     }
-    return originalFetch(input, init);
-  };
-}
+  }
+  return res;
+};
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

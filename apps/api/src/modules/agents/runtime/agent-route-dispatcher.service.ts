@@ -37,6 +37,14 @@ export class AgentRouteDispatcherService implements OnApplicationBootstrap {
 
         const handler = async (request: any, reply: any) => {
           try {
+            if (route.verifySignature && route.method === 'POST') {
+              const rawBody = (request.rawBody as string | undefined) ?? '';
+              const ok = await route.verifySignature(rawBody, request.headers ?? {}, request.query ?? {});
+              if (!ok) {
+                reply.status(401).send({ error: 'Invalid webhook signature' });
+                return;
+              }
+            }
             const body = request.body ?? {};
             const result = await route.handler(body, reply);
 
