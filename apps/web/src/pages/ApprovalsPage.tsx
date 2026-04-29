@@ -241,18 +241,26 @@ export default function ApprovalsPage() {
   const token = useAuthStore((s) => s.token)!;
   const [approvals, setApprovals] = useState<Approval[]>([]);
   const [connected, setConnected] = useState(false);
-  const [connError, setConnError] = useState(false);
+  const [reconnecting, setReconnecting] = useState(false);
   const [snapshotReceived, setSnapshotReceived] = useState(false);
+  const [retryKey, setRetryKey] = useState(0);
+  const retryCount = useRef(0);
+  const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     setSnapshotReceived(false);
-    setConnError(false);
+
+    if (retryTimer.current) {
+      clearTimeout(retryTimer.current);
+      retryTimer.current = null;
+    }
 
     const es = new EventSource(`/approvals/stream?token=${encodeURIComponent(token)}`);
 
     es.onopen = () => {
+      retryCount.current = 0;
       setConnected(true);
-      setConnError(false);
+      setReconnecting(false);
     };
 
     es.onmessage = (event) => {
@@ -274,15 +282,26 @@ export default function ApprovalsPage() {
 
     es.onerror = () => {
       setConnected(false);
-      setConnError(true);
+      setReconnecting(true);
       es.close();
+
+      const delay = Math.min(1000 * 2 ** retryCount.current, 30_000);
+      retryCount.current += 1;
+
+      retryTimer.current = setTimeout(() => {
+        setRetryKey((k) => k + 1);
+      }, delay);
     };
 
     return () => {
       es.close();
       setConnected(false);
+      if (retryTimer.current) {
+        clearTimeout(retryTimer.current);
+        retryTimer.current = null;
+      }
     };
-  }, [token]);
+  }, [token, retryKey]);
 
   function removeApproval(id: string) {
     setApprovals((prev) => prev.filter((a) => a.id !== id));
@@ -306,12 +325,15 @@ export default function ApprovalsPage() {
               <Wifi className="w-3.5 h-3.5 text-green-500" />
               <span className="text-green-500">Live</span>
             </>
+          ) : reconnecting ? (
+            <>
+              <WifiOff className="w-3.5 h-3.5 text-yellow-500" />
+              <span className="text-yellow-500">Reconnecting…</span>
+            </>
           ) : (
             <>
               <WifiOff className="w-3.5 h-3.5 text-muted-foreground" />
-              <span className="text-muted-foreground">
-                {connError ? 'Disconnected' : 'Connecting…'}
-              </span>
+              <span className="text-muted-foreground">Connecting…</span>
             </>
           )}
         </div>
@@ -320,11 +342,11 @@ export default function ApprovalsPage() {
         Review and act on actions your agents want to take.
       </p>
 
-      {connError && (
-        <p className="text-sm text-destructive mb-4">Connection lost. Reload to reconnect.</p>
+      {reconnecting && !connected && (
+        <p className="text-sm text-yellow-500/80 mb-4">Connection lost. Reconnecting automatically…</p>
       )}
 
-      {!connError && !snapshotReceived && (
+      {!reconnecting && !snapshotReceived && (
         <div className="space-y-4">
           {Array.from({ length: 2 }).map((_, i) => <ApprovalCardSkeleton key={i} />)}
         </div>
