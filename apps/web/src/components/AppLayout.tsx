@@ -37,8 +37,23 @@ const NAV = [
 function UserMenu() {
   const navigate = useNavigate();
   const logout = useAuthStore((s) => s.logout);
+  const token = useAuthStore((s) => s.token);
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+
+  const { data: me } = useQuery<{ id: string; email: string; name: string | null } | null>({
+    queryKey: ['auth-me'],
+    queryFn: async () => {
+      if (!token) return null;
+      const res = await fetch('/auth/me', { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) return null;
+      return res.json();
+    },
+    enabled: !!token,
+    staleTime: 60_000,
+  });
+
+  const displayName = me?.name?.trim() || me?.email?.split('@')[0] || 'Admin';
 
   useEffect(() => {
     function onClickOutside(e: MouseEvent) {
@@ -62,7 +77,7 @@ function UserMenu() {
         <div className="w-6 h-6 rounded-full bg-primary/15 flex items-center justify-center">
           <User className="w-3.5 h-3.5 text-primary" />
         </div>
-        <span className="text-xs font-medium">Admin</span>
+        <span className="text-xs font-medium">{displayName}</span>
         <ChevronDown className={`w-3.5 h-3.5 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
 
