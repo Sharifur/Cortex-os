@@ -69,48 +69,36 @@ export default function RunDetailPage() {
     },
   });
 
-  // Stream logs via fetch (supports Authorization header, unlike EventSource)
+  // Poll logs every 1.5s until the run finishes.
   useEffect(() => {
     if (!id) return;
     let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
 
-    async function stream() {
-      const res = await fetch(`/runs/${id}/logs`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!res.ok || !res.body) return;
-
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buf = '';
-
-      while (!cancelled) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buf += decoder.decode(value, { stream: true });
-        const parts = buf.split('\n\n');
-        buf = parts.pop() ?? '';
-        for (const part of parts) {
-          for (const line of part.split('\n')) {
-            if (!line.startsWith('data: ')) continue;
-            const data = JSON.parse(line.slice(6)) as { type?: string } & LogEntry;
-            if (data.type === 'done') {
-              setStreamDone(true);
-              refetchRun();
-              return;
-            }
-            if (!cancelled) {
-              setLogs((prev) => [...prev, data as LogEntry]);
-            }
-          }
+    const tick = async () => {
+      try {
+        const res = await fetch(`/runs/${id}/logs`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) return;
+        const data = (await res.json()) as { logs: LogEntry[]; finished: boolean };
+        if (cancelled) return;
+        setLogs(data.logs ?? []);
+        if (data.finished) {
+          setStreamDone(true);
+          refetchRun();
+          return;
         }
-      }
-      reader.cancel();
-    }
+      } catch { /* ignore one-off fetch errors and retry */ }
+      if (!cancelled) timer = setTimeout(tick, 1500);
+    };
 
-    stream();
-    return () => { cancelled = true; };
-  }, [id, token]);
+    tick();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [id, token, refetchRun]);
 
   // Auto-scroll to bottom on new logs
   useEffect(() => {

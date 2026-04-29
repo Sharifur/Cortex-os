@@ -141,6 +141,13 @@
       "when": 1777400011000,
       "tag": "0019_contacts_and_followups",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1777400012000,
+      "tag": "0020_telegram_bot_agent",
+      "breakpoints": true
     }
   ]
 }

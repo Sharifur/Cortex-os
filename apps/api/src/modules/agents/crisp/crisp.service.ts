@@ -197,15 +197,25 @@ export class CrispService {
 
   parseWebhookMessage(body: any): CrispMessage | null {
     try {
-      if (body.event !== 'message:send') return null;
+      // Crisp emits inbound visitor messages as `message:received` (or
+      // `message:send` on some plans). `message:updated` fires when a message
+      // is edited — we treat it the same way.
+      const event = body?.event;
+      if (event !== 'message:received' && event !== 'message:send' && event !== 'message:updated') {
+        return null;
+      }
+      // Inbound messages are from the visitor; outbound ones are from
+      // operator/agent (those would loop back to ourselves).
       if (body.data?.from !== 'user') return null;
+      // Ignore non-text payloads (file uploads, system events).
+      if (body.data?.type && body.data.type !== 'text') return null;
 
       return {
         sessionId: body.data.session_id,
         websiteId: body.website_id,
         visitorEmail: body.data.user?.email ?? undefined,
         visitorNickname: body.data.user?.nickname ?? undefined,
-        content: body.data.content,
+        content: typeof body.data.content === 'string' ? body.data.content : JSON.stringify(body.data.content ?? ''),
         timestamp: body.data.timestamp,
       };
     } catch {

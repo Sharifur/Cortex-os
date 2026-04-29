@@ -91,6 +91,27 @@ function formatNextRun(iso: string | null): string {
   return d.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
+/** "in 10m", "in 2h 5m", "due now", "5m overdue", etc. */
+function formatRelative(iso: string | null): string {
+  if (!iso) return '';
+  const diffMs = new Date(iso).getTime() - Date.now();
+  const overdue = diffMs < 0;
+  const totalSec = Math.abs(Math.floor(diffMs / 1000));
+
+  if (totalSec < 30) return overdue ? 'due now' : 'in <1m';
+
+  const days = Math.floor(totalSec / 86400);
+  const hours = Math.floor((totalSec % 86400) / 3600);
+  const minutes = Math.floor((totalSec % 3600) / 60);
+
+  let body: string;
+  if (days > 0) body = `${days}d ${hours}h`;
+  else if (hours > 0) body = `${hours}h ${minutes}m`;
+  else body = `${Math.max(1, minutes)}m`;
+
+  return overdue ? `${body} overdue` : `in ${body}`;
+}
+
 function dhakaToUtcTime(dhakaTime: string): string {
   const [h, m] = dhakaTime.split(':').map(Number);
   let utcH = h - 6;
@@ -177,10 +198,19 @@ function TaskCard({
                   {RECURRENCE_LABEL[task.recurrence]} {formatRecurrenceTime(task.recurrenceTime)}
                 </span>
               )}
-              {task.status === 'pending' && task.nextRunAt && (
-                <span className="text-xs text-muted-foreground flex items-center gap-1">
+              {task.nextRunAt && (
+                <span
+                  className={`text-xs flex items-center gap-1 ${
+                    task.status === 'pending' && new Date(task.nextRunAt).getTime() < Date.now()
+                      ? 'text-rose-400'
+                      : 'text-muted-foreground'
+                  }`}
+                >
                   <Clock className="w-3 h-3" />
-                  {task.recurrence ? 'Next:' : 'Runs at:'} {formatNextRun(task.nextRunAt)}
+                  {task.recurrence ? 'Next' : task.status === 'running' ? 'Started' : 'Runs'}: {formatNextRun(task.nextRunAt)}
+                  {task.status === 'pending' && (
+                    <span className="ml-1 font-medium">({formatRelative(task.nextRunAt)})</span>
+                  )}
                 </span>
               )}
             </div>

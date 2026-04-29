@@ -287,7 +287,13 @@ export const SETTING_DEFINITIONS: Record<string, SettingDefinition> = {
   },
   crisp_webhook_signing_secret: {
     label: 'Webhook Signing Secret',
-    description: 'From Crisp → Settings → Website → Hooks → "View signing secret". Used to verify incoming webhook HMAC.',
+    description: 'Optional. From Crisp → Settings → Website → Hooks → "View signing secret" (if your Crisp plan exposes it). Used to verify incoming webhook HMAC.',
+    isSecret: true,
+    group: 'crisp',
+  },
+  crisp_webhook_token: {
+    label: 'Webhook URL Token',
+    description: 'Random secret you generate. Append it to the webhook URL as ?t=<token> when configuring the hook in Crisp. Used to authenticate the webhook when Crisp does not expose a signing secret.',
     isSecret: true,
     group: 'crisp',
   },

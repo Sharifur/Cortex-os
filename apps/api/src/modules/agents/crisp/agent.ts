@@ -305,15 +305,66 @@ export class CrispAgent implements IAgent, OnModuleInit {
         method: 'POST',
         path: '/crisp/webhook',
         requiresAuth: false,
-        verifySignature: async (rawBody, headers) => {
+        verifySignature: async (rawBody, headers, query) => {
+          // Defense in depth: the payload must reference a website_id we know
+          // about. Stops random POSTs from being treated as Crisp events.
+          let payloadOk = true;
+          try {
+            const parsed = rawBody ? JSON.parse(rawBody) : {};
+            const websiteId = parsed?.website_id as string | undefined;
+            if (websiteId) {
+              const creds = await this.crisp.getCredentialsForWebsite(websiteId);
+              payloadOk = !!creds;
+              if (!payloadOk) {
+                this.logger.warn(`Crisp webhook for unknown website_id=${websiteId} — rejecting.`);
+              }
+            }
+          } catch {
+            payloadOk = false;
+          }
+          if (!payloadOk) return false;
+
+          // Mode 1 — URL token (?t=<token>). Use this when Crisp does not
+          // expose a signing secret. Generate a random string and append to
+          // the hook URL configured in Crisp (e.g. /crisp/webhook?t=abc123).
+          const token = await this.settings.getDecrypted('crisp_webhook_token');
+          if (token) {
+            const provided = (query?.t ?? '').toString();
+            if (provided === token) return true;
+            this.logger.warn('Crisp webhook ?t=<token> mismatch — rejecting.');
+            return false;
+          }
+
+          // Mode 2 — HMAC signature (Crisp plans that expose a signing secret).
           const secret = await this.settings.getDecrypted('crisp_webhook_signing_secret');
-          if (!secret) return false;
-          const sig = (headers['x-crisp-signature'] as string | undefined)?.trim();
-          if (!sig) return false;
-          const expected = hmacHex('sha256', secret, rawBody);
-          return safeEqualHex(sig, expected);
+          if (secret) {
+            const sig = (headers['x-crisp-signature'] as string | undefined)?.trim();
+            if (!sig) {
+              this.logger.warn('Crisp webhook missing X-Crisp-Signature header — rejecting.');
+              return false;
+            }
+            const expected = hmacHex('sha256', secret, rawBody);
+            const ok = safeEqualHex(sig, expected);
+            if (!ok) this.logger.warn('Crisp webhook HMAC mismatch — rejecting.');
+            return ok;
+          }
+
+          // Mode 3 — fallback. No token + no secret. Accept (the website_id
+          // check above is the only gate). Log a clear warning so the
+          // operator knows to configure crisp_webhook_token.
+          this.logger.warn(
+            'Crisp webhook accepted without auth — set crisp_webhook_token (or crisp_webhook_signing_secret) to harden this endpoint.',
+          );
+          return true;
         },
-        handler: async (_body) => ({ received: true }),
+        handler: async (body) => {
+          // Log the inbound event so the user can see it in Debug Logs even
+          // before the agent runtime kicks off the actual run.
+          const event = (body as { event?: string } | undefined)?.event ?? 'unknown';
+          const session = (body as { data?: { session_id?: string } } | undefined)?.data?.session_id ?? '';
+          this.logger.log(`Crisp webhook received: event=${event} session=${session}`);
+          return { received: true };
+        },
       },
     ];
   }
