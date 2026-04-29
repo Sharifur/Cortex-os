@@ -20,6 +20,7 @@ import InboxPage from '@/pages/InboxPage';
 import DebugLogsPage from '@/pages/DebugLogsPage';
 import HealthPage from '@/pages/HealthPage';
 import OpsPage from '@/pages/OpsPage';
+import NotFoundPage from '@/pages/NotFoundPage';
 import AppLayout from '@/components/AppLayout';
 import { useAuthStore } from '@/stores/authStore';
 
@@ -45,6 +46,7 @@ export default function App() {
               </ProtectedRoute>
             }
           >
+            <Route path="/" element={<Navigate to="/dashboard" replace />} />
             <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/agents" element={<AgentsPage />} />
             <Route path="/agents/:key" element={<AgentDetailPage />} />
@@ -64,8 +66,8 @@ export default function App() {
             <Route path="/health" element={<HealthPage />} />
             <Route path="/profile" element={<ProfilePage />} />
             <Route path="/change-password" element={<ChangePasswordPage />} />
+            <Route path="*" element={<NotFoundPage />} />
           </Route>
-          <Route path="*" element={<Navigate to="/login" replace />} />
         </Routes>
       </BrowserRouter>
     </QueryClientProvider>
