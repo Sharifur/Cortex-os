@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { and, desc, eq, gte, sql, ilike, or } from 'drizzle-orm';
+import { and, desc, eq, gte, sql, ilike, lt, or } from 'drizzle-orm';
 import { DbService } from '../../db/db.service';
 import { requestLogs } from '../../db/schema';
 
@@ -79,6 +79,15 @@ export class RequestLogService {
       .where(eq(requestLogs.id, id))
       .limit(1);
     return row ?? null;
+  }
+
+  async pruneOlderThanDays(days: number): Promise<number> {
+    const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    const rows = await this.db.db
+      .delete(requestLogs)
+      .where(lt(requestLogs.createdAt, cutoff))
+      .returning({ id: requestLogs.id });
+    return rows.length;
   }
 
   async stats() {

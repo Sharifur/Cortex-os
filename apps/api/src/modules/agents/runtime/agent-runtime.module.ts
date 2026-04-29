@@ -13,10 +13,12 @@ import { ApprovalSweepProcessor } from './processors/approval-sweep.processor';
 import { AgentRouteDispatcherService } from './agent-route-dispatcher.service';
 import { QUEUE_NAMES } from '../../../common/queue/queue.constants';
 import { AuthModule } from '../../auth/auth.module';
+import { DebugLogsModule } from '../../debug-logs/debug-logs.module';
 
 @Module({
   imports: [
     AuthModule,
+    DebugLogsModule,
     BullModule.registerQueue(
       { name: QUEUE_NAMES.AGENT_RUN },
       { name: QUEUE_NAMES.AGENT_EXECUTE },

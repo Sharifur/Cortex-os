@@ -2,7 +2,7 @@ export interface SettingDefinition {
   label: string;
   description?: string;
   isSecret: boolean;
-  group: 'llm' | 'telegram' | 'ses' | 'gmail' | 'whatsapp' | 'linkedin' | 'reddit' | 'crisp' | 'license' | 'storage' | 'insight';
+  group: 'llm' | 'telegram' | 'ses' | 'gmail' | 'whatsapp' | 'linkedin' | 'reddit' | 'crisp' | 'license' | 'storage' | 'insight' | 'safety';
   defaultValue?: string;
   provider?: 'openai' | 'gemini' | 'deepseek' | 'general';
 }
@@ -313,5 +313,35 @@ export const SETTING_DEFINITIONS: Record<string, SettingDefinition> = {
     description: 'Optional. Used as fallback during zero-downtime key rotation',
     isSecret: true,
     group: 'insight',
+  },
+
+  // Safety — global kill switches for agent write actions
+  kill_extend_trial: {
+    label: 'Block extend_trial',
+    description: 'When true, the taskip_internal agent cannot extend trials even if approved',
+    isSecret: false,
+    group: 'safety',
+    defaultValue: 'false',
+  },
+  kill_mark_refund: {
+    label: 'Block mark_refund',
+    description: 'When true, blocks the refund-marking action',
+    isSecret: false,
+    group: 'safety',
+    defaultValue: 'false',
+  },
+  kill_send_email: {
+    label: 'Block send_email',
+    description: 'When true, blocks the Gmail outbound action across agents',
+    isSecret: false,
+    group: 'safety',
+    defaultValue: 'false',
+  },
+  kill_marketing_suggestion: {
+    label: 'Block insight_submit_marketing_suggestion',
+    description: 'When true, blocks marketing-suggestion writeback to Taskip',
+    isSecret: false,
+    group: 'safety',
+    defaultValue: 'false',
   },
 };

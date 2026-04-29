@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Ip, Post, Put, Req, UseGuards, HttpCode } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Ip, Param, Post, Put, Req, UseGuards, HttpCode } from '@nestjs/common';
 import type { FastifyRequest } from 'fastify';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
@@ -17,7 +17,30 @@ export class AuthController {
   @Post('login')
   login(@Body() dto: LoginDto, @Req() req: FastifyRequest, @Ip() ip: string) {
     const realIp = (req.headers['x-forwarded-for'] as string | undefined)?.split(',')[0]?.trim() || ip || 'unknown';
-    return this.auth.login(dto.email, dto.password, !!dto.rememberMe, realIp);
+    const ua = req.headers['user-agent'] as string | undefined;
+    return this.auth.login(dto.email, dto.password, !!dto.rememberMe, realIp, ua);
+  }
+
+  @Post('logout')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(200)
+  async logout(@CurrentUser() user: JwtPayload) {
+    await this.auth.logout(user.jti);
+    return { ok: true };
+  }
+
+  @Get('sessions')
+  @UseGuards(JwtAuthGuard)
+  sessions(@CurrentUser() user: JwtPayload) {
+    return this.auth.listSessions(user.sub);
+  }
+
+  @Delete('sessions/:id')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(200)
+  async revokeSession(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
+    await this.auth.revokeSession(user.sub, id);
+    return { ok: true };
   }
 
   @Get('me')
@@ -48,3 +71,4 @@ export class AuthController {
     return { ok: true };
   }
 }
+

@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Cable, Save, Trash2, Eye, EyeOff, Key, Send, Mail, Copy, Check,
   ExternalLink, MessageSquare, Linkedin, Hash, Bot, FlaskConical,
-  CheckCircle2, XCircle, Loader2, Plus, Globe, ToggleLeft, ToggleRight, Database, Sparkles,
+  CheckCircle2, XCircle, Loader2, Plus, Globe, ToggleLeft, ToggleRight, Database, Sparkles, Shield,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -32,6 +32,7 @@ const TABS = [
   { key: 'license', label: 'License Server', icon: <Key className="w-4 h-4" /> },
   { key: 'storage', label: 'Storage (R2)', icon: <Database className="w-4 h-4" /> },
   { key: 'insight', label: 'Taskip Insight', icon: <Sparkles className="w-4 h-4" /> },
+  { key: 'safety', label: 'Safety', icon: <Shield className="w-4 h-4" /> },
 ];
 
 async function fetchSettings(token: string): Promise<SettingRow[]> {
@@ -883,6 +884,35 @@ function InsightTab({ rows, token }: { rows: SettingRow[]; token: string }) {
   );
 }
 
+function SafetyTab({ rows, token }: { rows: SettingRow[]; token: string }) {
+  return (
+    <IntegrationLayout
+      integrationKey="safety"
+      rows={rows}
+      token={token}
+      docs={
+        <>
+          <h2 className="text-sm font-semibold mb-3">Kill switches</h2>
+          <p className="text-xs text-muted-foreground mb-3">
+            Set any of these to <code className="bg-muted px-1 rounded">true</code> to immediately block
+            the corresponding agent action across all agents and runs. Useful when something is misbehaving
+            and you want to stop it without redeploying.
+          </p>
+          <ul className="text-xs text-muted-foreground list-disc list-inside space-y-1">
+            <li><strong>Block extend_trial</strong> — taskip_internal cannot extend trials</li>
+            <li><strong>Block mark_refund</strong> — refund-marking is blocked</li>
+            <li><strong>Block send_email</strong> — Gmail outbound is blocked across agents</li>
+            <li><strong>Block insight_submit_marketing_suggestion</strong> — Taskip Insight writeback blocked</li>
+          </ul>
+          <p className="text-xs text-muted-foreground mt-3">
+            Telegram approval is checked first; the kill switch is the last gate before execution.
+          </p>
+        </>
+      }
+    />
+  );
+}
+
 function StorageTab({ rows, token }: { rows: SettingRow[]; token: string }) {
   return (
     <IntegrationLayout
@@ -1000,6 +1030,7 @@ export default function IntegrationsPage() {
           {activeTab === 'license' && <LicenseTab rows={grouped['license'] ?? []} token={token} />}
           {activeTab === 'storage' && <StorageTab rows={grouped['storage'] ?? []} token={token} />}
           {activeTab === 'insight' && <InsightTab rows={grouped['insight'] ?? []} token={token} />}
+          {activeTab === 'safety' && <SafetyTab rows={grouped['safety'] ?? []} token={token} />}
         </>
       )}
     </div>

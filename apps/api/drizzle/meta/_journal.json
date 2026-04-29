@@ -127,6 +127,13 @@
       "when": 1777400009000,
       "tag": "0017_users_name",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1777400010000,
+      "tag": "0018_auth_sessions",
+      "breakpoints": true
     }
   ]
 }
