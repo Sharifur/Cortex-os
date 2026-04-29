@@ -42,16 +42,13 @@ export class AuthService {
     return user ?? null;
   }
 
-  async changePassword(userId: string, currentPassword: string, newPassword: string) {
+  async changePassword(userId: string, _currentPassword: string | undefined, newPassword: string) {
     const [user] = await this.db.db
-      .select()
+      .select({ id: users.id })
       .from(users)
       .where(eq(users.id, userId));
 
     if (!user) throw new UnauthorizedException();
-
-    const valid = await bcrypt.compare(currentPassword, user.password);
-    if (!valid) throw new BadRequestException('Current password is incorrect');
 
     const hashed = await bcrypt.hash(newPassword, 12);
     await this.db.db.update(users).set({ password: hashed }).where(eq(users.id, userId));
