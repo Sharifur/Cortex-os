@@ -9,12 +9,14 @@ const ALGORITHM = 'aes-256-gcm';
 
 function getKey(): Buffer {
   const raw = process.env.SETTINGS_ENCRYPTION_KEY;
-  if (!raw) {
-    // Derive a key from JWT_SECRET as fallback — not ideal for production
-    const secret = process.env.JWT_SECRET ?? 'fallback-dev-key';
-    return createHash('sha256').update(secret).digest();
+  if (raw && raw.length > 0) {
+    if (/^[0-9a-fA-F]{64}$/.test(raw)) {
+      return Buffer.from(raw, 'hex');
+    }
+    return createHash('sha256').update(raw).digest();
   }
-  return Buffer.from(raw, 'hex');
+  const secret = process.env.JWT_SECRET ?? 'fallback-dev-key';
+  return createHash('sha256').update(secret).digest();
 }
 
 export function encrypt(plaintext: string): string {

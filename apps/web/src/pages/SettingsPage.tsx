@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Settings, Save, Trash2, Eye, EyeOff, Key, Zap, UserCircle, CheckCircle2, XCircle } from 'lucide-react';
+import { Settings, Save, Trash2, Eye, EyeOff, Key, Zap, UserCircle, CheckCircle2, XCircle, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -75,7 +75,14 @@ async function upsertSetting(token: string, key: string, value: string) {
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ value }),
   });
-  if (!res.ok) throw new Error('Failed to save');
+  if (!res.ok) {
+    let msg = 'Failed to save';
+    try {
+      const body = await res.json();
+      if (body?.message) msg = Array.isArray(body.message) ? body.message.join(', ') : body.message;
+    } catch {}
+    throw new Error(msg);
+  }
 }
 
 async function deleteSetting(token: string, key: string) {
@@ -117,27 +124,36 @@ function SettingField({ setting, token }: { setting: SettingRow; token: string }
             <p className="text-xs text-muted-foreground mb-2">{setting.description}</p>
           )}
           {editing ? (
-            <div className="flex items-center gap-2 mt-2">
-              <div className="relative flex-1">
-                <Input
-                  type={setting.isSecret && !showRaw ? 'password' : 'text'}
-                  value={inputValue}
-                  onChange={(e) => setInputValue(e.target.value)}
-                  placeholder={`Enter ${setting.label}`}
-                  className="pr-9 text-sm"
-                  autoFocus
-                />
-                {setting.isSecret && (
-                  <button type="button" onClick={() => setShowRaw((v) => !v)}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
-                    {showRaw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                )}
+            <div className="flex flex-col gap-2 mt-2">
+              <div className="flex items-center gap-2">
+                <div className="relative flex-1">
+                  <Input
+                    type={setting.isSecret && !showRaw ? 'password' : 'text'}
+                    value={inputValue}
+                    onChange={(e) => setInputValue(e.target.value)}
+                    placeholder={`Enter ${setting.label}`}
+                    className="pr-9 text-sm"
+                    autoFocus
+                    disabled={saveMutation.isPending}
+                  />
+                  {setting.isSecret && (
+                    <button type="button" onClick={() => setShowRaw((v) => !v)}
+                      disabled={saveMutation.isPending}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground disabled:opacity-50">
+                      {showRaw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  )}
+                </div>
+                <Button size="sm" onClick={() => saveMutation.mutate()} disabled={!inputValue || saveMutation.isPending}>
+                  {saveMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                  {saveMutation.isPending ? 'Saving...' : 'Save'}
+                </Button>
+                <Button size="sm" variant="ghost" disabled={saveMutation.isPending}
+                  onClick={() => { setEditing(false); setInputValue(''); }}>Cancel</Button>
               </div>
-              <Button size="sm" onClick={() => saveMutation.mutate()} disabled={!inputValue || saveMutation.isPending}>
-                <Save className="w-3.5 h-3.5" />Save
-              </Button>
-              <Button size="sm" variant="ghost" onClick={() => { setEditing(false); setInputValue(''); }}>Cancel</Button>
+              {saveMutation.isError && (
+                <p className="text-xs text-destructive">{(saveMutation.error as Error)?.message ?? 'Failed to save'}</p>
+              )}
             </div>
           ) : (
             <code className="text-xs bg-muted px-2 py-1 rounded font-mono text-muted-foreground mt-1 inline-block">
@@ -154,7 +170,7 @@ function SettingField({ setting, token }: { setting: SettingRow; token: string }
               <Button size="sm" variant="ghost" onClick={() => deleteMutation.mutate()}
                 disabled={deleteMutation.isPending}
                 className="text-muted-foreground hover:text-destructive">
-                <Trash2 className="w-3.5 h-3.5" />
+                {deleteMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
               </Button>
             )}
           </div>
@@ -185,7 +201,10 @@ function ModelSelectField({
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-0.5">
             <span className="text-sm font-medium">{setting.label}</span>
-            {mutation.isSuccess && (
+            {mutation.isPending && (
+              <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />
+            )}
+            {!mutation.isPending && mutation.isSuccess && (
               <span className="text-xs bg-green-500/10 text-green-500 px-1.5 py-0.5 rounded">saved</span>
             )}
           </div>
@@ -196,12 +215,15 @@ function ModelSelectField({
             value={setting.value || ''}
             onChange={(e) => mutation.mutate(e.target.value)}
             disabled={mutation.isPending}
-            className="mt-1 w-full max-w-xs bg-muted border border-border rounded-md px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
+            className="mt-1 w-full max-w-xs bg-muted border border-border rounded-md px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {options.map((o) => (
               <option key={o.value} value={o.value}>{o.label}</option>
             ))}
           </select>
+          {mutation.isError && (
+            <p className="text-xs text-destructive mt-1">{(mutation.error as Error)?.message ?? 'Failed to save'}</p>
+          )}
         </div>
       </div>
     </div>
@@ -220,29 +242,39 @@ function DefaultProviderSelector({ current, token }: { current: string; token: s
       <div className="flex items-center gap-2 mb-3">
         <Zap className="w-4 h-4 text-primary" />
         <span className="text-sm font-semibold">Default Provider</span>
-        {mutation.isSuccess && (
+        {mutation.isPending && (
+          <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground ml-auto" />
+        )}
+        {!mutation.isPending && mutation.isSuccess && (
           <span className="text-xs text-green-500 ml-auto">Saved</span>
         )}
       </div>
       <div className="flex flex-wrap gap-2">
-        {DEFAULT_PROVIDER_OPTIONS.map((opt) => (
-          <button
-            key={opt.value}
-            onClick={() => mutation.mutate(opt.value)}
-            disabled={mutation.isPending}
-            className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
-              current === opt.value
-                ? 'bg-primary text-primary-foreground border-primary'
-                : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground/30'
-            }`}
-          >
-            {opt.label}
-            {opt.desc && current === opt.value && (
-              <span className="ml-1.5 text-xs opacity-75">{opt.desc}</span>
-            )}
-          </button>
-        ))}
+        {DEFAULT_PROVIDER_OPTIONS.map((opt) => {
+          const isActiveSaving = mutation.isPending && mutation.variables === opt.value;
+          return (
+            <button
+              key={opt.value}
+              onClick={() => mutation.mutate(opt.value)}
+              disabled={mutation.isPending}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors inline-flex items-center gap-1.5 disabled:opacity-60 disabled:cursor-not-allowed ${
+                current === opt.value
+                  ? 'bg-primary text-primary-foreground border-primary'
+                  : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground/30'
+              }`}
+            >
+              {isActiveSaving && <Loader2 className="w-3 h-3 animate-spin" />}
+              {opt.label}
+              {opt.desc && current === opt.value && (
+                <span className="ml-1.5 text-xs opacity-75">{opt.desc}</span>
+              )}
+            </button>
+          );
+        })}
       </div>
+      {mutation.isError && (
+        <p className="text-xs text-destructive mt-2">{(mutation.error as Error)?.message ?? 'Failed to save'}</p>
+      )}
       {current !== 'auto' && (
         <p className="text-xs text-muted-foreground mt-2">
           Falls back to auto chain if the selected provider fails or has no API key.
