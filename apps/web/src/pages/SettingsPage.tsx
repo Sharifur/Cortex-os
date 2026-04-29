@@ -297,34 +297,162 @@ const MODEL_SELECT_KEYS: Record<string, { label: string; value: string }[]> = {
   deepseek_default_model: DEEPSEEK_TEXT_MODELS,
 };
 
+function ProviderToggle({ setting, token }: { setting: SettingRow; token: string }) {
+  const qc = useQueryClient();
+  const isOn = (setting.value || setting.value === '') ? setting.value === 'true' : false;
+  const mutation = useMutation({
+    mutationFn: (next: boolean) => upsertSetting(token, setting.key, next ? 'true' : 'false'),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['settings'] }),
+  });
+
+  return (
+    <div className="py-4 border-b border-border last:border-0 flex items-start justify-between gap-4">
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 mb-0.5">
+          <span className="text-sm font-medium">Provider Enabled</span>
+          {mutation.isPending && <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />}
+          <span className={`text-xs px-1.5 py-0.5 rounded ${isOn ? 'bg-green-500/10 text-green-500' : 'bg-muted text-muted-foreground'}`}>
+            {isOn ? 'on' : 'off'}
+          </span>
+        </div>
+        {setting.description && (
+          <p className="text-xs text-muted-foreground">{setting.description}</p>
+        )}
+      </div>
+      <button
+        onClick={() => mutation.mutate(!isOn)}
+        disabled={mutation.isPending}
+        role="switch"
+        aria-checked={isOn}
+        className={`shrink-0 relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-50 ${
+          isOn ? 'bg-primary' : 'bg-muted border border-border'
+        }`}
+      >
+        <span
+          className={`inline-block h-4 w-4 transform rounded-full bg-background shadow transition-transform ${
+            isOn ? 'translate-x-6' : 'translate-x-1'
+          }`}
+        />
+      </button>
+    </div>
+  );
+}
+
+function FallbackOrderPanel({ setting, token, providers }: {
+  setting: SettingRow;
+  token: string;
+  providers: { key: 'openai' | 'gemini' | 'deepseek'; label: string; enabled: boolean }[];
+}) {
+  const qc = useQueryClient();
+  const raw = setting.value || 'openai,deepseek,gemini';
+  const order = raw.split(',').map((s) => s.trim()).filter(Boolean) as Array<'openai' | 'gemini' | 'deepseek'>;
+
+  const known: Array<'openai' | 'gemini' | 'deepseek'> = ['openai', 'gemini', 'deepseek'];
+  for (const p of known) if (!order.includes(p)) order.push(p);
+
+  const mutation = useMutation({
+    mutationFn: (next: string[]) => upsertSetting(token, setting.key, next.join(',')),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['settings'] }),
+  });
+
+  const move = (idx: number, dir: -1 | 1) => {
+    const target = idx + dir;
+    if (target < 0 || target >= order.length) return;
+    const next = [...order];
+    [next[idx], next[target]] = [next[target], next[idx]];
+    mutation.mutate(next);
+  };
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-5 mb-4">
+      <div className="flex items-center gap-2 mb-1">
+        <span className="text-sm font-semibold">Fallback Chain</span>
+        {mutation.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" />}
+        {!mutation.isPending && mutation.isSuccess && <span className="text-xs text-green-500 ml-auto">Saved</span>}
+      </div>
+      <p className="text-xs text-muted-foreground mb-3">
+        When Default Provider is "Auto", these providers are tried in order. Disabled providers are skipped.
+      </p>
+      <ol className="space-y-2">
+        {order.map((p, idx) => {
+          const meta = providers.find((m) => m.key === p);
+          return (
+            <li key={p} className="flex items-center gap-3 px-3 py-2 rounded-lg border border-border bg-muted/20">
+              <span className="text-xs font-mono text-muted-foreground w-5">#{idx + 1}</span>
+              <span className="text-sm flex-1">{meta?.label ?? p}</span>
+              <span className={`text-[10px] px-1.5 py-0.5 rounded ${meta?.enabled ? 'bg-green-500/10 text-green-500' : 'bg-muted text-muted-foreground'}`}>
+                {meta?.enabled ? 'on' : 'off'}
+              </span>
+              <button
+                onClick={() => move(idx, -1)}
+                disabled={idx === 0 || mutation.isPending}
+                className="text-xs px-2 py-0.5 rounded border border-border text-muted-foreground hover:text-foreground hover:border-foreground/30 disabled:opacity-30 disabled:cursor-not-allowed"
+              >↑</button>
+              <button
+                onClick={() => move(idx, 1)}
+                disabled={idx === order.length - 1 || mutation.isPending}
+                className="text-xs px-2 py-0.5 rounded border border-border text-muted-foreground hover:text-foreground hover:border-foreground/30 disabled:opacity-30 disabled:cursor-not-allowed"
+              >↓</button>
+            </li>
+          );
+        })}
+      </ol>
+      {mutation.isError && (
+        <p className="text-xs text-destructive mt-2">{(mutation.error as Error)?.message ?? 'Failed to save'}</p>
+      )}
+    </div>
+  );
+}
+
 function LlmTab({ rows, token }: { rows: SettingRow[]; token: string }) {
   const [activeProvider, setActiveProvider] = useState('openai');
 
   const generalSettings = rows.filter((r) => r.provider === 'general');
   const defaultProviderRow = generalSettings.find((r) => r.key === 'llm_default_provider');
+  const fallbackRow = generalSettings.find((r) => r.key === 'llm_fallback_order');
   const currentDefault = defaultProviderRow?.value || 'auto';
 
   const providerRows = rows.filter((r) => r.provider === activeProvider);
+
+  const enabledFor = (p: string): boolean => {
+    const r = rows.find((x) => x.key === `${p}_enabled`);
+    if (!r) return p !== 'gemini';
+    return r.value === 'true';
+  };
+
+  const providersMeta = LLM_PROVIDER_TABS.map((t) => ({
+    key: t.key as 'openai' | 'gemini' | 'deepseek',
+    label: t.label,
+    enabled: enabledFor(t.key),
+  }));
 
   return (
     <div>
       <DefaultProviderSelector current={currentDefault} token={token} />
 
+      {fallbackRow && (
+        <FallbackOrderPanel setting={fallbackRow} token={token} providers={providersMeta} />
+      )}
+
       {/* Provider sub-tabs */}
       <div className="flex items-center gap-1 border border-border rounded-lg p-1 mb-4 bg-muted/30 w-fit">
-        {LLM_PROVIDER_TABS.map((tab) => (
-          <button
-            key={tab.key}
-            onClick={() => setActiveProvider(tab.key)}
-            className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
-              activeProvider === tab.key
-                ? 'bg-card text-foreground shadow-sm'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
+        {LLM_PROVIDER_TABS.map((tab) => {
+          const on = enabledFor(tab.key);
+          return (
+            <button
+              key={tab.key}
+              onClick={() => setActiveProvider(tab.key)}
+              className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors inline-flex items-center gap-1.5 ${
+                activeProvider === tab.key
+                  ? 'bg-card text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <span className={`w-1.5 h-1.5 rounded-full ${on ? 'bg-green-500' : 'bg-muted-foreground/40'}`} />
+              {tab.label}
+            </button>
+          );
+        })}
       </div>
 
       <div className="rounded-xl border border-border bg-card">
@@ -333,7 +461,9 @@ function LlmTab({ rows, token }: { rows: SettingRow[]; token: string }) {
             <p className="text-sm text-muted-foreground py-6">No settings for this provider.</p>
           ) : (
             providerRows.map((s) =>
-              MODEL_SELECT_KEYS[s.key] ? (
+              s.key.endsWith('_enabled') ? (
+                <ProviderToggle key={s.key} setting={s} token={token} />
+              ) : MODEL_SELECT_KEYS[s.key] ? (
                 <ModelSelectField key={s.key} setting={s} options={MODEL_SELECT_KEYS[s.key]} token={token} />
               ) : (
                 <SettingField key={s.key} setting={s} token={token} />

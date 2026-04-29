@@ -11,14 +11,30 @@ export const SETTING_DEFINITIONS: Record<string, SettingDefinition> = {
   // LLM — general
   llm_default_provider: {
     label: 'Default Provider',
-    description: 'Which LLM provider to use by default. "auto" tries OpenAI → Gemini → DeepSeek.',
+    description: 'Which LLM provider to use by default. "auto" walks the fallback chain.',
     isSecret: false,
     group: 'llm',
     defaultValue: 'auto',
     provider: 'general',
   },
+  llm_fallback_order: {
+    label: 'Fallback Chain Order',
+    description: 'Comma-separated provider order used when "auto" is selected. Disabled providers are skipped.',
+    isSecret: false,
+    group: 'llm',
+    defaultValue: 'openai,deepseek,gemini',
+    provider: 'general',
+  },
 
   // LLM — OpenAI
+  openai_enabled: {
+    label: 'Provider Enabled',
+    description: 'When off, OpenAI is skipped in the auto fallback chain.',
+    isSecret: false,
+    group: 'llm',
+    defaultValue: 'true',
+    provider: 'openai',
+  },
   openai_api_key: {
     label: 'OpenAI API Key',
     description: 'Used for GPT models. Starts with sk-',
@@ -44,6 +60,14 @@ export const SETTING_DEFINITIONS: Record<string, SettingDefinition> = {
   },
 
   // LLM — Gemini
+  gemini_enabled: {
+    label: 'Provider Enabled',
+    description: 'When off, Gemini is skipped in the auto fallback chain.',
+    isSecret: false,
+    group: 'llm',
+    defaultValue: 'false',
+    provider: 'gemini',
+  },
   gemini_api_key: {
     label: 'Gemini API Key',
     description: 'Google AI Studio API key',
@@ -61,6 +85,14 @@ export const SETTING_DEFINITIONS: Record<string, SettingDefinition> = {
   },
 
   // LLM — DeepSeek
+  deepseek_enabled: {
+    label: 'Provider Enabled',
+    description: 'When off, DeepSeek is skipped in the auto fallback chain.',
+    isSecret: false,
+    group: 'llm',
+    defaultValue: 'true',
+    provider: 'deepseek',
+  },
   deepseek_api_key: {
     label: 'DeepSeek API Key',
     description: 'DeepSeek API key',

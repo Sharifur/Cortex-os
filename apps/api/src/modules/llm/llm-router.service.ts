@@ -119,20 +119,41 @@ export class LlmRouterService {
   }
 
   private async autoRoute(opts: LlmCompleteOpts): Promise<LlmResponse> {
-    const providers: Array<() => Promise<LlmResponse>> = [
-      () => this.callOpenAi(opts),
-      () => this.callGemini(opts),
-      () => this.callDeepSeek(opts),
-    ];
+    const orderRaw = (await this.settings.getDecrypted('llm_fallback_order')) ?? 'openai,deepseek,gemini';
+    const order = orderRaw
+      .split(',')
+      .map((s) => s.trim().toLowerCase())
+      .filter((s): s is 'openai' | 'gemini' | 'deepseek' =>
+        s === 'openai' || s === 'gemini' || s === 'deepseek',
+      );
 
-    for (const call of providers) {
+    const enabledChecks = await Promise.all(
+      order.map(async (p) => ({ name: p, enabled: await this.isProviderEnabled(p) })),
+    );
+    const active = enabledChecks.filter((e) => e.enabled).map((e) => e.name);
+
+    if (!active.length) {
+      throw new Error('No LLM providers are enabled. Toggle at least one provider on in Settings.');
+    }
+
+    for (const name of active) {
       try {
-        return await call();
+        switch (name) {
+          case 'openai': return await this.callOpenAi(opts);
+          case 'gemini': return await this.callGemini(opts);
+          case 'deepseek': return await this.callDeepSeek(opts);
+        }
       } catch (err) {
-        this.logger.warn(`LLM provider failed, trying next: ${(err as Error).message}`);
+        this.logger.warn(`LLM provider ${name} failed, trying next: ${(err as Error).message}`);
       }
     }
-    throw new Error('All LLM providers failed');
+    throw new Error('All enabled LLM providers failed');
+  }
+
+  private async isProviderEnabled(name: 'openai' | 'gemini' | 'deepseek'): Promise<boolean> {
+    const v = await this.settings.getDecrypted(`${name}_enabled`);
+    if (v === null) return name !== 'gemini';
+    return v.toLowerCase() === 'true';
   }
 
   private async callOpenAi(opts: LlmCompleteOpts): Promise<LlmResponse> {
