@@ -14,6 +14,8 @@ export class DashboardService {
     const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const since24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
     const since7d = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const since24hIso = since24h.toISOString();
+    const since7dIso = since7d.toISOString();
 
     const [
       totalRunsRow,
@@ -35,7 +37,7 @@ export class DashboardService {
         .where(eq(pendingApprovals.status, 'PENDING')),
 
       db.select({ n: count() }).from(agentRuns)
-        .where(sql`${agentRuns.status} = 'FAILED' AND ${agentRuns.startedAt} >= ${since24h}`),
+        .where(sql`${agentRuns.status} = 'FAILED' AND ${agentRuns.startedAt} >= ${since24hIso}::timestamp`),
 
       db.select({ n: count() }).from(agents),
 
@@ -45,7 +47,7 @@ export class DashboardService {
       db.execute(sql`
         SELECT status, COUNT(*)::int AS n
         FROM agent_runs
-        WHERE started_at >= ${since7d}
+        WHERE started_at >= ${since7dIso}::timestamp
         GROUP BY status
         ORDER BY n DESC
       `),
@@ -54,7 +56,7 @@ export class DashboardService {
         SELECT a.key, a.name, COUNT(r.id)::int AS runs,
                SUM(CASE WHEN r.status = 'FAILED' THEN 1 ELSE 0 END)::int AS failures
         FROM agents a
-        LEFT JOIN agent_runs r ON r.agent_id = a.id AND r.started_at >= ${since7d}
+        LEFT JOIN agent_runs r ON r.agent_id = a.id AND r.started_at >= ${since7dIso}::timestamp
         GROUP BY a.id, a.key, a.name
         ORDER BY runs DESC
         LIMIT 8
