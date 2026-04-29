@@ -9,7 +9,27 @@ export type InsightCohort =
   | 'healthy_paid'
   | 'expanding_paid'
   | 'at_risk_paid'
-  | 'dormant_paid';
+  | 'dormant_paid'
+  | 'trial_ready_free'
+  | 'nurture_free'
+  | 'ignore_free'
+  | 'expired_trial_warm'
+  | 'expired_trial_cold'
+  | 'uncategorized';
+
+export type InsightLifecycleState =
+  | 'free'
+  | 'trial'
+  | 'expired_trial'
+  | 'paid'
+  | 'churned';
+
+export type InsightScoreType =
+  | 'trial_readiness'
+  | 'activation'
+  | 'activation_frozen'
+  | 'customer_health'
+  | 'customer_health_frozen';
 
 export interface InsightVolumeMetrics {
   invoices_total?: number;
@@ -18,18 +38,19 @@ export interface InsightVolumeMetrics {
   leads_total?: number;
   projects_total?: number;
   tasks_total?: number;
+  support_tickets_total?: number;
+  service_orders_total?: number;
   inbox_connected?: boolean;
-  // Anything else the backend appends — keep it open.
   [key: string]: number | boolean | string | null | undefined;
 }
 
 export interface InsightSessionBlock {
   last_active_at: string | null;
-  sessions_last_7d?: number;
-  sessions_last_30d?: number;
-  active_users_last_7d?: number;
-  active_users_last_30d?: number;
-  [key: string]: number | string | null | undefined;
+  last_session_duration_seconds?: number | null;
+  last_session_ended_at?: string | null;
+  is_active_now?: boolean;
+  stats_aggregated_at?: string | null;
+  [key: string]: number | string | boolean | null | undefined;
 }
 
 export interface InsightWorkspaceOverview {
@@ -47,18 +68,107 @@ export interface InsightWorkspaceOverview {
     plan_name: string | null;
   };
   cohort: InsightCohort | null;
+  previous_cohort?: InsightCohort | null;
   score: number | null;
-  signals: Array<{ key: string; value: number; threshold?: number }>;
+  score_type?: InsightScoreType;
+  score_delta_14d?: number | null;
+  activation_event_hit?: boolean;
+  signals: Array<{ key: string; value: number | string | boolean; threshold?: number }>;
+  cohort_assigned_at?: string | null;
+  last_seen_at?: string | null;
   recent_activities: Array<{
     activity_type: number;
     module_category: number;
     subject_type: string;
     occurred_at: string;
   }>;
-  // Added by the Insight + Workspace-Stats merge — present once Sprint 2/3 ships.
   volume_metrics?: InsightVolumeMetrics;
   session?: InsightSessionBlock;
   evaluated_at: string;
+}
+
+export interface InsightLifecycleSnapshot {
+  schema_version: number;
+  workspace: {
+    uuid: string;
+    tenant_id?: string;
+    name: string;
+    lifecycle_state: InsightLifecycleState;
+    cohort: InsightCohort | null;
+    meta_audience_tier?: string | null;
+    trial_started_at?: string | null;
+    trial_ends_at?: string | null;
+    activated_at?: string | null;
+    last_seen_at?: string | null;
+    ai_messaging_paused?: boolean;
+  };
+  owner: {
+    first_name: string;
+    last_name?: string;
+    email: string;
+    locale?: string;
+    timezone?: string;
+    preferences?: {
+      ai_messages_enabled?: boolean;
+      marketing_emails_enabled?: boolean;
+    };
+  };
+  score: {
+    type: InsightScoreType;
+    value: number;
+    delta_14d?: number;
+    signals: Array<{ key: string; value: number | string | boolean }>;
+  };
+  recent_messages?: Array<{
+    scenario_key: string;
+    channel: 'email' | 'inapp' | 'both';
+    result: string;
+    output_subject?: string;
+    created_at: string;
+  }>;
+}
+
+export interface InsightPendingScenarios {
+  schema_version: number;
+  eligible: Array<{
+    scenario_key: string;
+    probe_event: string;
+    manual_review: boolean;
+    spec: {
+      trigger: { event: string; condition: string; threshold?: number };
+      channel: 'email' | 'inapp' | 'both';
+      tone: string;
+      prompt: string;
+      allowed_vars: string[];
+    };
+  }>;
+  blocked: Array<{ probe_event: string; reason: string }>;
+}
+
+export interface InsightAgentMessage {
+  id: number;
+  scenario_key: string;
+  prompt_version: string;
+  channel: 'email' | 'inapp' | 'both';
+  result: string;
+  output_subject?: string;
+  output_body_md?: string;
+  output_cta_text?: string;
+  output_cta_url?: string;
+  failure_reason?: string | null;
+  email_sent_at?: string | null;
+  inapp_sent_at?: string | null;
+  created_at: string;
+}
+
+export interface InsightSubmitMessage {
+  scenario_key: string;
+  channel: 'email' | 'inapp' | 'both';
+  subject?: string;
+  body_md: string;
+  cta_text?: string;
+  cta_url?: string;
+  force_send?: boolean;
 }
 
 export interface InsightCohortListItem {
@@ -188,6 +298,22 @@ export class TaskipInsightService {
 
   async logAgentAction(workspaceUuid: string, payload: InsightAgentActionLog): Promise<{ logged_at: string }> {
     return this.request('POST', `/workspaces/${encodeURIComponent(workspaceUuid)}/agent-actions`, payload);
+  }
+
+  async getLifecycle(workspaceUuid: string): Promise<InsightLifecycleSnapshot> {
+    return this.request('GET', `/workspaces/${encodeURIComponent(workspaceUuid)}/lifecycle`);
+  }
+
+  async getPendingScenarios(workspaceUuid: string): Promise<InsightPendingScenarios> {
+    return this.request('GET', `/workspaces/${encodeURIComponent(workspaceUuid)}/scenarios/pending`);
+  }
+
+  async getRecentMessages(workspaceUuid: string): Promise<{ schema_version: number; messages: InsightAgentMessage[] }> {
+    return this.request('GET', `/workspaces/${encodeURIComponent(workspaceUuid)}/messages`);
+  }
+
+  async submitMessage(workspaceUuid: string, payload: InsightSubmitMessage): Promise<{ id: number; status: string; channel: string; inapp_sent_at?: string | null; email_sent_at?: string | null }> {
+    return this.request('POST', `/workspaces/${encodeURIComponent(workspaceUuid)}/messages`, payload);
   }
 
   async status(probeWorkspaceUuid?: string): Promise<InsightStatus> {

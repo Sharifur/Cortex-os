@@ -902,7 +902,8 @@ function SafetyTab({ rows, token }: { rows: SettingRow[]; token: string }) {
             <li><strong>Block extend_trial</strong> — taskip_internal cannot extend trials</li>
             <li><strong>Block mark_refund</strong> — refund-marking is blocked</li>
             <li><strong>Block send_email</strong> — Gmail outbound is blocked across agents</li>
-            <li><strong>Block insight_submit_marketing_suggestion</strong> — Taskip Insight writeback blocked</li>
+            <li><strong>Block insight_submit_marketing_suggestion</strong> — Taskip Insight marketing-suggestion writeback blocked</li>
+            <li><strong>Block insight_submit_message</strong> — Insight lifecycle messaging (email + in-app) blocked</li>
           </ul>
           <p className="text-xs text-muted-foreground mt-3">
             Telegram approval is checked first; the kill switch is the last gate before execution.
