@@ -1,7 +1,8 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { Activity, Bot, AlertCircle, Info, AlertTriangle, Bug, Wifi, WifiOff } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAuthStore } from '@/stores/authStore';
+import { getRealtimeSocket } from '@/lib/realtime';
 
 function LogRowSkeleton() {
   return (
@@ -77,71 +78,45 @@ export default function ActivityPage() {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [connected, setConnected] = useState(false);
   const [reconnecting, setReconnecting] = useState(false);
-  const [retryKey, setRetryKey] = useState(0);
-  const snapshotDone = useRef(false);
-  const snapshotBuffer = useRef<LogEntry[]>([]);
-  const retryCount = useRef(0);
-  const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    snapshotDone.current = false;
-    snapshotBuffer.current = [];
+    const socket = getRealtimeSocket(token);
 
-    if (retryTimer.current) {
-      clearTimeout(retryTimer.current);
-      retryTimer.current = null;
-    }
-
-    const es = new EventSource(`/runs/activity/stream?token=${encodeURIComponent(token)}`);
-
-    es.onopen = () => {
-      retryCount.current = 0;
+    const onConnect = () => {
       setConnected(true);
       setReconnecting(false);
+      socket.emit('activity:subscribe');
     };
+    const onDisconnect = () => { setConnected(false); setReconnecting(true); };
+    const onReconnectAttempt = () => { setReconnecting(true); };
 
-    es.onmessage = (event) => {
-      const data = JSON.parse(event.data as string) as { type?: string } & LogEntry;
-
-      if (data.type === 'snapshot_done') {
-        setLogs(snapshotBuffer.current);
-        snapshotDone.current = true;
-        return;
-      }
-
-      if (!snapshotDone.current) {
-        snapshotBuffer.current.push(data as LogEntry);
-        return;
-      }
-
+    const onSnapshot = (rows: LogEntry[]) => {
+      setLogs((rows ?? []).slice(0, MAX_ENTRIES));
+    };
+    const onLog = (entry: LogEntry) => {
       setLogs((prev) => {
-        const next = [data as LogEntry, ...prev];
+        const next = [entry, ...prev];
         return next.length > MAX_ENTRIES ? next.slice(0, MAX_ENTRIES) : next;
       });
     };
 
-    es.onerror = () => {
-      setConnected(false);
-      es.close();
+    socket.on('connect', onConnect);
+    socket.on('disconnect', onDisconnect);
+    socket.io.on('reconnect_attempt', onReconnectAttempt);
+    socket.on('activity:snapshot', onSnapshot);
+    socket.on('activity:log', onLog);
 
-      const delay = Math.min(1000 * 2 ** retryCount.current, 30_000);
-      retryCount.current += 1;
-      setReconnecting(true);
-
-      retryTimer.current = setTimeout(() => {
-        setRetryKey((k) => k + 1);
-      }, delay);
-    };
+    if (socket.connected) onConnect();
 
     return () => {
-      es.close();
-      setConnected(false);
-      if (retryTimer.current) {
-        clearTimeout(retryTimer.current);
-        retryTimer.current = null;
-      }
+      socket.emit('activity:unsubscribe');
+      socket.off('connect', onConnect);
+      socket.off('disconnect', onDisconnect);
+      socket.io.off('reconnect_attempt', onReconnectAttempt);
+      socket.off('activity:snapshot', onSnapshot);
+      socket.off('activity:log', onLog);
     };
-  }, [token, retryKey]);
+  }, [token]);
 
   return (
     <div className="p-8 max-w-4xl mx-auto">

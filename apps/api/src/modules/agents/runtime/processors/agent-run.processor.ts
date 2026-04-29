@@ -5,6 +5,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Queue, Job } from 'bullmq';
 import { eq } from 'drizzle-orm';
 import { DbService } from '../../../../db/db.service';
+import { computeNextRunAt } from '../../../tasks/task.utils';
 import { agentRuns, agents, tasks as tasksTable } from '../../../../db/schema';
 import { AgentRegistryService } from '../agent-registry.service';
 import { ApprovalService } from '../approval.service';
@@ -93,6 +94,18 @@ export class AgentRunProcessor extends WorkerHost {
           .set({ status: 'EXECUTED', proposedActions: [], finishedAt: new Date() })
           .where(eq(agentRuns.id, runId));
         await this.logSvc.info(runId, `Run completed — no actions`);
+
+        // Close out the parent task so it doesn't sit in "running" forever.
+        const noopTaskId = (runRow.triggerPayload as Record<string, unknown> | null)?._taskId as string | undefined;
+        if (noopTaskId) {
+          const [t] = await this.db.db.select().from(tasksTable).where(eq(tasksTable.id, noopTaskId));
+          if (t?.recurrence && t.recurrenceTime) {
+            const nextRunAt = computeNextRunAt(t.recurrence, t.recurrenceTime);
+            await this.db.db.update(tasksTable).set({ status: 'pending', nextRunAt, updatedAt: new Date() }).where(eq(tasksTable.id, noopTaskId));
+          } else if (t) {
+            await this.db.db.update(tasksTable).set({ status: 'done', updatedAt: new Date() }).where(eq(tasksTable.id, noopTaskId));
+          }
+        }
         return;
       }
 

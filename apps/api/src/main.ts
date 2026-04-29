@@ -6,6 +6,7 @@ import {
   NestFastifyApplication,
 } from '@nestjs/platform-fastify';
 import { ValidationPipe } from '@nestjs/common';
+import { IoAdapter } from '@nestjs/platform-socket.io';
 import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module';
 import { RequestLogExceptionFilter } from './modules/debug-logs/request-log.filter';
@@ -83,6 +84,11 @@ async function bootstrap() {
     new ValidationPipe({ transform: true, whitelist: true }),
   );
   app.useGlobalFilters(app.get(RequestLogExceptionFilter));
+
+  // Mount socket.io on the same HTTP server (path: /ws) for realtime activity,
+  // approvals and operations. Socket.io upgrades the HTTP connection, so it
+  // bypasses the proxy buffering that broke our SSE streams.
+  app.useWebSocketAdapter(new IoAdapter(app));
 
   const allowList = (process.env.CORS_ORIGINS ?? 'https://cortex.xgenious.com,http://localhost:5173')
     .split(',')

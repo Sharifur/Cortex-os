@@ -37,6 +37,8 @@ import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { DebugLogsModule } from './modules/debug-logs/debug-logs.module';
 import { PurchaseVerifyModule } from './modules/agents/purchase-verify/purchase-verify.module';
 import { ContactsModule } from './modules/contacts/contacts.module';
+import { RealtimeModule } from './modules/realtime/realtime.module';
+import { TelegramBotAgentModule } from './modules/agents/telegram-bot/telegram-bot.module';
 
 @Module({
   imports: [
@@ -96,6 +98,8 @@ import { ContactsModule } from './modules/contacts/contacts.module';
     DebugLogsModule,
     PurchaseVerifyModule,
     ContactsModule,
+    RealtimeModule,
+    TelegramBotAgentModule,
   ],
 })
 export class AppModule {}

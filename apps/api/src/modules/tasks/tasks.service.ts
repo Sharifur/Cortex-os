@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { eq, desc, lte, and } from 'drizzle-orm';
+import { eq, desc, lte, and, sql } from 'drizzle-orm';
 import { DbService } from '../../db/db.service';
 import { AgentRuntimeService } from '../agents/runtime/agent-runtime.service';
 import { tasks } from '../../db/schema';
@@ -148,5 +148,20 @@ export class TasksService {
     for (const task of due) {
       await this.runTask(task.id);
     }
+
+    // Reconcile stuck tasks: any task in "running" whose underlying run has
+    // reached a terminal state (EXECUTED / FAILED / REJECTED) but the task
+    // status was never updated. Cheap to run; uses a single SQL update.
+    await this.db.db.execute(sql`
+      UPDATE ${tasks}
+      SET
+        status = CASE WHEN ar.status = 'FAILED' THEN 'failed' ELSE 'done' END,
+        updated_at = NOW()
+      FROM agent_runs ar
+      WHERE ar.id = ${tasks.runId}
+        AND ${tasks.status} = 'running'
+        AND ar.status IN ('EXECUTED', 'FAILED', 'REJECTED')
+        AND ${tasks.recurrence} IS NULL
+    `);
   }
 }

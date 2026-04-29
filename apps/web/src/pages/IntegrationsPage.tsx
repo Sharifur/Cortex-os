@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Cable, Save, Trash2, Eye, EyeOff, Key, Send, Mail, Copy, Check,
@@ -429,9 +429,50 @@ interface CrispWebsite {
   createdAt: string;
 }
 
-function CrispTab({ token }: { token: string }) {
+function CrispTab({ token, rows }: { token: string; rows: SettingRow[] }) {
   const qc = useQueryClient();
-  const webhookUrl = `${window.location.origin}/crisp/webhook`;
+  const tokenRow = rows.find((r) => r.key === 'crisp_webhook_token');
+  const tokenStored = tokenRow?.stored ?? false;
+  const tokenMasked = tokenRow?.value ?? '';
+  const baseWebhookUrl = `${window.location.origin}/crisp/webhook`;
+  const [revealToken, setRevealToken] = useState(false);
+  const [generatedToken, setGeneratedToken] = useState<string | null>(null);
+
+  const webhookUrl = generatedToken
+    ? `${baseWebhookUrl}?t=${generatedToken}`
+    : tokenStored
+      ? `${baseWebhookUrl}?t=${tokenMasked}`
+      : baseWebhookUrl;
+
+  const saveTokenMutation = useMutation({
+    mutationFn: async (val: string) => {
+      const res = await fetch(`/settings/crisp_webhook_token`, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ value: val }),
+      });
+      if (!res.ok) throw new Error('Failed to save token');
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['settings'] }),
+  });
+
+  function generateAndSaveToken() {
+    const bytes = new Uint8Array(24);
+    crypto.getRandomValues(bytes);
+    const tok = Array.from(bytes).map((b) => b.toString(16).padStart(2, '0')).join('');
+    setGeneratedToken(tok);
+    setRevealToken(true);
+    saveTokenMutation.mutate(tok);
+  }
+
+  // Auto-generate a token the first time the Crisp tab is viewed without one,
+  // so the URL displayed always includes ?t=<token> ready to paste into Crisp.
+  useEffect(() => {
+    if (!tokenStored && !generatedToken && !saveTokenMutation.isPending) {
+      generateAndSaveToken();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tokenStored]);
   const [sub, setSub] = useState<'settings' | 'docs'>('settings');
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState({ label: '', websiteId: '', identifier: '', apiKey: '' });
@@ -543,12 +584,44 @@ function CrispTab({ token }: { token: string }) {
           <div className="rounded-xl border border-border bg-card p-5">
             <h2 className="text-sm font-semibold mb-1">Webhook URL</h2>
             <p className="text-xs text-muted-foreground mb-3">
-              Add this in Crisp to enable real-time replies. Without it the agent polls every 15 minutes.
+              Paste this URL in Crisp → Settings → Hooks. Crisp does not let you set an HMAC signature in the dashboard,
+              so we authenticate the hook with a random <code className="font-mono bg-muted px-1 rounded">?t=&lt;token&gt;</code> in the URL itself.
+              Without it the agent only polls every 15 minutes.
             </p>
             <div className="flex items-center gap-2 bg-muted/60 border border-border rounded-lg px-3 py-2">
-              <code className="text-xs font-mono flex-1 break-all text-foreground">{webhookUrl}</code>
-              <CopyButton text={webhookUrl} />
+              <code className="text-xs font-mono flex-1 break-all text-foreground">
+                {generatedToken
+                  ? webhookUrl
+                  : tokenStored
+                    ? (revealToken ? webhookUrl : `${baseWebhookUrl}?t=•••••••• (saved)`)
+                    : baseWebhookUrl}
+              </code>
+              <CopyButton text={generatedToken ? webhookUrl : (tokenStored && revealToken ? webhookUrl : baseWebhookUrl)} />
             </div>
+            <div className="flex items-center gap-2 mt-3">
+              <Button size="sm" variant="outline" onClick={generateAndSaveToken} disabled={saveTokenMutation.isPending} className="gap-1.5">
+                {saveTokenMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Key className="w-3.5 h-3.5" />}
+                {tokenStored ? 'Rotate token' : 'Generate token'}
+              </Button>
+              {tokenStored && (
+                <button
+                  onClick={() => setRevealToken((v) => !v)}
+                  className="text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
+                >
+                  {revealToken ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                  {revealToken ? 'Hide saved token' : 'Reveal saved token (masked)'}
+                </button>
+              )}
+              {generatedToken && (
+                <span className="text-[11px] text-amber-400">
+                  Token saved. Copy this URL into Crisp now — the raw token won't be shown again.
+                </span>
+              )}
+            </div>
+            <p className="text-[11px] text-muted-foreground mt-2">
+              Defense in depth: every webhook also has its <code className="font-mono">website_id</code> validated
+              against your connected Crisp websites below.
+            </p>
           </div>
 
           {/* Website list */}
@@ -1113,7 +1186,7 @@ export default function IntegrationsPage() {
           {activeTab === 'whatsapp' && <WhatsAppTab rows={grouped['whatsapp'] ?? []} token={token} />}
           {activeTab === 'linkedin' && <LinkedInTab rows={grouped['linkedin'] ?? []} token={token} />}
           {activeTab === 'reddit' && <RedditTab rows={grouped['reddit'] ?? []} token={token} />}
-          {activeTab === 'crisp' && <CrispTab token={token} />}
+          {activeTab === 'crisp' && <CrispTab token={token} rows={grouped['crisp'] ?? []} />}
           {activeTab === 'telegram' && <TelegramTab rows={grouped['telegram'] ?? []} token={token} />}
           {activeTab === 'ses' && <SesTab rows={grouped['ses'] ?? []} token={token} />}
           {activeTab === 'gmail' && <GmailTab rows={grouped['gmail'] ?? []} token={token} />}

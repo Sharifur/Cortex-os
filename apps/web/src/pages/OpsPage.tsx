@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { getRealtimeSocket } from '@/lib/realtime';
 import { Link } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
 import {
@@ -385,66 +386,69 @@ export default function OpsPage() {
       .catch(() => { /* ignore — stream will catch up */ });
   }, [token, flushRuns]);
 
-  // Activity SSE
+  // Activity + Approvals over WebSocket (one shared socket).
   useEffect(() => {
     logSnapshotDone.current = false;
     logBuffer.current = [];
     setLogsError(false);
 
-    const es = new EventSource(`/runs/activity/stream?token=${encodeURIComponent(token)}`);
+    const socket = getRealtimeSocket(token);
 
-    es.onopen = () => { setLogsConnected(true); setLogsError(false); };
+    const onConnect = () => {
+      setLogsConnected(true);
+      setApprovalsConnected(true);
+      setLogsError(false);
+      socket.emit('activity:subscribe');
+      socket.emit('approvals:subscribe');
+    };
+    const onDisconnect = () => {
+      setLogsConnected(false);
+      setApprovalsConnected(false);
+      setLogsError(true);
+    };
 
-    es.onmessage = (event) => {
-      const data = JSON.parse(event.data as string) as { type?: string } & LogEntry;
-
-      if (data.type === 'snapshot_done') {
-        setLogs(logBuffer.current.slice(0, MAX_LOGS));
-        logBuffer.current.slice(0, MAX_LOGS).forEach((e) => upsertRun(e));
-        logSnapshotDone.current = true;
-        return;
-      }
-
-      if (!logSnapshotDone.current) {
-        logBuffer.current.unshift(data as LogEntry);
-        return;
-      }
-
-      upsertRun(data as LogEntry);
+    const onActivitySnapshot = (rows: LogEntry[]) => {
+      const trimmed = (rows ?? []).slice(0, MAX_LOGS);
+      setLogs(trimmed);
+      trimmed.forEach((e) => upsertRun(e));
+      logSnapshotDone.current = true;
+    };
+    const onActivityLog = (entry: LogEntry) => {
+      upsertRun(entry);
       setLogs((prev) => {
-        const next = [data as LogEntry, ...prev];
+        const next = [entry, ...prev];
         return next.length > MAX_LOGS ? next.slice(0, MAX_LOGS) : next;
       });
     };
 
-    es.onerror = () => { setLogsConnected(false); setLogsError(true); es.close(); };
-
-    return () => { es.close(); setLogsConnected(false); };
-  }, [token, upsertRun]);
-
-  // Approvals SSE
-  useEffect(() => {
-    const es = new EventSource(`/approvals/stream?token=${encodeURIComponent(token)}`);
-
-    es.onopen = () => setApprovalsConnected(true);
-
-    es.onmessage = (event) => {
-      const msg = JSON.parse(event.data as string) as {
-        type: 'snapshot' | 'created' | 'removed';
-        data: Approval | Approval[] | { id: string };
-      };
-      if (msg.type === 'snapshot') setApprovals(msg.data as Approval[]);
-      else if (msg.type === 'created') setApprovals((p) => [msg.data as Approval, ...p]);
-      else if (msg.type === 'removed') {
-        const { id } = msg.data as { id: string };
-        setApprovals((p) => p.filter((a) => a.id !== id));
-      }
+    const onApprovalsSnapshot = (rows: Approval[]) => setApprovals(rows ?? []);
+    const onApprovalCreated = (a: Approval) => setApprovals((p) => [a, ...p]);
+    const onApprovalRemoved = (payload: { id: string }) => {
+      setApprovals((p) => p.filter((a) => a.id !== payload.id));
     };
 
-    es.onerror = () => { setApprovalsConnected(false); es.close(); };
+    socket.on('connect', onConnect);
+    socket.on('disconnect', onDisconnect);
+    socket.on('activity:snapshot', onActivitySnapshot);
+    socket.on('activity:log', onActivityLog);
+    socket.on('approvals:snapshot', onApprovalsSnapshot);
+    socket.on('approval:created', onApprovalCreated);
+    socket.on('approval:removed', onApprovalRemoved);
 
-    return () => { es.close(); setApprovalsConnected(false); };
-  }, [token]);
+    if (socket.connected) onConnect();
+
+    return () => {
+      socket.emit('activity:unsubscribe');
+      socket.emit('approvals:unsubscribe');
+      socket.off('connect', onConnect);
+      socket.off('disconnect', onDisconnect);
+      socket.off('activity:snapshot', onActivitySnapshot);
+      socket.off('activity:log', onActivityLog);
+      socket.off('approvals:snapshot', onApprovalsSnapshot);
+      socket.off('approval:created', onApprovalCreated);
+      socket.off('approval:removed', onApprovalRemoved);
+    };
+  }, [token, upsertRun]);
 
   // Unique agents from log history for filter dropdown
   const agentOptions = Array.from(new Set(logs.map((l) => l.agentKey))).sort();

@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
+import { getRealtimeSocket } from '@/lib/realtime';
 import { useMutation } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import {
@@ -243,65 +244,46 @@ export default function ApprovalsPage() {
   const [connected, setConnected] = useState(false);
   const [reconnecting, setReconnecting] = useState(false);
   const [snapshotReceived, setSnapshotReceived] = useState(false);
-  const [retryKey, setRetryKey] = useState(0);
-  const retryCount = useRef(0);
-  const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    setSnapshotReceived(false);
+    const socket = getRealtimeSocket(token);
 
-    if (retryTimer.current) {
-      clearTimeout(retryTimer.current);
-      retryTimer.current = null;
-    }
-
-    const es = new EventSource(`/approvals/stream?token=${encodeURIComponent(token)}`);
-
-    es.onopen = () => {
-      retryCount.current = 0;
+    const onConnect = () => {
       setConnected(true);
       setReconnecting(false);
+      socket.emit('approvals:subscribe');
+    };
+    const onDisconnect = () => { setConnected(false); setReconnecting(true); };
+    const onReconnectAttempt = () => { setReconnecting(true); };
+
+    const onSnapshot = (rows: Approval[]) => {
+      setApprovals(rows ?? []);
+      setSnapshotReceived(true);
+    };
+    const onCreated = (a: Approval) => setApprovals((prev) => [a, ...prev]);
+    const onRemoved = (payload: { id: string }) => {
+      setApprovals((prev) => prev.filter((a) => a.id !== payload.id));
     };
 
-    es.onmessage = (event) => {
-      const msg = JSON.parse(event.data as string) as {
-        type: 'snapshot' | 'created' | 'removed';
-        data: Approval | Approval[] | { id: string };
-      };
+    socket.on('connect', onConnect);
+    socket.on('disconnect', onDisconnect);
+    socket.io.on('reconnect_attempt', onReconnectAttempt);
+    socket.on('approvals:snapshot', onSnapshot);
+    socket.on('approval:created', onCreated);
+    socket.on('approval:removed', onRemoved);
 
-      if (msg.type === 'snapshot') {
-        setApprovals(msg.data as Approval[]);
-        setSnapshotReceived(true);
-      } else if (msg.type === 'created') {
-        setApprovals((prev) => [msg.data as Approval, ...prev]);
-      } else if (msg.type === 'removed') {
-        const { id } = msg.data as { id: string };
-        setApprovals((prev) => prev.filter((a) => a.id !== id));
-      }
-    };
-
-    es.onerror = () => {
-      setConnected(false);
-      setReconnecting(true);
-      es.close();
-
-      const delay = Math.min(1000 * 2 ** retryCount.current, 30_000);
-      retryCount.current += 1;
-
-      retryTimer.current = setTimeout(() => {
-        setRetryKey((k) => k + 1);
-      }, delay);
-    };
+    if (socket.connected) onConnect();
 
     return () => {
-      es.close();
-      setConnected(false);
-      if (retryTimer.current) {
-        clearTimeout(retryTimer.current);
-        retryTimer.current = null;
-      }
+      socket.emit('approvals:unsubscribe');
+      socket.off('connect', onConnect);
+      socket.off('disconnect', onDisconnect);
+      socket.io.off('reconnect_attempt', onReconnectAttempt);
+      socket.off('approvals:snapshot', onSnapshot);
+      socket.off('approval:created', onCreated);
+      socket.off('approval:removed', onRemoved);
     };
-  }, [token, retryKey]);
+  }, [token]);
 
   function removeApproval(id: string) {
     setApprovals((prev) => prev.filter((a) => a.id !== id));
