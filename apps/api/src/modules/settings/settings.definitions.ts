@@ -362,4 +362,11 @@ export const SETTING_DEFINITIONS: Record<string, SettingDefinition> = {
     group: 'safety',
     defaultValue: 'false',
   },
+  kill_lifecycle_message: {
+    label: 'Block insight_submit_message',
+    description: 'When true, blocks lifecycle messaging (email + in-app) submitted via the Insight API',
+    isSecret: false,
+    group: 'safety',
+    defaultValue: 'false',
+  },
 };

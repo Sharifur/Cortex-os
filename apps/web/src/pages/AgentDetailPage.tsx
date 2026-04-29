@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAuthStore } from '@/stores/authStore';
 import { agentColor } from '@/lib/agent-colors';
+import { getAgentSuggestions } from '@/lib/agentTaskSuggestions';
 
 interface AgentDetail {
   id: string;
@@ -1586,13 +1587,7 @@ function TaskipInternalAskSubTab({ agent, config, token }: {
       <div className="rounded-xl border border-border bg-card p-5">
         <h3 className="text-sm font-semibold mb-3">Quick queries</h3>
         <div className="flex flex-wrap gap-2">
-          {[
-            'Look up user — enter an email',
-            'Show subscriptions for user',
-            'List invoices for user',
-            'Extend trial by 7 days',
-            'Mark invoice as refund',
-          ].map((q) => (
+          {getAgentSuggestions('taskip_internal').map((q) => (
             <button
               key={q}
               onClick={() => setQuery(q)}

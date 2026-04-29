@@ -6,7 +6,7 @@ import { AgentRegistryService } from '../runtime/agent-registry.service';
 import { LlmRouterService } from '../../llm/llm-router.service';
 import { TelegramService } from '../../telegram/telegram.service';
 import { TaskipInternalDbService } from './taskip-internal-db.service';
-import { TaskipInsightService, type InsightCohort, type InsightMarketingSuggestion } from './taskip-insight.service';
+import { TaskipInsightService, type InsightCohort, type InsightMarketingSuggestion, type InsightSubmitMessage } from './taskip-insight.service';
 import { TaskipInternalEmailService, type TaskipEmailPurpose } from './taskip-internal-email.service';
 import { KillSwitchService, type KillSwitchAction } from '../../safety/kill-switch.service';
 import type { LlmToolMessage, ToolDefinition } from '../../llm/llm.types';
@@ -36,14 +36,24 @@ const SYSTEM_PROMPT = `You are an internal ops assistant for Sharifur Rahman, fo
 You can:
 1. Look up users, subscriptions, and invoices from the Taskip database (lookup_user / query_subscriptions / query_invoices / summarize_user_history).
 2. Use the Insight API to segment and drill into workspaces:
-   - insight_list_cohort: pull a paginated workspace list for a lifecycle cohort (serious_trial, looking_trial, ignore_trial, healthy_paid, expanding_paid, at_risk_paid, dormant_paid).
-   - insight_get_overview: pull the full Insight payload for one workspace. Beyond plan/cohort/score/signals/recent_activities the response now includes:
-       * volume_metrics — counts from tenant_analytics: invoices_total, invoices_paid, contacts_total, leads_total, projects_total, tasks_total, inbox_connected. Use these as concrete evidence in your draft (e.g. "you've created 12 invoices but none are paid yet").
-       * session — last_active_at, sessions_last_7d/30d, active_users_last_7d/30d. Use these to gauge real engagement vs cohort score.
-       * signals — also includes the same volume totals; CHS/THS now weights "business_traction" (paid invoices, contacts, leads). A workspace with high engagement but zero transactional volume is the "busy but not transactional" pattern — flag it.
+   - insight_list_cohort: pull a paginated workspace list for a lifecycle cohort. The full enum is now: serious_trial, looking_trial, ignore_trial, healthy_paid, expanding_paid, at_risk_paid, dormant_paid, trial_ready_free, nurture_free, ignore_free, expired_trial_warm, expired_trial_cold, uncategorized.
+   - insight_get_overview: pull the full Insight payload for one workspace. Beyond plan/cohort/score/signals/recent_activities the response includes:
+       * score_type — trial_readiness (free, TRS), activation (trial, THS), customer_health (paid, CHS), or *_frozen for expired_trial / churned.
+       * activation_event_hit, score_delta_14d, previous_cohort, cohort_assigned_at, last_seen_at — use for outreach framing.
+       * volume_metrics — invoices_total, invoices_paid, contacts_total, leads_total, projects_total, tasks_total, support_tickets_total, service_orders_total. Ground outreach in real business activity (e.g. "you've created 12 invoices but none are paid yet").
+       * session — last_active_at, last_session_duration_seconds, is_active_now, stats_aggregated_at.
+       * signals — for paid CHS includes the new business_traction weight (paid invoices, contacts >= 5, leads > 0). High engagement but zero transactional volume = "busy but not transactional"; flag it.
        * THS alt-activation: a trial with invoices_total > 0 OR leads_total > 0 OR contacts_total >= 3 counts as activated even if the configured event-stream activation didn't fire.
    - insight_recommended_actions: get a pre-ranked list of suggested actions for a workspace.
    - insight_log_agent_action: append an audit row after you decide to act, skip, or escalate (low risk, log freely).
+
+   Lifecycle messaging (Section 21 — server delivers via email + in-app once the agent submits):
+   - insight_get_lifecycle: lifecycle snapshot (state, owner, score, recent_messages). Use to compose personalized copy.
+   - insight_pending_scenarios: rules-engine probe — which scenarios are eligible to fire right now and which are blocked. Pick from eligible[].scenario_key and respect spec.allowed_vars.
+   - insight_recent_messages: last 50 message attempts for the workspace. Read this to avoid repeating yourself.
+   - insight_submit_message: submit one personalized message; server validates + delivers + logs. Approval-gated.
+
+   Tone rules (server-enforced; honor them in drafts): reference user actions (what they did), not behavior frequency or what they didn't do; one CTA, named clearly; no countdown timers or emotional exclamation marks; cta_url must be on taskip.net or taskip.app; ≤120 words for email, ≤40 for in-app.
 3. Propose write actions for human approval:
    - extend_trial / mark_refund (Taskip DB)
    - insight_submit_marketing_suggestion (Insight marketing-suggestions queue)
@@ -179,6 +189,16 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
           }];
         }
 
+        if (tc.name === 'insight_submit_message') {
+          const summary = `Send Insight ${args.scenario_key} message to workspace ${args.workspace_uuid} (${args.channel})`;
+          return [{
+            type: 'insight_submit_message',
+            summary,
+            payload: { ...args, _query: query },
+            riskLevel: 'high',
+          }];
+        }
+
         // Read-only tools — execute and feed result back
         const toolResult = await this.executeReadTool(tc.name, args);
         messages.push({
@@ -201,11 +221,12 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
     return action.type === 'extend_trial'
       || action.type === 'mark_refund'
       || action.type === 'insight_submit_marketing_suggestion'
+      || action.type === 'insight_submit_message'
       || action.type === 'send_email';
   }
 
   async execute(action: ProposedAction): Promise<ActionResult> {
-    const killSwitchActions: KillSwitchAction[] = ['extend_trial', 'mark_refund', 'send_email', 'insight_submit_marketing_suggestion'];
+    const killSwitchActions: KillSwitchAction[] = ['extend_trial', 'mark_refund', 'send_email', 'insight_submit_marketing_suggestion', 'insight_submit_message'];
     if (killSwitchActions.includes(action.type as KillSwitchAction)) {
       const blocked = await this.killSwitch.isBlocked(action.type as KillSwitchAction);
       if (blocked) {
@@ -298,6 +319,41 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
           : `Failed to send email to ${recipient}: ${result.error}`;
         await this.telegram.sendMessage(msg);
         return { success: result.status === 'sent', data: result };
+      }
+
+      case 'insight_submit_message': {
+        const { _query, workspace_uuid, ...payload } = action.payload as InsightSubmitMessage & { _query?: string; workspace_uuid: string };
+        try {
+          const result = await this.insight.submitMessage(workspace_uuid, payload);
+          await this.db.db.insert(taskipInternalOps).values({
+            runId: 'executed',
+            opType: 'insight_submit_message',
+            payload: { query: _query, workspace_uuid, request: payload, result },
+            status: 'executed',
+            executedAt: new Date(),
+          });
+          await this.insight.logAgentAction(workspace_uuid, {
+            action_type: 'lifecycle_message_submitted',
+            result: result.status === 'sent' || result.status === 'manual_review_pending' ? 'success' : 'skipped',
+            reason: result.status,
+            payload: { message_id: result.id, scenario_key: payload.scenario_key, channel: result.channel },
+          }).catch((err) => this.logger.warn(`logAgentAction failed: ${(err as Error).message}`));
+          await this.telegram.sendMessage(
+            `Insight message #${result.id} ${result.status} for ${workspace_uuid} (${payload.scenario_key}, ${payload.channel})`,
+          );
+          return { success: true, data: result };
+        } catch (err) {
+          const message = (err as Error).message;
+          await this.db.db.insert(taskipInternalOps).values({
+            runId: 'executed',
+            opType: 'insight_submit_message',
+            payload: { query: _query, workspace_uuid, request: payload, error: message },
+            status: 'failed',
+            executedAt: new Date(),
+          });
+          await this.telegram.sendMessage(`Insight message failed for ${workspace_uuid}: ${message}`);
+          return { success: false, error: message };
+        }
       }
 
       case 'insight_submit_marketing_suggestion': {
@@ -500,6 +556,12 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
           });
         case 'sync_email_replies':
           return await this.emails.syncReplies(args.emailId as string);
+        case 'insight_get_lifecycle':
+          return await this.insight.getLifecycle(args.workspace_uuid as string);
+        case 'insight_pending_scenarios':
+          return await this.insight.getPendingScenarios(args.workspace_uuid as string);
+        case 'insight_recent_messages':
+          return await this.insight.getRecentMessages(args.workspace_uuid as string);
         case 'insight_log_agent_action': {
           const { workspace_uuid, action_type, result, reason, payload } = args as {
             workspace_uuid: string;
@@ -593,7 +655,12 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
           properties: {
             cohort: {
               type: 'string',
-              enum: ['serious_trial', 'looking_trial', 'ignore_trial', 'healthy_paid', 'expanding_paid', 'at_risk_paid', 'dormant_paid'],
+              enum: [
+                'serious_trial', 'looking_trial', 'ignore_trial',
+                'healthy_paid', 'expanding_paid', 'at_risk_paid', 'dormant_paid',
+                'trial_ready_free', 'nurture_free', 'ignore_free',
+                'expired_trial_warm', 'expired_trial_cold', 'uncategorized',
+              ],
             },
             per_page: { type: 'number', description: '1-500, default 100' },
             cursor: { type: 'string' },
@@ -700,6 +767,51 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
             payload: { type: 'object' },
           },
           required: ['workspace_uuid', 'action_type', 'result', 'payload'],
+        },
+      },
+      {
+        name: 'insight_get_lifecycle',
+        description: 'Read the full lifecycle snapshot (state, owner, score, signals, recent_messages) for a workspace. Use to compose personalized copy.',
+        parameters: {
+          type: 'object',
+          properties: { workspace_uuid: { type: 'string' } },
+          required: ['workspace_uuid'],
+        },
+      },
+      {
+        name: 'insight_pending_scenarios',
+        description: 'Probe the lifecycle rules engine: which scenarios are eligible to fire RIGHT NOW for this workspace, and which are blocked (with reason).',
+        parameters: {
+          type: 'object',
+          properties: { workspace_uuid: { type: 'string' } },
+          required: ['workspace_uuid'],
+        },
+      },
+      {
+        name: 'insight_recent_messages',
+        description: 'Last 50 AI message attempts for the workspace (sent, suppressed, rejected). Use to avoid repeating yourself.',
+        parameters: {
+          type: 'object',
+          properties: { workspace_uuid: { type: 'string' } },
+          required: ['workspace_uuid'],
+        },
+      },
+      {
+        name: 'insight_submit_message',
+        description: 'Submit a personalized lifecycle message. Server validates against tone rules + scenario allow-list, logs the row, then delivers via in-app + email. Approval-gated. cta_url must be on taskip.net or taskip.app. Email body <=120 words; in-app <=40.',
+        parameters: {
+          type: 'object',
+          properties: {
+            workspace_uuid: { type: 'string' },
+            scenario_key: { type: 'string', description: 'Must match a scenario in the rules engine, e.g. celebrate_activation, rescue_stalled, invite_to_trial.' },
+            channel: { type: 'string', enum: ['email', 'inapp', 'both'] },
+            subject: { type: 'string', description: '<=255 chars; required when channel includes email' },
+            body_md: { type: 'string', description: 'Markdown body. <=120 words for email, <=40 for in-app.' },
+            cta_text: { type: 'string', description: '<=191 chars' },
+            cta_url: { type: 'string', description: 'Must be on taskip.net or taskip.app' },
+            force_send: { type: 'boolean', description: 'Bypass cooldown / manual review / idempotency. Use sparingly.' },
+          },
+          required: ['workspace_uuid', 'scenario_key', 'channel', 'body_md'],
         },
       },
     ];
