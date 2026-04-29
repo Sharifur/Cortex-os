@@ -1,5 +1,5 @@
-import { Injectable, Logger, Optional } from '@nestjs/common';
-import { TelegramService } from '../telegram/telegram.service';
+import { Injectable, Logger } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 
 interface Bucket {
   fails: number;
@@ -17,7 +17,7 @@ export class LoginThrottleService {
   private readonly logger = new Logger(LoginThrottleService.name);
   private readonly buckets = new Map<string, Bucket>();
 
-  constructor(@Optional() private readonly telegram?: TelegramService) {}
+  constructor(private readonly events: EventEmitter2) {}
 
   isLocked(key: string): { locked: true; retryAfterSec: number } | { locked: false } {
     const b = this.buckets.get(key);
@@ -41,11 +41,7 @@ export class LoginThrottleService {
       b.lockUntilMs = now + LOCK_MS;
       b.alertedLock = true;
       this.logger.warn(`Locked ${key} for ${LOCK_MS / 60000} min after ${b.fails} failed login attempts`);
-      if (this.telegram) {
-        void this.telegram.sendMessage(
-          `Cortex OS: login lockout triggered\nKey: ${key}\nFails: ${b.fails}\nLocked for ${LOCK_MS / 60000} min`,
-        ).catch(() => undefined);
-      }
+      this.events.emit('auth.lockout', { key, fails: b.fails, lockMinutes: LOCK_MS / 60000 });
     }
   }
 

@@ -128,6 +128,20 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  @OnEvent('auth.login.new_ip')
+  async onNewIpLogin(payload: { email: string; ip: string; userAgent?: string }): Promise<void> {
+    if (!this.bot || !this.ownerChatId) return;
+    const text = `Cortex OS: new login for ${payload.email}\nIP: ${payload.ip}\nUA: ${(payload.userAgent ?? '—').slice(0, 120)}`;
+    try { await this.sendMessage(text); } catch { /* ignore */ }
+  }
+
+  @OnEvent('auth.lockout')
+  async onLockout(payload: { key: string; fails: number; lockMinutes: number }): Promise<void> {
+    if (!this.bot || !this.ownerChatId) return;
+    const text = `Cortex OS: login lockout triggered\nKey: ${payload.key}\nFails: ${payload.fails}\nLocked for ${payload.lockMinutes} min`;
+    try { await this.sendMessage(text); } catch { /* ignore */ }
+  }
+
   @OnEvent('telegram.kb_proposal')
   async onKbProposal(event: KbProposalNotifyEvent): Promise<void> {
     if (!this.bot || !this.ownerChatId) return;
