@@ -3,9 +3,10 @@ import { and, desc, eq, ilike, or, sql } from 'drizzle-orm';
 import { DbService } from '../../db/db.service';
 import { contacts, contactActivity } from './contacts.schema';
 
-export type ContactSource = 'crisp' | 'taskip' | 'email' | 'whatsapp' | 'linkedin' | 'manual';
+export type ContactSource = 'crisp' | 'taskip' | 'email' | 'whatsapp' | 'linkedin' | 'manual' | 'livechat';
 export type ActivityKind =
   | 'crisp_message'
+  | 'livechat_message'
   | 'email_sent'
   | 'email_received'
   | 'note'
@@ -178,14 +179,15 @@ export class ContactsService {
   }
 
   async stats() {
-    const [row] = await this.db.db.execute<{ total: number; crisp: number; email: number; manual: number }>(sql`
+    const [row] = await this.db.db.execute<{ total: number; crisp: number; livechat: number; email: number; manual: number }>(sql`
       SELECT
         COUNT(*)::int AS total,
         SUM(CASE WHEN source = 'crisp' THEN 1 ELSE 0 END)::int AS crisp,
+        SUM(CASE WHEN source = 'livechat' THEN 1 ELSE 0 END)::int AS livechat,
         SUM(CASE WHEN source = 'email' THEN 1 ELSE 0 END)::int AS email,
         SUM(CASE WHEN source = 'manual' THEN 1 ELSE 0 END)::int AS manual
       FROM contacts
     `);
-    return row ?? { total: 0, crisp: 0, email: 0, manual: 0 };
+    return row ?? { total: 0, crisp: 0, livechat: 0, email: 0, manual: 0 };
   }
 }

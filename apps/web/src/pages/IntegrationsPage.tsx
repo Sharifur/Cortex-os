@@ -429,6 +429,7 @@ interface CrispWebsite {
   enabled: boolean;
   productContext: string | null;
   replyTone: string | null;
+  tokenType: 'plugin' | 'user';
   createdAt: string;
 }
 
@@ -479,16 +480,16 @@ function CrispTab({ token, rows }: { token: string; rows: SettingRow[] }) {
   }, [tokenStored]);
   const [sub, setSub] = useState<'settings' | 'docs'>('settings');
   const [adding, setAdding] = useState(false);
-  const [form, setForm] = useState({ label: '', websiteId: '', identifier: '', apiKey: '', productContext: '', replyTone: '' });
+  const [form, setForm] = useState({ label: '', websiteId: '', identifier: '', apiKey: '', productContext: '', replyTone: '', tokenType: 'plugin' as 'plugin' | 'user' });
   const [showKey, setShowKey] = useState(false);
   const [testResults, setTestResults] = useState<Record<string, { ok: boolean; message: string }>>({});
   const [testingId, setTestingId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState({ label: '', websiteId: '', identifier: '', apiKey: '', productContext: '', replyTone: '' });
+  const [editForm, setEditForm] = useState({ label: '', websiteId: '', identifier: '', apiKey: '', productContext: '', replyTone: '', tokenType: 'plugin' as 'plugin' | 'user' });
   const [editShowKey, setEditShowKey] = useState(false);
 
   const editMutation = useMutation({
-    mutationFn: async ({ id, patch }: { id: string; patch: Partial<{ label: string; websiteId: string; identifier: string; apiKey: string; productContext: string | null; replyTone: string | null }> }) => {
+    mutationFn: async ({ id, patch }: { id: string; patch: Partial<{ label: string; websiteId: string; identifier: string; apiKey: string; productContext: string | null; replyTone: string | null; tokenType: 'plugin' | 'user' }> }) => {
       const res = await fetch(`/crisp/websites/${id}`, {
         method: 'PATCH',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -498,7 +499,7 @@ function CrispTab({ token, rows }: { token: string; rows: SettingRow[] }) {
     },
     onSuccess: () => {
       setEditingId(null);
-      setEditForm({ label: '', websiteId: '', identifier: '', apiKey: '', productContext: '', replyTone: '' });
+      setEditForm({ label: '', websiteId: '', identifier: '', apiKey: '', productContext: '', replyTone: '', tokenType: 'plugin' as 'plugin' | 'user' });
       qc.invalidateQueries({ queryKey: ['crisp-websites'] });
     },
   });
@@ -523,7 +524,7 @@ function CrispTab({ token, rows }: { token: string; rows: SettingRow[] }) {
     },
     onSuccess: () => {
       setAdding(false);
-      setForm({ label: '', websiteId: '', identifier: '', apiKey: '', productContext: '', replyTone: '' });
+      setForm({ label: '', websiteId: '', identifier: '', apiKey: '', productContext: '', replyTone: '', tokenType: 'plugin' as 'plugin' | 'user' });
       qc.invalidateQueries({ queryKey: ['crisp-websites'] });
     },
   });
@@ -681,7 +682,7 @@ function CrispTab({ token, rows }: { token: string; rows: SettingRow[] }) {
                       className="text-muted-foreground px-2"
                       onClick={() => {
                         setEditingId(site.id);
-                        setEditForm({ label: site.label, websiteId: site.websiteId, identifier: site.identifier, apiKey: '', productContext: site.productContext ?? '', replyTone: site.replyTone ?? '' });
+                        setEditForm({ label: site.label, websiteId: site.websiteId, identifier: site.identifier, apiKey: '', productContext: site.productContext ?? '', replyTone: site.replyTone ?? '', tokenType: site.tokenType ?? 'plugin' });
                         setEditShowKey(false);
                       }}
                       title="Edit"
@@ -740,6 +741,19 @@ function CrispTab({ token, rows }: { token: string; rows: SettingRow[] }) {
                     <div className="grid grid-cols-1 gap-3">
                       <div>
                         <label className="text-xs text-muted-foreground mb-1 block">
+                          Token type <span className="text-muted-foreground/60">(must match how you generated the credentials in Crisp)</span>
+                        </label>
+                        <select
+                          value={editForm.tokenType}
+                          onChange={(e) => setEditForm((f) => ({ ...f, tokenType: e.target.value as 'plugin' | 'user' }))}
+                          className="w-full text-sm rounded-md border border-input bg-background px-3 py-2 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                        >
+                          <option value="plugin">plugin (Website Token / marketplace plugin token)</option>
+                          <option value="user">user (personal API token from Settings → API Token)</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-xs text-muted-foreground mb-1 block">
                           Product context <span className="text-muted-foreground/60">(per-site override; falls back to agent config)</span>
                         </label>
                         <textarea
@@ -773,6 +787,7 @@ function CrispTab({ token, rows }: { token: string; rows: SettingRow[] }) {
                             identifier: editForm.identifier,
                             productContext: editForm.productContext.trim() || null,
                             replyTone: editForm.replyTone.trim() || null,
+                            tokenType: editForm.tokenType,
                             ...(editForm.apiKey ? { apiKey: editForm.apiKey } : {}),
                           },
                         })}
@@ -781,7 +796,7 @@ function CrispTab({ token, rows }: { token: string; rows: SettingRow[] }) {
                         {editMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : <Save className="w-3.5 h-3.5 mr-1" />}
                         Save changes
                       </Button>
-                      <Button size="sm" variant="ghost" onClick={() => { setEditingId(null); setEditForm({ label: '', websiteId: '', identifier: '', apiKey: '', productContext: '', replyTone: '' }); }}>
+                      <Button size="sm" variant="ghost" onClick={() => { setEditingId(null); setEditForm({ label: '', websiteId: '', identifier: '', apiKey: '', productContext: '', replyTone: '', tokenType: 'plugin' as 'plugin' | 'user' }); }}>
                         Cancel
                       </Button>
                     </div>
@@ -830,6 +845,19 @@ function CrispTab({ token, rows }: { token: string; rows: SettingRow[] }) {
                 <div className="grid grid-cols-1 gap-3">
                   <div>
                     <label className="text-xs text-muted-foreground mb-1 block">
+                      Token type <span className="text-muted-foreground/60">(must match how you generated the credentials in Crisp)</span>
+                    </label>
+                    <select
+                      value={form.tokenType}
+                      onChange={(e) => setForm((f) => ({ ...f, tokenType: e.target.value as 'plugin' | 'user' }))}
+                      className="w-full text-sm rounded-md border border-input bg-background px-3 py-2 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    >
+                      <option value="plugin">plugin (Website Token / marketplace plugin token)</option>
+                      <option value="user">user (personal API token from Settings → API Token)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-xs text-muted-foreground mb-1 block">
                       Product context <span className="text-muted-foreground/60">(per-site; overrides agent config)</span>
                     </label>
                     <textarea
@@ -859,7 +887,7 @@ function CrispTab({ token, rows }: { token: string; rows: SettingRow[] }) {
                     Save
                   </Button>
                   <Button size="sm" variant="ghost"
-                    onClick={() => { setAdding(false); setForm({ label: '', websiteId: '', identifier: '', apiKey: '', productContext: '', replyTone: '' }); }}>
+                    onClick={() => { setAdding(false); setForm({ label: '', websiteId: '', identifier: '', apiKey: '', productContext: '', replyTone: '', tokenType: 'plugin' as 'plugin' | 'user' }); }}>
                     Cancel
                   </Button>
                 </div>
@@ -1158,9 +1186,13 @@ function StorageTab({ rows, token }: { rows: SettingRow[]; token: string }) {
               <p>Set <strong>Endpoint</strong>, <strong>Access Key ID</strong>, <strong>Secret Access Key</strong>, and <strong>Bucket Name</strong>.</p>
               <p>Leave Port as <code className="bg-muted px-1 rounded">443</code> and Use SSL as <code className="bg-muted px-1 rounded">true</code> for R2.</p>
             </SetupStep>
-            <SetupStep n={5} title="Test the connection">
-              <p>Click <strong>Test connection</strong>. A successful test confirms the bucket is reachable.</p>
-              <p>Storage is used for knowledge base file ingestion (PDFs, DOCX).</p>
+            <SetupStep n={5} title="Optional: connect a custom domain">
+              <p>In R2 → bucket → <strong>Settings → Public Access</strong>, point a subdomain (e.g. <code className="bg-muted px-1 rounded">files.taskip.net</code>) at the bucket.</p>
+              <p>Paste the full URL into <strong>Public CDN Base URL</strong>. When set, attachment URLs use this prefix and never expire. When blank, the API serves 24h presigned URLs.</p>
+            </SetupStep>
+            <SetupStep n={6} title="Test the connection">
+              <p>Click <strong>Test connection</strong>. The API runs a put + delete probe against the bucket; success confirms credentials and bucket are valid.</p>
+              <p>Storage is used by Knowledge Base ingestion (PDFs, DOCX) and live-chat attachments. Files are namespaced per module (e.g. <code className="bg-muted px-1 rounded">livechat/&lt;site&gt;/&lt;session&gt;/&lt;id&gt;.png</code>).</p>
             </SetupStep>
           </div>
           <a

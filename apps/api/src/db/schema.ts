@@ -17,7 +17,10 @@ export * from '../modules/agents/hr/schema';
 export * from '../modules/agents/social/schema';
 export * from '../modules/agents/canva/schema';
 export * from '../modules/agents/shorts/schema';
+export * from '../modules/agents/livechat/schema';
+// Note: livechatAttachments is exported alongside other livechat tables above.
 export * from '../modules/knowledge-base/schema';
 export * from './schemas/tasks.schema';
 export * from '../modules/contacts/contacts.schema';
 export * from '../modules/telegram/schema';
+export * from '../modules/llm/llm-usage.schema';

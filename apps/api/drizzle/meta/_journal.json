@@ -176,6 +176,55 @@
       "when": 1777400016000,
       "tag": "0024_telegram_recent_turns",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "6",
+      "when": 1777400017000,
+      "tag": "0025_llm_usage_logs",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "6",
+      "when": 1777400018000,
+      "tag": "0026_crisp_token_type",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "6",
+      "when": 1777400019000,
+      "tag": "0027_livechat",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "6",
+      "when": 1777400020000,
+      "tag": "0028_livechat_site_config",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "6",
+      "when": 1777400021000,
+      "tag": "0029_livechat_attachments",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "6",
+      "when": 1777400022000,
+      "tag": "0030_livechat_transcript",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "6",
+      "when": 1777400023000,
+      "tag": "0031_livechat_auto_approve",
+      "breakpoints": true
     }
   ]
 }

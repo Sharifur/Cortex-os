@@ -14,8 +14,12 @@
     "db:seed": "ts-node -r tsconfig-paths/register src/db/seed.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1039.0",
     "@aws-sdk/client-ses": "^3.1037.0",
+    "@aws-sdk/s3-request-presigner": "^3.1039.0",
+    "@fastify/multipart": "^10.0.0",
     "@google/generative-ai": "^0.24.1",
+    "@maxmind/geoip2-node": "^6.3.4",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@nestjs/bullmq": "^10.2.3",
     "@nestjs/common": "^10.4.15",
@@ -37,6 +41,7 @@
     "dotenv": "^16.4.7",
     "drizzle-orm": "^0.30.10",
     "fastify": "^4.29.0",
+    "file-type": "^19.6.0",
     "googleapis": "^171.4.0",
     "grammy": "^1.42.0",
     "ioredis": "^5.4.2",
@@ -52,7 +57,8 @@
     "prom-client": "^15.1.3",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
-    "socket.io": "^4.8.3"
+    "socket.io": "^4.8.3",
+    "ua-parser-js": "^2.0.9"
   },
   "devDependencies": {
     "@nestjs/cli": "^10.4.9",
@@ -62,6 +68,7 @@
     "@types/node": "^20.17.12",
     "@types/passport-jwt": "^4.0.1",
     "@types/pdf-parse": "^1.1.5",
+    "@types/ua-parser-js": "^0.7.39",
     "drizzle-kit": "^0.21.4",
     "pino-pretty": "^13.0.0",
     "ts-node": "^10.9.2",

@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import OpenAI from 'openai';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { SettingsService } from '../settings/settings.service';
+import { LlmUsageService } from './llm-usage.service';
 import {
   ChatMessage,
   LlmCompleteOpts,
@@ -15,7 +16,21 @@ import {
 export class LlmRouterService {
   private readonly logger = new Logger(LlmRouterService.name);
 
-  constructor(private readonly settings: SettingsService) {}
+  constructor(
+    private readonly settings: SettingsService,
+    private readonly usage: LlmUsageService,
+  ) {}
+
+  private trackUsage(opts: { agentKey?: string; runId?: string }, res: LlmResponse | { provider: string; model: string; inputTokens?: number; outputTokens?: number }) {
+    void this.usage.record({
+      agentKey: opts.agentKey ?? null,
+      runId: opts.runId ?? null,
+      provider: res.provider,
+      model: res.model,
+      inputTokens: res.inputTokens ?? 0,
+      outputTokens: res.outputTokens ?? 0,
+    });
+  }
 
   async complete(opts: LlmCompleteOpts): Promise<LlmResponse> {
     const explicitProvider = opts.provider;
@@ -101,6 +116,15 @@ export class LlmRouterService {
       temperature: opts.temperature,
     });
 
+    void this.usage.record({
+      agentKey: opts.agentKey ?? null,
+      runId: opts.runId ?? null,
+      provider: backend,
+      model,
+      inputTokens: res.usage?.prompt_tokens ?? 0,
+      outputTokens: res.usage?.completion_tokens ?? 0,
+    });
+
     const msg = res.choices[0]?.message;
     if (msg?.tool_calls?.length) {
       const toolCalls: ToolCall[] = msg.tool_calls
@@ -171,13 +195,15 @@ export class LlmRouterService {
       temperature: opts.temperature,
     });
 
-    return {
+    const response: LlmResponse = {
       content: res.choices[0]?.message?.content ?? '',
       provider: 'openai',
       model,
       inputTokens: res.usage?.prompt_tokens,
       outputTokens: res.usage?.completion_tokens,
     };
+    this.trackUsage(opts, response);
+    return response;
   }
 
   private async callGemini(opts: LlmCompleteOpts): Promise<LlmResponse> {
@@ -209,13 +235,15 @@ export class LlmRouterService {
     const result = await chat.sendMessage(lastUserMsg);
     const text = result.response.text();
 
-    return {
+    const response: LlmResponse = {
       content: text,
       provider: 'gemini',
       model,
       inputTokens: result.response.usageMetadata?.promptTokenCount,
       outputTokens: result.response.usageMetadata?.candidatesTokenCount,
     };
+    this.trackUsage(opts, response);
+    return response;
   }
 
   private async callDeepSeek(opts: LlmCompleteOpts): Promise<LlmResponse> {
@@ -237,12 +265,14 @@ export class LlmRouterService {
       temperature: opts.temperature,
     });
 
-    return {
+    const response: LlmResponse = {
       content: res.choices[0]?.message?.content ?? '',
       provider: 'deepseek',
       model,
       inputTokens: res.usage?.prompt_tokens,
       outputTokens: res.usage?.completion_tokens,
     };
+    this.trackUsage(opts, response);
+    return response;
   }
 }

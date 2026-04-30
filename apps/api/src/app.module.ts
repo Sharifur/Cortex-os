@@ -30,6 +30,7 @@ import { HrModule } from './modules/agents/hr/hr.module';
 import { SocialModule } from './modules/agents/social/social.module';
 import { CanvaModule } from './modules/agents/canva/canva.module';
 import { ShortsModule } from './modules/agents/shorts/shorts.module';
+import { LivechatModule } from './modules/agents/livechat/livechat.module';
 import { KnowledgeBaseModule } from './modules/knowledge-base/knowledge-base.module';
 import { TasksModule } from './modules/tasks/tasks.module';
 import { IntegrationsModule } from './modules/integrations/integrations.module';
@@ -39,6 +40,8 @@ import { PurchaseVerifyModule } from './modules/agents/purchase-verify/purchase-
 import { ContactsModule } from './modules/contacts/contacts.module';
 import { RealtimeModule } from './modules/realtime/realtime.module';
 import { TelegramBotAgentModule } from './modules/agents/telegram-bot/telegram-bot.module';
+import { VisitorEnrichmentModule } from './common/visitor-enrichment/visitor-enrichment.module';
+import { StorageModule } from './modules/storage/storage.module';
 
 @Module({
   imports: [
@@ -91,6 +94,7 @@ import { TelegramBotAgentModule } from './modules/agents/telegram-bot/telegram-b
     SocialModule,
     CanvaModule,
     ShortsModule,
+    LivechatModule,
     KnowledgeBaseModule,
     TasksModule,
     IntegrationsModule,
@@ -100,6 +104,8 @@ import { TelegramBotAgentModule } from './modules/agents/telegram-bot/telegram-b
     ContactsModule,
     RealtimeModule,
     TelegramBotAgentModule,
+    VisitorEnrichmentModule,
+    StorageModule,
   ],
 })
 export class AppModule {}

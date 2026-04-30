@@ -17,6 +17,8 @@ import { AgentFollowupProcessor } from './modules/agents/runtime/processors/agen
 import { ApprovalSweepProcessor } from './modules/agents/runtime/processors/approval-sweep.processor';
 import { TaskSweepProcessor } from './modules/tasks/task-sweep.processor';
 import { TaskipInternalEmailSweepProcessor } from './modules/agents/taskip-internal/taskip-internal-email-sweep.processor';
+import { LivechatOriginCache } from './modules/agents/livechat/livechat-origin.cache';
+import multipart from '@fastify/multipart';
 
 function assertJwtSecret(): void {
   const v = process.env.JWT_SECRET;
@@ -69,6 +71,14 @@ async function bootstrap() {
     }) as never,
   );
 
+  // Multipart upload support for live-chat attachments. Limit per file: 10 MB.
+  // Other endpoints continue to use the JSON parser registered above.
+  // (cast: @fastify/multipart's TypeProvider augmentation conflicts with the
+  // base FastifyInstance generic params; runtime behavior is correct.)
+  await fastify.register(multipart as never, {
+    limits: { fileSize: 10 * 1024 * 1024, files: 5 },
+  });
+
   fastify.addHook('onSend', async (_req: unknown, reply: { header: (k: string, v: string) => unknown }, payload: unknown) => {
     reply.header('X-Content-Type-Options', 'nosniff');
     reply.header('X-Frame-Options', 'DENY');
@@ -95,10 +105,15 @@ async function bootstrap() {
     .map((s) => s.trim())
     .filter(Boolean);
 
+  // Live chat sites are configured at runtime; the cache is consulted per-request
+  // so adding a new site does not require restarting the API.
+  const livechatOrigins = app.get(LivechatOriginCache, { strict: false });
+
   app.enableCors({
     origin: (origin, cb) => {
       if (!origin) return cb(null, true);
       if (allowList.includes('*') || allowList.includes(origin)) return cb(null, true);
+      if (livechatOrigins?.has(origin)) return cb(null, true);
       return cb(new Error(`CORS: origin ${origin} not allowed`), false);
     },
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],

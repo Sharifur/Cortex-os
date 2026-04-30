@@ -5,3 +5,6 @@ dist/
 *.log
 .DS_Store
 *.tsbuildinfo
+
+# MaxMind GeoLite2 binary databases (LC-03 — refresh quarterly, do not commit)
+*.mmdb

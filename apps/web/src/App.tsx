@@ -15,10 +15,12 @@ import RunDetailPage from '@/pages/RunDetailPage';
 import McpPage from '@/pages/McpPage';
 import IntegrationsPage from '@/pages/IntegrationsPage';
 import KnowledgeBasePage from '@/pages/KnowledgeBasePage';
+import LiveChatPage from '@/pages/LiveChatPage';
 import TasksPage from '@/pages/TasksPage';
 import InboxPage from '@/pages/InboxPage';
 import DebugLogsPage from '@/pages/DebugLogsPage';
 import HealthPage from '@/pages/HealthPage';
+import LlmUsagePage from '@/pages/LlmUsagePage';
 import OpsPage from '@/pages/OpsPage';
 import ContactsPage from '@/pages/ContactsPage';
 import FollowUpsPage from '@/pages/FollowUpsPage';
@@ -55,6 +57,7 @@ export default function App() {
             <Route path="/agents/:key/chat" element={<AgentChatPage />} />
             <Route path="/agents/:key/runs" element={<AgentRunsPage />} />
             <Route path="/knowledge-base" element={<KnowledgeBasePage />} />
+            <Route path="/livechat" element={<LiveChatPage />} />
             <Route path="/tasks" element={<TasksPage />} />
             <Route path="/inbox" element={<InboxPage />} />
             <Route path="/contacts" element={<ContactsPage />} />
@@ -68,6 +71,7 @@ export default function App() {
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/integrations" element={<IntegrationsPage />} />
             <Route path="/health" element={<HealthPage />} />
+            <Route path="/llm-usage" element={<LlmUsagePage />} />
             <Route path="/profile" element={<ProfilePage />} />
             <Route path="/change-password" element={<ChangePasswordPage />} />
             <Route path="*" element={<NotFoundPage />} />

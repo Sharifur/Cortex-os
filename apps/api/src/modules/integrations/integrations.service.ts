@@ -4,6 +4,7 @@ import { google } from 'googleapis';
 import { Client as MinioClient } from 'minio';
 import { SettingsService } from '../settings/settings.service';
 import { CrispService } from '../agents/crisp/crisp.service';
+import { StorageService } from '../storage/storage.service';
 
 export interface TestResult {
   ok: boolean;
@@ -15,6 +16,7 @@ export class IntegrationsService {
   constructor(
     private readonly settings: SettingsService,
     private readonly crispService: CrispService,
+    private readonly storageService: StorageService,
   ) {}
 
   async test(key: string): Promise<TestResult> {
@@ -232,38 +234,7 @@ export class IntegrationsService {
   }
 
   private async testStorage(): Promise<TestResult> {
-    const [endpoint, accessKey, secretKey, portSetting, useSslSetting] = await Promise.all([
-      this.settings.getDecrypted('storage_endpoint'),
-      this.settings.getDecrypted('storage_access_key'),
-      this.settings.getDecrypted('storage_secret_key'),
-      this.settings.getDecrypted('storage_port'),
-      this.settings.getDecrypted('storage_use_ssl'),
-    ]);
-    const resolvedEndpoint = endpoint || process.env.MINIO_ENDPOINT;
-    const resolvedAccessKey = accessKey || process.env.MINIO_ACCESS_KEY;
-    const resolvedSecretKey = secretKey || process.env.MINIO_SECRET_KEY;
-    if (!resolvedEndpoint || !resolvedAccessKey || !resolvedSecretKey) {
-      return { ok: false, message: 'Storage credentials not configured' };
-    }
-    try {
-      const rawSsl = useSslSetting ?? process.env.MINIO_USE_SSL;
-      const useSSL = rawSsl ? rawSsl === 'true' : true;
-      const rawPort = portSetting || process.env.MINIO_PORT;
-      const port = rawPort ? parseInt(rawPort) : (useSSL ? 443 : 9000);
-      const client = new MinioClient({
-        endPoint: resolvedEndpoint,
-        port,
-        useSSL,
-        accessKey: resolvedAccessKey,
-        secretKey: resolvedSecretKey,
-      });
-      const buckets = await client.listBuckets();
-      const bucket = (await this.settings.getDecrypted('storage_bucket')) || process.env.MINIO_BUCKET || 'cortex';
-      const found = buckets.some((b) => b.name === bucket);
-      return { ok: true, message: found ? `Bucket "${bucket}" found` : `Connected — bucket "${bucket}" not found yet` };
-    } catch (err) {
-      return { ok: false, message: err instanceof Error ? err.message : String(err) };
-    }
+    return this.storageService.testConnection();
   }
 
   private async testGmail(): Promise<TestResult> {

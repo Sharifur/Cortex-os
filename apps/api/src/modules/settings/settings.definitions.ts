@@ -359,6 +359,32 @@ export const SETTING_DEFINITIONS: Record<string, SettingDefinition> = {
     group: 'storage',
     defaultValue: 'true',
   },
+  storage_public_base: {
+    label: 'Public CDN Base URL',
+    description: 'Optional. e.g. https://files.taskip.net (R2 custom domain). When set, attachment URLs use this prefix; otherwise a 24h presigned URL is returned.',
+    isSecret: false,
+    group: 'storage',
+  },
+
+  // Live chat — email-to-thread (visitor replies to transcript continue the conversation)
+  livechat_reply_domain: {
+    label: 'Reply Domain',
+    description: 'Subdomain configured for SES inbound (MX records). e.g. reply.taskip.net. Transcript Reply-To becomes transcript+{token}@<domain>.',
+    isSecret: false,
+    group: 'ses',
+  },
+  livechat_reply_secret: {
+    label: 'Reply HMAC Secret',
+    description: 'Random 32+ char string used to sign session IDs in reply addresses, so an attacker cannot forge a reply address for someone else\'s session.',
+    isSecret: true,
+    group: 'ses',
+  },
+  livechat_inbound_token: {
+    label: 'Inbound Webhook Token',
+    description: 'Random secret appended as ?t= on the SES → SNS → cortex inbound webhook URL. Used to reject calls that aren\'t from your SNS topic.',
+    isSecret: true,
+    group: 'ses',
+  },
 
   // Taskip Insight API
   insight_base_url: {

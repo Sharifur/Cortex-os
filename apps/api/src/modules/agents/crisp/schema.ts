@@ -29,5 +29,9 @@ export const crispWebsites = pgTable('crisp_websites', {
   enabled: boolean('enabled').notNull().default(true),
   productContext: text('product_context'),
   replyTone: text('reply_tone'),
+  // 'plugin' for Crisp Website Tokens / marketplace plugin tokens (default).
+  // 'user' for personal API tokens from Settings → API Token.
+  // Drives the X-Crisp-Tier auth header sent to api.crisp.chat.
+  tokenType: text('token_type').notNull().default('plugin'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 });

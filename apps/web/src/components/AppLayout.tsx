@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { Bot, LogOut, LayoutDashboard, Settings, Activity, User, KeyRound, ChevronDown, AlertTriangle, Plug, Cable, BookOpen, CheckSquare, HeartPulse, Radio, Mail, Bug, Users, BellRing } from 'lucide-react';
+import { Bot, LogOut, LayoutDashboard, Settings, Activity, User, KeyRound, ChevronDown, AlertTriangle, Plug, Cable, BookOpen, CheckSquare, HeartPulse, Radio, Mail, Bug, Users, BellRing, DollarSign, MessageSquare } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 import { useQuery } from '@tanstack/react-query';
 
@@ -21,6 +21,7 @@ function useApprovalCount(token: string) {
 const NAV = [
   { to: '/dashboard', icon: <LayoutDashboard className="w-4 h-4" />, label: 'Dashboard' },
   { to: '/agents', icon: <Bot className="w-4 h-4" />, label: 'Agents' },
+  { to: '/livechat', icon: <MessageSquare className="w-4 h-4" />, label: 'Live Chat' },
   { to: '/knowledge-base', icon: <BookOpen className="w-4 h-4" />, label: 'Knowledge' },
   { to: '/tasks', icon: <CheckSquare className="w-4 h-4" />, label: 'Tasks' },
   { to: '/inbox', icon: <Mail className="w-4 h-4" />, label: 'Inbox' },
@@ -31,6 +32,7 @@ const NAV = [
   { to: '/mcp', icon: <Plug className="w-4 h-4" />, label: 'MCP' },
   { to: '/ops', icon: <Radio className="w-4 h-4" />, label: 'Operations' },
   { to: '/activity', icon: <Activity className="w-4 h-4" />, label: 'Activity' },
+  { to: '/llm-usage', icon: <DollarSign className="w-4 h-4" />, label: 'LLM Usage' },
   { to: '/health', icon: <HeartPulse className="w-4 h-4" />, label: 'Health' },
   { to: '/debug-logs', icon: <Bug className="w-4 h-4" />, label: 'Debug Logs' },
   { to: '/settings', icon: <Settings className="w-4 h-4" />, label: 'Settings' },
