@@ -224,7 +224,12 @@ export class CrispAgent implements IAgent, OnModuleInit {
         // Persist the conversation + contact FIRST so they exist even if the
         // LLM later fails. The draft starts empty and gets filled in once the
         // model replies.
-        const receivedAt = new Date(msg.timestamp ? msg.timestamp * 1000 : Date.now());
+        // Crisp's webhook `timestamp` is in milliseconds (>10^12). Older
+        // payloads were assumed to be seconds — guard either case so we don't
+        // produce a year-58000 date that Postgres rejects.
+        const ts = typeof msg.timestamp === 'number' && msg.timestamp > 0 ? msg.timestamp : 0;
+        const tsMs = ts === 0 ? Date.now() : ts > 1e12 ? ts : ts * 1000;
+        const receivedAt = new Date(tsMs);
         await this.db.db
           .insert(crispConversations)
           .values({
