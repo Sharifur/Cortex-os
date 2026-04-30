@@ -34,6 +34,7 @@ export class CrispWebsitesController {
       apiKey: string;
       productContext?: string;
       replyTone?: string;
+      tokenType?: 'plugin' | 'user';
     },
   ) {
     return this.crisp.addWebsite(dto);
@@ -51,6 +52,7 @@ export class CrispWebsitesController {
       enabled?: boolean;
       productContext?: string | null;
       replyTone?: string | null;
+      tokenType?: 'plugin' | 'user';
     },
   ) {
     return this.crisp.updateWebsite(id, dto);

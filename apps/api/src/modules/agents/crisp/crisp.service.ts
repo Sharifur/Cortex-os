@@ -24,6 +24,7 @@ export interface CrispWebsiteRow {
   enabled: boolean;
   productContext: string | null;
   replyTone: string | null;
+  tokenType: 'plugin' | 'user';
   createdAt: Date;
 }
 
@@ -32,10 +33,13 @@ export interface CrispWebsiteOverrides {
   replyTone?: string;
 }
 
+type CrispTokenType = 'plugin' | 'user';
+
 interface CrispCredentials {
   websiteId: string;
   identifier: string;
   key: string;
+  tokenType: CrispTokenType;
 }
 
 @Injectable()
@@ -64,6 +68,7 @@ export class CrispService {
       enabled: r.enabled,
       productContext: r.productContext ?? null,
       replyTone: r.replyTone ?? null,
+      tokenType: (r.tokenType as CrispTokenType) ?? 'plugin',
       createdAt: r.createdAt,
     }));
   }
@@ -75,6 +80,7 @@ export class CrispService {
     apiKey: string;
     productContext?: string;
     replyTone?: string;
+    tokenType?: CrispTokenType;
   }) {
     const [row] = await this.db.db
       .insert(crispWebsites)
@@ -85,6 +91,7 @@ export class CrispService {
         apiKey: encrypt(dto.apiKey),
         productContext: dto.productContext?.trim() || null,
         replyTone: dto.replyTone?.trim() || null,
+        tokenType: dto.tokenType ?? 'plugin',
       })
       .returning({ id: crispWebsites.id, label: crispWebsites.label, websiteId: crispWebsites.websiteId });
     return row;
@@ -100,6 +107,7 @@ export class CrispService {
       enabled?: boolean;
       productContext?: string | null;
       replyTone?: string | null;
+      tokenType?: CrispTokenType;
     },
   ) {
     const [existing] = await this.db.db.select().from(crispWebsites).where(eq(crispWebsites.id, id));
@@ -112,6 +120,7 @@ export class CrispService {
     if (dto.enabled !== undefined) set.enabled = dto.enabled;
     if (dto.productContext !== undefined) set.productContext = dto.productContext?.trim() || null;
     if (dto.replyTone !== undefined) set.replyTone = dto.replyTone?.trim() || null;
+    if (dto.tokenType !== undefined) set.tokenType = dto.tokenType;
     if (Object.keys(set).length === 0) return;
     await this.db.db.update(crispWebsites).set(set).where(eq(crispWebsites.id, id));
   }
@@ -146,7 +155,12 @@ export class CrispService {
       .where(eq(crispWebsites.enabled, true));
 
     if (rows.length) {
-      return rows.map((r) => ({ websiteId: r.websiteId, identifier: r.identifier, key: decrypt(r.apiKey) }));
+      return rows.map((r) => ({
+        websiteId: r.websiteId,
+        identifier: r.identifier,
+        key: decrypt(r.apiKey),
+        tokenType: (r.tokenType as CrispTokenType) ?? 'plugin',
+      }));
     }
 
     // Fall back to platform settings (single-site legacy)
@@ -160,7 +174,12 @@ export class CrispService {
       .from(crispWebsites)
       .where(eq(crispWebsites.websiteId, websiteId));
 
-    if (row) return { websiteId: row.websiteId, identifier: row.identifier, key: decrypt(row.apiKey) };
+    if (row) return {
+      websiteId: row.websiteId,
+      identifier: row.identifier,
+      key: decrypt(row.apiKey),
+      tokenType: (row.tokenType as CrispTokenType) ?? 'plugin',
+    };
 
     // Fall back to platform settings
     const legacy = await this.getLegacyCredentials();
@@ -199,7 +218,7 @@ export class CrispService {
       if (!creds) return [];
       const res = await fetch(
         `https://api.crisp.chat/v1/website/${websiteId}/conversation/${sessionId}/messages/1`,
-        { headers: { Authorization: this.authHeader(creds.identifier, creds.key), 'X-Crisp-Tier': 'user' } },
+        { headers: { Authorization: this.authHeader(creds.identifier, creds.key), 'X-Crisp-Tier': creds.tokenType } },
       );
       if (!res.ok) return [];
       const data = await res.json();
@@ -224,7 +243,7 @@ export class CrispService {
         method: 'POST',
         headers: {
           Authorization: this.authHeader(creds.identifier, creds.key),
-          'X-Crisp-Tier': 'user',
+          'X-Crisp-Tier': creds.tokenType,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ type: 'text', from: 'operator', origin: 'chat', content: message }),
@@ -284,7 +303,7 @@ export class CrispService {
   private async fetchOpenConversations(creds: CrispCredentials, limit: number): Promise<CrispMessage[]> {
     const res = await fetch(
       `https://api.crisp.chat/v1/website/${creds.websiteId}/conversations/1?filter_unread=1`,
-      { headers: { Authorization: this.authHeader(creds.identifier, creds.key), 'X-Crisp-Tier': 'user' } },
+      { headers: { Authorization: this.authHeader(creds.identifier, creds.key), 'X-Crisp-Tier': creds.tokenType } },
     );
 
     if (!res.ok) {
@@ -318,13 +337,18 @@ export class CrispService {
       this.settings.getDecrypted('crisp_website_id'),
     ]);
     if (!identifier || !key || !websiteId) return null;
-    return { websiteId, identifier, key };
+    return { websiteId, identifier, key, tokenType: 'plugin' };
   }
 
   private async getCredentialsById(id: string): Promise<CrispCredentials | null> {
     const [row] = await this.db.db.select().from(crispWebsites).where(eq(crispWebsites.id, id));
     if (!row) return null;
-    return { websiteId: row.websiteId, identifier: row.identifier, key: decrypt(row.apiKey) };
+    return {
+      websiteId: row.websiteId,
+      identifier: row.identifier,
+      key: decrypt(row.apiKey),
+      tokenType: (row.tokenType as CrispTokenType) ?? 'plugin',
+    };
   }
 
   // ── Conversations / follow-ups ────────────────────────────────────────────
@@ -436,11 +460,15 @@ export class CrispService {
     try {
       const auth = this.authHeader(creds.identifier, creds.key);
       const res = await fetch(`https://api.crisp.chat/v1/website/${creds.websiteId}`, {
-        headers: { Authorization: auth, 'X-Crisp-Tier': 'user' },
+        headers: { Authorization: auth, 'X-Crisp-Tier': creds.tokenType },
         signal: AbortSignal.timeout(8000),
       });
       const data = await res.json() as any;
-      if (!res.ok) return { ok: false, message: data?.reason ?? `HTTP ${res.status}` };
+      if (!res.ok) {
+        const reason = data?.reason ?? `HTTP ${res.status}`;
+        const detail = data?.data?.message ? ` — ${data.data.message}` : '';
+        return { ok: false, message: `${reason}${detail} (tier=${creds.tokenType})` };
+      }
       const siteName = data?.data?.name ?? creds.websiteId;
       return { ok: true, message: `Connected — ${siteName}` };
     } catch (err) {
