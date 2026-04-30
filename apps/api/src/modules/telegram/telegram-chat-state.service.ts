@@ -1,11 +1,17 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { and, desc, eq, gte, lt, sql } from 'drizzle-orm';
 import { DbService } from '../../db/db.service';
-import { telegramChatState, telegramRoutingLogs } from './schema';
+import { telegramChatState, telegramRoutingLogs, ChatTurn } from './schema';
 
 export interface PendingReminder {
   message: string;
   expiresAt: Date;
+}
+
+export interface LastRoute {
+  agentKey: string;
+  instructions: string | null;
+  runId: string | null;
 }
 
 export interface RoutingLogEntry {
@@ -16,6 +22,8 @@ export interface RoutingLogEntry {
   confidence?: number | null;
   latencyMs?: number | null;
 }
+
+const RECENT_TURNS_CAP = 6;
 
 @Injectable()
 export class TelegramChatStateService {
@@ -76,12 +84,18 @@ export class TelegramChatStateService {
     return result.length > 0;
   }
 
-  async setLastRoute(chatId: string, agentKey: string, runId: string | null): Promise<void> {
+  async setLastRoute(
+    chatId: string,
+    agentKey: string,
+    instructions: string | null,
+    runId: string | null,
+  ): Promise<void> {
     await this.db.db
       .insert(telegramChatState)
       .values({
         chatId,
         lastRouteAgentKey: agentKey,
+        lastRouteInstructions: instructions,
         lastRunId: runId,
         updatedAt: new Date(),
       })
@@ -89,9 +103,53 @@ export class TelegramChatStateService {
         target: telegramChatState.chatId,
         set: {
           lastRouteAgentKey: agentKey,
+          lastRouteInstructions: instructions,
           lastRunId: runId,
           updatedAt: new Date(),
         },
+      });
+  }
+
+  async getLastRoute(chatId: string): Promise<LastRoute | null> {
+    const [row] = await this.db.db
+      .select({
+        agentKey: telegramChatState.lastRouteAgentKey,
+        instructions: telegramChatState.lastRouteInstructions,
+        runId: telegramChatState.lastRunId,
+      })
+      .from(telegramChatState)
+      .where(eq(telegramChatState.chatId, chatId))
+      .limit(1);
+    if (!row || !row.agentKey) return null;
+    return { agentKey: row.agentKey, instructions: row.instructions, runId: row.runId };
+  }
+
+  async getRecentTurns(chatId: string, limit = RECENT_TURNS_CAP): Promise<ChatTurn[]> {
+    const [row] = await this.db.db
+      .select({ recentTurns: telegramChatState.recentTurns })
+      .from(telegramChatState)
+      .where(eq(telegramChatState.chatId, chatId))
+      .limit(1);
+    const turns = row?.recentTurns ?? [];
+    return turns.slice(-limit);
+  }
+
+  async appendTurn(
+    chatId: string,
+    role: 'user' | 'assistant',
+    text: string,
+    kind?: string,
+  ): Promise<void> {
+    if (!text.trim()) return;
+    const turn: ChatTurn = { role, text: text.slice(0, 800), ts: new Date().toISOString(), ...(kind ? { kind } : {}) };
+    const existing = await this.getRecentTurns(chatId, RECENT_TURNS_CAP);
+    const next = [...existing, turn].slice(-RECENT_TURNS_CAP);
+    await this.db.db
+      .insert(telegramChatState)
+      .values({ chatId, recentTurns: next, updatedAt: new Date() })
+      .onConflictDoUpdate({
+        target: telegramChatState.chatId,
+        set: { recentTurns: next, updatedAt: new Date() },
       });
   }
 

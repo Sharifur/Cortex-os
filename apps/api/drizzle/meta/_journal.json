@@ -169,6 +169,13 @@
       "when": 1777400015000,
       "tag": "0023_telegram_chat_state",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1777400016000,
+      "tag": "0024_telegram_recent_turns",
+      "breakpoints": true
     }
   ]
 }

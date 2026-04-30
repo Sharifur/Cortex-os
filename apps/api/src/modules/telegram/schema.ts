@@ -1,12 +1,21 @@
-import { pgTable, text, timestamp, real, integer } from 'drizzle-orm/pg-core';
+import { pgTable, text, timestamp, real, integer, jsonb } from 'drizzle-orm/pg-core';
 import { createId } from '@paralleldrive/cuid2';
+
+export interface ChatTurn {
+  role: 'user' | 'assistant';
+  text: string;
+  kind?: string;
+  ts: string;
+}
 
 export const telegramChatState = pgTable('telegram_chat_state', {
   chatId: text('chat_id').primaryKey(),
   pendingReminderMessage: text('pending_reminder_message'),
   pendingReminderExpiresAt: timestamp('pending_reminder_expires_at'),
   lastRouteAgentKey: text('last_route_agent_key'),
+  lastRouteInstructions: text('last_route_instructions'),
   lastRunId: text('last_run_id'),
+  recentTurns: jsonb('recent_turns').$type<ChatTurn[]>().notNull().default([]),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 });
 

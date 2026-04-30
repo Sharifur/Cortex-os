@@ -48,6 +48,7 @@ type IntentDecision =
   | { kind: 'smalltalk'; reply: string }
   | { kind: 'reminder'; message: string; whenIso?: string }
   | { kind: 'route'; agentKey: string; instructions: string; confidence: number }
+  | { kind: 'continue'; followup: string }
   | { kind: 'clarify'; question: string };
 
 interface TelegramBotConfig {
@@ -179,7 +180,9 @@ export class TelegramBotAgent implements IAgent, OnModuleInit {
           decidedAgentKey: mentionResult.agentKey,
           latencyMs: 0,
         });
-        void this.chatState.setLastRoute(chatId, mentionResult.agentKey, null);
+        await this.chatState.appendTurn(chatId, 'user', text, 'mention');
+        await this.chatState.appendTurn(chatId, 'assistant', `→ ${mentionResult.agentName}: ${mentionResult.instructions}`, 'mention_route');
+        void this.chatState.setLastRoute(chatId, mentionResult.agentKey, mentionResult.instructions, null);
         return mentionResult;
       }
     }
@@ -188,7 +191,7 @@ export class TelegramBotAgent implements IAgent, OnModuleInit {
     let decision: IntentDecision | null = null;
     const startedAt = Date.now();
     try {
-      decision = await this.decideIntent(text, tz);
+      decision = await this.decideIntent(text, chatId, tz);
     } catch (err) {
       this.logger.warn(`Intent classifier failed: ${(err as Error).message}`);
     }
@@ -198,7 +201,7 @@ export class TelegramBotAgent implements IAgent, OnModuleInit {
     // Compute the final TelegramRouteResult from the decision.
     const result: TelegramRouteResult = await this.applyDecision(text, chatId, tz, decision);
 
-    // Persist routing log + last-route for follow-up support (Phase 3).
+    // Persist routing log + rolling-context turns + last-route for follow-ups.
     void this.chatState.logRouting({
       chatId,
       inboundText: text,
@@ -210,10 +213,32 @@ export class TelegramBotAgent implements IAgent, OnModuleInit {
       confidence: decision?.kind === 'route' ? decision.confidence : null,
       latencyMs,
     });
-    if (result.kind === 'classified_route' || result.kind === 'mention_route') {
-      void this.chatState.setLastRoute(chatId, result.agentKey, null);
+    await this.chatState.appendTurn(chatId, 'user', text, decision?.kind ?? 'unknown');
+    const assistantTurn = this.summarizeResult(result);
+    if (assistantTurn) await this.chatState.appendTurn(chatId, 'assistant', assistantTurn, result.kind);
+    if (result.kind === 'classified_route') {
+      void this.chatState.setLastRoute(chatId, result.agentKey, result.instructions, null);
     }
     return result;
+  }
+
+  private summarizeResult(result: TelegramRouteResult): string {
+    switch (result.kind) {
+      case 'smalltalk':
+      case 'help':
+      case 'cancelled':
+      case 'reminder_scheduled':
+      case 'time_unparseable':
+      case 'clarify':
+        return result.reply.slice(0, 400);
+      case 'ask_for_time':
+        return `(asking for reminder time) ${result.pendingMessage}`.slice(0, 400);
+      case 'mention_route':
+      case 'classified_route':
+        return `→ ${result.agentName}: ${result.instructions.slice(0, 200)}`;
+      case 'show_picker':
+        return `(showed picker) ${result.text.slice(0, 200)}`;
+    }
   }
 
   private async applyDecision(
@@ -275,6 +300,29 @@ export class TelegramBotAgent implements IAgent, OnModuleInit {
           };
         }
 
+        case 'continue': {
+          const last = await this.chatState.getLastRoute(chatId);
+          if (!last || !last.agentKey) {
+            return {
+              kind: 'clarify',
+              reply: `I don't have a previous task to follow up on. Tell me what you'd like to do?`,
+            };
+          }
+          const meta = ROUTABLE_AGENTS.find((a) => a.key === last.agentKey);
+          if (!meta) {
+            return { kind: 'clarify', reply: `The previous agent isn't available anymore. What should I do?` };
+          }
+          const composed = last.instructions
+            ? `${last.instructions}\n\nFollow-up from the user: ${decision.followup || text}`
+            : decision.followup || text;
+          return {
+            kind: 'classified_route',
+            agentKey: meta.key,
+            agentName: meta.name,
+            instructions: composed,
+          };
+        }
+
         case 'clarify':
           return { kind: 'clarify', reply: decision.question || `Could you tell me a little more?` };
       }
@@ -290,12 +338,19 @@ export class TelegramBotAgent implements IAgent, OnModuleInit {
 
   // ── Schema-constrained classifier ────────────────────────────────────────
 
-  private async decideIntent(text: string, tz: string): Promise<IntentDecision | null> {
-    // Cache by exact text (case-preserving). Greetings, "/status", "today's
-    // brief" repeat constantly and should never re-hit the LLM.
+  private async decideIntent(text: string, chatId: string, tz: string): Promise<IntentDecision | null> {
+    // Cache by exact text only when we have no recent turns — context-free
+    // messages like "status" / "hello" repeat constantly and should never
+    // re-hit the LLM. Once a conversation has context, the same text can
+    // mean different things, so skip the cache.
+    const recentTurns = await this.chatState.getRecentTurns(chatId);
+    const lastRoute = await this.chatState.getLastRoute(chatId);
+
     const cacheKey = text.trim();
-    const cached = this.intentCache.get(cacheKey);
-    if (cached && Date.now() < cached.expiresAt) return cached.decision;
+    if (recentTurns.length === 0) {
+      const cached = this.intentCache.get(cacheKey);
+      if (cached && Date.now() < cached.expiresAt) return cached.decision;
+    }
 
     const config = await this.getConfig();
     const nowUtc = new Date();
@@ -309,7 +364,7 @@ export class TelegramBotAgent implements IAgent, OnModuleInit {
         parameters: {
           type: 'object',
           properties: {
-            kind: { type: 'string', enum: ['smalltalk', 'reminder', 'route', 'clarify'] },
+            kind: { type: 'string', enum: ['smalltalk', 'reminder', 'route', 'continue', 'clarify'] },
             // smalltalk
             smalltalk_reply: { type: 'string', description: 'Short friendly reply when kind=smalltalk. Required.' },
             // reminder
@@ -319,6 +374,8 @@ export class TelegramBotAgent implements IAgent, OnModuleInit {
             agent_key: { type: 'string', enum: ROUTABLE_AGENTS.map((a) => a.key) },
             instructions: { type: 'string', description: 'Forwarded as the agent prompt. Defaults to the original message.' },
             confidence: { type: 'number', description: '0..1 confidence in the agent choice. Use <0.55 if unsure.' },
+            // continue
+            continue_followup: { type: 'string', description: 'When kind=continue, the follow-up instruction to apply to the previous task (e.g. "make it shorter", "add another bullet"). Required.' },
             // clarify
             clarify_question: { type: 'string', description: 'A short question to ask the user when uncertain.' },
           },
@@ -327,18 +384,26 @@ export class TelegramBotAgent implements IAgent, OnModuleInit {
       },
     ];
 
-    const systemPrompt = `You classify a single Telegram message from the bot's owner and decide one of four actions: smalltalk, reminder, route, clarify. ALWAYS call the "decide" tool exactly once.
+    const turnsBlock = recentTurns.length
+      ? `Recent conversation (oldest → newest):\n${recentTurns.map((t) => `[${t.role}${t.kind ? `:${t.kind}` : ''}] ${t.text}`).join('\n')}\n\n`
+      : '';
+    const lastRouteBlock = lastRoute?.agentKey
+      ? `Last task: agent="${lastRoute.agentKey}", instructions="${(lastRoute.instructions ?? '').slice(0, 200)}".\n\n`
+      : '';
+
+    const systemPrompt = `You classify a single Telegram message from the bot's owner and decide one of: smalltalk, reminder, route, continue, clarify. ALWAYS call the "decide" tool exactly once.
 
 Guidelines:
 - smalltalk: greetings, thanks, vibes, casual chat. Provide a brief friendly smalltalk_reply (under 20 words).
 - reminder: the message asks to be reminded / scheduled. Set reminder_message. If a time is given, set reminder_when_iso. Otherwise omit reminder_when_iso so the bot can ask.
-- route: the message is a task that fits one of the available agents. Set agent_key, instructions (rephrase if needed), and confidence (0..1). If confidence < 0.55 prefer clarify instead.
+- route: the message is a NEW task that fits one of the available agents. Set agent_key, instructions (rephrase if needed), and confidence (0..1). If confidence < 0.55 prefer clarify instead.
+- continue: the message is a follow-up that modifies the LAST task ("make it shorter", "do it again", "add another bullet", "not that one, the other one"). Only use this when there IS a "Last task" below. Set continue_followup.
 - clarify: ambiguous or out-of-scope. Set clarify_question (under 20 words).
 
 Available agents:
 ${agentList}
 
-Current local time: ${nowLocal} (${tz}). Current UTC: ${nowUtc.toISOString()}.`;
+${turnsBlock}${lastRouteBlock}Current local time: ${nowLocal} (${tz}). Current UTC: ${nowUtc.toISOString()}.`;
 
     const completion = this.llm.completeWithTools({
       ...agentLlmOpts(config),
@@ -368,7 +433,9 @@ Current local time: ${nowLocal} (${tz}). Current UTC: ${nowUtc.toISOString()}.`;
     }
 
     const decision = this.normalizeDecision(args);
-    if (decision) {
+    // Only cache stable, context-free decisions. Skip 'continue' (depends on
+    // last route) and any decision whose meaning depended on recent turns.
+    if (decision && decision.kind !== 'continue' && recentTurns.length === 0) {
       this.intentCache.set(cacheKey, { decision, expiresAt: Date.now() + TelegramBotAgent.INTENT_CACHE_TTL_MS });
     }
     return decision;
@@ -396,6 +463,8 @@ Current local time: ${nowLocal} (${tz}). Current UTC: ${nowUtc.toISOString()}.`;
           confidence: Math.max(0, Math.min(1, confidenceRaw)),
         };
       }
+      case 'continue':
+        return { kind: 'continue', followup: String(args.continue_followup ?? '').trim() };
       case 'clarify':
         return { kind: 'clarify', question: String(args.clarify_question ?? '').trim() };
       default:
