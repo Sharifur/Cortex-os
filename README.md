@@ -1,6 +1,6 @@
 # cortex-os
 
-Self-hosted AI agent platform for automating founder tasks. Every agent action is gated by Telegram Approve / Reject before execution.
+Self-hosted AI agent platform for automating founder tasks. Most outbound agent actions are gated by Telegram Approve / Reject before execution. The **Live Chat** module is the exception — it serves real-time AI replies to website visitors and supports an in-app moderation queue instead of Telegram approval.
 
 ---
 
@@ -11,6 +11,7 @@ Self-hosted AI agent platform for automating founder tasks. Every agent action i
 - [Environment Variables](#environment-variables)
 - [Integration Credentials](#integration-credentials-configured-in-ui)
 - [Agents](#agents)
+- [Live Chat](#live-chat)
 - [Architecture](#architecture)
 - [Production Deployment](#production-deployment)
 - [API Reference](#api)
@@ -26,7 +27,9 @@ Self-hosted AI agent platform for automating founder tasks. Every agent action i
 | Queue | BullMQ |
 | Database | PostgreSQL 16 |
 | Cache | Redis 7 |
-| Storage | Cloudflare R2 (S3-compatible via MinIO client) |
+| Storage | Cloudflare R2 (S3 SDK for live chat, MinIO client for KB ingestion) |
+| Real-time | Socket.io (operator inbox + visitor widget, path `/ws` + `/livechat-ws`) |
+| GeoIP | MaxMind GeoLite2 (offline `.mmdb` for visitor enrichment) |
 | Notifications | Telegram (grammy) |
 | Deployment | Coolify (self-hosted VPS) |
 
@@ -114,7 +117,7 @@ All variables go in `apps/api/.env`. Integration credentials (WhatsApp, LinkedIn
 
 ### Optional — Storage (Cloudflare R2)
 
-Can also be configured via **Integrations → Storage** in the UI after deployment.
+> **Live chat attachments use Settings, not env vars.** Configure R2 in the UI: **Integrations → Storage**. The env vars below are an optional fallback for KB-ingestion code paths only.
 
 | Variable | Value for R2 |
 |---|---|
@@ -124,6 +127,13 @@ Can also be configured via **Integrations → Storage** in the UI after deployme
 | `MINIO_ACCESS_KEY` | R2 API token Access Key ID |
 | `MINIO_SECRET_KEY` | R2 API token Secret Access Key |
 | `MINIO_BUCKET` | Bucket name, e.g. `cortex` |
+
+### Optional — Live Chat extras
+
+The Live Chat module needs zero env vars beyond the core ones. Two operator-side files are however required for full functionality:
+
+- **MaxMind GeoLite2 database** at `apps/api/data/GeoLite2-City.mmdb` — enables visitor country / city / timezone enrichment. Free MaxMind account required; refresh quarterly. Falls back to nulls if missing. See [`apps/api/data/README.md`](apps/api/data/README.md).
+- **AWS SES inbound** (DNS + Receipt Rule) — required only if you want visitors' replies to transcript emails to thread back into the conversation. Setup runbook in [`docs/livechat-module.md`](docs/livechat-module.md) under "LC-27 runbook".
 
 ### Optional — Taskip integration
 
@@ -160,6 +170,7 @@ Configure after logging in at **Integrations** in the sidebar.
 | **Telegram** | Integrations → Telegram tab |
 | **License Server** | Xgenious license server → Dashboard → Public API |
 | **Storage (R2)** | Cloudflare Dashboard → R2 → Manage R2 API Tokens |
+| **Live Chat** | No external credentials — configure per-site via the Live Chat → Sites tab |
 
 ---
 
@@ -167,6 +178,7 @@ Configure after logging in at **Integrations** in the sidebar.
 
 | Agent | Key | Trigger | Description |
 |---|---|---|---|
+| **Live Chat** | `livechat` | Synchronous (visitor message) | KB-grounded AI replies on bytesed.com / xgenious.com / taskip.net; auto-send by default with optional moderation queue, file attachments via R2, transcript-on-close, email-to-thread |
 | Crisp | `crisp` | CRON 15min + webhook | Instant replies to Crisp chat (no approval) |
 | Support | `support` | CRON 30min + webhook | Triages and replies to support tickets |
 | WhatsApp | `whatsapp` | CRON 10min + webhook | Classifies and replies to WhatsApp messages |
@@ -180,6 +192,39 @@ Configure after logging in at **Integrations** in the sidebar.
 | Taskip Internal | `taskip_internal` | CRON daily | Internal Taskip reports |
 | HR | `hr` | CRON daily | Salary sheets, leave processing, HR alerts |
 | Canva | `canva` | CRON monthly | Content calendar and Canva design generation |
+
+---
+
+## Live Chat
+
+Self-hosted multi-site AI live chat embedded as a single `<script>` tag on bytesed.com / xgenious.com / taskip.net. One bundle serves every site; per-site appearance, persona, welcome message, brand color, position, LLM override, and moderation behavior are configured in the admin UI.
+
+### Operator surface
+
+- **Live Chat → Conversations** — Crisp-style 3-column inbox with live visitor count, page-journey timeline, and bidirectional typing indicators
+- **Live Chat → Sites** — per-site config (Identity / Persona / Transcript / Advanced) + auto-shown Install Instructions modal on create
+- **Live Chat → Setup** — copy-paste install snippet per site + manual test checklist
+
+### Visitor surface
+
+- Bottom-right (or bottom-left) chat bubble injected via `<script src="https://api.<your-domain>/livechat.js" data-site="<key>" defer></script>`
+- Vanilla TS, Shadow DOM (no host-page CSS bleed), ~21 kB gzipped
+- Lazy email capture, paste-to-upload images, file picker, URL auto-linkifying, persistent session across page reloads, SPA history hooks
+- Sends pageview heartbeats every 30s while the tab is visible — drives the operator's "X online" panel
+
+### Capabilities
+
+- **Auto-send AI replies** (default ON) — KB-grounded agent with self-critique loop and `needs_human` fallback on blocklist hits or LLM failures
+- **Moderation queue** (auto-send OFF) — drafts queue with inline Approve / Edit / Reject buttons; visitor never sees pending content
+- **File attachments** via Cloudflare R2 (`StorageService` is module-namespaced and reusable from other agents)
+- **Transcript on close** — HTML email of the full conversation via SES, with `Reply-To` that threads visitor replies back into the session
+- **Email-to-thread** — `POST /livechat/inbound` (SES → SNS → cortex) reopens closed sessions when visitors reply
+- **Cross-session visitor history** — past conversations surfaced in the visitor sidebar
+- **Cloudflare integration** — R2 config in **Integrations → Storage** (no env vars)
+
+### Module documentation
+
+Full sprint-by-sprint changelog, AWS setup runbooks (R2, SES inbound, MaxMind), and operator runbooks live in **[`docs/livechat-module.md`](docs/livechat-module.md)**.
 
 ---
 
@@ -248,5 +293,18 @@ All endpoints require `Authorization: Bearer <jwt>` except `/auth/login` and `/h
 | POST | `/knowledge-base/ingest/link` | Ingest a URL |
 | GET | `/crisp/websites` | List Crisp websites |
 | POST | `/crisp/websites` | Add a Crisp website |
+| GET | `/agents/livechat/sites` | List live chat sites |
+| POST | `/agents/livechat/sites` | Add a live chat site |
+| GET | `/agents/livechat/sessions?status=&siteKey=&hasPendingDrafts=` | Inbox list with filters |
+| GET | `/agents/livechat/sessions/pending-count` | Moderation queue size |
+| GET | `/agents/livechat/sessions/:id` | Session detail with messages + attachments |
+| POST | `/agents/livechat/sessions/:id/{takeover,release,close,message}` | Operator actions |
+| POST | `/agents/livechat/sessions/:id/send-transcript` | Manual transcript send |
+| POST | `/agents/livechat/messages/:id/{approve,edit-and-approve,reject}` | Moderation queue actions |
+| GET | `/agents/livechat/visitors/live` | Visitors online in the last 60s |
+| GET | `/agents/livechat/visitors/:id/{sessions,pageviews}` | Visitor history |
+| GET | `/livechat.js` | Embeddable widget bundle |
+| POST | `/livechat/{message,upload,track/pageview,track/heartbeat,track/leave,identify,config}` | Visitor-facing endpoints (origin-gated, rate-limited) |
+| POST | `/livechat/inbound` | SES inbound webhook for email-to-thread |
 
 Full API reference: [`docs/09-rest-api.md`](docs/09-rest-api.md)
