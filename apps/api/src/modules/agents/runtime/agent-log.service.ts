@@ -51,6 +51,10 @@ export class AgentLogService {
     return this.log(runId, 'ERROR', message, meta);
   }
 
+  async warn(runId: string, message: string, meta?: Record<string, unknown>) {
+    return this.log(runId, 'WARN', message, meta);
+  }
+
   async debug(runId: string, message: string, meta?: Record<string, unknown>) {
     return this.log(runId, 'DEBUG', message, meta);
   }

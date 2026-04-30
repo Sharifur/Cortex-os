@@ -39,6 +39,7 @@ interface CrispSnapshot {
   newMessages: any[];
   config: CrispConfig;
   threadHistory?: Record<string, { role: 'customer' | 'agent'; text: string }[]>;
+  runId: string;
 }
 
 const DEFAULT_CONFIG: CrispConfig = {
@@ -97,6 +98,13 @@ export class CrispAgent implements IAgent, OnModuleInit {
         await this.agentLog.info(run.id, `Crisp webhook ignored: ${parsed.reason}`, { event });
       } else {
         const msg = parsed.message;
+        await this.agentLog.info(run.id, `Crisp webhook parsed OK (sessionId=${msg.sessionId.slice(-8)})`, {
+          sessionId: msg.sessionId,
+          websiteId: msg.websiteId,
+          visitorEmail: msg.visitorEmail ?? null,
+          visitorNickname: msg.visitorNickname ?? null,
+          contentChars: (msg.content ?? '').length,
+        });
         const [existing] = await this.db.db
           .select({ lastMessage: crispConversations.lastMessage })
           .from(crispConversations)
@@ -122,11 +130,11 @@ export class CrispAgent implements IAgent, OnModuleInit {
       }
     }
 
-    return { source: trigger, snapshot: { newMessages, config }, followups: [] };
+    return { source: trigger, snapshot: { newMessages, config, runId: run.id }, followups: [] };
   }
 
   async decide(ctx: AgentContext): Promise<ProposedAction[]> {
-    const { newMessages, config } = ctx.snapshot as CrispSnapshot;
+    const { newMessages, config, runId } = ctx.snapshot as CrispSnapshot;
     if (!newMessages.length) {
       return [{ type: 'noop', summary: 'No new Crisp conversations.', payload: {}, riskLevel: 'low' }];
     }
@@ -144,14 +152,45 @@ export class CrispAgent implements IAgent, OnModuleInit {
     const actions: ProposedAction[] = [];
 
     for (const msg of newMessages) {
+      const sid = msg.sessionId.slice(-8);
+      const stepStart = Date.now();
+      const t = (): number => Date.now() - stepStart;
       try {
+        await this.agentLog.info(runId, `[crisp ${sid}] step 1/7: fetching KB + thread + overrides`, {
+          sessionId: msg.sessionId,
+          websiteId: msg.websiteId,
+          visitorEmail: msg.visitorEmail ?? null,
+          visitorNickname: msg.visitorNickname ?? null,
+          contentPreview: (msg.content ?? '').slice(0, 200),
+        });
+
         // Per-message: FTS search + visitor memory + conversation thread + per-site overrides (parallel)
         const [references, previousReplies, threadHistory, overrides] = await Promise.all([
-          this.kb.searchEntries(msg.content ?? '', this.key, 5),
-          this.getVisitorHistory(msg.visitorEmail, msg.visitorNickname),
-          this.crisp.getSessionThread(msg.sessionId, msg.websiteId, 5),
-          this.crisp.getOverridesForWebsite(msg.websiteId),
+          this.kb.searchEntries(msg.content ?? '', this.key, 5).catch((e: Error) => {
+            void this.agentLog.warn(runId, `[crisp ${sid}] KB search failed (continuing without): ${e.message}`);
+            return [];
+          }),
+          this.getVisitorHistory(msg.visitorEmail, msg.visitorNickname).catch((e: Error) => {
+            void this.agentLog.warn(runId, `[crisp ${sid}] visitor history failed (continuing without): ${e.message}`);
+            return [];
+          }),
+          this.crisp.getSessionThread(msg.sessionId, msg.websiteId, 5).catch((e: Error) => {
+            void this.agentLog.warn(runId, `[crisp ${sid}] session thread fetch failed (continuing without): ${e.message}`);
+            return [];
+          }),
+          this.crisp.getOverridesForWebsite(msg.websiteId).catch((e: Error) => {
+            void this.agentLog.warn(runId, `[crisp ${sid}] site overrides fetch failed (continuing without): ${e.message}`);
+            return { productContext: undefined, replyTone: undefined };
+          }),
         ]);
+
+        await this.agentLog.info(runId, `[crisp ${sid}] step 2/7: context built (+${t()}ms)`, {
+          referencesCount: references.length,
+          previousRepliesCount: previousReplies.length,
+          threadTurns: threadHistory.length,
+          hasSiteProductContext: !!overrides.productContext,
+          hasSiteReplyTone: !!overrides.replyTone,
+        });
 
         const productContext = overrides.productContext || config.productContext;
         const replyTone = overrides.replyTone || config.replyTone;
@@ -175,31 +214,16 @@ export class CrispAgent implements IAgent, OnModuleInit {
         let purchaseBlock = '';
         const purchaseCodes = PurchaseVerifyService.extractPurchaseCodes(msg.content ?? '');
         if (purchaseCodes.length && PurchaseVerifyService.hasSupportIntent(msg.content ?? '')) {
-          const verifyResult = await this.purchaseVerify.verify(purchaseCodes[0]);
+          const verifyResult = await this.purchaseVerify.verify(purchaseCodes[0]).catch((e: Error) => {
+            void this.agentLog.warn(runId, `[crisp ${sid}] purchase-verify failed (continuing without): ${e.message}`);
+            return null;
+          });
           if (verifyResult) purchaseBlock = PurchaseVerifyService.buildVerifyPromptBlock(verifyResult);
         }
 
-        const defaultSystem = `You are a customer support agent. Context: ${productContext}\nTone: ${replyTone}\nWrite a direct reply to the customer message. 2-4 sentences max. No greetings like "Dear" or closings like "Best regards". Just the reply.`;
-        const systemPrompt = (template?.system ?? defaultSystem) + kbBlock + visitorMemory + purchaseBlock;
-
-        const response = await this.llm.complete({
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: msg.content },
-          ],
-          ...agentLlmOpts(config),
-          maxTokens: 200,
-        });
-
-        let draft = response.content.trim();
-        if (!draft) continue;
-
-        // Self-critique for medium/high risk (always medium for customer replies)
-        draft = await this.selfCritique(draft, alwaysOn.find(e => e.entryType === 'voice_profile')?.content, blocklist);
-
-        // Blocklist check
-        const violation = blocklist.find(p => draft.toLowerCase().includes(p.toLowerCase()));
-
+        // Persist the conversation + contact FIRST so they exist even if the
+        // LLM later fails. The draft starts empty and gets filled in once the
+        // model replies.
         const receivedAt = new Date(msg.timestamp ? msg.timestamp * 1000 : Date.now());
         await this.db.db
           .insert(crispConversations)
@@ -209,7 +233,6 @@ export class CrispAgent implements IAgent, OnModuleInit {
             visitorEmail: msg.visitorEmail ?? null,
             visitorNickname: msg.visitorNickname ?? null,
             lastMessage: msg.content.slice(0, 2000),
-            draftReply: draft,
             status: 'new',
             receivedAt,
           })
@@ -219,15 +242,13 @@ export class CrispAgent implements IAgent, OnModuleInit {
               lastMessage: msg.content.slice(0, 2000),
               visitorEmail: msg.visitorEmail ?? null,
               visitorNickname: msg.visitorNickname ?? null,
-              draftReply: draft,
               status: 'new',
               receivedAt,
               repliedAt: null,
             },
           });
+        await this.agentLog.info(runId, `[crisp ${sid}] step 3/7: conversation row upserted (+${t()}ms)`);
 
-        // Upsert contact + log activity. Visitor identified by Crisp sessionId;
-        // if the visitor later supplies an email, the existing row is patched.
         try {
           const contactId = await this.crisp.upsertContactForCrisp({
             sessionId: msg.sessionId,
@@ -241,20 +262,98 @@ export class CrispAgent implements IAgent, OnModuleInit {
             `Crisp message: "${msg.content.slice(0, 200)}"`,
             { refId: msg.sessionId, meta: { websiteId: msg.websiteId } },
           );
+          await this.agentLog.info(runId, `[crisp ${sid}] step 4/7: contact upserted (+${t()}ms)`, { contactId });
         } catch (err) {
           this.logger.warn(`Failed to upsert contact for Crisp ${msg.sessionId}: ${(err as Error).message}`);
+          await this.agentLog.warn(runId, `[crisp ${sid}] step 4/7 contact upsert FAILED (continuing): ${(err as Error).message}`);
         }
 
+        const defaultSystem = `You are a customer support agent. Context: ${productContext}\nTone: ${replyTone}\nWrite a direct reply to the customer message. 2-4 sentences max. No greetings like "Dear" or closings like "Best regards". Just the reply.`;
+        const systemPrompt = (template?.system ?? defaultSystem) + kbBlock + visitorMemory + purchaseBlock;
+
+        const llmOpts = agentLlmOpts(config);
+        await this.agentLog.info(runId, `[crisp ${sid}] step 5/7: calling LLM`, {
+          provider: llmOpts.provider ?? '(global default)',
+          model: llmOpts.model ?? '(provider default)',
+          systemPromptChars: systemPrompt.length,
+          userPromptChars: (msg.content ?? '').length,
+        });
+
+        const llmStart = Date.now();
+        let response;
+        try {
+          response = await this.llm.complete({
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: msg.content },
+            ],
+            ...llmOpts,
+            maxTokens: 200,
+          });
+        } catch (err) {
+          const m = (err as Error)?.message ?? String(err);
+          await this.agentLog.error(runId, `[crisp ${sid}] step 5/7 LLM call FAILED (+${Date.now() - llmStart}ms): ${m}`, {
+            provider: llmOpts.provider ?? '(global default)',
+            model: llmOpts.model ?? '(provider default)',
+            stack: (err as Error)?.stack?.split('\n').slice(0, 5).join('\n'),
+          });
+          throw err;
+        }
+
+        let draft = response.content.trim();
+        await this.agentLog.info(runId, `[crisp ${sid}] step 5/7: LLM returned (+${Date.now() - llmStart}ms)`, {
+          draftLength: draft.length,
+          draftPreview: draft.slice(0, 200),
+          provider: response.provider,
+          model: response.model,
+          inputTokens: response.inputTokens,
+          outputTokens: response.outputTokens,
+        });
+        if (!draft) {
+          await this.agentLog.warn(runId, `[crisp ${sid}] LLM returned empty draft — skipping`);
+          continue;
+        }
+
+        // Self-critique for medium/high risk (always medium for customer replies)
+        try {
+          const before = draft;
+          draft = await this.selfCritique(draft, alwaysOn.find(e => e.entryType === 'voice_profile')?.content, blocklist);
+          await this.agentLog.info(runId, `[crisp ${sid}] step 6/7: self-critique done (changed=${before !== draft})`);
+        } catch (err) {
+          await this.agentLog.warn(runId, `[crisp ${sid}] step 6/7 self-critique FAILED (using original draft): ${(err as Error).message}`);
+        }
+
+        // Blocklist check
+        const violation = blocklist.find(p => draft.toLowerCase().includes(p.toLowerCase()));
+        if (violation) {
+          await this.agentLog.warn(runId, `[crisp ${sid}] blocklist hit: "${violation}" — risk=high`);
+        }
+
+        // Now that the draft exists, attach it to the conversation row.
+        await this.db.db
+          .update(crispConversations)
+          .set({ draftReply: draft })
+          .where(eq(crispConversations.sessionId, msg.sessionId));
+
         const visitorLabel = msg.visitorNickname ?? msg.visitorEmail ?? msg.sessionId.slice(-8);
+        const willAutoReply = config.autoReply ?? true;
 
         actions.push({
           type: 'send_reply',
           summary: `Reply to ${visitorLabel}: "${draft.slice(0, 80)}"${violation ? ` [Blocklist: "${violation}"]` : ''}`,
-          payload: { sessionId: msg.sessionId, websiteId: msg.websiteId, visitorLabel, message: msg.content, draft, autoReply: config.autoReply ?? true },
+          payload: { sessionId: msg.sessionId, websiteId: msg.websiteId, visitorLabel, message: msg.content, draft, autoReply: willAutoReply },
           riskLevel: violation ? 'high' : 'medium',
         });
+        await this.agentLog.info(runId, `[crisp ${sid}] step 7/7: action queued (autoReply=${willAutoReply}, total=${t()}ms)`);
       } catch (err) {
-        this.logger.warn(`Failed to draft Crisp reply: ${err}`);
+        const message = (err as Error)?.message ?? String(err);
+        const stack = (err as Error)?.stack;
+        this.logger.warn(`Failed to draft Crisp reply: ${message}`);
+        await this.agentLog.error(runId, `[crisp ${sid}] draft loop ABORTED: ${message}`, {
+          sessionId: msg.sessionId,
+          websiteId: msg.websiteId,
+          stack: stack?.split('\n').slice(0, 8).join('\n'),
+        });
       }
     }
 
