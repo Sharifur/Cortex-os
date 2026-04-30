@@ -16,13 +16,14 @@ import type {
   McpToolDefinition,
   AgentApiRoute,
 } from '../runtime/types';
+import { agentLlmOpts } from '../runtime/llm-config.util';
 
 interface DailyReminderConfig {
   morningCron: string;
   eveningCron: string;
   enableMorning: boolean;
   enableEvening: boolean;
-  llm: { provider: string; model: string };
+  llm?: { provider?: string; model?: string };
 }
 
 interface PendingApprovalSummary {
@@ -186,8 +187,7 @@ export class DailyReminderAgent implements IAgent, OnModuleInit {
       }
 
       const response = await this.llm.complete({
-        provider: config.llm.provider as 'openai' | 'gemini' | 'deepseek' | 'auto',
-        model: config.llm.model,
+        ...agentLlmOpts(config),
         messages: [
           {
             role: 'system',
@@ -216,8 +216,7 @@ export class DailyReminderAgent implements IAgent, OnModuleInit {
     const systemMsg = briefType === 'morning' ? MORNING_SYSTEM : EVENING_SYSTEM;
 
     const response = await this.llm.complete({
-      provider: config.llm.provider as 'openai' | 'gemini' | 'deepseek' | 'auto',
-      model: config.llm.model,
+      ...agentLlmOpts(config),
       messages: [
         { role: 'system', content: systemMsg },
         { role: 'user', content: userMsg },
@@ -344,7 +343,6 @@ export class DailyReminderAgent implements IAgent, OnModuleInit {
       eveningCron: '0 15 * * *',
       enableMorning: true,
       enableEvening: true,
-      llm: { provider: 'auto', model: 'gpt-4o-mini' },
     };
   }
 }

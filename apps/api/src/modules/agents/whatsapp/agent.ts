@@ -21,13 +21,14 @@ import type {
   McpToolDefinition,
   AgentApiRoute,
 } from '../runtime/types';
+import { agentLlmOpts } from '../runtime/llm-config.util';
 
 interface WhatsAppConfig {
   offlineStart: number;
   offlineEnd: number;
   timezone: string;
   holdingMessage: string;
-  llm: { provider: string; model: string };
+  llm?: { provider?: string; model?: string };
 }
 
 interface WhatsAppSnapshot {
@@ -41,7 +42,6 @@ const DEFAULT_CONFIG: WhatsAppConfig = {
   offlineEnd: 10,
   timezone: 'Asia/Dhaka',
   holdingMessage: "Thanks for your message! I'm currently offline but will respond as soon as possible.",
-  llm: { provider: 'auto', model: 'gpt-4o-mini' },
 };
 
 const CLASSIFY_PROMPT = `Classify this WhatsApp message as: urgent | important | normal | spam
@@ -139,8 +139,7 @@ export class WhatsAppAgent implements IAgent, OnModuleInit {
             { role: 'system', content: (template?.system ?? CLASSIFY_PROMPT) + kbBlock + contactNote },
             { role: 'user', content: `From: ${fromName}\n\n${msg.body}` },
           ],
-          provider: config.llm.provider as any,
-          model: config.llm.model,
+          ...agentLlmOpts(config),
           maxTokens: 200,
         });
 
@@ -383,8 +382,6 @@ If not, rewrite and return: {"ok":false,"revised":"improved reply here"}`,
           },
           { role: 'user', content: `Draft: "${draft}"` },
         ],
-        provider: 'auto',
-        model: 'gpt-4o-mini',
         maxTokens: 200,
       });
       const result = JSON.parse(critique.content);

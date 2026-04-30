@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { eq, desc } from 'drizzle-orm';
+import { eq, desc, lt } from 'drizzle-orm';
 import { DbService } from '../../db/db.service';
 import { agentRuns, agentLogs, agents } from '../../db/schema';
 
@@ -54,8 +54,9 @@ export class RunsService {
     return query;
   }
 
-  async getRecentLogs(limit = 100) {
-    return this.db.db
+  async getRecentLogs(opts: number | { limit?: number; before?: Date } = 100) {
+    const { limit = 100, before } = typeof opts === 'number' ? { limit: opts } : opts;
+    const q = this.db.db
       .select({
         id: agentLogs.id,
         level: agentLogs.level,
@@ -69,9 +70,9 @@ export class RunsService {
       })
       .from(agentLogs)
       .innerJoin(agentRuns, eq(agentLogs.runId, agentRuns.id))
-      .innerJoin(agents, eq(agentRuns.agentId, agents.id))
-      .orderBy(desc(agentLogs.createdAt))
-      .limit(limit);
+      .innerJoin(agents, eq(agentRuns.agentId, agents.id));
+    const filtered = before ? q.where(lt(agentLogs.createdAt, before)) : q;
+    return filtered.orderBy(desc(agentLogs.createdAt)).limit(limit);
   }
 
   async isRunFinished(runId: string): Promise<boolean> {

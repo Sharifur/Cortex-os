@@ -5,6 +5,10 @@ export class UpdateAgentDto {
   @IsOptional()
   enabled?: boolean;
 
+  @IsBoolean()
+  @IsOptional()
+  pinned?: boolean;
+
   @IsString()
   @IsOptional()
   name?: string;

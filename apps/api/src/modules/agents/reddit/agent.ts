@@ -19,12 +19,13 @@ import type {
   McpToolDefinition,
   AgentApiRoute,
 } from '../runtime/types';
+import { agentLlmOpts } from '../runtime/llm-config.util';
 
 interface RedditConfig {
   defaultKeywords: string[];
   maxPostsPerKeyword: number;
   commentTone: string;
-  llm: { provider: string; model: string };
+  llm?: { provider?: string; model?: string };
 }
 
 interface RedditSnapshot {
@@ -38,7 +39,6 @@ const DEFAULT_CONFIG: RedditConfig = {
   defaultKeywords: ['Taskip', 'project management tool', 'task management SaaS'],
   maxPostsPerKeyword: 5,
   commentTone: 'helpful and genuine — add value, no promotion, no spam',
-  llm: { provider: 'auto', model: 'gpt-4o-mini' },
 };
 
 @Injectable()
@@ -149,8 +149,7 @@ export class RedditAgent implements IAgent, OnModuleInit {
               content: `Subreddit: r/${post.subreddit}\nTitle: ${post.title}\n\n${post.body?.slice(0, 500) ?? ''}`,
             },
           ],
-          provider: config.llm.provider as any,
-          model: config.llm.model,
+          ...agentLlmOpts(config),
           maxTokens: 150,
         });
 
@@ -309,8 +308,7 @@ export class RedditAgent implements IAgent, OnModuleInit {
         { role: 'system', content: (template?.system ?? defaultSystem) + kbBlock },
         { role: 'user', content: effectiveInstructions },
       ],
-      provider: config.llm.provider as any,
-      model: config.llm.model,
+      ...agentLlmOpts(config),
       maxTokens: 200,
     });
     let draft = response.content.trim();
@@ -339,8 +337,6 @@ If not, rewrite and return: {"ok":false,"revised":"improved comment here"}`,
           },
           { role: 'user', content: `Draft: "${draft}"` },
         ],
-        provider: 'auto',
-        model: 'gpt-4o-mini',
         maxTokens: 200,
       });
       const result = JSON.parse(critique.content);

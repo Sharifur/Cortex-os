@@ -13,8 +13,12 @@ export class RunsController {
   }
 
   @Get('activity')
-  getActivity(@Query('limit') limit?: string) {
-    return this.runs.getRecentLogs(limit ? parseInt(limit, 10) : 100);
+  getActivity(@Query('limit') limit?: string, @Query('before') before?: string) {
+    const beforeDate = before ? new Date(before) : undefined;
+    return this.runs.getRecentLogs({
+      limit: limit ? parseInt(limit, 10) : 100,
+      before: beforeDate && !isNaN(beforeDate.getTime()) ? beforeDate : undefined,
+    });
   }
 
   @Get(':id')

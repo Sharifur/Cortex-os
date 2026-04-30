@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
 import {
   Activity, Bot, CheckCircle2, XCircle, MessageSquare,
-  Clock, ShieldAlert, Wifi, WifiOff, ChevronRight, AlertCircle,
+  Clock, ShieldAlert, Wifi, WifiOff, ChevronRight, ChevronDown, AlertCircle,
   Info, AlertTriangle, Bug, Filter,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -81,7 +81,7 @@ const LEVEL_CFG = {
 
 const DONE_STATUSES = new Set(['EXECUTED', 'FAILED', 'REJECTED']);
 const DONE_LINGER_MS = 30_000;
-const MAX_LOGS = 300;
+const MAX_LOGS = 5000;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -304,6 +304,17 @@ export default function OpsPage() {
   // Filters
   const [agentFilter, setAgentFilter] = useState('');
   const [levelFilter, setLevelFilter] = useState<string>('ALL');
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(20);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+
+  function toggleExpanded(id: string) {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
 
   // Approvals
   const [approvals, setApprovals] = useState<Approval[]>([]);
@@ -453,12 +464,39 @@ export default function OpsPage() {
   // Unique agents from log history for filter dropdown
   const agentOptions = Array.from(new Set(logs.map((l) => l.agentKey))).sort();
 
-  // Filtered logs
+  // Filtered logs (agent + level)
   const filteredLogs = logs.filter((l) => {
     if (agentFilter && l.agentKey !== agentFilter) return false;
     if (levelFilter !== 'ALL' && l.level !== levelFilter) return false;
     return true;
   });
+
+  const visibleLogs = filteredLogs.slice(0, visibleCount);
+
+  async function loadMore() {
+    if (loadingMore) return;
+    if (visibleCount < filteredLogs.length) {
+      setVisibleCount((n) => n + 20);
+      return;
+    }
+    setLoadingMore(true);
+    try {
+      const oldest = logs.length ? new Date(logs[logs.length - 1].createdAt).toISOString() : new Date().toISOString();
+      const res = await fetch(`/runs/activity?limit=20&before=${encodeURIComponent(oldest)}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return;
+      const older: LogEntry[] = await res.json();
+      if (older.length === 0) return;
+      setLogs((prev) => {
+        const seen = new Set(prev.map((e) => e.id));
+        return [...prev, ...older.filter((e) => !seen.has(e.id))];
+      });
+      setVisibleCount((n) => n + older.length);
+    } finally {
+      setLoadingMore(false);
+    }
+  }
 
   const isLive = logsConnected && approvalsConnected;
 
@@ -547,43 +585,69 @@ export default function OpsPage() {
           </div>
 
           <div className="flex-1 overflow-y-auto divide-y divide-border/50">
-            {filteredLogs.length === 0 && (
+            {visibleLogs.length === 0 && (
               <div className="p-8 text-center text-xs text-muted-foreground">
                 {logsConnected ? 'No log entries match the current filter.' : 'Connecting to activity stream…'}
               </div>
             )}
-            {filteredLogs.map((entry) => {
+            {visibleLogs.map((entry) => {
               const lvl = LEVEL_CFG[entry.level] ?? LEVEL_CFG.INFO;
+              const isExpanded = expandedIds.has(entry.id);
+              const hasMeta = !!entry.meta && Object.keys(entry.meta).length > 0;
               return (
-                <div key={entry.id} className="flex items-start gap-3 px-4 py-2.5 hover:bg-accent/20 transition-colors">
-                  <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-mono font-medium shrink-0 mt-0.5 ${lvl.cls}`}>
-                    {lvl.icon}
-                    {entry.level}
-                  </span>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-                      <span className="text-xs font-medium">{entry.agentName}</span>
-                      <Link
-                        to={`/runs/${entry.runId}`}
-                        className="text-xs font-mono text-muted-foreground hover:text-primary transition-colors"
-                      >
-                        {entry.runId.slice(0, 8)}
-                      </Link>
-                      <span className={`text-xs font-medium ${STATUS_CLS[entry.runStatus]?.split(' ')[0] ?? 'text-muted-foreground'}`}>
-                        {entry.runStatus}
-                      </span>
+                <div key={entry.id} className="px-4 py-2 hover:bg-accent/20 transition-colors">
+                  <button
+                    type="button"
+                    onClick={() => toggleExpanded(entry.id)}
+                    className="w-full flex items-start gap-2 text-left"
+                  >
+                    <span className="text-muted-foreground shrink-0 mt-1">
+                      {isExpanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                    </span>
+                    <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-mono font-medium shrink-0 mt-0.5 ${lvl.cls}`}>
+                      {lvl.icon}
+                      {entry.level}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-xs font-medium shrink-0">{entry.agentName}</span>
+                        <p className="text-xs text-foreground/90 break-words leading-relaxed truncate flex-1 min-w-0">{entry.message}</p>
+                      </div>
                     </div>
-                    <p className="text-xs text-foreground/90 break-words leading-relaxed">{entry.message}</p>
-                    {entry.meta && Object.keys(entry.meta).length > 0 && (
-                      <pre className="mt-1 text-xs text-muted-foreground bg-muted/40 rounded px-2 py-1 overflow-x-auto">
-                        {JSON.stringify(entry.meta, null, 2)}
-                      </pre>
-                    )}
-                  </div>
-                  <span className="text-xs text-muted-foreground shrink-0 mt-0.5">{relTime(entry.createdAt)}</span>
+                    <span className="text-xs text-muted-foreground shrink-0 mt-0.5">{relTime(entry.createdAt)}</span>
+                  </button>
+                  {isExpanded && (
+                    <div className="mt-2 pl-7 space-y-1.5">
+                      <div className="flex items-center gap-2 text-xs flex-wrap">
+                        <Link
+                          to={`/runs/${entry.runId}`}
+                          className="font-mono text-muted-foreground hover:text-primary transition-colors"
+                        >
+                          run:{entry.runId.slice(0, 8)}
+                        </Link>
+                        <span className={`font-medium ${STATUS_CLS[entry.runStatus]?.split(' ')[0] ?? 'text-muted-foreground'}`}>
+                          {entry.runStatus}
+                        </span>
+                        <span className="text-muted-foreground">{new Date(entry.createdAt).toLocaleString()}</span>
+                      </div>
+                      <p className="text-xs text-foreground/90 break-words whitespace-pre-wrap">{entry.message}</p>
+                      {hasMeta && (
+                        <pre className="text-xs text-muted-foreground bg-muted/40 rounded px-2 py-1 overflow-x-auto">
+                          {JSON.stringify(entry.meta, null, 2)}
+                        </pre>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })}
+            {filteredLogs.length > 0 && (
+              <div className="flex items-center justify-center py-3">
+                <Button size="sm" variant="outline" onClick={loadMore} disabled={loadingMore}>
+                  {loadingMore ? 'Loading…' : 'Load more'}
+                </Button>
+              </div>
+            )}
           </div>
         </div>
 

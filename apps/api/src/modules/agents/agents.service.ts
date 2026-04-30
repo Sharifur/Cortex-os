@@ -55,6 +55,7 @@ export class AgentsService {
         ...(dto.name !== undefined && { name: dto.name }),
         ...(dto.description !== undefined && { description: dto.description }),
         ...(dto.enabled !== undefined && { enabled: dto.enabled }),
+        ...(dto.pinned !== undefined && { pinned: dto.pinned }),
         ...(dto.config !== undefined && { config: dto.config }),
         updatedAt: new Date(),
       })

@@ -5,6 +5,7 @@ import { agents } from '../../../db/schema';
 import { crispConversations } from './schema';
 import { CrispService } from './crisp.service';
 import { AgentRegistryService } from '../runtime/agent-registry.service';
+import { AgentLogService } from '../runtime/agent-log.service';
 import { LlmRouterService } from '../../llm/llm-router.service';
 import { TelegramService } from '../../telegram/telegram.service';
 import { KnowledgeBaseService } from '../../knowledge-base/knowledge-base.service';
@@ -12,6 +13,7 @@ import { PurchaseVerifyService } from '../purchase-verify/purchase-verify.servic
 import { SettingsService } from '../../settings/settings.service';
 import { ContactsService } from '../../contacts/contacts.service';
 import { hmacHex, safeEqualHex } from '../../../common/webhooks/verify';
+import { agentLlmOpts } from '../runtime/llm-config.util';
 import type {
   IAgent,
   TriggerSpec,
@@ -29,7 +31,8 @@ interface CrispConfig {
   productContext: string;
   maxConversationsPerRun: number;
   autoReply: boolean;
-  llm: { provider: string; model: string };
+  debugWebhooks: boolean;
+  llm?: { provider?: string; model?: string };
 }
 
 interface CrispSnapshot {
@@ -43,7 +46,7 @@ const DEFAULT_CONFIG: CrispConfig = {
   productContext: 'Taskip is a project management SaaS for teams.',
   maxConversationsPerRun: 10,
   autoReply: true,
-  llm: { provider: 'auto', model: 'gpt-4o-mini' },
+  debugWebhooks: false,
 };
 
 @Injectable()
@@ -62,6 +65,7 @@ export class CrispAgent implements IAgent, OnModuleInit {
     private purchaseVerify: PurchaseVerifyService,
     private settings: SettingsService,
     private contactsSvc: ContactsService,
+    private agentLog: AgentLogService,
   ) {}
 
   onModuleInit() {
@@ -81,14 +85,26 @@ export class CrispAgent implements IAgent, OnModuleInit {
     const newMessages: any[] = [];
 
     if (trigger.type === 'WEBHOOK' && trigger.payload) {
-      const msg = this.crisp.parseWebhookMessage(trigger.payload);
-      if (msg) {
+      const payload = trigger.payload as any;
+      const event = payload?.event ?? 'unknown';
+
+      if (config.debugWebhooks) {
+        await this.agentLog.info(run.id, `Crisp webhook payload (event=${event})`, { event, payload });
+      }
+
+      const parsed = this.crisp.parseWebhookMessageDetailed(payload);
+      if (!parsed.message) {
+        await this.agentLog.info(run.id, `Crisp webhook ignored: ${parsed.reason}`, { event });
+      } else {
+        const msg = parsed.message;
         const [existing] = await this.db.db
           .select({ lastMessage: crispConversations.lastMessage })
           .from(crispConversations)
           .where(eq(crispConversations.sessionId, msg.sessionId))
           .limit(1);
-        if (!existing || existing.lastMessage !== msg.content) {
+        if (existing && existing.lastMessage === msg.content) {
+          await this.agentLog.info(run.id, `Crisp webhook deduped (sessionId=${msg.sessionId.slice(-8)} same lastMessage)`);
+        } else {
           newMessages.push(msg);
         }
       }
@@ -171,8 +187,7 @@ export class CrispAgent implements IAgent, OnModuleInit {
             { role: 'system', content: systemPrompt },
             { role: 'user', content: msg.content },
           ],
-          provider: config.llm.provider as any,
-          model: config.llm.model,
+          ...agentLlmOpts(config),
           maxTokens: 200,
         });
 
@@ -411,8 +426,6 @@ If not, rewrite and return: {"ok":false,"revised":"improved reply here"}`,
           },
           { role: 'user', content: `Draft: "${draft}"` },
         ],
-        provider: 'auto',
-        model: 'gpt-4o-mini',
         maxTokens: 300,
       });
       const result = JSON.parse(critique.content);

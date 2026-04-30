@@ -1,10 +1,9 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
 import { DbService } from '../../../db/db.service';
-import { agents, tasks } from '../../../db/schema';
+import { agents } from '../../../db/schema';
 import { AgentRegistryService } from '../runtime/agent-registry.service';
 import { LlmRouterService } from '../../llm/llm-router.service';
-import { GREETING_SET, normalizeForGreeting } from '../../telegram/greetings';
 import type {
   IAgent,
   TriggerSpec,
@@ -16,6 +15,9 @@ import type {
   McpToolDefinition,
   AgentApiRoute,
 } from '../runtime/types';
+import { agentLlmOpts } from '../runtime/llm-config.util';
+import { TelegramChatStateService } from '../../telegram/telegram-chat-state.service';
+import { RemindersService } from '../../reminders/reminders.service';
 
 const ROUTABLE_AGENTS = [
   { key: 'daily_reminder', name: 'Daily Reminder', aliases: ['daily', 'reminder', 'brief', 'status'], desc: 'Status updates, pending tasks, daily briefs, system status' },
@@ -40,16 +42,23 @@ export type TelegramRouteResult =
   | { kind: 'time_unparseable'; reply: string }
   | { kind: 'mention_route'; agentKey: string; agentName: string; instructions: string }
   | { kind: 'classified_route'; agentKey: string; agentName: string; instructions: string }
+  | { kind: 'clarify'; reply: string }
   | { kind: 'show_picker'; text: string };
 
+type IntentDecision =
+  | { kind: 'smalltalk'; reply: string }
+  | { kind: 'reminder'; message: string; whenIso?: string }
+  | { kind: 'route'; agentKey: string; instructions: string; confidence: number }
+  | { kind: 'continue'; followup: string }
+  | { kind: 'clarify'; question: string };
+
 interface TelegramBotConfig {
-  llm: { provider: string; model: string };
+  llm?: { provider?: string; model?: string };
   helpReply: string;
   reminderFollowupPrompt: string;
 }
 
 const DEFAULT_CONFIG: TelegramBotConfig = {
-  llm: { provider: 'auto', model: 'gpt-4o-mini' },
   helpReply: 'Hi. I route messages to your agents. Try things like:\n• `remind me to drink water in 5 minutes`\n• `draft a reply to the latest email`\n• `give me today\'s status`\n• `@linkedin connect with the new sign-ups`',
   reminderFollowupPrompt: 'When should I trigger it? Reply with something like `in 20 min`, `tomorrow at 9am`, or `8pm`.',
 };
@@ -60,13 +69,21 @@ export class TelegramBotAgent implements IAgent, OnModuleInit {
   readonly name = 'Telegram Bot';
   private readonly logger = new Logger(TelegramBotAgent.name);
 
-  // Per-chat pending reminder waiting for the user to reply with a time.
-  private pendingReminders = new Map<string, { message: string; expiresAt: number }>();
+  // In-memory intent cache keyed by exact text — repeated phrases never
+  // hit the LLM. Stays per-process since it's a perf optimization;
+  // pending reminders, by contrast, live in Postgres so they survive restarts.
+  private intentCache = new Map<string, { decision: IntentDecision; expiresAt: number }>();
+  private static INTENT_CACHE_TTL_MS = 60 * 60 * 1000;
+  private static CLASSIFIER_TIMEOUT_MS = 3_000;
+  private static ROUTE_CONFIDENCE_THRESHOLD = 0.55;
+  private static PENDING_REMINDER_TTL_MS = 5 * 60 * 1000;
 
   constructor(
     private db: DbService,
     private llm: LlmRouterService,
     private registry: AgentRegistryService,
+    private chatState: TelegramChatStateService,
+    private reminders: RemindersService,
   ) {}
 
   onModuleInit() {
@@ -111,7 +128,7 @@ export class TelegramBotAgent implements IAgent, OnModuleInit {
 
     // Explicit cancel — clears any pending state and acknowledges.
     if (/^(\/cancel|cancel|nvm|never\s*mind|forget\s+(it|that))$/i.test(trimmed)) {
-      const had = this.pendingReminders.delete(chatId);
+      const had = await this.chatState.clearPendingReminder(chatId);
       return {
         kind: 'cancelled',
         reply: had ? 'Cancelled — what else?' : 'Nothing pending. What would you like to do?',
@@ -124,13 +141,13 @@ export class TelegramBotAgent implements IAgent, OnModuleInit {
     }
 
     // 0a. Pending reminder waiting for time?
-    const pending = this.pendingReminders.get(chatId);
-    if (pending && Date.now() < pending.expiresAt) {
-      this.pendingReminders.delete(chatId);
+    const pending = await this.chatState.getPendingReminder(chatId);
+    if (pending) {
+      await this.chatState.clearPendingReminder(chatId);
       try {
-        const reminder = await this.detectReminder(`${pending.message} ${text}`, tz);
+        const reminder = await this.reminders.parse(`${pending.message} ${text}`, tz);
         if (reminder) {
-          await this.scheduleReminder(reminder);
+          await this.reminders.schedule(reminder);
           return {
             kind: 'reminder_scheduled',
             reply: `Reminder scheduled for *${reminder.sendAtLabel}*\n_"${reminder.message}"_`,
@@ -139,90 +156,330 @@ export class TelegramBotAgent implements IAgent, OnModuleInit {
       } catch (err) {
         this.logger.warn(`Pending reminder time-parse failed: ${(err as Error).message}`);
       }
-      this.pendingReminders.set(chatId, { ...pending, expiresAt: Date.now() + 5 * 60_000 });
+      await this.chatState.setPendingReminder(chatId, pending.message, TelegramBotAgent.PENDING_REMINDER_TTL_MS);
       return {
         kind: 'time_unparseable',
         reply: `I couldn't understand that as a time. Reply with something like \`in 20 min\`, \`tomorrow at 9am\`, or \`8pm\`.`,
       };
     }
 
-    // 0b. Smalltalk
-    if (this.isSmalltalk(text)) {
-      return { kind: 'smalltalk', reply: this.smalltalkReply(text) };
-    }
-
-    // 1. Reminder with explicit time
-    try {
-      const reminder = await this.detectReminder(text, tz);
-      if (reminder) {
-        await this.scheduleReminder(reminder);
-        return {
-          kind: 'reminder_scheduled',
-          reply: `Reminder scheduled for *${reminder.sendAtLabel}*\n_"${reminder.message}"_`,
-        };
-      }
-    } catch (err) {
-      this.logger.warn(`Reminder detection failed: ${(err as Error).message}`);
-    }
-
-    // 1b. Reminder/task INTENT but no time — ask for it
-    if (this.hasTaskIntent(text)) {
-      const cleaned = this.stripTaskIntent(text);
-      this.pendingReminders.set(chatId, {
-        message: cleaned || text,
-        expiresAt: Date.now() + 5 * 60_000,
-      });
-      return {
-        kind: 'ask_for_time',
-        pendingMessage: cleaned || text,
-        reply: `Got it — I'll set a reminder for: _"${cleaned || text}"_\n\nWhen should I trigger it? Reply with something like \`in 20 min\`, \`tomorrow at 9am\`, or \`8pm\`.`,
-      };
-    }
-
-    // 2. @mention
+    // 1. @mention fast-path (exact, no LLM)
     const mentionMatch = text.match(/^@(\S+)\s+([\s\S]+)/i);
     if (mentionMatch) {
       const [, mention, instruction] = mentionMatch;
       const target = this.resolveAgentByAlias(mention.toLowerCase());
       if (target) {
-        return {
+        const mentionResult: TelegramRouteResult = {
           kind: 'mention_route',
           agentKey: target.key,
           agentName: target.name,
           instructions: instruction.trim(),
         };
+        void this.chatState.logRouting({
+          chatId,
+          inboundText: text,
+          decidedKind: mentionResult.kind,
+          decidedAgentKey: mentionResult.agentKey,
+          latencyMs: 0,
+        });
+        await this.chatState.appendTurn(chatId, 'user', text, 'mention');
+        await this.chatState.appendTurn(chatId, 'assistant', `→ ${mentionResult.agentName}: ${mentionResult.instructions}`, 'mention_route');
+        void this.chatState.setLastRoute(chatId, mentionResult.agentKey, mentionResult.instructions, null);
+        return mentionResult;
       }
     }
 
-    // 3. LLM classifier
+    // 2. Single schema-constrained classifier (with cache + timeout)
+    let decision: IntentDecision | null = null;
+    const startedAt = Date.now();
     try {
-      const agentKey = await this.classifyWithLlm(text);
-      if (agentKey) {
-        const meta = ROUTABLE_AGENTS.find((a) => a.key === agentKey)!;
-        return {
-          kind: 'classified_route',
-          agentKey,
-          agentName: meta.name,
-          instructions: text,
-        };
-      }
+      decision = await this.decideIntent(text, chatId, tz);
     } catch (err) {
-      this.logger.warn(`LLM routing failed: ${(err as Error).message}`);
+      this.logger.warn(`Intent classifier failed: ${(err as Error).message}`);
+    }
+    const latencyMs = Date.now() - startedAt;
+    this.logger.log(`route chatId=${chatId} kind=${decision?.kind ?? 'null'} latency=${latencyMs}ms`);
+
+    // Compute the final TelegramRouteResult from the decision.
+    const result: TelegramRouteResult = await this.applyDecision(text, chatId, tz, decision);
+
+    // Persist routing log + rolling-context turns + last-route for follow-ups.
+    void this.chatState.logRouting({
+      chatId,
+      inboundText: text,
+      decidedKind: result.kind,
+      decidedAgentKey:
+        result.kind === 'classified_route' || result.kind === 'mention_route'
+          ? (result as { agentKey: string }).agentKey
+          : null,
+      confidence: decision?.kind === 'route' ? decision.confidence : null,
+      latencyMs,
+    });
+    await this.chatState.appendTurn(chatId, 'user', text, decision?.kind ?? 'unknown');
+    const assistantTurn = this.summarizeResult(result);
+    if (assistantTurn) await this.chatState.appendTurn(chatId, 'assistant', assistantTurn, result.kind);
+    if (result.kind === 'classified_route') {
+      void this.chatState.setLastRoute(chatId, result.agentKey, result.instructions, null);
+    }
+    return result;
+  }
+
+  private summarizeResult(result: TelegramRouteResult): string {
+    switch (result.kind) {
+      case 'smalltalk':
+      case 'help':
+      case 'cancelled':
+      case 'reminder_scheduled':
+      case 'time_unparseable':
+      case 'clarify':
+        return result.reply.slice(0, 400);
+      case 'ask_for_time':
+        return `(asking for reminder time) ${result.pendingMessage}`.slice(0, 400);
+      case 'mention_route':
+      case 'classified_route':
+        return `→ ${result.agentName}: ${result.instructions.slice(0, 200)}`;
+      case 'show_picker':
+        return `(showed picker) ${result.text.slice(0, 200)}`;
+    }
+  }
+
+  private async applyDecision(
+    text: string,
+    chatId: string,
+    tz: string,
+    decision: IntentDecision | null,
+  ): Promise<TelegramRouteResult> {
+    if (decision) {
+      switch (decision.kind) {
+        case 'smalltalk':
+          return { kind: 'smalltalk', reply: decision.reply || this.helpReply() };
+
+        case 'reminder': {
+          if (decision.whenIso) {
+            const sendAt = new Date(decision.whenIso);
+            if (!isNaN(sendAt.getTime())) {
+              const message = decision.message || text;
+              try {
+                await this.reminders.schedule({ message, sendAt });
+                return {
+                  kind: 'reminder_scheduled',
+                  reply: `Reminder scheduled for *${this.reminders.formatLocal(sendAt, tz)}*\n_"${message}"_`,
+                };
+              } catch (err) {
+                this.logger.warn(`Schedule reminder failed: ${(err as Error).message}`);
+              }
+            }
+          }
+          // Reminder intent without a parseable time → ask for it.
+          const cleaned = decision.message || this.reminders.stripTaskIntent(text) || text;
+          await this.chatState.setPendingReminder(chatId, cleaned, TelegramBotAgent.PENDING_REMINDER_TTL_MS);
+          return {
+            kind: 'ask_for_time',
+            pendingMessage: cleaned,
+            reply: `Got it — I'll set a reminder for: _"${cleaned}"_\n\nWhen should I trigger it? Reply with something like \`in 20 min\`, \`tomorrow at 9am\`, or \`8pm\`.`,
+          };
+        }
+
+        case 'route': {
+          const meta = ROUTABLE_AGENTS.find((a) => a.key === decision.agentKey);
+          if (meta && decision.confidence >= TelegramBotAgent.ROUTE_CONFIDENCE_THRESHOLD) {
+            return {
+              kind: 'classified_route',
+              agentKey: meta.key,
+              agentName: meta.name,
+              instructions: decision.instructions || text,
+            };
+          }
+          return {
+            kind: 'clarify',
+            reply: meta
+              ? `Did you mean *${meta.name}*? Reply 'yes' to confirm or describe what you want.`
+              : `I'm not sure which agent fits. Could you give me a bit more detail?`,
+          };
+        }
+
+        case 'continue': {
+          const last = await this.chatState.getLastRoute(chatId);
+          if (!last || !last.agentKey) {
+            return {
+              kind: 'clarify',
+              reply: `I don't have a previous task to follow up on. Tell me what you'd like to do?`,
+            };
+          }
+          const meta = ROUTABLE_AGENTS.find((a) => a.key === last.agentKey);
+          if (!meta) {
+            return { kind: 'clarify', reply: `The previous agent isn't available anymore. What should I do?` };
+          }
+          const composed = last.instructions
+            ? `${last.instructions}\n\nFollow-up from the user: ${decision.followup || text}`
+            : decision.followup || text;
+          return {
+            kind: 'classified_route',
+            agentKey: meta.key,
+            agentName: meta.name,
+            instructions: composed,
+          };
+        }
+
+        case 'clarify':
+          return { kind: 'clarify', reply: decision.question || `Could you tell me a little more?` };
+      }
+    }
+
+    // Classifier failed AND text is short → safest fallback is smalltalk
+    if (text.trim().length < 30 && text.trim().split(/\s+/).length <= 3) {
+      return { kind: 'smalltalk', reply: this.smalltalkReply(text) };
     }
 
     return { kind: 'show_picker', text };
   }
 
+  // ── Schema-constrained classifier ────────────────────────────────────────
+
+  private async decideIntent(text: string, chatId: string, tz: string): Promise<IntentDecision | null> {
+    // Cache by exact text only when we have no recent turns — context-free
+    // messages like "status" / "hello" repeat constantly and should never
+    // re-hit the LLM. Once a conversation has context, the same text can
+    // mean different things, so skip the cache.
+    const recentTurns = await this.chatState.getRecentTurns(chatId);
+    const lastRoute = await this.chatState.getLastRoute(chatId);
+
+    const cacheKey = text.trim();
+    if (recentTurns.length === 0) {
+      const cached = this.intentCache.get(cacheKey);
+      if (cached && Date.now() < cached.expiresAt) return cached.decision;
+    }
+
+    const config = await this.getConfig();
+    const nowUtc = new Date();
+    const nowLocal = nowUtc.toLocaleString('en-US', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: true, weekday: 'short', month: 'short', day: 'numeric' });
+    const agentList = ROUTABLE_AGENTS.map((a) => `- ${a.key}: ${a.desc}`).join('\n');
+
+    const tools = [
+      {
+        name: 'decide',
+        description: 'Decide what to do with the user message. Call exactly once.',
+        parameters: {
+          type: 'object',
+          properties: {
+            kind: { type: 'string', enum: ['smalltalk', 'reminder', 'route', 'continue', 'clarify'] },
+            // smalltalk
+            smalltalk_reply: { type: 'string', description: 'Short friendly reply when kind=smalltalk. Required.' },
+            // reminder
+            reminder_message: { type: 'string', description: 'What to remind about (no time words). Required when kind=reminder.' },
+            reminder_when_iso: { type: 'string', description: 'ISO 8601 UTC datetime to fire the reminder. OMIT if user did not specify a time.' },
+            // route
+            agent_key: { type: 'string', enum: ROUTABLE_AGENTS.map((a) => a.key) },
+            instructions: { type: 'string', description: 'Forwarded as the agent prompt. Defaults to the original message.' },
+            confidence: { type: 'number', description: '0..1 confidence in the agent choice. Use <0.55 if unsure.' },
+            // continue
+            continue_followup: { type: 'string', description: 'When kind=continue, the follow-up instruction to apply to the previous task (e.g. "make it shorter", "add another bullet"). Required.' },
+            // clarify
+            clarify_question: { type: 'string', description: 'A short question to ask the user when uncertain.' },
+          },
+          required: ['kind'],
+        },
+      },
+    ];
+
+    const turnsBlock = recentTurns.length
+      ? `Recent conversation (oldest → newest):\n${recentTurns.map((t) => `[${t.role}${t.kind ? `:${t.kind}` : ''}] ${t.text}`).join('\n')}\n\n`
+      : '';
+    const lastRouteBlock = lastRoute?.agentKey
+      ? `Last task: agent="${lastRoute.agentKey}", instructions="${(lastRoute.instructions ?? '').slice(0, 200)}".\n\n`
+      : '';
+
+    const systemPrompt = `You classify a single Telegram message from the bot's owner and decide one of: smalltalk, reminder, route, continue, clarify. ALWAYS call the "decide" tool exactly once.
+
+Guidelines:
+- smalltalk: greetings, thanks, vibes, casual chat. Provide a brief friendly smalltalk_reply (under 20 words).
+- reminder: the message asks to be reminded / scheduled. Set reminder_message. If a time is given, set reminder_when_iso. Otherwise omit reminder_when_iso so the bot can ask.
+- route: the message is a NEW task that fits one of the available agents. Set agent_key, instructions (rephrase if needed), and confidence (0..1). If confidence < 0.55 prefer clarify instead.
+- continue: the message is a follow-up that modifies the LAST task ("make it shorter", "do it again", "add another bullet", "not that one, the other one"). Only use this when there IS a "Last task" below. Set continue_followup.
+- clarify: ambiguous or out-of-scope. Set clarify_question (under 20 words).
+
+Available agents:
+${agentList}
+
+${turnsBlock}${lastRouteBlock}Current local time: ${nowLocal} (${tz}). Current UTC: ${nowUtc.toISOString()}.`;
+
+    const completion = this.llm.completeWithTools({
+      ...agentLlmOpts(config),
+      tools,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: text },
+      ],
+      maxTokens: 300,
+      temperature: 0.1,
+    });
+
+    const result = await Promise.race([
+      completion,
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('classifier timeout')), TelegramBotAgent.CLASSIFIER_TIMEOUT_MS),
+      ),
+    ]);
+
+    if (result.type !== 'tool_calls' || result.tool_calls.length === 0) return null;
+
+    let args: Record<string, unknown>;
+    try {
+      args = JSON.parse(result.tool_calls[0].arguments);
+    } catch {
+      return null;
+    }
+
+    const decision = this.normalizeDecision(args);
+    // Only cache stable, context-free decisions. Skip 'continue' (depends on
+    // last route) and any decision whose meaning depended on recent turns.
+    if (decision && decision.kind !== 'continue' && recentTurns.length === 0) {
+      this.intentCache.set(cacheKey, { decision, expiresAt: Date.now() + TelegramBotAgent.INTENT_CACHE_TTL_MS });
+    }
+    return decision;
+  }
+
+  private normalizeDecision(args: Record<string, unknown>): IntentDecision | null {
+    const kind = args.kind as string;
+    switch (kind) {
+      case 'smalltalk':
+        return { kind: 'smalltalk', reply: String(args.smalltalk_reply ?? '').trim() };
+      case 'reminder':
+        return {
+          kind: 'reminder',
+          message: String(args.reminder_message ?? '').trim(),
+          ...(args.reminder_when_iso ? { whenIso: String(args.reminder_when_iso) } : {}),
+        };
+      case 'route': {
+        const agentKey = String(args.agent_key ?? '').trim();
+        if (!agentKey) return null;
+        const confidenceRaw = typeof args.confidence === 'number' ? args.confidence : 0.5;
+        return {
+          kind: 'route',
+          agentKey,
+          instructions: String(args.instructions ?? '').trim(),
+          confidence: Math.max(0, Math.min(1, confidenceRaw)),
+        };
+      }
+      case 'continue':
+        return { kind: 'continue', followup: String(args.continue_followup ?? '').trim() };
+      case 'clarify':
+        return { kind: 'clarify', question: String(args.clarify_question ?? '').trim() };
+      default:
+        return null;
+    }
+  }
+
   // Used by TelegramService when the user taps a quick-time inline button:
   // schedules immediately if pending intent exists, otherwise no-op.
   async resolvePendingReminderWithDelay(chatId: string, delayMinutes: number, tz: string): Promise<{ scheduled: boolean; reply: string }> {
-    const pending = this.pendingReminders.get(chatId);
-    if (!pending || Date.now() >= pending.expiresAt) {
+    const pending = await this.chatState.getPendingReminder(chatId);
+    if (!pending) {
       return { scheduled: false, reply: 'No pending reminder — start with `remind me to ...`.' };
     }
-    this.pendingReminders.delete(chatId);
+    await this.chatState.clearPendingReminder(chatId);
     const sendAt = new Date(Date.now() + delayMinutes * 60 * 1000);
-    await this.scheduleReminder({ message: pending.message, sendAt });
+    await this.reminders.schedule({ message: pending.message, sendAt });
     const sendAtLabel =
       sendAt.toLocaleString('en-US', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: true }) +
       ` (in ${delayMinutes} min)`;
@@ -233,11 +490,8 @@ export class TelegramBotAgent implements IAgent, OnModuleInit {
   }
 
   /** Pre-set a pending reminder (used by /remind <text>). */
-  setPendingReminder(chatId: string, message: string): void {
-    this.pendingReminders.set(chatId, {
-      message,
-      expiresAt: Date.now() + 5 * 60_000,
-    });
+  async setPendingReminder(chatId: string, message: string): Promise<void> {
+    await this.chatState.setPendingReminder(chatId, message, TelegramBotAgent.PENDING_REMINDER_TTL_MS);
   }
 
   // ── Internal helpers ─────────────────────────────────────────────────────
@@ -251,45 +505,7 @@ export class TelegramBotAgent implements IAgent, OnModuleInit {
     }
   }
 
-  private async scheduleReminder(reminder: { message: string; sendAt: Date }): Promise<void> {
-    await this.db.db.insert(tasks).values({
-      title: 'Reminder',
-      instructions: `REMINDER: ${reminder.message}`,
-      agentKey: 'daily_reminder',
-      status: 'pending',
-      nextRunAt: reminder.sendAt,
-    });
-  }
-
-  // ── Smalltalk ────────────────────────────────────────────────────────────
-
-  private static SMALLTALK_PHRASES: readonly RegExp[] = [
-    /^good\s*(morning|afternoon|evening|night|day)$/i,
-    /^how\s+(are|r)\s+(you|u|ya|yall|y'all)\b.*$/i,
-    /^how(\s+are)?\s+things\b.*$/i,
-    /^how(\s+is|'s|s)\s+it\s+going\b.*$/i,
-    /^how\s+do\s+you\s+do\b.*$/i,
-    /^what'?s\s+up\b.*$/i,
-    /^thank\s+you(\s+(so\s+much|very\s+much|kindly))?$/i,
-    /^thanks\s+(a\s+lot|a\s+ton|a\s+bunch|so\s+much|very\s+much)$/i,
-    /^see\s+(you|ya|u)(\s+(later|soon|tomorrow))?$/i,
-    /^talk\s+(to\s+you\s+)?later$/i,
-    /^take\s+care$/i,
-    /^have\s+a\s+(good|great|nice)\s+(day|one|night|evening)$/i,
-    /^what\s+can\s+you\s+do\b.*$/i,
-    /^who\s+(are|r)\s+you\b.*$/i,
-  ];
-
-  private isSmalltalk(text: string): boolean {
-    const normalized = normalizeForGreeting(text);
-    if (!normalized || normalized.length === 1) return true;
-    if (GREETING_SET.has(normalized)) return true;
-    if (/^\/(start|help|menu|about)\b/i.test(text.trim())) return true;
-    for (const re of TelegramBotAgent.SMALLTALK_PHRASES) {
-      if (re.test(normalized)) return true;
-    }
-    return false;
-  }
+  // ── Smalltalk fallback (used when the LLM classifier times out) ──────────
 
   private smalltalkReply(text: string): string {
     const t = text.trim().toLowerCase();
@@ -331,21 +547,6 @@ export class TelegramBotAgent implements IAgent, OnModuleInit {
     ].join('\n');
   }
 
-  // ── Task-intent detection ────────────────────────────────────────────────
-
-  private hasTaskIntent(text: string): boolean {
-    return /\b(remind\s+me|set\s+(a\s+|me\s+a\s+)?reminder|give\s+me\s+(a\s+)?reminder|create\s+(a\s+)?(reminder|task|alarm)|add\s+(a\s+)?(reminder|task)|schedule\s+(a\s+|me\s+a\s+)?(reminder|task|message|notification)|alert\s+me|set\s+(a\s+|an\s+)?alarm|set\s+(a\s+)?task|new\s+(reminder|task))\b/i.test(text);
-  }
-
-  private stripTaskIntent(text: string): string {
-    return text
-      .replace(/^(please\s+)?(can\s+you\s+|could\s+you\s+|will\s+you\s+)?/i, '')
-      .replace(/\b(remind\s+me\s+(to\s+|about\s+)?|set\s+(a\s+|me\s+a\s+)?reminder\s+(to\s+|about\s+|for\s+)?|give\s+me\s+(a\s+)?reminder\s+(to\s+|about\s+|for\s+)?|create\s+(a\s+)?(reminder|task|alarm)\s+(to\s+|for\s+)?|add\s+(a\s+)?(reminder|task)\s+(to\s+|for\s+)?|schedule\s+(a\s+|me\s+a\s+)?(reminder|task|message|notification)\s+(to\s+|about\s+|for\s+)?|alert\s+me\s+(to\s+|about\s+)?|new\s+(reminder|task)\s+(to\s+|about\s+|for\s+)?)/i, '')
-      .trim()
-      .replace(/^["'`]+|["'`]+$/g, '')
-      .replace(/^[.,;:\s]+|[.,;:\s]+$/g, '');
-  }
-
   // ── @mention resolver ────────────────────────────────────────────────────
 
   private resolveAgentByAlias(input: string): typeof ROUTABLE_AGENTS[0] | null {
@@ -360,170 +561,4 @@ export class TelegramBotAgent implements IAgent, OnModuleInit {
     );
   }
 
-  // ── LLM classifier ───────────────────────────────────────────────────────
-
-  private async classifyWithLlm(text: string): Promise<string | null> {
-    const config = await this.getConfig();
-    const agentList = ROUTABLE_AGENTS.map((a) => `- ${a.key}: ${a.desc}`).join('\n');
-
-    const response = await this.llm.complete({
-      provider: config.llm.provider as never,
-      model: config.llm.model,
-      messages: [
-        {
-          role: 'system',
-          content: `You route a single user message to ONE agent in an AI agent platform.
-
-Available agents:
-${agentList}
-
-Decision rules:
-- Pick the single best-matching agent. Bias toward picking an agent rather than null.
-- Reminders, motivational messages, daily briefs, status checks → daily_reminder
-- Emails, inbox, drafting replies, Gmail → email_manager
-- Customer support / live chat / Crisp → crisp
-- LinkedIn connections, outreach, DMs, posts → linkedin
-- Reddit threads, comments, monitoring keywords → reddit
-- Twitter/X, Facebook, social posts, scheduling → social
-- WhatsApp messages → whatsapp
-- Trial signups, onboarding emails for Taskip → taskip_trial
-- Leave / salary / payroll / employee questions → hr
-- Designs, banners, posters, Canva → canva
-- YouTube Shorts, video scripts → shorts
-
-Output ONLY JSON: {"agent": "<agent_key>", "confidence": "high|medium|low"}
-Use {"agent": null, "confidence": "low"} only for greetings or unrelated chatter.`,
-        },
-        { role: 'user', content: text },
-      ],
-      maxTokens: 60,
-      temperature: 0,
-    });
-
-    try {
-      const raw = response.content.trim().replace(/^```json\s*|```$/g, '');
-      const parsed = JSON.parse(raw) as { agent: string | null; confidence: string };
-      if ((parsed.confidence === 'high' || parsed.confidence === 'medium') && parsed.agent) {
-        const valid = ROUTABLE_AGENTS.find((a) => a.key === parsed.agent);
-        return valid ? valid.key : null;
-      }
-    } catch {
-      // ignore parse errors
-    }
-    return null;
-  }
-
-  // ── Reminder detection (relative + absolute) ─────────────────────────────
-
-  private async detectReminder(text: string, tz: string): Promise<{ message: string; sendAt: Date; sendAtLabel: string } | null> {
-    const nowUtc = new Date();
-    const nowLocal = nowUtc.toLocaleString('en-US', { timeZone: tz, hour12: false });
-
-    const rel = this.parseRelativeDuration(text);
-    if (rel) {
-      const sendAt = new Date(nowUtc.getTime() + rel.minutes * 60 * 1000);
-      return {
-        message: rel.message,
-        sendAt,
-        sendAtLabel:
-          sendAt.toLocaleString('en-US', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: true }) +
-          ` (in ${rel.minutes} min)`,
-      };
-    }
-
-    const config = await this.getConfig();
-    const response = await this.llm.complete({
-      provider: config.llm.provider as never,
-      model: config.llm.model,
-      messages: [
-        {
-          role: 'system',
-          content: `You detect timed reminders in user messages. Current UTC time: ${nowUtc.toISOString()}. User timezone: ${tz}, local time now: ${nowLocal}.
-
-If a reminder, output ONE of:
-(a) absolute: {"isReminder": true, "kind": "absolute", "message": "<clean reminder text>", "targetLocalHHMM": "HH:MM", "sendMinutesBefore": 0}
-(b) relative: {"isReminder": true, "kind": "relative", "message": "<clean reminder text>", "delayMinutes": 5}
-
-Otherwise: {"isReminder": false}
-ONLY JSON, no prose.`,
-        },
-        { role: 'user', content: text },
-      ],
-      maxTokens: 150,
-      temperature: 0,
-    });
-
-    try {
-      const raw = response.content.trim().replace(/^```json\s*|```$/g, '');
-      const parsed = JSON.parse(raw) as {
-        isReminder: boolean;
-        kind?: 'absolute' | 'relative';
-        message?: string;
-        targetLocalHHMM?: string;
-        sendMinutesBefore?: number;
-        delayMinutes?: number;
-      };
-      if (!parsed.isReminder || !parsed.message) return null;
-
-      if (parsed.kind === 'relative' && parsed.delayMinutes && parsed.delayMinutes > 0) {
-        const sendAt = new Date(nowUtc.getTime() + parsed.delayMinutes * 60 * 1000);
-        return {
-          message: parsed.message,
-          sendAt,
-          sendAtLabel:
-            sendAt.toLocaleString('en-US', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: true }) +
-            ` (in ${parsed.delayMinutes} min)`,
-        };
-      }
-
-      if (parsed.targetLocalHHMM) {
-        const [hh, mm] = parsed.targetLocalHHMM.split(':').map(Number);
-        const sendBefore = parsed.sendMinutesBefore ?? 0;
-        const sendAt = this.computeNextLocalTimeUtc(hh, mm, tz, nowUtc, sendBefore);
-        const localLabel = sendAt.toLocaleString('en-US', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: true });
-        return { message: parsed.message, sendAt, sendAtLabel: localLabel };
-      }
-      return null;
-    } catch {
-      return null;
-    }
-  }
-
-  private parseRelativeDuration(text: string): { minutes: number; message: string } | null {
-    const m = text.match(/\b(?:in|after|after\s+next|in\s+next)\s+(\d+)\s*(s|sec|secs|second|seconds|m|min|mins|minute|minutes|h|hr|hrs|hour|hours)\b/i);
-    if (!m) return null;
-    const value = parseInt(m[1], 10);
-    const unit = m[2].toLowerCase();
-    let minutes: number;
-    if (/^(s|sec|secs|second|seconds)$/.test(unit)) minutes = Math.max(1, Math.round(value / 60));
-    else if (/^(h|hr|hrs|hour|hours)$/.test(unit)) minutes = value * 60;
-    else minutes = value;
-    if (minutes < 1 || minutes > 60 * 24 * 7) return null;
-
-    let message = text.replace(m[0], '').trim();
-    message = message.replace(/^(please\s+)?(can\s+you\s+)?(send|remind|tell|message|text|give)\s+me\s+(a\s+)?(reminder\s+)?(to\s+|about\s+|for\s+)?/i, '').trim();
-    message = message.replace(/^(a|an)\s+/i, '').trim();
-    if (!message) message = text.trim();
-    message = message.charAt(0).toUpperCase() + message.slice(1);
-    return { minutes, message };
-  }
-
-  private computeNextLocalTimeUtc(hh: number, mm: number, tz: string, now: Date, minutesBefore: number): Date {
-    const nowParts = new Intl.DateTimeFormat('en-US', {
-      timeZone: tz, hour12: false,
-      year: 'numeric', month: '2-digit', day: '2-digit',
-      hour: '2-digit', minute: '2-digit', second: '2-digit',
-    }).formatToParts(now);
-    const get = (k: string) => Number(nowParts.find((p) => p.type === k)?.value ?? '0');
-    const localY = get('year'), localMo = get('month'), localD = get('day');
-    const localH = get('hour'), localMi = get('minute');
-
-    const offsetMin = (localH * 60 + localMi) - (now.getUTCHours() * 60 + now.getUTCMinutes());
-    let candidateUtc = Date.UTC(localY, localMo - 1, localD, hh, mm, 0) - offsetMin * 60 * 1000;
-    const nowMs = now.getTime();
-    if (candidateUtc - minutesBefore * 60 * 1000 <= nowMs) {
-      candidateUtc += 24 * 60 * 60 * 1000;
-    }
-    return new Date(candidateUtc - minutesBefore * 60 * 1000);
-  }
 }

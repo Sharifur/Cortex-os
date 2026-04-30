@@ -17,12 +17,13 @@ import type {
   McpToolDefinition,
   AgentApiRoute,
 } from '../runtime/types';
+import { agentLlmOpts } from '../runtime/llm-config.util';
 
 interface HrConfig {
   companyName: string;
   currency: string;
   workingDaysPerMonth: number;
-  llm: { provider: string; model: string };
+  llm?: { provider?: string; model?: string };
 }
 
 interface HrSnapshot {
@@ -37,7 +38,6 @@ const DEFAULT_CONFIG: HrConfig = {
   companyName: 'Xgenious',
   currency: 'BDT',
   workingDaysPerMonth: 26,
-  llm: { provider: 'auto', model: 'gpt-4o-mini' },
 };
 
 @Injectable()
@@ -168,8 +168,7 @@ export class HrAgent implements IAgent, OnModuleInit {
                 content: `Employee: ${emp?.name ?? leave.employeeId}\nType: ${leave.type}\nFrom: ${leave.fromDate} To: ${leave.toDate}\nReason: ${leave.reason ?? 'Not provided'}`,
               },
             ],
-            provider: config.llm.provider as any,
-            model: config.llm.model,
+            ...agentLlmOpts(config),
             maxTokens: 150,
           });
 

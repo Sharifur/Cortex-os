@@ -19,6 +19,7 @@ import type {
   McpToolDefinition,
   AgentApiRoute,
 } from '../runtime/types';
+import { agentLlmOpts } from '../runtime/llm-config.util';
 
 interface SegmentConfig {
   enabled: boolean;
@@ -27,7 +28,7 @@ interface SegmentConfig {
 
 interface AgentConfig {
   segments: Record<string, SegmentConfig>;
-  llm: { provider: string; model: string };
+  llm?: { provider?: string; model?: string };
   emailProvider: 'gmail' | 'ses';
   gmail: { from: string };
   ses: { from: string; configurationSet?: string };
@@ -315,8 +316,7 @@ export class TaskipTrialAgent implements IAgent, OnModuleInit {
       : prompt.user(user);
 
     const response = await this.llm.complete({
-      provider: config.llm.provider as 'openai' | 'gemini' | 'deepseek' | 'auto',
-      model: config.llm.model,
+      ...agentLlmOpts(config),
       messages: [
         { role: 'system', content: prompt.system },
         { role: 'user', content: userMsg },
@@ -361,7 +361,6 @@ export class TaskipTrialAgent implements IAgent, OnModuleInit {
         paid_at_risk: { enabled: true, templatePromptId: 'paid_at_risk' },
         churned_30d: { enabled: false, templatePromptId: 'churned_d30' },
       },
-      llm: { provider: 'openai', model: 'gpt-4o-mini' },
       emailProvider: 'gmail',
       gmail: { from: 'Sharifur <sharifur@taskip.net>' },
       ses: { from: 'Sharifur <sharifur@taskip.net>', configurationSet: 'ses-monitoring' },

@@ -17,13 +17,14 @@ import type {
   McpToolDefinition,
   AgentApiRoute,
 } from '../runtime/types';
+import { agentLlmOpts } from '../runtime/llm-config.util';
 
 interface CanvaConfig {
   brands: string[];
   formats: string[];
   targetCount: number;
   brandVoice: string;
-  llm: { provider: string; model: string };
+  llm?: { provider?: string; model?: string };
 }
 
 interface CanvaSnapshot {
@@ -37,7 +38,6 @@ const DEFAULT_CONFIG: CanvaConfig = {
   formats: ['carousel', 'reel', 'post', 'story', 'youtube'],
   targetCount: 30,
   brandVoice: 'educational, relatable, and slightly witty — for SaaS founders and project managers',
-  llm: { provider: 'auto', model: 'gpt-4o' },
 };
 
 const CALENDAR_PROMPT = (month: string, brandVoice: string, count: number, brands: string[], formats: string[]) =>
@@ -117,8 +117,7 @@ export class CanvaAgent implements IAgent, OnModuleInit {
         messages: [
           { role: 'user', content: CALENDAR_PROMPT(month, config.brandVoice, config.targetCount, config.brands, config.formats) },
         ],
-        provider: config.llm.provider as any,
-        model: config.llm.model,
+        ...agentLlmOpts(config),
         maxTokens: 4000,
       });
 
@@ -207,8 +206,7 @@ export class CanvaAgent implements IAgent, OnModuleInit {
               { role: 'system', content: 'Write a short 30-second reel script. Hook (5 sec), body (20 sec), CTA (5 sec). No emojis. Just the script.' },
               { role: 'user', content: `Hook: ${idea.hook}\nBody: ${idea.body}\nCTA: ${idea.cta}` },
             ],
-            provider: config.llm.provider as any,
-            model: config.llm.model,
+            ...agentLlmOpts(config),
             maxTokens: 300,
           });
           return { ideaId: idea.id, script: response.content.trim() };
