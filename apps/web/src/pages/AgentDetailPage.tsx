@@ -2552,17 +2552,25 @@ function Phase4SettingsTab({ agent, token, setupContent }: {
 
 // ─── Crisp settings ────────────────────────────────────────────────────────────
 
+const CRISP_TABS = [
+  { key: 'setup', label: 'Setup', icon: BookOpen },
+  { key: 'general', label: 'General', icon: Settings },
+  { key: 'conversations', label: 'Conversations', icon: MessageSquare },
+  { key: 'runtime', label: 'Runtime', icon: List },
+] as const;
+type CrispTabKey = typeof CRISP_TABS[number]['key'];
+
 function CrispSettingsTab({ agent, token, setupContent }: {
   agent: AgentDetail;
   token: string;
   setupContent: React.ReactNode;
 }) {
-  const [activeSub, setActiveSub] = useState<Phase4TabKey>('setup');
+  const [activeSub, setActiveSub] = useState<CrispTabKey>('setup');
 
   return (
     <div>
       <div className="flex items-center gap-1 border border-border rounded-lg p-1 mb-5 bg-muted/30 w-fit">
-        {PHASE4_TABS.map(({ key, label, icon: Icon }) => (
+        {CRISP_TABS.map(({ key, label, icon: Icon }) => (
           <button
             key={key}
             onClick={() => setActiveSub(key)}
@@ -2577,7 +2585,139 @@ function CrispSettingsTab({ agent, token, setupContent }: {
       </div>
       {activeSub === 'setup' && setupContent}
       {activeSub === 'general' && <CrispGeneralSubTab agent={agent} token={token} />}
+      {activeSub === 'conversations' && <CrispConversationsSubTab token={token} />}
       {activeSub === 'runtime' && <RuntimeSubTab agent={agent} />}
+    </div>
+  );
+}
+
+interface CrispConversation {
+  id: string;
+  sessionId: string;
+  websiteId: string;
+  visitorEmail: string | null;
+  visitorNickname: string | null;
+  lastMessage: string;
+  draftReply: string | null;
+  status: string;
+  receivedAt: string;
+  repliedAt: string | null;
+  followUp: boolean;
+  followUpNote: string | null;
+}
+
+function CrispConversationsSubTab({ token }: { token: string }) {
+  const [statusFilter, setStatusFilter] = useState<string>('');
+  const [followUpOnly, setFollowUpOnly] = useState(false);
+  const [expanded, setExpanded] = useState<string | null>(null);
+
+  const { data: rows = [], isLoading, isError, refetch } = useQuery<CrispConversation[]>({
+    queryKey: ['crisp-conversations', statusFilter, followUpOnly],
+    queryFn: () => {
+      const qs = new URLSearchParams();
+      if (statusFilter) qs.set('status', statusFilter);
+      if (followUpOnly) qs.set('followUp', 'true');
+      qs.set('limit', '100');
+      return apiFetch(token, `/crisp/conversations?${qs.toString()}`);
+    },
+    refetchInterval: 15_000,
+  });
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-xl border border-border bg-card p-4">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs text-muted-foreground">Status:</span>
+          {(['', 'new', 'replied', 'ignored', 'escalated'] as const).map((s) => (
+            <button
+              key={s || 'all'}
+              onClick={() => setStatusFilter(s)}
+              className={`text-xs px-2 py-1 rounded ${statusFilter === s ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground border border-border'}`}
+            >
+              {s || 'all'}
+            </button>
+          ))}
+          <label className="ml-auto inline-flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer">
+            <input type="checkbox" checked={followUpOnly} onChange={(e) => setFollowUpOnly(e.target.checked)} />
+            follow-ups only
+          </label>
+          <Button size="sm" variant="outline" onClick={() => refetch()}>
+            Refresh
+          </Button>
+        </div>
+      </div>
+
+      {isLoading && <div className="rounded-xl border border-border bg-card p-6 text-center text-sm text-muted-foreground">Loading…</div>}
+      {isError && <div className="rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">Failed to load conversations.</div>}
+      {!isLoading && rows.length === 0 && (
+        <div className="rounded-xl border border-border bg-card p-8 text-center">
+          <MessageSquare className="w-8 h-8 text-muted-foreground mx-auto mb-3" />
+          <p className="text-sm text-muted-foreground">No Crisp conversations yet.</p>
+          <p className="text-xs text-muted-foreground mt-1">A row appears here as soon as a visitor message hits the webhook.</p>
+        </div>
+      )}
+
+      {rows.length > 0 && (
+        <div className="rounded-xl border border-border bg-card overflow-hidden">
+          <div className="px-4 py-2.5 border-b border-border flex items-center justify-between">
+            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{rows.length} conversation(s)</span>
+            <span className="text-xs text-muted-foreground">newest first</span>
+          </div>
+          <div className="divide-y divide-border">
+            {rows.map((c) => {
+              const isOpen = expanded === c.sessionId;
+              const visitor = c.visitorNickname || c.visitorEmail || c.sessionId.slice(-8);
+              const statusCls =
+                c.status === 'replied' ? 'text-green-500 bg-green-500/10' :
+                c.status === 'escalated' ? 'text-orange-400 bg-orange-500/10' :
+                c.status === 'ignored' ? 'text-muted-foreground bg-muted/50' :
+                'text-blue-400 bg-blue-500/10';
+              return (
+                <div key={c.sessionId} className="px-4 py-3 hover:bg-accent/20 transition-colors">
+                  <button
+                    type="button"
+                    onClick={() => setExpanded(isOpen ? null : c.sessionId)}
+                    className="w-full flex items-start gap-3 text-left"
+                  >
+                    <span className={`text-xs font-medium px-2 py-0.5 rounded shrink-0 mt-0.5 ${statusCls}`}>{c.status}</span>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap mb-0.5">
+                        <span className="text-sm font-medium">{visitor}</span>
+                        {c.followUp && <span className="text-xs px-1.5 py-0.5 rounded bg-yellow-500/10 text-yellow-400">follow-up</span>}
+                        <span className="text-xs text-muted-foreground font-mono">{c.sessionId.slice(-8)}</span>
+                      </div>
+                      <p className="text-xs text-foreground/80 truncate">{c.lastMessage}</p>
+                    </div>
+                    <span className="text-xs text-muted-foreground shrink-0 mt-0.5">{new Date(c.receivedAt).toLocaleString()}</span>
+                  </button>
+                  {isOpen && (
+                    <div className="mt-3 ml-2 pl-3 border-l-2 border-border space-y-2">
+                      <div>
+                        <p className="text-xs text-muted-foreground mb-1">Customer message</p>
+                        <p className="text-sm text-foreground/90 whitespace-pre-wrap">{c.lastMessage}</p>
+                      </div>
+                      {c.draftReply ? (
+                        <div>
+                          <p className="text-xs text-muted-foreground mb-1">Draft / sent reply</p>
+                          <p className="text-sm text-foreground/90 whitespace-pre-wrap">{c.draftReply}</p>
+                        </div>
+                      ) : (
+                        <p className="text-xs text-muted-foreground italic">No draft yet.</p>
+                      )}
+                      <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
+                        <span>website: <code className="bg-muted px-1 rounded">{c.websiteId.slice(0, 8)}…</code></span>
+                        {c.visitorEmail && <span>email: {c.visitorEmail}</span>}
+                        {c.repliedAt && <span>replied: {new Date(c.repliedAt).toLocaleString()}</span>}
+                        {c.followUpNote && <span>note: {c.followUpNote}</span>}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
