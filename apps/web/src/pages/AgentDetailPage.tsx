@@ -1926,7 +1926,7 @@ function SettingsTab({ agent, token }: { agent: AgentDetail; token: string }) {
   if (agent.key === 'shorts') return <ShortsSettingsTab agent={agent} token={token} />;
 
   if (agent.key === 'crisp') return (
-    <Phase4SettingsTab agent={agent} token={token} setupContent={
+    <CrispSettingsTab agent={agent} token={token} setupContent={
       <Phase4SetupSubTab
         agent={agent}
         title="Crisp AI Agent — Setup Checklist"
@@ -1941,7 +1941,7 @@ function SettingsTab({ agent, token }: { agent: AgentDetail; token: string }) {
             </ol>
           </SetupStep>
           <SetupStep n={2} title="Set product context and tone" done={false}>
-            <p>In Config JSON set <code className="bg-muted px-1 rounded">productContext</code> (describe your product) and <code className="bg-muted px-1 rounded">replyTone</code> so the AI replies match your voice.</p>
+            <p>Use the <strong>General</strong> tab below to set product context and reply tone. For multi-site setups, set per-site overrides in <strong>Integrations → Crisp</strong>.</p>
           </SetupStep>
           <SetupStep n={3} title="Enable and test" done={agent.enabled}>
             <p>Enable and trigger manually. The agent will draft replies for open conversations and send them to Telegram for approval.</p>
@@ -2431,6 +2431,227 @@ function Phase4SettingsTab({ agent, token, setupContent }: {
       {activeSub === 'setup' && setupContent}
       {activeSub === 'general' && <Phase4GeneralSubTab agent={agent} token={token} />}
       {activeSub === 'runtime' && <RuntimeSubTab agent={agent} />}
+    </div>
+  );
+}
+
+// ─── Crisp settings ────────────────────────────────────────────────────────────
+
+function CrispSettingsTab({ agent, token, setupContent }: {
+  agent: AgentDetail;
+  token: string;
+  setupContent: React.ReactNode;
+}) {
+  const [activeSub, setActiveSub] = useState<Phase4TabKey>('setup');
+
+  return (
+    <div>
+      <div className="flex items-center gap-1 border border-border rounded-lg p-1 mb-5 bg-muted/30 w-fit">
+        {PHASE4_TABS.map(({ key, label, icon: Icon }) => (
+          <button
+            key={key}
+            onClick={() => setActiveSub(key)}
+            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-md text-sm font-medium transition-colors ${
+              activeSub === key ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            <Icon className="w-3.5 h-3.5" />
+            {label}
+          </button>
+        ))}
+      </div>
+      {activeSub === 'setup' && setupContent}
+      {activeSub === 'general' && <CrispGeneralSubTab agent={agent} token={token} />}
+      {activeSub === 'runtime' && <RuntimeSubTab agent={agent} />}
+    </div>
+  );
+}
+
+interface CrispAgentConfig {
+  replyTone?: string;
+  productContext?: string;
+  maxConversationsPerRun?: number;
+  autoReply?: boolean;
+  debugWebhooks?: boolean;
+  llm?: { provider?: string; model?: string };
+}
+
+function CrispGeneralSubTab({ agent, token }: { agent: AgentDetail; token: string }) {
+  const qc = useQueryClient();
+  const navigate = useNavigate();
+  const initial = (agent.config ?? {}) as CrispAgentConfig;
+
+  const [name, setName] = useState(agent.name);
+  const [description, setDescription] = useState(agent.description ?? '');
+  const [productContext, setProductContext] = useState(initial.productContext ?? '');
+  const [replyTone, setReplyTone] = useState(initial.replyTone ?? '');
+  const [maxConversationsPerRun, setMaxConversationsPerRun] = useState(initial.maxConversationsPerRun ?? 10);
+  const [autoReply, setAutoReply] = useState(initial.autoReply ?? true);
+  const [debugWebhooks, setDebugWebhooks] = useState(initial.debugWebhooks ?? false);
+  const [llmProvider, setLlmProvider] = useState(initial.llm?.provider ?? 'auto');
+  const [llmModel, setLlmModel] = useState(initial.llm?.model ?? 'gpt-4o-mini');
+
+  const metaMutation = useMutation({
+    mutationFn: () =>
+      apiFetch(token, `/agents/${agent.key}`, { method: 'PATCH', body: JSON.stringify({ name, description }) }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['agent', agent.key] }),
+  });
+
+  const toggleMutation = useMutation({
+    mutationFn: () =>
+      apiFetch(token, `/agents/${agent.key}`, { method: 'PATCH', body: JSON.stringify({ enabled: !agent.enabled }) }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['agent', agent.key] }),
+  });
+
+  const configMutation = useMutation({
+    mutationFn: () => {
+      const merged: CrispAgentConfig = {
+        ...initial,
+        productContext: productContext.trim(),
+        replyTone: replyTone.trim(),
+        maxConversationsPerRun,
+        autoReply,
+        debugWebhooks,
+        llm: { provider: llmProvider, model: llmModel },
+      };
+      return apiFetch(token, `/agents/${agent.key}`, { method: 'PATCH', body: JSON.stringify({ config: merged }) });
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['agent', agent.key] }),
+  });
+
+  const triggerMutation = useMutation({
+    mutationFn: () =>
+      apiFetch(token, `/agents/${agent.key}/trigger`, { method: 'POST', body: JSON.stringify({ triggerType: 'MANUAL' }) }),
+    onSuccess: (run: { id: string }) => navigate(`/runs/${run.id}`),
+  });
+
+  return (
+    <div className="space-y-6">
+      <div className="rounded-xl border border-border bg-card p-5">
+        <h3 className="text-sm font-semibold mb-4">Agent Info</h3>
+        <div className="space-y-4">
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1">Name</label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} className="text-sm" />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1">Description</label>
+            <Input value={description} onChange={(e) => setDescription(e.target.value)} className="text-sm" />
+          </div>
+          <div className="flex items-center justify-between py-1">
+            <div>
+              <p className="text-sm font-medium">Enabled</p>
+              <p className="text-xs text-muted-foreground">Allow this agent to run on schedule</p>
+            </div>
+            <BigToggle enabled={agent.enabled} onClick={() => toggleMutation.mutate()} disabled={toggleMutation.isPending} />
+          </div>
+          <SaveRow isPending={metaMutation.isPending} isSuccess={metaMutation.isSuccess} onClick={() => metaMutation.mutate()} />
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-border bg-card p-5">
+        <h3 className="text-sm font-semibold mb-1">Reply behavior</h3>
+        <p className="text-xs text-muted-foreground mb-4">
+          Used when no per-site override is set in Integrations → Crisp.
+        </p>
+        <div className="space-y-4">
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1">Product context</label>
+            <textarea
+              rows={3}
+              value={productContext}
+              onChange={(e) => setProductContext(e.target.value)}
+              placeholder="e.g. Taskip is a project management SaaS for teams."
+              className="w-full text-sm rounded-md border border-input bg-background px-3 py-2 placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1">Reply tone</label>
+            <Input
+              value={replyTone}
+              onChange={(e) => setReplyTone(e.target.value)}
+              placeholder="e.g. friendly, concise, founder-style"
+              className="text-sm"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-muted-foreground block mb-1">Max conversations per run</label>
+              <Input
+                type="number"
+                min={1}
+                max={50}
+                value={maxConversationsPerRun}
+                onChange={(e) => setMaxConversationsPerRun(parseInt(e.target.value, 10) || 1)}
+                className="text-sm"
+              />
+            </div>
+          </div>
+          <div className="flex items-center justify-between py-1">
+            <div>
+              <p className="text-sm font-medium">Auto-reply without approval</p>
+              <p className="text-xs text-muted-foreground">When off, every reply waits for Telegram approval</p>
+            </div>
+            <BigToggle enabled={autoReply} onClick={() => setAutoReply((v) => !v)} />
+          </div>
+          <div className="flex items-center justify-between py-1">
+            <div>
+              <p className="text-sm font-medium">Debug webhook payloads</p>
+              <p className="text-xs text-muted-foreground">Log the raw Crisp event body to Activity for inspection</p>
+            </div>
+            <BigToggle enabled={debugWebhooks} onClick={() => setDebugWebhooks((v) => !v)} />
+          </div>
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-border bg-card p-5">
+        <h3 className="text-sm font-semibold mb-4">LLM</h3>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1">Provider</label>
+            <select
+              value={llmProvider}
+              onChange={(e) => setLlmProvider(e.target.value)}
+              className="w-full text-sm rounded-md border border-input bg-background px-3 py-2 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            >
+              <option value="auto">auto (router fallback)</option>
+              <option value="openai">openai</option>
+              <option value="gemini">gemini</option>
+              <option value="deepseek">deepseek</option>
+            </select>
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1">Model</label>
+            <Input
+              value={llmModel}
+              onChange={(e) => setLlmModel(e.target.value)}
+              placeholder="gpt-4o-mini"
+              className="text-sm"
+            />
+          </div>
+        </div>
+      </div>
+
+      <SaveRow
+        isPending={configMutation.isPending}
+        isSuccess={configMutation.isSuccess}
+        onClick={() => configMutation.mutate()}
+      />
+
+      <div className="rounded-xl border border-border bg-card p-5">
+        <h3 className="text-sm font-semibold mb-1">Manual Trigger</h3>
+        <p className="text-xs text-muted-foreground mb-3">Start a run now, bypassing the schedule.</p>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => triggerMutation.mutate()}
+          disabled={!agent.enabled || !agent.registered || triggerMutation.isPending}
+          className="gap-1.5"
+        >
+          <Play className="w-3.5 h-3.5" />
+          {triggerMutation.isPending ? 'Starting…' : 'Run now'}
+        </Button>
+      </div>
     </div>
   );
 }
