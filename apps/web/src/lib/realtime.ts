@@ -12,7 +12,8 @@ export function getRealtimeSocket(token: string): Socket {
   }
 
   currentToken = token;
-  const url = window.location.origin;
+  const apiBase = (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, '');
+  const url = apiBase || window.location.origin;
   socket = io(url, {
     path: '/ws',
     auth: { token },
