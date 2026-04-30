@@ -39,6 +39,7 @@ interface CrispSnapshot {
   newMessages: any[];
   config: CrispConfig;
   threadHistory?: Record<string, { role: 'customer' | 'agent'; text: string }[]>;
+  runId: string;
 }
 
 const DEFAULT_CONFIG: CrispConfig = {
@@ -122,11 +123,11 @@ export class CrispAgent implements IAgent, OnModuleInit {
       }
     }
 
-    return { source: trigger, snapshot: { newMessages, config }, followups: [] };
+    return { source: trigger, snapshot: { newMessages, config, runId: run.id }, followups: [] };
   }
 
   async decide(ctx: AgentContext): Promise<ProposedAction[]> {
-    const { newMessages, config } = ctx.snapshot as CrispSnapshot;
+    const { newMessages, config, runId } = ctx.snapshot as CrispSnapshot;
     if (!newMessages.length) {
       return [{ type: 'noop', summary: 'No new Crisp conversations.', payload: {}, riskLevel: 'low' }];
     }
@@ -179,27 +180,9 @@ export class CrispAgent implements IAgent, OnModuleInit {
           if (verifyResult) purchaseBlock = PurchaseVerifyService.buildVerifyPromptBlock(verifyResult);
         }
 
-        const defaultSystem = `You are a customer support agent. Context: ${productContext}\nTone: ${replyTone}\nWrite a direct reply to the customer message. 2-4 sentences max. No greetings like "Dear" or closings like "Best regards". Just the reply.`;
-        const systemPrompt = (template?.system ?? defaultSystem) + kbBlock + visitorMemory + purchaseBlock;
-
-        const response = await this.llm.complete({
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: msg.content },
-          ],
-          ...agentLlmOpts(config),
-          maxTokens: 200,
-        });
-
-        let draft = response.content.trim();
-        if (!draft) continue;
-
-        // Self-critique for medium/high risk (always medium for customer replies)
-        draft = await this.selfCritique(draft, alwaysOn.find(e => e.entryType === 'voice_profile')?.content, blocklist);
-
-        // Blocklist check
-        const violation = blocklist.find(p => draft.toLowerCase().includes(p.toLowerCase()));
-
+        // Persist the conversation + contact FIRST so they exist even if the
+        // LLM later fails. The draft starts empty and gets filled in once the
+        // model replies.
         const receivedAt = new Date(msg.timestamp ? msg.timestamp * 1000 : Date.now());
         await this.db.db
           .insert(crispConversations)
@@ -209,7 +192,6 @@ export class CrispAgent implements IAgent, OnModuleInit {
             visitorEmail: msg.visitorEmail ?? null,
             visitorNickname: msg.visitorNickname ?? null,
             lastMessage: msg.content.slice(0, 2000),
-            draftReply: draft,
             status: 'new',
             receivedAt,
           })
@@ -219,15 +201,12 @@ export class CrispAgent implements IAgent, OnModuleInit {
               lastMessage: msg.content.slice(0, 2000),
               visitorEmail: msg.visitorEmail ?? null,
               visitorNickname: msg.visitorNickname ?? null,
-              draftReply: draft,
               status: 'new',
               receivedAt,
               repliedAt: null,
             },
           });
 
-        // Upsert contact + log activity. Visitor identified by Crisp sessionId;
-        // if the visitor later supplies an email, the existing row is patched.
         try {
           const contactId = await this.crisp.upsertContactForCrisp({
             sessionId: msg.sessionId,
@@ -243,7 +222,38 @@ export class CrispAgent implements IAgent, OnModuleInit {
           );
         } catch (err) {
           this.logger.warn(`Failed to upsert contact for Crisp ${msg.sessionId}: ${(err as Error).message}`);
+          await this.agentLog.warn(runId, `Contact upsert failed for ${msg.sessionId.slice(-8)}: ${(err as Error).message}`);
         }
+
+        const defaultSystem = `You are a customer support agent. Context: ${productContext}\nTone: ${replyTone}\nWrite a direct reply to the customer message. 2-4 sentences max. No greetings like "Dear" or closings like "Best regards". Just the reply.`;
+        const systemPrompt = (template?.system ?? defaultSystem) + kbBlock + visitorMemory + purchaseBlock;
+
+        const response = await this.llm.complete({
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: msg.content },
+          ],
+          ...agentLlmOpts(config),
+          maxTokens: 200,
+        });
+
+        let draft = response.content.trim();
+        if (!draft) {
+          await this.agentLog.warn(runId, `LLM returned empty draft for ${msg.sessionId.slice(-8)}`);
+          continue;
+        }
+
+        // Self-critique for medium/high risk (always medium for customer replies)
+        draft = await this.selfCritique(draft, alwaysOn.find(e => e.entryType === 'voice_profile')?.content, blocklist);
+
+        // Blocklist check
+        const violation = blocklist.find(p => draft.toLowerCase().includes(p.toLowerCase()));
+
+        // Now that the draft exists, attach it to the conversation row.
+        await this.db.db
+          .update(crispConversations)
+          .set({ draftReply: draft })
+          .where(eq(crispConversations.sessionId, msg.sessionId));
 
         const visitorLabel = msg.visitorNickname ?? msg.visitorEmail ?? msg.sessionId.slice(-8);
 
@@ -254,7 +264,14 @@ export class CrispAgent implements IAgent, OnModuleInit {
           riskLevel: violation ? 'high' : 'medium',
         });
       } catch (err) {
-        this.logger.warn(`Failed to draft Crisp reply: ${err}`);
+        const message = (err as Error)?.message ?? String(err);
+        const stack = (err as Error)?.stack;
+        this.logger.warn(`Failed to draft Crisp reply: ${message}`);
+        await this.agentLog.error(runId, `Failed to draft Crisp reply for sessionId=${msg.sessionId.slice(-8)}: ${message}`, {
+          sessionId: msg.sessionId,
+          websiteId: msg.websiteId,
+          stack: stack?.split('\n').slice(0, 5).join('\n'),
+        });
       }
     }
 
