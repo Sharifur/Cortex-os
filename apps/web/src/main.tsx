@@ -31,6 +31,17 @@ window.fetch = async (input, init) => {
   return res;
 };
 
+// PWA: register the service worker so the app is installable on
+// Android/Chrome and behaves like a standalone app on iOS. The SW itself is
+// pass-through for API/socket routes — no offline data, just installability.
+if ('serviceWorker' in navigator && import.meta.env.PROD) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => {
+      // Silent — SW failure must never block the app.
+    });
+  });
+}
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <App />

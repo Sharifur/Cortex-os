@@ -1,0 +1,32 @@
+{
+  "name": "Cortex OS",
+  "short_name": "Cortex",
+  "description": "Self-hosted AI agent platform — operator console for live chat takeover, approvals, and agent management.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0c1322",
+  "theme_color": "#1a3aa8",
+  "categories": ["productivity", "business"],
+  "icons": [
+    { "src": "/favicon.svg", "type": "image/svg+xml", "sizes": "any", "purpose": "any" },
+    { "src": "/favicon.svg", "type": "image/svg+xml", "sizes": "any", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    {
+      "name": "Live Chat",
+      "short_name": "Live Chat",
+      "description": "Open the live chat operator inbox",
+      "url": "/livechat",
+      "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }]
+    },
+    {
+      "name": "Approvals",
+      "short_name": "Approvals",
+      "description": "Review pending agent approvals",
+      "url": "/approvals",
+      "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }]
+    }
+  ]
+}

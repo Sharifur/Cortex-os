@@ -47,7 +47,7 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background relative overflow-hidden">
+    <div className="min-h-[100dvh] flex items-center justify-center bg-background relative overflow-hidden px-4 py-8">
       {/* Background grid */}
       <div
         className="absolute inset-0 opacity-[0.03]"
@@ -63,8 +63,8 @@ export default function LoginPage() {
       <div className="absolute bottom-1/4 left-1/3 w-64 h-64 bg-primary/5 rounded-full blur-3xl pointer-events-none" />
 
       {/* Card */}
-      <div className="relative w-full max-w-md px-4 animate-slide-up">
-        <div className="bg-card border border-border rounded-2xl shadow-2xl shadow-black/40 p-8">
+      <div className="relative w-full max-w-md animate-slide-up">
+        <div className="bg-card border border-border rounded-2xl shadow-2xl shadow-black/40 p-6 sm:p-8">
           {/* Logo */}
           <div className="flex flex-col items-center mb-8">
             <div className="w-14 h-14 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center mb-4">
@@ -189,7 +189,7 @@ export default function LoginPage() {
 
           {/* Footer */}
           <p className="text-center text-xs text-muted-foreground mt-6">
-            Single-owner platform · Cortex OS v1.1
+            Single-owner platform · Cortex OS v1.5
           </p>
         </div>
       </div>
