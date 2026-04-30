@@ -70,9 +70,12 @@ export async function subscribePush(token: string): Promise<{ ok: boolean; error
   }
 
   const reg = await navigator.serviceWorker.ready;
+  // Cast: PushSubscriptionOptionsInit.applicationServerKey expects BufferSource;
+  // TS 5+ tightened Uint8Array<ArrayBufferLike> vs ArrayBuffer-backed which the
+  // browser API accepts but the type now rejects. Runtime is correct.
   const sub = await reg.pushManager.subscribe({
     userVisibleOnly: true,
-    applicationServerKey: urlBase64ToUint8Array(publicKey),
+    applicationServerKey: urlBase64ToUint8Array(publicKey) as BufferSource,
   });
 
   const json = sub.toJSON();
