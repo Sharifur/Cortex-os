@@ -199,7 +199,7 @@ export class CrispService {
       if (!creds) return [];
       const res = await fetch(
         `https://api.crisp.chat/v1/website/${websiteId}/conversation/${sessionId}/messages/1`,
-        { headers: { Authorization: this.authHeader(creds.identifier, creds.key), 'X-Crisp-Tier': 'plugin' } },
+        { headers: { Authorization: this.authHeader(creds.identifier, creds.key), 'X-Crisp-Tier': 'user' } },
       );
       if (!res.ok) return [];
       const data = await res.json();
@@ -224,7 +224,7 @@ export class CrispService {
         method: 'POST',
         headers: {
           Authorization: this.authHeader(creds.identifier, creds.key),
-          'X-Crisp-Tier': 'plugin',
+          'X-Crisp-Tier': 'user',
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ type: 'text', from: 'operator', origin: 'chat', content: message }),
@@ -284,7 +284,7 @@ export class CrispService {
   private async fetchOpenConversations(creds: CrispCredentials, limit: number): Promise<CrispMessage[]> {
     const res = await fetch(
       `https://api.crisp.chat/v1/website/${creds.websiteId}/conversations/1?filter_unread=1`,
-      { headers: { Authorization: this.authHeader(creds.identifier, creds.key), 'X-Crisp-Tier': 'plugin' } },
+      { headers: { Authorization: this.authHeader(creds.identifier, creds.key), 'X-Crisp-Tier': 'user' } },
     );
 
     if (!res.ok) {
@@ -436,7 +436,7 @@ export class CrispService {
     try {
       const auth = this.authHeader(creds.identifier, creds.key);
       const res = await fetch(`https://api.crisp.chat/v1/website/${creds.websiteId}`, {
-        headers: { Authorization: auth, 'X-Crisp-Tier': 'plugin' },
+        headers: { Authorization: auth, 'X-Crisp-Tier': 'user' },
         signal: AbortSignal.timeout(8000),
       });
       const data = await res.json() as any;
