@@ -86,7 +86,14 @@ export class AgentRunProcessor extends WorkerHost {
         .where(eq(agentRuns.id, runId));
 
       const actions = await agent.decide(context);
-      await this.logSvc.info(runId, `Decided ${actions.length} action(s)`);
+      const actionsSummary = actions.length
+        ? actions.map((a, i) => `${i + 1}. [${a.type}${a.riskLevel ? ` · ${a.riskLevel}` : ''}] ${a.summary}`).join('\n')
+        : '(none)';
+      await this.logSvc.info(
+        runId,
+        `Decided ${actions.length} action(s)\n${actionsSummary}`,
+        { actions: actions.map((a) => ({ type: a.type, summary: a.summary, riskLevel: a.riskLevel, payload: a.payload })) },
+      );
 
       if (!actions.length) {
         await this.db.db
