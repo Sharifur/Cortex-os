@@ -41,7 +41,6 @@
     "dotenv": "^16.4.7",
     "drizzle-orm": "^0.30.10",
     "fastify": "^4.29.0",
-    "file-type": "^19.6.0",
     "googleapis": "^171.4.0",
     "grammy": "^1.42.0",
     "ioredis": "^5.4.2",

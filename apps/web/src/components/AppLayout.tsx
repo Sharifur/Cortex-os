@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
-import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { Bot, LogOut, LayoutDashboard, Settings, Activity, User, KeyRound, ChevronDown, AlertTriangle, Plug, Cable, BookOpen, CheckSquare, HeartPulse, Radio, Mail, Bug, Users, BellRing, DollarSign, MessageSquare } from 'lucide-react';
+import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
+import { Bot, LogOut, LayoutDashboard, Settings, Activity, User, KeyRound, ChevronDown, AlertTriangle, Plug, Cable, BookOpen, CheckSquare, HeartPulse, Radio, Mail, Bug, Users, BellRing, DollarSign, MessageSquare, Menu, X } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 import { useQuery } from '@tanstack/react-query';
 
@@ -81,7 +81,7 @@ function UserMenu() {
         <div className="w-6 h-6 rounded-full bg-primary/15 flex items-center justify-center">
           <User className="w-3.5 h-3.5 text-primary" />
         </div>
-        <span className="text-xs font-medium">{displayName}</span>
+        <span className="text-xs font-medium hidden sm:inline">{displayName}</span>
         <ChevronDown className={`w-3.5 h-3.5 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
 
@@ -124,24 +124,99 @@ function UserMenu() {
   );
 }
 
+function Sidebar({ approvalCount, onNavigate }: { approvalCount: number; onNavigate?: () => void }) {
+  return (
+    <>
+      <div className="px-4 py-4 border-b border-border flex items-center gap-2 shrink-0">
+        <Bot className="w-5 h-5 text-primary" />
+        <span className="font-semibold text-sm">Cortex OS</span>
+        <span className="text-muted-foreground text-xs">v1.4</span>
+      </div>
+      <nav className="flex-1 p-3 space-y-0.5 overflow-y-auto">
+        {NAV.map((item) => (
+          <NavLink
+            key={item.to}
+            to={item.to}
+            onClick={onNavigate}
+            className={({ isActive }) =>
+              `flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors ${
+                isActive
+                  ? 'bg-accent text-foreground font-medium'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
+              }`
+            }
+          >
+            {item.icon}
+            {item.label}
+            {item.badge && approvalCount > 0 && (
+              <span className="ml-auto text-xs bg-yellow-500/15 text-yellow-500 px-1.5 py-0.5 rounded-full font-medium">
+                {approvalCount}
+              </span>
+            )}
+          </NavLink>
+        ))}
+      </nav>
+    </>
+  );
+}
+
 export default function AppLayout() {
   const token = useAuthStore((s) => s.token)!;
   const approvalCount = useApprovalCount(token);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const location = useLocation();
+
+  // Close drawer on route change.
+  useEffect(() => {
+    setDrawerOpen(false);
+  }, [location.pathname]);
+
+  // Lock body scroll while drawer is open.
+  useEffect(() => {
+    if (drawerOpen) document.body.classList.add('overflow-hidden');
+    else document.body.classList.remove('overflow-hidden');
+    return () => document.body.classList.remove('overflow-hidden');
+  }, [drawerOpen]);
 
   return (
-    <div className="h-screen bg-background flex overflow-hidden">
-      <aside className="w-56 shrink-0 border-r border-border flex flex-col h-full">
-        <div className="px-4 py-4 border-b border-border flex items-center gap-2">
-          <Bot className="w-5 h-5 text-primary" />
-          <span className="font-semibold text-sm">Cortex OS</span>
-          <span className="text-muted-foreground text-xs">v1.1</span>
-        </div>
+    <div className="h-[100dvh] bg-background flex overflow-hidden">
+      {/* Desktop sidebar — pinned on md+ */}
+      <aside className="hidden md:flex w-56 shrink-0 border-r border-border flex-col h-full">
+        <Sidebar approvalCount={approvalCount} />
+      </aside>
 
-        <nav className="flex-1 p-3 space-y-0.5">
+      {/* Mobile drawer + backdrop */}
+      <div
+        className={`md:hidden fixed inset-0 z-40 bg-black/50 transition-opacity ${
+          drawerOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+        }`}
+        onClick={() => setDrawerOpen(false)}
+      />
+      <aside
+        className={`md:hidden fixed top-0 left-0 z-50 h-[100dvh] w-64 border-r border-border bg-background flex flex-col transform transition-transform ${
+          drawerOpen ? 'translate-x-0' : '-translate-x-full'
+        }`}
+      >
+        <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+          <div className="flex items-center gap-2">
+            <Bot className="w-5 h-5 text-primary" />
+            <span className="font-semibold text-sm">Cortex OS</span>
+            <span className="text-muted-foreground text-xs">v1.4</span>
+          </div>
+          <button
+            onClick={() => setDrawerOpen(false)}
+            className="text-muted-foreground hover:text-foreground p-1"
+            aria-label="Close menu"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+        <nav className="flex-1 p-3 space-y-0.5 overflow-y-auto">
           {NAV.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
+              onClick={() => setDrawerOpen(false)}
               className={({ isActive }) =>
                 `flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors ${
                   isActive
@@ -163,7 +238,18 @@ export default function AppLayout() {
       </aside>
 
       <div className="flex-1 flex flex-col min-w-0 h-full">
-        <header className="h-12 shrink-0 border-b border-border px-5 flex items-center justify-end">
+        <header className="h-12 shrink-0 border-b border-border px-3 sm:px-5 flex items-center justify-between md:justify-end gap-2">
+          <button
+            onClick={() => setDrawerOpen(true)}
+            className="md:hidden text-muted-foreground hover:text-foreground p-1.5 rounded-lg hover:bg-accent/50"
+            aria-label="Open menu"
+          >
+            <Menu className="w-5 h-5" />
+          </button>
+          <div className="md:hidden flex items-center gap-2 text-sm font-medium">
+            <Bot className="w-4 h-4 text-primary" />
+            Cortex OS
+          </div>
           <UserMenu />
         </header>
         <main className="flex-1 overflow-auto">
