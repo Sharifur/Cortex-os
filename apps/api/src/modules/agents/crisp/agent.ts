@@ -30,6 +30,7 @@ interface CrispConfig {
   productContext: string;
   maxConversationsPerRun: number;
   autoReply: boolean;
+  debugWebhooks: boolean;
   llm: { provider: string; model: string };
 }
 
@@ -44,6 +45,7 @@ const DEFAULT_CONFIG: CrispConfig = {
   productContext: 'Taskip is a project management SaaS for teams.',
   maxConversationsPerRun: 10,
   autoReply: true,
+  debugWebhooks: false,
   llm: { provider: 'auto', model: 'gpt-4o-mini' },
 };
 
@@ -85,19 +87,14 @@ export class CrispAgent implements IAgent, OnModuleInit {
     if (trigger.type === 'WEBHOOK' && trigger.payload) {
       const payload = trigger.payload as any;
       const event = payload?.event ?? 'unknown';
-      const dataPreview = {
-        from: payload?.data?.from,
-        type: payload?.data?.type,
-        session_id: payload?.data?.session_id,
-        website_id: payload?.website_id,
-        content_kind: typeof payload?.data?.content,
-        user: payload?.data?.user ? { email: payload.data.user.email, nickname: payload.data.user.nickname } : null,
-      };
-      await this.agentLog.info(run.id, `Crisp webhook payload received (event=${event})`, { event, dataPreview });
+
+      if (config.debugWebhooks) {
+        await this.agentLog.info(run.id, `Crisp webhook payload (event=${event})`, { event, payload });
+      }
 
       const parsed = this.crisp.parseWebhookMessageDetailed(payload);
       if (!parsed.message) {
-        await this.agentLog.info(run.id, `Crisp webhook ignored: ${parsed.reason}`, { event, dataPreview });
+        await this.agentLog.info(run.id, `Crisp webhook ignored: ${parsed.reason}`, { event });
       } else {
         const msg = parsed.message;
         const [existing] = await this.db.db

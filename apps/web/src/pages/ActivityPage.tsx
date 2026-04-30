@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Activity, Bot, AlertCircle, Info, AlertTriangle, Bug, Wifi, WifiOff } from 'lucide-react';
+import { Activity, Bot, AlertCircle, Info, AlertTriangle, Bug, Wifi, WifiOff, ChevronDown, ChevronRight } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Button } from '@/components/ui/button';
 import { useAuthStore } from '@/stores/authStore';
 import { getRealtimeSocket } from '@/lib/realtime';
 
@@ -71,13 +72,50 @@ function relTime(iso: string) {
   return new Date(iso).toLocaleDateString();
 }
 
-const MAX_ENTRIES = 500;
+const MAX_ENTRIES = 5000;
+const PAGE_SIZE = 20;
 
 export default function ActivityPage() {
   const token = useAuthStore((s) => s.token)!;
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [connected, setConnected] = useState(false);
   const [reconnecting, setReconnecting] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+
+  function toggleExpanded(id: string) {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  async function loadMore() {
+    if (loadingMore) return;
+    if (visibleCount < logs.length) {
+      setVisibleCount((n) => n + PAGE_SIZE);
+      return;
+    }
+    setLoadingMore(true);
+    try {
+      const oldest = logs.length ? new Date(logs[logs.length - 1].createdAt).toISOString() : new Date().toISOString();
+      const res = await fetch(`/runs/activity?limit=${PAGE_SIZE}&before=${encodeURIComponent(oldest)}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return;
+      const older: LogEntry[] = await res.json();
+      if (older.length === 0) return;
+      setLogs((prev) => {
+        const seen = new Set(prev.map((e) => e.id));
+        return [...prev, ...older.filter((e) => !seen.has(e.id))];
+      });
+      setVisibleCount((n) => n + older.length);
+    } finally {
+      setLoadingMore(false);
+    }
+  }
 
   useEffect(() => {
     const socket = getRealtimeSocket(token);
@@ -171,44 +209,64 @@ export default function ActivityPage() {
         <div className="rounded-xl border border-border bg-card overflow-hidden">
           <div className="px-4 py-3 border-b border-border flex items-center gap-2">
             <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-              {logs.length} entries
+              {Math.min(visibleCount, logs.length)} of {logs.length} entries
             </span>
             <span className="ml-auto text-xs text-muted-foreground">newest first</span>
           </div>
           <div className="divide-y divide-border">
-            {logs.map((entry) => {
+            {logs.slice(0, visibleCount).map((entry) => {
               const lvl = LEVEL_CONFIG[entry.level] ?? LEVEL_CONFIG.INFO;
+              const isExpanded = expandedIds.has(entry.id);
+              const hasMeta = !!entry.meta && Object.keys(entry.meta).length > 0;
               return (
-                <div key={entry.id} className="px-4 py-3 hover:bg-accent/30 transition-colors">
-                  <div className="flex items-start gap-3">
+                <div key={entry.id} className="px-4 py-2.5 hover:bg-accent/30 transition-colors">
+                  <button
+                    type="button"
+                    onClick={() => toggleExpanded(entry.id)}
+                    className="w-full flex items-start gap-3 text-left"
+                  >
+                    <span className="text-muted-foreground shrink-0 mt-1">
+                      {isExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                    </span>
                     <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-mono font-medium shrink-0 mt-0.5 ${lvl.cls}`}>
                       {lvl.icon}
                       {lvl.label}
                     </span>
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-xs font-medium text-foreground">{entry.agentName}</span>
-                        <span className="text-xs text-muted-foreground font-mono">
-                          run:{shortId(entry.runId)}
-                        </span>
-                        <span className={`text-xs font-medium ${STATUS_CLS[entry.runStatus] ?? 'text-muted-foreground'}`}>
+                        <p className="text-sm text-foreground/90 break-words flex-1 min-w-0 truncate">{entry.message}</p>
+                      </div>
+                    </div>
+                    <span className="text-xs text-muted-foreground shrink-0 mt-0.5">
+                      {relTime(entry.createdAt)}
+                    </span>
+                  </button>
+                  {isExpanded && (
+                    <div className="mt-2 pl-7 space-y-2">
+                      <div className="flex items-center gap-2 text-xs flex-wrap">
+                        <span className="text-muted-foreground font-mono">run:{shortId(entry.runId)}</span>
+                        <span className={`font-medium ${STATUS_CLS[entry.runStatus] ?? 'text-muted-foreground'}`}>
                           {entry.runStatus}
                         </span>
+                        <span className="text-muted-foreground">{new Date(entry.createdAt).toLocaleString()}</span>
                       </div>
-                      <p className="text-sm text-foreground/90 break-words">{entry.message}</p>
-                      {entry.meta && Object.keys(entry.meta).length > 0 && (
-                        <pre className="mt-1 text-xs text-muted-foreground bg-muted/40 rounded px-2 py-1 overflow-x-auto">
+                      <p className="text-sm text-foreground/90 break-words whitespace-pre-wrap">{entry.message}</p>
+                      {hasMeta && (
+                        <pre className="text-xs text-muted-foreground bg-muted/40 rounded px-2 py-1 overflow-x-auto">
                           {JSON.stringify(entry.meta, null, 2)}
                         </pre>
                       )}
                     </div>
-                    <span className="text-xs text-muted-foreground shrink-0">
-                      {relTime(entry.createdAt)}
-                    </span>
-                  </div>
+                  )}
                 </div>
               );
             })}
+          </div>
+          <div className="flex items-center justify-center px-4 py-3 border-t border-border">
+            <Button size="sm" variant="outline" onClick={loadMore} disabled={loadingMore}>
+              {loadingMore ? 'Loading…' : 'Load more'}
+            </Button>
           </div>
         </div>
       )}
