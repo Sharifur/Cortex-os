@@ -9,6 +9,10 @@ export interface LlmCompleteOpts {
   maxTokens?: number;
   temperature?: number;
   provider?: 'openai' | 'gemini' | 'deepseek' | 'auto';
+  /** Optional agent key, attached to the usage log row. */
+  agentKey?: string;
+  /** Optional run id, attached to the usage log row. */
+  runId?: string;
 }
 
 export interface LlmResponse {
@@ -49,4 +53,6 @@ export interface LlmCompleteWithToolsOpts {
   maxTokens?: number;
   temperature?: number;
   provider?: 'openai' | 'gemini' | 'deepseek' | 'auto';
+  agentKey?: string;
+  runId?: string;
 }

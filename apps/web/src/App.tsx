@@ -19,6 +19,7 @@ import TasksPage from '@/pages/TasksPage';
 import InboxPage from '@/pages/InboxPage';
 import DebugLogsPage from '@/pages/DebugLogsPage';
 import HealthPage from '@/pages/HealthPage';
+import LlmUsagePage from '@/pages/LlmUsagePage';
 import OpsPage from '@/pages/OpsPage';
 import ContactsPage from '@/pages/ContactsPage';
 import FollowUpsPage from '@/pages/FollowUpsPage';
@@ -68,6 +69,7 @@ export default function App() {
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/integrations" element={<IntegrationsPage />} />
             <Route path="/health" element={<HealthPage />} />
+            <Route path="/llm-usage" element={<LlmUsagePage />} />
             <Route path="/profile" element={<ProfilePage />} />
             <Route path="/change-password" element={<ChangePasswordPage />} />
             <Route path="*" element={<NotFoundPage />} />

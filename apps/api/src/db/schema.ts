@@ -21,3 +21,4 @@ export * from '../modules/knowledge-base/schema';
 export * from './schemas/tasks.schema';
 export * from '../modules/contacts/contacts.schema';
 export * from '../modules/telegram/schema';
+export * from '../modules/llm/llm-usage.schema';
