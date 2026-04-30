@@ -15,6 +15,7 @@ import RunDetailPage from '@/pages/RunDetailPage';
 import McpPage from '@/pages/McpPage';
 import IntegrationsPage from '@/pages/IntegrationsPage';
 import KnowledgeBasePage from '@/pages/KnowledgeBasePage';
+import LiveChatPage from '@/pages/LiveChatPage';
 import TasksPage from '@/pages/TasksPage';
 import InboxPage from '@/pages/InboxPage';
 import DebugLogsPage from '@/pages/DebugLogsPage';
@@ -56,6 +57,7 @@ export default function App() {
             <Route path="/agents/:key/chat" element={<AgentChatPage />} />
             <Route path="/agents/:key/runs" element={<AgentRunsPage />} />
             <Route path="/knowledge-base" element={<KnowledgeBasePage />} />
+            <Route path="/livechat" element={<LiveChatPage />} />
             <Route path="/tasks" element={<TasksPage />} />
             <Route path="/inbox" element={<InboxPage />} />
             <Route path="/contacts" element={<ContactsPage />} />

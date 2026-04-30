@@ -1186,9 +1186,13 @@ function StorageTab({ rows, token }: { rows: SettingRow[]; token: string }) {
               <p>Set <strong>Endpoint</strong>, <strong>Access Key ID</strong>, <strong>Secret Access Key</strong>, and <strong>Bucket Name</strong>.</p>
               <p>Leave Port as <code className="bg-muted px-1 rounded">443</code> and Use SSL as <code className="bg-muted px-1 rounded">true</code> for R2.</p>
             </SetupStep>
-            <SetupStep n={5} title="Test the connection">
-              <p>Click <strong>Test connection</strong>. A successful test confirms the bucket is reachable.</p>
-              <p>Storage is used for knowledge base file ingestion (PDFs, DOCX).</p>
+            <SetupStep n={5} title="Optional: connect a custom domain">
+              <p>In R2 → bucket → <strong>Settings → Public Access</strong>, point a subdomain (e.g. <code className="bg-muted px-1 rounded">files.taskip.net</code>) at the bucket.</p>
+              <p>Paste the full URL into <strong>Public CDN Base URL</strong>. When set, attachment URLs use this prefix and never expire. When blank, the API serves 24h presigned URLs.</p>
+            </SetupStep>
+            <SetupStep n={6} title="Test the connection">
+              <p>Click <strong>Test connection</strong>. The API runs a put + delete probe against the bucket; success confirms credentials and bucket are valid.</p>
+              <p>Storage is used by Knowledge Base ingestion (PDFs, DOCX) and live-chat attachments. Files are namespaced per module (e.g. <code className="bg-muted px-1 rounded">livechat/&lt;site&gt;/&lt;session&gt;/&lt;id&gt;.png</code>).</p>
             </SetupStep>
           </div>
           <a

@@ -7,6 +7,10 @@ export interface SendEmailParams {
   from: string;
   subject: string;
   textBody: string;
+  htmlBody?: string;
+  cc?: string[];
+  bcc?: string[];
+  replyTo?: string;
   configurationSet?: string;
 }
 
@@ -32,13 +36,25 @@ export class SesService {
       credentials: { accessKeyId, secretAccessKey },
     });
 
+    const Body: { Text: { Data: string; Charset: string }; Html?: { Data: string; Charset: string } } = {
+      Text: { Data: params.textBody, Charset: 'UTF-8' },
+    };
+    if (params.htmlBody) {
+      Body.Html = { Data: params.htmlBody, Charset: 'UTF-8' };
+    }
+
     const cmd = new SendEmailCommand({
-      Destination: { ToAddresses: [params.to] },
+      Destination: {
+        ToAddresses: [params.to],
+        ...(params.cc?.length ? { CcAddresses: params.cc } : {}),
+        ...(params.bcc?.length ? { BccAddresses: params.bcc } : {}),
+      },
       Message: {
         Subject: { Data: params.subject, Charset: 'UTF-8' },
-        Body: { Text: { Data: params.textBody, Charset: 'UTF-8' } },
+        Body,
       },
       Source: params.from,
+      ...(params.replyTo ? { ReplyToAddresses: [params.replyTo] } : {}),
       ...(params.configurationSet ? { ConfigurationSetName: params.configurationSet } : {}),
     });
 
