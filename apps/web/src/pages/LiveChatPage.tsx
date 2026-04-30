@@ -37,10 +37,13 @@ import {
   XCircle,
   Pencil,
   ArrowLeft,
+  Bell,
+  BellOff,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useAuthStore } from '@/stores/authStore';
+import { getPushStatus, subscribePush, unsubscribePush, type PushStatus } from '@/lib/push';
 
 async function apiFetch(token: string, path: string, opts?: RequestInit) {
   const res = await fetch(path, {
@@ -149,6 +152,9 @@ export default function LiveChatPage() {
         <div className="flex items-center gap-2 sm:gap-3 mb-2 sm:mb-3">
           <MessageSquare className="w-5 h-5 text-primary" />
           <h1 className="text-base sm:text-lg font-semibold">Live Chat</h1>
+          <div className="ml-auto">
+            <PushNotificationsToggle />
+          </div>
         </div>
         <nav className="flex gap-1 -mb-2 sm:-mb-3 overflow-x-auto">
           <TabButton active={tab === 'conversations'} onClick={() => setTab('conversations')}>
@@ -168,6 +174,65 @@ export default function LiveChatPage() {
         {tab === 'setup' && <SetupTab />}
       </div>
     </div>
+  );
+}
+
+function PushNotificationsToggle() {
+  const token = useAuthStore((s) => s.token)!;
+  const [status, setStatus] = useState<PushStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    getPushStatus(token).then(setStatus);
+  }, [token]);
+
+  if (!status) return null;
+  if (!status.supported) return null;
+  if (!status.configured) {
+    return (
+      <span className="text-xs text-muted-foreground hidden sm:inline" title="Admin must set VAPID keys in Settings → Notifications">
+        push not configured
+      </span>
+    );
+  }
+
+  const enable = async () => {
+    setBusy(true);
+    const res = await subscribePush(token);
+    if (!res.ok) alert(res.error ?? 'Failed to enable notifications');
+    setStatus(await getPushStatus(token));
+    setBusy(false);
+  };
+  const disable = async () => {
+    setBusy(true);
+    await unsubscribePush(token);
+    setStatus(await getPushStatus(token));
+    setBusy(false);
+  };
+
+  if (status.subscribed) {
+    return (
+      <button
+        onClick={disable}
+        disabled={busy}
+        title="Disable push notifications on this device"
+        className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-md text-emerald-500 hover:bg-emerald-500/10 disabled:opacity-50"
+      >
+        <Bell className="w-3.5 h-3.5" />
+        <span className="hidden sm:inline">On</span>
+      </button>
+    );
+  }
+  return (
+    <button
+      onClick={enable}
+      disabled={busy}
+      title="Get a push notification when a visitor needs human help"
+      className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent disabled:opacity-50"
+    >
+      <BellOff className="w-3.5 h-3.5" />
+      <span className="hidden sm:inline">Enable push</span>
+    </button>
   );
 }
 

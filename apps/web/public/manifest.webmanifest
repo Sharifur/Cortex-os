@@ -1,8 +1,8 @@
 {
   "name": "Cortex OS",
   "short_name": "Cortex",
-  "description": "Self-hosted AI agent platform — operator console for live chat takeover, approvals, and agent management.",
-  "start_url": "/",
+  "description": "Operator console for AI agents — open Live Chat to take over a conversation when a visitor needs human help.",
+  "start_url": "/livechat",
   "scope": "/",
   "display": "standalone",
   "orientation": "any",
@@ -10,8 +10,11 @@
   "theme_color": "#1a3aa8",
   "categories": ["productivity", "business"],
   "icons": [
-    { "src": "/favicon.svg", "type": "image/svg+xml", "sizes": "any", "purpose": "any" },
-    { "src": "/favicon.svg", "type": "image/svg+xml", "sizes": "any", "purpose": "maskable" }
+    { "src": "/icon-192.png", "type": "image/png", "sizes": "192x192", "purpose": "any" },
+    { "src": "/icon-512.png", "type": "image/png", "sizes": "512x512", "purpose": "any" },
+    { "src": "/icon-192.png", "type": "image/png", "sizes": "192x192", "purpose": "maskable" },
+    { "src": "/icon-512.png", "type": "image/png", "sizes": "512x512", "purpose": "maskable" },
+    { "src": "/favicon.svg", "type": "image/svg+xml", "sizes": "any", "purpose": "any" }
   ],
   "shortcuts": [
     {
@@ -19,14 +22,14 @@
       "short_name": "Live Chat",
       "description": "Open the live chat operator inbox",
       "url": "/livechat",
-      "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }]
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" }]
     },
     {
       "name": "Approvals",
       "short_name": "Approvals",
       "description": "Review pending agent approvals",
       "url": "/approvals",
-      "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }]
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" }]
     }
   ]
 }

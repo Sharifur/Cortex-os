@@ -6,6 +6,7 @@ import { LivechatStreamService } from './livechat-stream.service';
 import { LivechatAgent } from './agent';
 import { LivechatRateLimitService } from './livechat-rate-limit.service';
 import { LivechatAttachmentsService } from './livechat-attachments.service';
+import { PushService } from '../../push/push.service';
 
 interface PageviewBody {
   siteKey: string;
@@ -62,6 +63,7 @@ export class LivechatPublicController {
     private agent: LivechatAgent,
     private rateLimit: LivechatRateLimitService,
     private attachments: LivechatAttachmentsService,
+    private push: PushService,
   ) {}
 
   @Get('config')
@@ -239,6 +241,33 @@ export class LivechatPublicController {
     const result = visitorContent
       ? await this.agent.handleVisitorMessage({ sessionId, visitorMessage: visitorContent })
       : { ok: true, status: 'skipped_taken_over' as const };
+
+    // Push notification: fire to subscribed operators when the session needs
+    // human attention — moderation queue, fallback, or a session that's
+    // already taken over by a human.
+    const pushable =
+      result.status === 'pending_approval' ||
+      result.status === 'fallback_needs_human' ||
+      result.status === 'skipped_taken_over' ||
+      result.status === 'skipped_needs_human';
+    if (pushable) {
+      const visitorLabel = visitorMsg.id; // placeholder; we send a friendlier label below
+      const session = await this.livechat.getSession(sessionId).catch(() => null);
+      const name = session?.visitorName?.trim() || session?.visitorEmail || `visitor${body.visitorId.slice(-5)}`;
+      const reasonLabel =
+        result.status === 'pending_approval' ? 'needs your review' :
+        result.status === 'fallback_needs_human' ? 'needs a human' :
+        result.status === 'skipped_taken_over' ? 'replied to your conversation' :
+        'is waiting for a human';
+      void this.push.sendToAll({
+        title: `${name} ${reasonLabel}`,
+        body: visitorContent.slice(0, 140) || '(attachment)',
+        tag: `lc-${sessionId}`,
+        url: `/livechat?session=${sessionId}`,
+        renotify: true,
+      }).catch(() => undefined);
+      void visitorLabel; // unused
+    }
 
     return {
       ok: true,

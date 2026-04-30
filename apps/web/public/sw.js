@@ -47,9 +47,65 @@ self.addEventListener('fetch', (event) => {
     url.pathname.startsWith('/health') ||
     url.pathname.startsWith('/metrics') ||
     url.pathname.startsWith('/dashboard') ||
-    url.pathname.startsWith('/mcp')
+    url.pathname.startsWith('/mcp') ||
+    url.pathname.startsWith('/push/')
   ) {
     return;
   }
   // Everything else (HTML / JS / CSS / icons): default browser caching.
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Web Push — incoming notifications from the API.
+// ─────────────────────────────────────────────────────────────────────────────
+
+self.addEventListener('push', (event) => {
+  let payload = { title: 'Cortex OS', body: 'New activity', tag: undefined, url: '/livechat', renotify: false, icon: '/icon-192.png' };
+  if (event.data) {
+    try {
+      payload = { ...payload, ...event.data.json() };
+    } catch {
+      // Treat plain text as the body.
+      payload.body = event.data.text();
+    }
+  }
+
+  event.waitUntil(
+    self.registration.showNotification(payload.title, {
+      body: payload.body,
+      tag: payload.tag,
+      renotify: payload.renotify,
+      icon: payload.icon || '/icon-192.png',
+      badge: '/icon-192.png',
+      data: { url: payload.url || '/livechat' },
+      vibrate: [200, 100, 200],
+      requireInteraction: false,
+    }),
+  );
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const target = event.notification.data?.url || '/livechat';
+  event.waitUntil(
+    (async () => {
+      const all = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+      // If a window is already open, focus it and navigate.
+      for (const client of all) {
+        if ('focus' in client) {
+          await client.focus();
+          if ('navigate' in client) {
+            try { await client.navigate(target); } catch { /* cross-origin, ignore */ }
+          } else if (client.postMessage) {
+            client.postMessage({ type: 'navigate', url: target });
+          }
+          return;
+        }
+      }
+      // Otherwise open a new window.
+      if (self.clients.openWindow) {
+        await self.clients.openWindow(target);
+      }
+    })(),
+  );
 });
