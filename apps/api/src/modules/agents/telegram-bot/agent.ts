@@ -210,6 +210,14 @@ export class TelegramBotAgent implements IAgent, OnModuleInit {
       this.logger.warn(`LLM routing failed: ${(err as Error).message}`);
     }
 
+    // 4. Short/casual messages with no classifier match → smalltalk fallback
+    // rather than confusing the user with the picker. A 1-3 word message
+    // under 30 chars almost never represents an agent task.
+    const wordCount = text.trim().split(/\s+/).length;
+    if (text.trim().length < 30 && wordCount <= 3) {
+      return { kind: 'smalltalk', reply: this.smalltalkReply(text) };
+    }
+
     return { kind: 'show_picker', text };
   }
 
