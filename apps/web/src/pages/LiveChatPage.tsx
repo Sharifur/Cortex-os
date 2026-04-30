@@ -36,6 +36,7 @@ import {
   Check as CheckIcon,
   XCircle,
   Pencil,
+  ArrowLeft,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -688,10 +689,16 @@ function ConversationsTab() {
     };
   }, [token, qc]);
 
+  // On mobile (<md), show one column at a time: inbox by default, session pane
+  // when a session is selected (with a back button to return to the inbox).
+  const showInboxOnMobile = !selectedId;
+
   return (
     <div className="h-full flex bg-background">
-      {/* LEFT — Inbox list */}
-      <aside className="w-[340px] shrink-0 border-r border-border flex flex-col">
+      {/* LEFT — Inbox list. Full width on mobile when no session selected; hidden when a session is open. */}
+      <aside
+        className={`${showInboxOnMobile ? 'flex' : 'hidden'} md:flex w-full md:w-[340px] shrink-0 border-r border-border flex-col`}
+      >
         <div className="px-3 py-2.5 border-b border-border flex items-center gap-2 relative">
           <button
             onClick={() => setFilterOpen((v) => !v)}
@@ -765,12 +772,17 @@ function ConversationsTab() {
         </div>
       </aside>
 
-      {/* CENTER — Conversation pane */}
-      <section className="flex-1 min-w-0">
+      {/* CENTER — Conversation pane. Hidden on mobile when no session selected. */}
+      <section className={`${showInboxOnMobile ? 'hidden' : 'flex'} md:flex flex-1 min-w-0`}>
         {selectedId ? (
-          <SessionPane sessionId={selectedId} onAfterMutation={() => refetchList()} onSelectSession={(id) => setSelectedId(id)} />
+          <SessionPane
+            sessionId={selectedId}
+            onAfterMutation={() => refetchList()}
+            onSelectSession={(id) => setSelectedId(id)}
+            onBack={() => setSelectedId(null)}
+          />
         ) : (
-          <div className="h-full flex items-center justify-center text-sm text-muted-foreground">
+          <div className="h-full flex items-center justify-center text-sm text-muted-foreground w-full">
             Select a session to view the conversation.
           </div>
         )}
@@ -922,11 +934,22 @@ function Avatar({ name, country, online, size = 'md' }: { name: string; country?
   );
 }
 
-function SessionPane({ sessionId, onAfterMutation, onSelectSession }: { sessionId: string; onAfterMutation: () => void; onSelectSession?: (id: string) => void }) {
+function SessionPane({
+  sessionId,
+  onAfterMutation,
+  onSelectSession,
+  onBack,
+}: {
+  sessionId: string;
+  onAfterMutation: () => void;
+  onSelectSession?: (id: string) => void;
+  onBack?: () => void;
+}) {
   const token = useAuthStore((s) => s.token)!;
   const qc = useQueryClient();
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [visitorSidebarOpen, setVisitorSidebarOpen] = useState(false);
 
   const { data: detail, refetch } = useQuery<SessionDetail>({
     queryKey: ['livechat-session', sessionId],
@@ -1115,21 +1138,39 @@ function SessionPane({ sessionId, onAfterMutation, onSelectSession }: { sessionI
     <div className="h-full flex">
       <div className="flex-1 min-w-0 flex flex-col">
         {/* TOP BAR */}
-        <div className="h-14 border-b border-border px-4 flex items-center gap-1">
+        <div className="h-14 border-b border-border px-2 sm:px-4 flex items-center gap-1">
+          {onBack && (
+            <button
+              onClick={onBack}
+              className="md:hidden w-9 h-9 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent flex items-center justify-center transition-colors"
+              title="Back to inbox"
+            >
+              <ArrowLeft className="w-4 h-4" />
+            </button>
+          )}
           <ToolbarButton title="Call (not implemented)">
             <Phone className="w-4 h-4" />
           </ToolbarButton>
-          <ToolbarButton title="Video (not implemented)">
-            <Video className="w-4 h-4" />
-          </ToolbarButton>
-          <ToolbarButton title="Block (not implemented)">
-            <Ban className="w-4 h-4" />
-          </ToolbarButton>
-          <ToolbarButton title="More">
-            <MoreHorizontal className="w-4 h-4" />
-          </ToolbarButton>
+          <div className="hidden sm:flex items-center gap-1">
+            <ToolbarButton title="Video (not implemented)">
+              <Video className="w-4 h-4" />
+            </ToolbarButton>
+            <ToolbarButton title="Block (not implemented)">
+              <Ban className="w-4 h-4" />
+            </ToolbarButton>
+            <ToolbarButton title="More">
+              <MoreHorizontal className="w-4 h-4" />
+            </ToolbarButton>
+          </div>
 
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ml-auto flex items-center gap-1 sm:gap-2">
+            <button
+              onClick={() => setVisitorSidebarOpen(true)}
+              className="lg:hidden w-9 h-9 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent flex items-center justify-center transition-colors"
+              title="Visitor info"
+            >
+              <UserIcon className="w-4 h-4" />
+            </button>
             {status === 'human_taken_over' ? (
               <button
                 onClick={() => releaseMut.mutate()}
@@ -1330,14 +1371,48 @@ function SessionPane({ sessionId, onAfterMutation, onSelectSession }: { sessionI
         </div>
       </div>
 
-      {/* RIGHT — Visitor sidebar */}
-      <aside className="w-[320px] shrink-0 border-l border-border overflow-auto">
+      {/* RIGHT — Visitor sidebar (pinned on lg+, drawer on smaller screens) */}
+      <aside className="hidden lg:block w-[320px] shrink-0 border-l border-border overflow-auto">
         <VisitorSidebar
           visitor={detail.visitor}
           session={detail.session}
           currentPageUrl={currentPageUrl}
           currentPageTitle={currentPageTitle}
           onSelectSession={onSelectSession}
+        />
+      </aside>
+
+      {/* Mobile/tablet drawer for the visitor sidebar */}
+      <div
+        className={`lg:hidden fixed inset-0 z-40 bg-black/50 transition-opacity ${
+          visitorSidebarOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+        }`}
+        onClick={() => setVisitorSidebarOpen(false)}
+      />
+      <aside
+        className={`lg:hidden fixed top-0 right-0 z-50 h-[100dvh] w-[88vw] max-w-[360px] border-l border-border bg-background overflow-auto transform transition-transform ${
+          visitorSidebarOpen ? 'translate-x-0' : 'translate-x-full'
+        }`}
+      >
+        <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+          <span className="text-sm font-medium">Visitor info</span>
+          <button
+            onClick={() => setVisitorSidebarOpen(false)}
+            className="text-muted-foreground hover:text-foreground p-1"
+            aria-label="Close"
+          >
+            <XCircle className="w-5 h-5" />
+          </button>
+        </div>
+        <VisitorSidebar
+          visitor={detail.visitor}
+          session={detail.session}
+          currentPageUrl={currentPageUrl}
+          currentPageTitle={currentPageTitle}
+          onSelectSession={(id) => {
+            setVisitorSidebarOpen(false);
+            onSelectSession?.(id);
+          }}
         />
       </aside>
     </div>
