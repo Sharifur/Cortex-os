@@ -5,6 +5,7 @@ import { agents } from '../../../db/schema';
 import { crispConversations } from './schema';
 import { CrispService } from './crisp.service';
 import { AgentRegistryService } from '../runtime/agent-registry.service';
+import { AgentLogService } from '../runtime/agent-log.service';
 import { LlmRouterService } from '../../llm/llm-router.service';
 import { TelegramService } from '../../telegram/telegram.service';
 import { KnowledgeBaseService } from '../../knowledge-base/knowledge-base.service';
@@ -62,6 +63,7 @@ export class CrispAgent implements IAgent, OnModuleInit {
     private purchaseVerify: PurchaseVerifyService,
     private settings: SettingsService,
     private contactsSvc: ContactsService,
+    private agentLog: AgentLogService,
   ) {}
 
   onModuleInit() {
@@ -81,14 +83,31 @@ export class CrispAgent implements IAgent, OnModuleInit {
     const newMessages: any[] = [];
 
     if (trigger.type === 'WEBHOOK' && trigger.payload) {
-      const msg = this.crisp.parseWebhookMessage(trigger.payload);
-      if (msg) {
+      const payload = trigger.payload as any;
+      const event = payload?.event ?? 'unknown';
+      const dataPreview = {
+        from: payload?.data?.from,
+        type: payload?.data?.type,
+        session_id: payload?.data?.session_id,
+        website_id: payload?.website_id,
+        content_kind: typeof payload?.data?.content,
+        user: payload?.data?.user ? { email: payload.data.user.email, nickname: payload.data.user.nickname } : null,
+      };
+      await this.agentLog.info(run.id, `Crisp webhook payload received (event=${event})`, { event, dataPreview });
+
+      const parsed = this.crisp.parseWebhookMessageDetailed(payload);
+      if (!parsed.message) {
+        await this.agentLog.info(run.id, `Crisp webhook ignored: ${parsed.reason}`, { event, dataPreview });
+      } else {
+        const msg = parsed.message;
         const [existing] = await this.db.db
           .select({ lastMessage: crispConversations.lastMessage })
           .from(crispConversations)
           .where(eq(crispConversations.sessionId, msg.sessionId))
           .limit(1);
-        if (!existing || existing.lastMessage !== msg.content) {
+        if (existing && existing.lastMessage === msg.content) {
+          await this.agentLog.info(run.id, `Crisp webhook deduped (sessionId=${msg.sessionId.slice(-8)} same lastMessage)`);
+        } else {
           newMessages.push(msg);
         }
       }

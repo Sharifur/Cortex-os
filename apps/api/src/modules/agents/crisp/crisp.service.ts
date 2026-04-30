@@ -235,30 +235,43 @@ export class CrispService {
   }
 
   parseWebhookMessage(body: any): CrispMessage | null {
-    try {
-      // Crisp emits inbound visitor messages as `message:received` (or
-      // `message:send` on some plans). `message:updated` fires when a message
-      // is edited — we treat it the same way.
-      const event = body?.event;
-      if (event !== 'message:received' && event !== 'message:send' && event !== 'message:updated') {
-        return null;
-      }
-      // Inbound messages are from the visitor; outbound ones are from
-      // operator/agent (those would loop back to ourselves).
-      if (body.data?.from !== 'user') return null;
-      // Ignore non-text payloads (file uploads, system events).
-      if (body.data?.type && body.data.type !== 'text') return null;
+    return this.parseWebhookMessageDetailed(body).message;
+  }
 
+  parseWebhookMessageDetailed(body: any): { message: CrispMessage | null; reason?: string } {
+    try {
+      const event = body?.event;
+      // Crisp inbound visitor messages: typically `message:send` (visitor → us).
+      // `message:received` exists in some plans. `message:updated` covers edits.
+      if (event !== 'message:received' && event !== 'message:send' && event !== 'message:updated') {
+        return { message: null, reason: `event=${event ?? 'missing'} (not a message event)` };
+      }
+      // Inbound: from the visitor. Outbound (operator/our own replies) would loop back.
+      const from = body.data?.from;
+      if (from !== 'user') {
+        return { message: null, reason: `from=${from ?? 'missing'} (only "user" inbound is replied to)` };
+      }
+      const type = body.data?.type;
+      if (type && type !== 'text') {
+        return { message: null, reason: `type=${type} (only text is supported)` };
+      }
+      const sessionId = body.data?.session_id;
+      const websiteId = body.website_id;
+      if (!sessionId || !websiteId) {
+        return { message: null, reason: `missing session_id or website_id` };
+      }
       return {
-        sessionId: body.data.session_id,
-        websiteId: body.website_id,
-        visitorEmail: body.data.user?.email ?? undefined,
-        visitorNickname: body.data.user?.nickname ?? undefined,
-        content: typeof body.data.content === 'string' ? body.data.content : JSON.stringify(body.data.content ?? ''),
-        timestamp: body.data.timestamp,
+        message: {
+          sessionId,
+          websiteId,
+          visitorEmail: body.data.user?.email ?? undefined,
+          visitorNickname: body.data.user?.nickname ?? undefined,
+          content: typeof body.data.content === 'string' ? body.data.content : JSON.stringify(body.data.content ?? ''),
+          timestamp: body.data.timestamp,
+        },
       };
-    } catch {
-      return null;
+    } catch (err) {
+      return { message: null, reason: `parse threw: ${(err as Error).message}` };
     }
   }
 

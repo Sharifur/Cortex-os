@@ -81,7 +81,7 @@ const LEVEL_CFG = {
 
 const DONE_STATUSES = new Set(['EXECUTED', 'FAILED', 'REJECTED']);
 const DONE_LINGER_MS = 30_000;
-const MAX_LOGS = 300;
+const MAX_LOGS = 5000;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -304,6 +304,8 @@ export default function OpsPage() {
   // Filters
   const [agentFilter, setAgentFilter] = useState('');
   const [levelFilter, setLevelFilter] = useState<string>('ALL');
+  const [includeOlder, setIncludeOlder] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   // Approvals
   const [approvals, setApprovals] = useState<Approval[]>([]);
@@ -453,12 +455,45 @@ export default function OpsPage() {
   // Unique agents from log history for filter dropdown
   const agentOptions = Array.from(new Set(logs.map((l) => l.agentKey))).sort();
 
+  // Today filter cutoff
+  const startOfToday = (() => {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    return d.getTime();
+  })();
+
   // Filtered logs
   const filteredLogs = logs.filter((l) => {
     if (agentFilter && l.agentKey !== agentFilter) return false;
     if (levelFilter !== 'ALL' && l.level !== levelFilter) return false;
+    if (!includeOlder && new Date(l.createdAt).getTime() < startOfToday) return false;
     return true;
   });
+
+  async function loadOlder() {
+    if (loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const oldest = logs.length ? new Date(logs[logs.length - 1].createdAt).toISOString() : new Date().toISOString();
+      const res = await fetch(`/runs/activity?limit=100&before=${encodeURIComponent(oldest)}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return;
+      const older: LogEntry[] = await res.json();
+      if (older.length === 0) {
+        setIncludeOlder(true);
+        return;
+      }
+      setLogs((prev) => {
+        const seen = new Set(prev.map((e) => e.id));
+        const merged = [...prev, ...older.filter((e) => !seen.has(e.id))];
+        return merged;
+      });
+      setIncludeOlder(true);
+    } finally {
+      setLoadingMore(false);
+    }
+  }
 
   const isLive = logsConnected && approvalsConnected;
 
@@ -584,6 +619,13 @@ export default function OpsPage() {
                 </div>
               );
             })}
+            {filteredLogs.length > 0 && (
+              <div className="flex items-center justify-center py-3">
+                <Button size="sm" variant="outline" onClick={loadOlder} disabled={loadingMore}>
+                  {loadingMore ? 'Loading…' : includeOlder ? 'Load more' : 'Load older entries'}
+                </Button>
+              </div>
+            )}
           </div>
         </div>
 
