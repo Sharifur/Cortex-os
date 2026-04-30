@@ -2488,8 +2488,10 @@ function CrispGeneralSubTab({ agent, token }: { agent: AgentDetail; token: strin
   const [maxConversationsPerRun, setMaxConversationsPerRun] = useState(initial.maxConversationsPerRun ?? 10);
   const [autoReply, setAutoReply] = useState(initial.autoReply ?? true);
   const [debugWebhooks, setDebugWebhooks] = useState(initial.debugWebhooks ?? false);
+  const hasLlmOverride = !!(initial.llm && (initial.llm.provider || initial.llm.model));
+  const [overrideLlm, setOverrideLlm] = useState(hasLlmOverride);
   const [llmProvider, setLlmProvider] = useState(initial.llm?.provider ?? 'auto');
-  const [llmModel, setLlmModel] = useState(initial.llm?.model ?? 'gpt-4o-mini');
+  const [llmModel, setLlmModel] = useState(initial.llm?.model ?? '');
 
   const metaMutation = useMutation({
     mutationFn: () =>
@@ -2505,15 +2507,22 @@ function CrispGeneralSubTab({ agent, token }: { agent: AgentDetail; token: strin
 
   const configMutation = useMutation({
     mutationFn: () => {
+      const { llm: _strippedLlm, ...rest } = initial;
+      void _strippedLlm;
       const merged: CrispAgentConfig = {
-        ...initial,
+        ...rest,
         productContext: productContext.trim(),
         replyTone: replyTone.trim(),
         maxConversationsPerRun,
         autoReply,
         debugWebhooks,
-        llm: { provider: llmProvider, model: llmModel },
       };
+      if (overrideLlm && (llmProvider || llmModel)) {
+        merged.llm = {
+          ...(llmProvider ? { provider: llmProvider } : {}),
+          ...(llmModel.trim() ? { model: llmModel.trim() } : {}),
+        };
+      }
       return apiFetch(token, `/agents/${agent.key}`, { method: 'PATCH', body: JSON.stringify({ config: merged }) });
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['agent', agent.key] }),
@@ -2605,31 +2614,41 @@ function CrispGeneralSubTab({ agent, token }: { agent: AgentDetail; token: strin
       </div>
 
       <div className="rounded-xl border border-border bg-card p-5">
-        <h3 className="text-sm font-semibold mb-4">LLM</h3>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="text-xs text-muted-foreground block mb-1">Provider</label>
-            <select
-              value={llmProvider}
-              onChange={(e) => setLlmProvider(e.target.value)}
-              className="w-full text-sm rounded-md border border-input bg-background px-3 py-2 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-            >
-              <option value="auto">auto (router fallback)</option>
-              <option value="openai">openai</option>
-              <option value="gemini">gemini</option>
-              <option value="deepseek">deepseek</option>
-            </select>
-          </div>
-          <div>
-            <label className="text-xs text-muted-foreground block mb-1">Model</label>
-            <Input
-              value={llmModel}
-              onChange={(e) => setLlmModel(e.target.value)}
-              placeholder="gpt-4o-mini"
-              className="text-sm"
-            />
-          </div>
+        <div className="flex items-center justify-between mb-1">
+          <h3 className="text-sm font-semibold">LLM</h3>
+          <BigToggle enabled={overrideLlm} onClick={() => setOverrideLlm((v) => !v)} />
         </div>
+        <p className="text-xs text-muted-foreground mb-4">
+          {overrideLlm
+            ? 'Overriding the global LLM defaults for this agent only.'
+            : 'Using the global default provider and model from Settings → LLM.'}
+        </p>
+        {overrideLlm && (
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-muted-foreground block mb-1">Provider</label>
+              <select
+                value={llmProvider}
+                onChange={(e) => setLlmProvider(e.target.value)}
+                className="w-full text-sm rounded-md border border-input bg-background px-3 py-2 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              >
+                <option value="auto">auto (router fallback)</option>
+                <option value="openai">openai</option>
+                <option value="gemini">gemini</option>
+                <option value="deepseek">deepseek</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground block mb-1">Model (blank = provider default)</label>
+              <Input
+                value={llmModel}
+                onChange={(e) => setLlmModel(e.target.value)}
+                placeholder="e.g. gpt-4o-mini"
+                className="text-sm"
+              />
+            </div>
+          </div>
+        )}
       </div>
 
       <SaveRow

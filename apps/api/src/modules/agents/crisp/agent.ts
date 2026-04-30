@@ -31,7 +31,7 @@ interface CrispConfig {
   maxConversationsPerRun: number;
   autoReply: boolean;
   debugWebhooks: boolean;
-  llm: { provider: string; model: string };
+  llm?: { provider?: string; model?: string };
 }
 
 interface CrispSnapshot {
@@ -46,7 +46,6 @@ const DEFAULT_CONFIG: CrispConfig = {
   maxConversationsPerRun: 10,
   autoReply: true,
   debugWebhooks: false,
-  llm: { provider: 'auto', model: 'gpt-4o-mini' },
 };
 
 @Injectable()
@@ -187,8 +186,8 @@ export class CrispAgent implements IAgent, OnModuleInit {
             { role: 'system', content: systemPrompt },
             { role: 'user', content: msg.content },
           ],
-          provider: config.llm.provider as any,
-          model: config.llm.model,
+          ...(config.llm?.provider ? { provider: config.llm.provider as any } : {}),
+          ...(config.llm?.model ? { model: config.llm.model } : {}),
           maxTokens: 200,
         });
 
@@ -427,8 +426,6 @@ If not, rewrite and return: {"ok":false,"revised":"improved reply here"}`,
           },
           { role: 'user', content: `Draft: "${draft}"` },
         ],
-        provider: 'auto',
-        model: 'gpt-4o-mini',
         maxTokens: 300,
       });
       const result = JSON.parse(critique.content);
