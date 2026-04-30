@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "build": "nest build",
+    "build": "node --max-old-space-size=4096 ./node_modules/@nestjs/cli/bin/nest.js build",
     "dev": "nest start --watch",
     "start": "node dist/src/main",
     "start:worker": "node dist/src/worker",
