@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, Link } from 'react-router-dom';
-import { Bot, Play, ToggleLeft, ToggleRight, MessageSquare } from 'lucide-react';
+import { Bot, Play, ToggleLeft, ToggleRight, MessageSquare, Pin, PinOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAuthStore } from '@/stores/authStore';
@@ -31,6 +31,7 @@ interface Agent {
   name: string;
   description: string | null;
   enabled: boolean;
+  pinned: boolean;
   registered: boolean;
   createdAt: string;
   updatedAt: string;
@@ -54,6 +55,15 @@ function AgentRow({ agent, token }: { agent: Agent; token: string }) {
       apiFetch(token, `/agents/${agent.key}`, {
         method: 'PATCH',
         body: JSON.stringify({ enabled: !agent.enabled }),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['agents'] }),
+  });
+
+  const pinMutation = useMutation({
+    mutationFn: () =>
+      apiFetch(token, `/agents/${agent.key}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ pinned: !agent.pinned }),
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['agents'] }),
   });
@@ -97,6 +107,15 @@ function AgentRow({ agent, token }: { agent: Agent; token: string }) {
       </div>
 
       <div className="flex items-center gap-2 shrink-0">
+        <button
+          onClick={() => pinMutation.mutate()}
+          disabled={pinMutation.isPending}
+          className={`text-muted-foreground hover:text-foreground transition-colors ${agent.pinned ? color.iconText : ''}`}
+          title={agent.pinned ? 'Unpin' : 'Pin to top'}
+        >
+          {agent.pinned ? <Pin className="w-4 h-4 fill-current" /> : <PinOff className="w-4 h-4" />}
+        </button>
+
         <Link
           to={`/agents/${agent.key}/chat`}
           className={`flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg border transition-colors ${color.border} ${color.badgeText} hover:${color.iconBg}`}
@@ -168,9 +187,14 @@ export default function AgentsPage() {
             </div>
           ) : (
             <div className="divide-y divide-border">
-              {data.map((agent) => (
-                <AgentRow key={agent.key} agent={agent} token={token} />
-              ))}
+              {[...data]
+                .sort((a, b) => {
+                  if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+                  return a.name.localeCompare(b.name);
+                })
+                .map((agent) => (
+                  <AgentRow key={agent.key} agent={agent} token={token} />
+                ))}
             </div>
           )}
         </div>

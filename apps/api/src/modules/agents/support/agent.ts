@@ -19,12 +19,13 @@ import type {
   McpToolDefinition,
   AgentApiRoute,
 } from '../runtime/types';
+import { agentLlmOpts } from '../runtime/llm-config.util';
 
 interface SupportConfig {
   autoCloseCategories: string[];
   escalateKeywords: string[];
   maxTicketsPerRun: number;
-  llm: { provider: string; model: string };
+  llm?: { provider?: string; model?: string };
 }
 
 interface SupportSnapshot {
@@ -36,7 +37,6 @@ const DEFAULT_CONFIG: SupportConfig = {
   autoCloseCategories: [],
   escalateKeywords: ['urgent', 'lawsuit', 'refund', 'legal', 'fraud'],
   maxTicketsPerRun: 20,
-  llm: { provider: 'auto', model: 'gpt-4o-mini' },
 };
 
 const SYSTEM_PROMPT = `You are a support agent for Taskip/Xgenious. Given a support ticket:
@@ -147,8 +147,7 @@ export class SupportAgent implements IAgent, OnModuleInit {
             { role: 'system', content: systemPrompt },
             { role: 'user', content: `Subject: ${ticket.subject}\n\nBody: ${ticket.body}\n\nFrom: ${ticket.userEmail}` },
           ],
-          provider: config.llm.provider as any,
-          model: config.llm.model,
+          ...agentLlmOpts(config),
           maxTokens: 400,
         });
 
@@ -334,8 +333,6 @@ If not, rewrite and return: {"ok":false,"revised":"improved reply here"}`,
           },
           { role: 'user', content: `Draft: "${draft}"` },
         ],
-        provider: 'auto',
-        model: 'gpt-4o-mini',
         maxTokens: 300,
       });
       const result = JSON.parse(critique.content);

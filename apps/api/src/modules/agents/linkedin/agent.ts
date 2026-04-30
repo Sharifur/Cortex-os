@@ -19,12 +19,13 @@ import type {
   McpToolDefinition,
   AgentApiRoute,
 } from '../runtime/types';
+import { agentLlmOpts } from '../runtime/llm-config.util';
 
 interface LinkedInConfig {
   targetTopics: string[];
   maxCommentsPerRun: number;
   commentTone: string;
-  llm: { provider: string; model: string };
+  llm?: { provider?: string; model?: string };
 }
 
 interface LinkedInSnapshot {
@@ -38,7 +39,6 @@ const DEFAULT_CONFIG: LinkedInConfig = {
   targetTopics: ['SaaS', 'productivity', 'startup', 'project management'],
   maxCommentsPerRun: 3,
   commentTone: 'professional, concise, adds value — never salesy',
-  llm: { provider: 'auto', model: 'gpt-4o-mini' },
 };
 
 @Injectable()
@@ -131,8 +131,7 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
               content: `Post by ${post.authorName}:\n\n${post.content.slice(0, 600)}`,
             },
           ],
-          provider: config.llm.provider as any,
-          model: config.llm.model,
+          ...agentLlmOpts(config),
           maxTokens: 120,
         });
 
@@ -292,8 +291,7 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
         { role: 'system', content: (template?.system ?? defaultSystem) + kbBlock },
         { role: 'user', content: effectiveInstructions },
       ],
-      provider: config.llm.provider as any,
-      model: config.llm.model,
+      ...agentLlmOpts(config),
       maxTokens: 600,
     });
     let draft = response.content.trim();
@@ -322,8 +320,6 @@ If not, rewrite and return: {"ok":false,"revised":"improved comment here"}`,
           },
           { role: 'user', content: `Draft: "${draft}"` },
         ],
-        provider: 'auto',
-        model: 'gpt-4o-mini',
         maxTokens: 200,
       });
       const result = JSON.parse(critique.content);

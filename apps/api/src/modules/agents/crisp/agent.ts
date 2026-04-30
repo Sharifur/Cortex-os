@@ -13,6 +13,7 @@ import { PurchaseVerifyService } from '../purchase-verify/purchase-verify.servic
 import { SettingsService } from '../../settings/settings.service';
 import { ContactsService } from '../../contacts/contacts.service';
 import { hmacHex, safeEqualHex } from '../../../common/webhooks/verify';
+import { agentLlmOpts } from '../runtime/llm-config.util';
 import type {
   IAgent,
   TriggerSpec,
@@ -186,8 +187,7 @@ export class CrispAgent implements IAgent, OnModuleInit {
             { role: 'system', content: systemPrompt },
             { role: 'user', content: msg.content },
           ],
-          ...(config.llm?.provider ? { provider: config.llm.provider as any } : {}),
-          ...(config.llm?.model ? { model: config.llm.model } : {}),
+          ...agentLlmOpts(config),
           maxTokens: 200,
         });
 

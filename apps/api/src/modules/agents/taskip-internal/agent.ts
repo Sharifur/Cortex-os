@@ -21,9 +21,10 @@ import type {
   McpToolDefinition,
   AgentApiRoute,
 } from '../runtime/types';
+import { agentLlmOpts } from '../runtime/llm-config.util';
 
 interface TaskipInternalConfig {
-  llm: { provider: string; model: string };
+  llm?: { provider?: string; model?: string };
 }
 
 interface TaskipInternalSnapshot {
@@ -123,8 +124,7 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
 
     for (let i = 0; i < MAX_TOOL_ITERATIONS; i++) {
       const result = await this.llm.completeWithTools({
-        provider: config.llm.provider as 'openai' | 'deepseek' | 'auto',
-        model: config.llm.model,
+        ...agentLlmOpts(config),
         messages,
         tools,
         maxTokens: 800,
@@ -827,6 +827,6 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
   }
 
   private defaultConfig(): TaskipInternalConfig {
-    return { llm: { provider: 'openai', model: 'gpt-4o' } };
+    return {};
   }
 }

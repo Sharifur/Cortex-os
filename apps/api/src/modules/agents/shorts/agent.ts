@@ -18,6 +18,7 @@ import type {
   McpToolDefinition,
   AgentApiRoute,
 } from '../runtime/types';
+import { agentLlmOpts } from '../runtime/llm-config.util';
 
 interface ShortsConfig {
   brands: string[];
@@ -25,7 +26,7 @@ interface ShortsConfig {
   targetDurationSecs: number;
   videosPerRun: number;
   contentStyle: string;
-  llm: { provider: string; model: string };
+  llm?: { provider?: string; model?: string };
 }
 
 interface ShortsSnapshot {
@@ -50,7 +51,6 @@ const DEFAULT_CONFIG: ShortsConfig = {
   targetDurationSecs: 30,
   videosPerRun: 3,
   contentStyle: 'educational, punchy, relatable — for SaaS founders and developers',
-  llm: { provider: 'auto', model: 'gpt-4o' },
 };
 
 const SHORTS_SYSTEM = `You are a YouTube Shorts / Reels content creator.
@@ -156,8 +156,7 @@ Return a JSON array of ${config.videosPerRun} script objects. No markdown, no ex
           { role: 'system', content: baseSystem + kbBlock },
           { role: 'user', content: userPrompt },
         ],
-        provider: config.llm.provider as any,
-        model: config.llm.model,
+        ...agentLlmOpts(config),
         maxTokens: 3000,
         temperature: 0.8,
       });

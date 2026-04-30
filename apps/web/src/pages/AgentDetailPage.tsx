@@ -1996,11 +1996,79 @@ function SettingsTab({ agent, token }: { agent: AgentDetail; token: string }) {
   );
 }
 
+// LLM override card shared by every agent's settings editor. When the toggle
+// is off, config.llm is dropped on save and the agent uses the global default
+// from Settings → LLM.
+function LlmOverrideCard({
+  initialLlm,
+  overrideLlm,
+  setOverrideLlm,
+  llmProvider,
+  setLlmProvider,
+  llmModel,
+  setLlmModel,
+}: {
+  initialLlm?: { provider?: string; model?: string };
+  overrideLlm: boolean;
+  setOverrideLlm: (v: boolean) => void;
+  llmProvider: string;
+  setLlmProvider: (v: string) => void;
+  llmModel: string;
+  setLlmModel: (v: string) => void;
+}) {
+  void initialLlm;
+  return (
+    <div className="rounded-xl border border-border bg-card p-5">
+      <div className="flex items-center justify-between mb-1">
+        <h3 className="text-sm font-semibold">LLM</h3>
+        <BigToggle enabled={overrideLlm} onClick={() => setOverrideLlm(!overrideLlm)} />
+      </div>
+      <p className="text-xs text-muted-foreground mb-4">
+        {overrideLlm
+          ? 'Overriding the global LLM defaults for this agent only.'
+          : 'Using the global default provider and model from Settings → LLM.'}
+      </p>
+      {overrideLlm && (
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1">Provider</label>
+            <select
+              value={llmProvider}
+              onChange={(e) => setLlmProvider(e.target.value)}
+              className="w-full text-sm rounded-md border border-input bg-background px-3 py-2 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            >
+              <option value="auto">auto (router fallback)</option>
+              <option value="openai">openai</option>
+              <option value="gemini">gemini</option>
+              <option value="deepseek">deepseek</option>
+            </select>
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1">Model (blank = provider default)</label>
+            <Input value={llmModel} onChange={(e) => setLlmModel(e.target.value)} placeholder="e.g. gpt-4o-mini" className="text-sm" />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function stripLlm<T extends Record<string, unknown>>(cfg: T): { rest: Record<string, unknown>; llm?: { provider?: string; model?: string } } {
+  if (!cfg || typeof cfg !== 'object') return { rest: {} };
+  const { llm, ...rest } = cfg as { llm?: { provider?: string; model?: string } };
+  return { rest, llm };
+}
+
 function GenericConfigEditor({ agent, token }: { agent: AgentDetail; token: string }) {
   const qc = useQueryClient();
   const navigate = useNavigate();
-  const [configText, setConfigText] = useState(JSON.stringify(agent.config ?? {}, null, 2));
+  const initialCfg = (agent.config ?? {}) as Record<string, unknown>;
+  const { rest: initialRest, llm: initialLlm } = stripLlm(initialCfg);
+  const [configText, setConfigText] = useState(JSON.stringify(initialRest, null, 2));
   const [configError, setConfigError] = useState<string | null>(null);
+  const [overrideLlm, setOverrideLlm] = useState(!!(initialLlm && (initialLlm.provider || initialLlm.model)));
+  const [llmProvider, setLlmProvider] = useState(initialLlm?.provider ?? 'auto');
+  const [llmModel, setLlmModel] = useState(initialLlm?.model ?? '');
 
   const configMutation = useMutation({
     mutationFn: (config: Record<string, unknown>) =>
@@ -2022,9 +2090,17 @@ function GenericConfigEditor({ agent, token }: { agent: AgentDetail; token: stri
 
   function handleSave() {
     try {
-      const parsed = JSON.parse(configText);
+      const parsed = JSON.parse(configText) as Record<string, unknown>;
+      delete (parsed as { llm?: unknown }).llm;
+      const merged: Record<string, unknown> = { ...parsed };
+      if (overrideLlm && (llmProvider || llmModel)) {
+        merged.llm = {
+          ...(llmProvider ? { provider: llmProvider } : {}),
+          ...(llmModel.trim() ? { model: llmModel.trim() } : {}),
+        };
+      }
       setConfigError(null);
-      configMutation.mutate(parsed);
+      configMutation.mutate(merged);
     } catch {
       setConfigError('Invalid JSON — fix the syntax before saving.');
     }
@@ -2032,14 +2108,26 @@ function GenericConfigEditor({ agent, token }: { agent: AgentDetail; token: stri
 
   return (
     <div className="space-y-5">
+      <LlmOverrideCard
+        initialLlm={initialLlm}
+        overrideLlm={overrideLlm}
+        setOverrideLlm={setOverrideLlm}
+        llmProvider={llmProvider}
+        setLlmProvider={setLlmProvider}
+        llmModel={llmModel}
+        setLlmModel={setLlmModel}
+      />
       <div className="rounded-xl border border-border bg-card p-5">
         <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-semibold">Config JSON</h3>
+          <h3 className="text-sm font-semibold">Other config (JSON)</h3>
           <Button size="sm" onClick={handleSave} disabled={configMutation.isPending}>
             <Save className="w-3.5 h-3.5" />
             {configMutation.isPending ? 'Saving…' : 'Save'}
           </Button>
         </div>
+        <p className="text-xs text-muted-foreground mb-3">
+          The <code className="bg-muted px-1 rounded">llm</code> key is managed by the toggle above and ignored here.
+        </p>
         {configError && <p className="text-xs text-destructive mb-2">{configError}</p>}
         {configMutation.isSuccess && !configError && <p className="text-xs text-green-500 mb-2">Saved</p>}
         <textarea
@@ -2094,10 +2182,15 @@ function Phase4SetupSubTab({ agent, title, description, steps }: {
 function Phase4GeneralSubTab({ agent, token }: { agent: AgentDetail; token: string }) {
   const qc = useQueryClient();
   const navigate = useNavigate();
+  const initialCfg = (agent.config ?? {}) as Record<string, unknown>;
+  const { rest: initialRest, llm: initialLlm } = stripLlm(initialCfg);
   const [name, setName] = useState(agent.name);
   const [description, setDescription] = useState(agent.description ?? '');
-  const [configText, setConfigText] = useState(JSON.stringify(agent.config ?? {}, null, 2));
+  const [configText, setConfigText] = useState(JSON.stringify(initialRest, null, 2));
   const [configError, setConfigError] = useState<string | null>(null);
+  const [overrideLlm, setOverrideLlm] = useState(!!(initialLlm && (initialLlm.provider || initialLlm.model)));
+  const [llmProvider, setLlmProvider] = useState(initialLlm?.provider ?? 'auto');
+  const [llmModel, setLlmModel] = useState(initialLlm?.model ?? '');
 
   const metaMutation = useMutation({
     mutationFn: () =>
@@ -2125,8 +2218,17 @@ function Phase4GeneralSubTab({ agent, token }: { agent: AgentDetail; token: stri
 
   function handleSaveConfig() {
     try {
+      const parsed = JSON.parse(configText) as Record<string, unknown>;
+      delete (parsed as { llm?: unknown }).llm;
+      const merged: Record<string, unknown> = { ...parsed };
+      if (overrideLlm && (llmProvider || llmModel)) {
+        merged.llm = {
+          ...(llmProvider ? { provider: llmProvider } : {}),
+          ...(llmModel.trim() ? { model: llmModel.trim() } : {}),
+        };
+      }
       setConfigError(null);
-      configMutation.mutate(JSON.parse(configText));
+      configMutation.mutate(merged);
     } catch {
       setConfigError('Invalid JSON');
     }
@@ -2156,14 +2258,27 @@ function Phase4GeneralSubTab({ agent, token }: { agent: AgentDetail; token: stri
         </div>
       </div>
 
+      <LlmOverrideCard
+        initialLlm={initialLlm}
+        overrideLlm={overrideLlm}
+        setOverrideLlm={setOverrideLlm}
+        llmProvider={llmProvider}
+        setLlmProvider={setLlmProvider}
+        llmModel={llmModel}
+        setLlmModel={setLlmModel}
+      />
+
       <div className="rounded-xl border border-border bg-card p-5">
         <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-semibold">Config JSON</h3>
+          <h3 className="text-sm font-semibold">Other config (JSON)</h3>
           <Button size="sm" onClick={handleSaveConfig} disabled={configMutation.isPending}>
             <Save className="w-3.5 h-3.5" />
             {configMutation.isPending ? 'Saving…' : 'Save'}
           </Button>
         </div>
+        <p className="text-xs text-muted-foreground mb-3">
+          The <code className="bg-muted px-1 rounded">llm</code> key is managed by the LLM card above and ignored here.
+        </p>
         {configError && <p className="text-xs text-destructive mb-2">{configError}</p>}
         {configMutation.isSuccess && !configError && <p className="text-xs text-green-500 mb-2">Saved</p>}
         <textarea

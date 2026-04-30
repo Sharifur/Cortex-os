@@ -18,12 +18,13 @@ import type {
   McpToolDefinition,
   AgentApiRoute,
 } from '../runtime/types';
+import { agentLlmOpts } from '../runtime/llm-config.util';
 
 interface SocialConfig {
   brands: string[];
   platforms: string[];
   replyTone: string;
-  llm: { provider: string; model: string };
+  llm?: { provider?: string; model?: string };
 }
 
 interface SocialSnapshot {
@@ -38,7 +39,6 @@ const DEFAULT_CONFIG: SocialConfig = {
   brands: ['taskip', 'xgenious'],
   platforms: ['fb', 'ig', 'x', 'linkedin'],
   replyTone: 'friendly, professional, adds value — never salesy',
-  llm: { provider: 'auto', model: 'gpt-4o-mini' },
 };
 
 @Injectable()
@@ -143,8 +143,7 @@ export class SocialAgent implements IAgent, OnModuleInit {
               content: `From @${eng.fromUser}: ${eng.body}`,
             },
           ],
-          provider: config.llm.provider as any,
-          model: config.llm.model,
+          ...agentLlmOpts(config),
           maxTokens: 100,
         });
 
@@ -309,8 +308,7 @@ export class SocialAgent implements IAgent, OnModuleInit {
         { role: 'system', content: (template?.system ?? defaultSystem) + kbBlock },
         { role: 'user', content: effectiveInstructions },
       ],
-      provider: config.llm.provider as any,
-      model: config.llm.model,
+      ...agentLlmOpts(config),
       maxTokens: 400,
     });
     let draft = response.content.trim();
@@ -339,8 +337,6 @@ If not, rewrite and return: {"ok":false,"revised":"improved reply here"}`,
           },
           { role: 'user', content: `Draft: "${draft}"` },
         ],
-        provider: 'auto',
-        model: 'gpt-4o-mini',
         maxTokens: 150,
       });
       const result = JSON.parse(critique.content);

@@ -18,6 +18,7 @@ import type {
   McpToolDefinition,
   AgentApiRoute,
 } from '../runtime/types';
+import { agentLlmOpts } from '../runtime/llm-config.util';
 
 type Classification = 'must-reply' | 'nice-to-reply' | 'newsletter' | 'spam';
 
@@ -25,7 +26,7 @@ interface EmailManagerConfig {
   maxEmailsPerRun: number;
   importantSenders: string[];
   autoArchiveDomains: string[];
-  llm: { provider: string; model: string };
+  llm?: { provider?: string; model?: string };
 }
 
 interface EmailSnapshot {
@@ -410,8 +411,7 @@ export class EmailManagerAgent implements IAgent, OnModuleInit {
         { role: 'system', content: (template?.system ?? defaultSystem) + kbBlock },
         { role: 'user', content: effectiveInstructions },
       ],
-      provider: config.llm.provider as 'openai' | 'gemini' | 'deepseek' | 'auto',
-      model: config.llm.model,
+      ...agentLlmOpts(config),
       maxTokens: 400,
       temperature: 0.7,
     });
@@ -442,8 +442,7 @@ export class EmailManagerAgent implements IAgent, OnModuleInit {
 
     const prompt = `From: ${msg.from}\nSubject: ${msg.subject}\n\n${msg.snippet}`;
     const res = await this.llm.complete({
-      provider: config.llm.provider as 'openai' | 'gemini' | 'deepseek' | 'auto',
-      model: config.llm.model,
+      ...agentLlmOpts(config),
       messages: [
         { role: 'system', content: CLASSIFY_SYSTEM },
         { role: 'user', content: prompt },
@@ -466,8 +465,7 @@ export class EmailManagerAgent implements IAgent, OnModuleInit {
     kbBlock = '',
   ): Promise<string> {
     const res = await this.llm.complete({
-      provider: config.llm.provider as 'openai' | 'gemini' | 'deepseek' | 'auto',
-      model: config.llm.model,
+      ...agentLlmOpts(config),
       messages: [
         { role: 'system', content: (customSystem ?? DRAFT_SYSTEM) + kbBlock },
         {
@@ -495,8 +493,6 @@ If not, rewrite and return: {"ok":false,"revised":"improved reply here"}`,
           },
           { role: 'user', content: `Draft: "${draft}"` },
         ],
-        provider: 'auto',
-        model: 'gpt-4o-mini',
         maxTokens: 250,
       });
       const result = JSON.parse(critique.content);
@@ -521,7 +517,6 @@ If not, rewrite and return: {"ok":false,"revised":"improved reply here"}`,
       maxEmailsPerRun: 20,
       importantSenders: [],
       autoArchiveDomains: [],
-      llm: { provider: 'auto', model: 'gpt-4o-mini' },
     };
   }
 }

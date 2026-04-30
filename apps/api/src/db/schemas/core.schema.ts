@@ -63,6 +63,7 @@ export const agents = pgTable('agents', {
   name: text('name').notNull(),
   description: text('description'),
   enabled: boolean('enabled').default(true).notNull(),
+  pinned: boolean('pinned').default(false).notNull(),
   config: jsonb('config').notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),

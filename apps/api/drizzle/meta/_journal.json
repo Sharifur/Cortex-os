@@ -155,6 +155,13 @@
       "when": 1777400013000,
       "tag": "0021_crisp_website_overrides",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "6",
+      "when": 1777400014000,
+      "tag": "0022_agents_pinned",
+      "breakpoints": true
     }
   ]
 }

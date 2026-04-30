@@ -16,6 +16,7 @@ import type {
   McpToolDefinition,
   AgentApiRoute,
 } from '../runtime/types';
+import { agentLlmOpts } from '../runtime/llm-config.util';
 
 const ROUTABLE_AGENTS = [
   { key: 'daily_reminder', name: 'Daily Reminder', aliases: ['daily', 'reminder', 'brief', 'status'], desc: 'Status updates, pending tasks, daily briefs, system status' },
@@ -43,13 +44,12 @@ export type TelegramRouteResult =
   | { kind: 'show_picker'; text: string };
 
 interface TelegramBotConfig {
-  llm: { provider: string; model: string };
+  llm?: { provider?: string; model?: string };
   helpReply: string;
   reminderFollowupPrompt: string;
 }
 
 const DEFAULT_CONFIG: TelegramBotConfig = {
-  llm: { provider: 'auto', model: 'gpt-4o-mini' },
   helpReply: 'Hi. I route messages to your agents. Try things like:\n• `remind me to drink water in 5 minutes`\n• `draft a reply to the latest email`\n• `give me today\'s status`\n• `@linkedin connect with the new sign-ups`',
   reminderFollowupPrompt: 'When should I trigger it? Reply with something like `in 20 min`, `tomorrow at 9am`, or `8pm`.',
 };
@@ -367,8 +367,7 @@ export class TelegramBotAgent implements IAgent, OnModuleInit {
     const agentList = ROUTABLE_AGENTS.map((a) => `- ${a.key}: ${a.desc}`).join('\n');
 
     const response = await this.llm.complete({
-      provider: config.llm.provider as never,
-      model: config.llm.model,
+      ...agentLlmOpts(config),
       messages: [
         {
           role: 'system',
@@ -433,8 +432,7 @@ Use {"agent": null, "confidence": "low"} only for greetings or unrelated chatter
 
     const config = await this.getConfig();
     const response = await this.llm.complete({
-      provider: config.llm.provider as never,
-      model: config.llm.model,
+      ...agentLlmOpts(config),
       messages: [
         {
           role: 'system',
