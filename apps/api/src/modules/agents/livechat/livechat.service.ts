@@ -11,6 +11,7 @@ import {
 import { EnrichmentService, EnrichedVisitor } from '../../../common/visitor-enrichment/enrichment.service';
 import { LivechatOriginCache } from './livechat-origin.cache';
 import { ContactsService } from '../../contacts/contacts.service';
+import { KnowledgeBaseService } from '../../knowledge-base/knowledge-base.service';
 
 export type WidgetPosition = 'bottom-right' | 'bottom-left';
 
@@ -97,6 +98,7 @@ export class LivechatService {
     private enrichment: EnrichmentService,
     private originCache: LivechatOriginCache,
     private contactsSvc: ContactsService,
+    private kb: KnowledgeBaseService,
   ) {}
 
   /**
@@ -719,19 +721,30 @@ export class LivechatService {
     const existing = await this.getSiteByKey(key);
     if (existing) throw new BadRequestException(`Site key already exists: ${key}`);
 
+    // Was this the very first live chat site? Used to gate global KB seeding.
+    const [{ count: existingSiteCount }] = await this.db.db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(livechatSites);
+
+    const label = dto.label.trim();
+    // Auto-fill site fields with sensible per-site defaults so a new chatbot
+    // works the moment the snippet is pasted on the site, with no further
+    // editing required. Operators can refine afterwards.
+    const defaults = this.minimalSiteDefaults(label);
+
     const [row] = await this.db.db
       .insert(livechatSites)
       .values({
         key,
-        label: dto.label.trim(),
+        label,
         origin,
         productContext: dto.productContext?.toString().trim() || null,
-        replyTone: dto.replyTone?.toString().trim() || null,
+        replyTone: (dto.replyTone?.toString().trim()) || defaults.replyTone,
         trackBots: dto.trackBots ?? false,
-        autoApprove: dto.autoApprove ?? false,
-        botName: dto.botName?.trim() || null,
-        botSubtitle: dto.botSubtitle?.trim() || null,
-        welcomeMessage: dto.welcomeMessage?.trim() || null,
+        autoApprove: dto.autoApprove ?? true,
+        botName: (dto.botName?.trim()) || defaults.botName,
+        botSubtitle: (dto.botSubtitle?.trim()) || defaults.botSubtitle,
+        welcomeMessage: (dto.welcomeMessage?.trim()) || defaults.welcomeMessage,
         brandColor: this.normalizeColor(dto.brandColor),
         position: this.normalizePosition(dto.position),
         llmProvider: dto.llmProvider?.trim() || null,
@@ -742,7 +755,102 @@ export class LivechatService {
       })
       .returning();
     await this.originCache.refresh().catch(() => undefined);
+
+    // Seed the shared `livechat` KB the first time *any* site is created.
+    // The KB itself is shared across all live chat sites — voice profile and
+    // generic facts apply to every site by default; per-site framing comes
+    // from the site's productContext/replyTone columns.
+    if ((existingSiteCount ?? 0) === 0) {
+      await this.seedLivechatKbDefaults().catch((err) =>
+        this.logger.warn(`KB seed failed (non-fatal): ${(err as Error).message}`),
+      );
+    }
+
     return this.toSiteRow(row);
+  }
+
+  /** Per-site placeholder text — used when the operator leaves the persona fields blank on create. */
+  private minimalSiteDefaults(label: string): {
+    botName: string;
+    botSubtitle: string;
+    welcomeMessage: string;
+    replyTone: string;
+  } {
+    return {
+      botName: label,
+      botSubtitle: 'We typically reply in a few seconds.',
+      welcomeMessage: `Hi! I'm here to help — ask me anything about ${label}.`,
+      replyTone: 'friendly, concise, and helpful — like a knowledgeable founder replying to a customer',
+    };
+  }
+
+  /**
+   * Idempotently seed the `livechat` KB with the minimal-viable starter set
+   * so the agent has something to ground replies against on day one. Safe to
+   * call multiple times — each insert is gated on a "marker" check.
+   */
+  private async seedLivechatKbDefaults(): Promise<void> {
+    // Voice profile — only insert if no livechat-tagged voice_profile exists.
+    const alwaysOn = await this.kb.getAlwaysOnContext('livechat').catch(() => [] as Awaited<ReturnType<typeof this.kb.getAlwaysOnContext>>);
+    const hasVoice = alwaysOn.some((e) => e.entryType === 'voice_profile');
+    if (!hasVoice) {
+      await this.kb.createEntry({
+        title: 'Live chat voice profile',
+        content:
+          'Direct, friendly, no corporate jargon. 2–4 sentences max. ' +
+          'Reference the page the visitor is on when relevant. ' +
+          'If you do not know the answer, say so plainly and offer to connect them with a human — never invent details.',
+        category: 'general',
+        entryType: 'voice_profile',
+        priority: 100,
+        agentKeys: 'livechat',
+      });
+      this.logger.log('Seeded livechat voice_profile');
+    }
+
+    // A couple of placeholder facts so the operator can see the structure
+    // and replace them with real product info.
+    const hasSeedFact = alwaysOn.some((e) => e.entryType === 'fact' && e.title?.startsWith('[seed]'));
+    if (!hasSeedFact) {
+      await this.kb.createEntry({
+        title: '[seed] Replace with a real product fact',
+        content:
+          'Replace this entry with a one-paragraph fact the AI should always know about your product — e.g., pricing tiers, refund policy, support hours, or where to download/install. Tag with `livechat` (or per-brand keys).',
+        category: 'general',
+        entryType: 'fact',
+        priority: 50,
+        agentKeys: 'livechat',
+      });
+      this.logger.log('Seeded livechat placeholder fact');
+    }
+
+    // One positive writing sample so the agent has at least one tone reference.
+    const samples = await this.kb.getWritingSamples('livechat').catch(() => [] as Awaited<ReturnType<typeof this.kb.getWritingSamples>>);
+    if (samples.length === 0) {
+      await this.kb.createSample({
+        context: 'Pricing question on the homepage',
+        sampleText:
+          'Our Pro plan is $29/month and includes unlimited projects. There is also a 7-day free trial — no card needed. Want me to walk you through what is included?',
+        polarity: 'positive',
+        agentKeys: 'livechat',
+      }).catch((err) => this.logger.debug(`writing sample seed skipped: ${(err as Error).message}`));
+    }
+
+    // Default prompt template (key `livechat.reply`). Skip if one already exists.
+    const tpl = await this.kb.getPromptTemplate('livechat').catch(() => null);
+    if (!tpl) {
+      await this.kb.createTemplate({
+        key: 'livechat.reply',
+        system:
+          'You are a live chat assistant on the website. ' +
+          'Use the knowledge base entries, voice profile, and visitor context provided below. ' +
+          'Write a direct reply to the visitor. 2–4 sentences max. ' +
+          'No greetings like "Dear" or closings like "Best regards". ' +
+          'When the visitor\'s current page is relevant (pricing, docs, a specific feature), reference it naturally. ' +
+          'Just the reply.',
+        userTemplate: '{{visitorMessage}}',
+      }).catch((err) => this.logger.debug(`template seed skipped: ${(err as Error).message}`));
+    }
   }
 
   async updateSite(id: string, dto: UpdateSiteDto): Promise<LivechatSiteRow> {
