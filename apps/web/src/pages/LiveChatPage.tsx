@@ -190,9 +190,35 @@ function PushNotificationsToggle() {
   if (!status.supported) return null;
   if (!status.configured) {
     return (
-      <span className="text-xs text-muted-foreground hidden sm:inline" title="Admin must set VAPID keys in Settings → Notifications">
-        push not configured
-      </span>
+      <button
+        onClick={async () => {
+          if (!confirm('Generate VAPID keys for push notifications? Safe to run once — refuses to overwrite existing keys.')) return;
+          setBusy(true);
+          try {
+            const res = await fetch('/push/generate-vapid-keys', {
+              method: 'POST',
+              headers: { Authorization: `Bearer ${token}` },
+            });
+            const data = await res.json();
+            if (!res.ok) {
+              alert(`Setup failed: ${data?.message ?? res.statusText}`);
+            } else if (data?.alreadyConfigured) {
+              alert('VAPID keys are already configured.');
+            } else {
+              alert('VAPID keys generated. Reload the page, then click "Enable push".');
+            }
+            setStatus(await getPushStatus(token));
+          } finally {
+            setBusy(false);
+          }
+        }}
+        disabled={busy}
+        title="Auto-generate VAPID keys for push notifications"
+        className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent disabled:opacity-50"
+      >
+        <BellOff className="w-3.5 h-3.5" />
+        <span className="hidden sm:inline">Set up push</span>
+      </button>
     );
   }
 

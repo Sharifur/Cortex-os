@@ -31,6 +31,31 @@ export class PushService {
     return cfg?.publicKey ?? null;
   }
 
+  /**
+   * Auto-generate a VAPID keypair and persist to Settings, but only if no
+   * keys are configured yet. Returns the public key on success, or null
+   * if keys already exist (we never overwrite — that would invalidate
+   * every existing push subscription on every connected operator's
+   * device).
+   */
+  async generateAndSaveKeys(subjectFallback?: string): Promise<{ ok: boolean; publicKey?: string; alreadyConfigured?: boolean }> {
+    const existingPublic = await this.settings.getDecrypted('push_vapid_public_key');
+    const existingPrivate = await this.settings.getDecrypted('push_vapid_private_key');
+    if (existingPublic && existingPrivate) {
+      return { ok: false, alreadyConfigured: true };
+    }
+    const keys = webpush.generateVAPIDKeys();
+    await this.settings.upsert('push_vapid_public_key', keys.publicKey);
+    await this.settings.upsert('push_vapid_private_key', keys.privateKey);
+    const existingSubject = await this.settings.getDecrypted('push_vapid_subject');
+    if (!existingSubject?.trim() && subjectFallback?.trim()) {
+      await this.settings.upsert('push_vapid_subject', subjectFallback.trim());
+    }
+    this.cached = null;
+    this.logger.log('Generated and saved VAPID keys');
+    return { ok: true, publicKey: keys.publicKey };
+  }
+
   async isConfigured(): Promise<boolean> {
     return !!(await this.resolveVapid().catch(() => null));
   }
