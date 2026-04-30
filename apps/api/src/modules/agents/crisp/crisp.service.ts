@@ -22,7 +22,14 @@ export interface CrispWebsiteRow {
   identifier: string;
   apiKeyMasked: string;
   enabled: boolean;
+  productContext: string | null;
+  replyTone: string | null;
   createdAt: Date;
+}
+
+export interface CrispWebsiteOverrides {
+  productContext?: string;
+  replyTone?: string;
 }
 
 interface CrispCredentials {
@@ -55,11 +62,20 @@ export class CrispService {
       identifier: r.identifier,
       apiKeyMasked: maskSecret(decrypt(r.apiKey)),
       enabled: r.enabled,
+      productContext: r.productContext ?? null,
+      replyTone: r.replyTone ?? null,
       createdAt: r.createdAt,
     }));
   }
 
-  async addWebsite(dto: { label: string; websiteId: string; identifier: string; apiKey: string }) {
+  async addWebsite(dto: {
+    label: string;
+    websiteId: string;
+    identifier: string;
+    apiKey: string;
+    productContext?: string;
+    replyTone?: string;
+  }) {
     const [row] = await this.db.db
       .insert(crispWebsites)
       .values({
@@ -67,6 +83,8 @@ export class CrispService {
         websiteId: dto.websiteId,
         identifier: dto.identifier,
         apiKey: encrypt(dto.apiKey),
+        productContext: dto.productContext?.trim() || null,
+        replyTone: dto.replyTone?.trim() || null,
       })
       .returning({ id: crispWebsites.id, label: crispWebsites.label, websiteId: crispWebsites.websiteId });
     return row;
@@ -74,7 +92,15 @@ export class CrispService {
 
   async updateWebsite(
     id: string,
-    dto: { label?: string; websiteId?: string; identifier?: string; apiKey?: string; enabled?: boolean },
+    dto: {
+      label?: string;
+      websiteId?: string;
+      identifier?: string;
+      apiKey?: string;
+      enabled?: boolean;
+      productContext?: string | null;
+      replyTone?: string | null;
+    },
   ) {
     const [existing] = await this.db.db.select().from(crispWebsites).where(eq(crispWebsites.id, id));
     if (!existing) throw new NotFoundException(`Crisp website not found: ${id}`);
@@ -84,8 +110,21 @@ export class CrispService {
     if (dto.identifier !== undefined) set.identifier = dto.identifier;
     if (dto.apiKey !== undefined && dto.apiKey.length > 0) set.apiKey = encrypt(dto.apiKey);
     if (dto.enabled !== undefined) set.enabled = dto.enabled;
+    if (dto.productContext !== undefined) set.productContext = dto.productContext?.trim() || null;
+    if (dto.replyTone !== undefined) set.replyTone = dto.replyTone?.trim() || null;
     if (Object.keys(set).length === 0) return;
     await this.db.db.update(crispWebsites).set(set).where(eq(crispWebsites.id, id));
+  }
+
+  async getOverridesForWebsite(websiteId: string): Promise<CrispWebsiteOverrides> {
+    const [row] = await this.db.db
+      .select({ productContext: crispWebsites.productContext, replyTone: crispWebsites.replyTone })
+      .from(crispWebsites)
+      .where(eq(crispWebsites.websiteId, websiteId));
+    return {
+      productContext: row?.productContext ?? undefined,
+      replyTone: row?.replyTone ?? undefined,
+    };
   }
 
   async deleteWebsite(id: string) {
