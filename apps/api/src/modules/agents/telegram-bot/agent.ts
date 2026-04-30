@@ -16,6 +16,7 @@ import type {
   AgentApiRoute,
 } from '../runtime/types';
 import { agentLlmOpts } from '../runtime/llm-config.util';
+import { TelegramChatStateService } from '../../telegram/telegram-chat-state.service';
 
 const ROUTABLE_AGENTS = [
   { key: 'daily_reminder', name: 'Daily Reminder', aliases: ['daily', 'reminder', 'brief', 'status'], desc: 'Status updates, pending tasks, daily briefs, system status' },
@@ -66,20 +67,20 @@ export class TelegramBotAgent implements IAgent, OnModuleInit {
   readonly name = 'Telegram Bot';
   private readonly logger = new Logger(TelegramBotAgent.name);
 
-  // Per-chat pending reminder waiting for the user to reply with a time.
-  private pendingReminders = new Map<string, { message: string; expiresAt: number }>();
-
-  // Cached intent decisions keyed by exact text. Saves an LLM call when the
-  // user repeats a phrase ("status", "today's brief", "hello").
+  // In-memory intent cache keyed by exact text — repeated phrases never
+  // hit the LLM. Stays per-process since it's a perf optimization;
+  // pending reminders, by contrast, live in Postgres so they survive restarts.
   private intentCache = new Map<string, { decision: IntentDecision; expiresAt: number }>();
   private static INTENT_CACHE_TTL_MS = 60 * 60 * 1000;
   private static CLASSIFIER_TIMEOUT_MS = 3_000;
   private static ROUTE_CONFIDENCE_THRESHOLD = 0.55;
+  private static PENDING_REMINDER_TTL_MS = 5 * 60 * 1000;
 
   constructor(
     private db: DbService,
     private llm: LlmRouterService,
     private registry: AgentRegistryService,
+    private chatState: TelegramChatStateService,
   ) {}
 
   onModuleInit() {
@@ -124,7 +125,7 @@ export class TelegramBotAgent implements IAgent, OnModuleInit {
 
     // Explicit cancel — clears any pending state and acknowledges.
     if (/^(\/cancel|cancel|nvm|never\s*mind|forget\s+(it|that))$/i.test(trimmed)) {
-      const had = this.pendingReminders.delete(chatId);
+      const had = await this.chatState.clearPendingReminder(chatId);
       return {
         kind: 'cancelled',
         reply: had ? 'Cancelled — what else?' : 'Nothing pending. What would you like to do?',
@@ -137,9 +138,9 @@ export class TelegramBotAgent implements IAgent, OnModuleInit {
     }
 
     // 0a. Pending reminder waiting for time?
-    const pending = this.pendingReminders.get(chatId);
-    if (pending && Date.now() < pending.expiresAt) {
-      this.pendingReminders.delete(chatId);
+    const pending = await this.chatState.getPendingReminder(chatId);
+    if (pending) {
+      await this.chatState.clearPendingReminder(chatId);
       try {
         const reminder = await this.detectReminder(`${pending.message} ${text}`, tz);
         if (reminder) {
@@ -152,7 +153,7 @@ export class TelegramBotAgent implements IAgent, OnModuleInit {
       } catch (err) {
         this.logger.warn(`Pending reminder time-parse failed: ${(err as Error).message}`);
       }
-      this.pendingReminders.set(chatId, { ...pending, expiresAt: Date.now() + 5 * 60_000 });
+      await this.chatState.setPendingReminder(chatId, pending.message, TelegramBotAgent.PENDING_REMINDER_TTL_MS);
       return {
         kind: 'time_unparseable',
         reply: `I couldn't understand that as a time. Reply with something like \`in 20 min\`, \`tomorrow at 9am\`, or \`8pm\`.`,
@@ -165,12 +166,21 @@ export class TelegramBotAgent implements IAgent, OnModuleInit {
       const [, mention, instruction] = mentionMatch;
       const target = this.resolveAgentByAlias(mention.toLowerCase());
       if (target) {
-        return {
+        const mentionResult: TelegramRouteResult = {
           kind: 'mention_route',
           agentKey: target.key,
           agentName: target.name,
           instructions: instruction.trim(),
         };
+        void this.chatState.logRouting({
+          chatId,
+          inboundText: text,
+          decidedKind: mentionResult.kind,
+          decidedAgentKey: mentionResult.agentKey,
+          latencyMs: 0,
+        });
+        void this.chatState.setLastRoute(chatId, mentionResult.agentKey, null);
+        return mentionResult;
       }
     }
 
@@ -182,9 +192,36 @@ export class TelegramBotAgent implements IAgent, OnModuleInit {
     } catch (err) {
       this.logger.warn(`Intent classifier failed: ${(err as Error).message}`);
     }
-    this.logger.log(`route chatId=${chatId} kind=${decision?.kind ?? 'null'} latency=${Date.now() - startedAt}ms`);
+    const latencyMs = Date.now() - startedAt;
+    this.logger.log(`route chatId=${chatId} kind=${decision?.kind ?? 'null'} latency=${latencyMs}ms`);
 
-    // Apply the decision
+    // Compute the final TelegramRouteResult from the decision.
+    const result: TelegramRouteResult = await this.applyDecision(text, chatId, tz, decision);
+
+    // Persist routing log + last-route for follow-up support (Phase 3).
+    void this.chatState.logRouting({
+      chatId,
+      inboundText: text,
+      decidedKind: result.kind,
+      decidedAgentKey:
+        result.kind === 'classified_route' || result.kind === 'mention_route'
+          ? (result as { agentKey: string }).agentKey
+          : null,
+      confidence: decision?.kind === 'route' ? decision.confidence : null,
+      latencyMs,
+    });
+    if (result.kind === 'classified_route' || result.kind === 'mention_route') {
+      void this.chatState.setLastRoute(chatId, result.agentKey, null);
+    }
+    return result;
+  }
+
+  private async applyDecision(
+    text: string,
+    chatId: string,
+    tz: string,
+    decision: IntentDecision | null,
+  ): Promise<TelegramRouteResult> {
     if (decision) {
       switch (decision.kind) {
         case 'smalltalk':
@@ -212,7 +249,7 @@ export class TelegramBotAgent implements IAgent, OnModuleInit {
           }
           // Reminder intent without a parseable time → ask for it.
           const cleaned = decision.message || this.stripTaskIntent(text) || text;
-          this.pendingReminders.set(chatId, { message: cleaned, expiresAt: Date.now() + 5 * 60_000 });
+          await this.chatState.setPendingReminder(chatId, cleaned, TelegramBotAgent.PENDING_REMINDER_TTL_MS);
           return {
             kind: 'ask_for_time',
             pendingMessage: cleaned,
@@ -221,7 +258,7 @@ export class TelegramBotAgent implements IAgent, OnModuleInit {
         }
 
         case 'route': {
-          const meta = ROUTABLE_AGENTS.find((a) => a.key === decision!.agentKey);
+          const meta = ROUTABLE_AGENTS.find((a) => a.key === decision.agentKey);
           if (meta && decision.confidence >= TelegramBotAgent.ROUTE_CONFIDENCE_THRESHOLD) {
             return {
               kind: 'classified_route',
@@ -230,7 +267,6 @@ export class TelegramBotAgent implements IAgent, OnModuleInit {
               instructions: decision.instructions || text,
             };
           }
-          // Low-confidence route → ask for confirmation rather than guessing.
           return {
             kind: 'clarify',
             reply: meta
@@ -370,11 +406,11 @@ Current local time: ${nowLocal} (${tz}). Current UTC: ${nowUtc.toISOString()}.`;
   // Used by TelegramService when the user taps a quick-time inline button:
   // schedules immediately if pending intent exists, otherwise no-op.
   async resolvePendingReminderWithDelay(chatId: string, delayMinutes: number, tz: string): Promise<{ scheduled: boolean; reply: string }> {
-    const pending = this.pendingReminders.get(chatId);
-    if (!pending || Date.now() >= pending.expiresAt) {
+    const pending = await this.chatState.getPendingReminder(chatId);
+    if (!pending) {
       return { scheduled: false, reply: 'No pending reminder — start with `remind me to ...`.' };
     }
-    this.pendingReminders.delete(chatId);
+    await this.chatState.clearPendingReminder(chatId);
     const sendAt = new Date(Date.now() + delayMinutes * 60 * 1000);
     await this.scheduleReminder({ message: pending.message, sendAt });
     const sendAtLabel =
@@ -387,11 +423,8 @@ Current local time: ${nowLocal} (${tz}). Current UTC: ${nowUtc.toISOString()}.`;
   }
 
   /** Pre-set a pending reminder (used by /remind <text>). */
-  setPendingReminder(chatId: string, message: string): void {
-    this.pendingReminders.set(chatId, {
-      message,
-      expiresAt: Date.now() + 5 * 60_000,
-    });
+  async setPendingReminder(chatId: string, message: string): Promise<void> {
+    await this.chatState.setPendingReminder(chatId, message, TelegramBotAgent.PENDING_REMINDER_TTL_MS);
   }
 
   // ── Internal helpers ─────────────────────────────────────────────────────
