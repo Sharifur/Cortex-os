@@ -290,7 +290,8 @@ function IntegrationLayout({
 }
 
 function WhatsAppTab({ rows, token }: { rows: SettingRow[]; token: string }) {
-  const webhookUrl = `${window.location.origin}/whatsapp/webhook`;
+  const apiOrigin = ((import.meta.env.VITE_API_URL ?? '') as string).replace(/\/$/, '') || window.location.origin;
+  const webhookUrl = `${apiOrigin}/whatsapp/webhook`;
   return (
     <IntegrationLayout
       integrationKey="whatsapp"
@@ -434,7 +435,8 @@ function CrispTab({ token, rows }: { token: string; rows: SettingRow[] }) {
   const tokenRow = rows.find((r) => r.key === 'crisp_webhook_token');
   const tokenStored = tokenRow?.stored ?? false;
   const tokenMasked = tokenRow?.value ?? '';
-  const baseWebhookUrl = `${window.location.origin}/crisp/webhook`;
+  const apiOrigin = ((import.meta.env.VITE_API_URL ?? '') as string).replace(/\/$/, '') || window.location.origin;
+  const baseWebhookUrl = `${apiOrigin}/crisp/webhook`;
   const [revealToken, setRevealToken] = useState(false);
   const [generatedToken, setGeneratedToken] = useState<string | null>(null);
 
@@ -881,7 +883,8 @@ function TelegramTab({ rows, token }: { rows: SettingRow[]; token: string }) {
 }
 
 function SesTab({ rows, token }: { rows: SettingRow[]; token: string }) {
-  const webhookUrl = `${window.location.origin}/ses/webhook`;
+  const apiOrigin = ((import.meta.env.VITE_API_URL ?? '') as string).replace(/\/$/, '') || window.location.origin;
+  const webhookUrl = `${apiOrigin}/ses/webhook`;
   return (
     <IntegrationLayout
       integrationKey="ses"

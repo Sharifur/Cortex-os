@@ -127,7 +127,8 @@ function CopyButton({ text }: { text: string }) {
 
 function AgentMcpCard({ entry }: { entry: AgentMcpEntry }) {
   const [expanded, setExpanded] = useState(false);
-  const sseUrl = `${window.location.origin}/mcp/${entry.agentKey}/sse`;
+  const apiOrigin = ((import.meta.env.VITE_API_URL ?? '') as string).replace(/\/$/, '') || window.location.origin;
+  const sseUrl = `${apiOrigin}/mcp/${entry.agentKey}/sse`;
 
   return (
     <div className="rounded-xl border border-border bg-card overflow-hidden">
