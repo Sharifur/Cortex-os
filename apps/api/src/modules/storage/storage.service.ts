@@ -1,9 +1,45 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { fileTypeFromBuffer } from 'file-type';
 import { createId } from '@paralleldrive/cuid2';
 import { SettingsService } from '../settings/settings.service';
+
+/**
+ * Magic-byte sniffer for the MIME types we actually allow. Replaces the
+ * `file-type` package — that lib went pure-ESM in v17+ and breaks NestJS's
+ * CommonJS runtime. Inline + dependency-free is safer for this scope.
+ *
+ * Returns the canonical MIME for the bytes, or null if unrecognized.
+ */
+function sniffMime(buf: Buffer): { mime: string; ext: string } | null {
+  if (buf.length < 4) return null;
+  // PNG: 89 50 4E 47
+  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return { mime: 'image/png', ext: 'png' };
+  // JPEG: FF D8 FF
+  if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return { mime: 'image/jpeg', ext: 'jpg' };
+  // GIF: 47 49 46 38
+  if (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x38) return { mime: 'image/gif', ext: 'gif' };
+  // PDF: 25 50 44 46
+  if (buf[0] === 0x25 && buf[1] === 0x50 && buf[2] === 0x44 && buf[3] === 0x46) return { mime: 'application/pdf', ext: 'pdf' };
+  // ZIP / docx / xlsx / pptx (Office Open XML): 50 4B 03 04
+  if (buf[0] === 0x50 && buf[1] === 0x4b && (buf[2] === 0x03 || buf[2] === 0x05) && (buf[3] === 0x04 || buf[3] === 0x06)) {
+    return { mime: 'application/zip', ext: 'zip' };
+  }
+  // DOC / xls / ppt (CFB): D0 CF 11 E0 A1 B1 1A E1
+  if (buf.length >= 8 && buf[0] === 0xd0 && buf[1] === 0xcf && buf[2] === 0x11 && buf[3] === 0xe0 && buf[4] === 0xa1 && buf[5] === 0xb1) {
+    return { mime: 'application/x-cfb', ext: 'doc' };
+  }
+  // RIFF container — could be WEBP. Bytes 0..3 = "RIFF", 8..11 = "WEBP".
+  if (buf.length >= 12 && buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46 && buf[8] === 0x57 && buf[9] === 0x45 && buf[10] === 0x42 && buf[11] === 0x50) {
+    return { mime: 'image/webp', ext: 'webp' };
+  }
+  // AVIF: ftyp box with major brand "avif" or "avis". Bytes 4..7 = "ftyp", 8..11 = "avif"/"avis".
+  if (buf.length >= 12 && buf[4] === 0x66 && buf[5] === 0x74 && buf[6] === 0x79 && buf[7] === 0x70) {
+    const brand = buf.slice(8, 12).toString('ascii');
+    if (brand === 'avif' || brand === 'avis') return { mime: 'image/avif', ext: 'avif' };
+  }
+  return null;
+}
 
 export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 
@@ -82,7 +118,7 @@ export class StorageService {
 
     // Magic-byte sniff. Determines the *real* content type from the bytes,
     // ignoring whatever the client claimed in its Content-Type header.
-    const sniff = await fileTypeFromBuffer(input.body).catch(() => null);
+    const sniff = sniffMime(input.body);
     const claimedMime = (input.declaredMime || '').toLowerCase().split(';')[0].trim();
     const sniffedMime = sniff?.mime ?? null;
     const sniffedExt = sniff?.ext ?? null;
