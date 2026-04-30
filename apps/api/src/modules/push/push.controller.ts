@@ -72,4 +72,16 @@ export class PushController {
       url: '/livechat',
     });
   }
+
+  /**
+   * One-click setup: generate a VAPID keypair and save to Settings.
+   * Idempotent — refuses to overwrite existing keys (would invalidate
+   * every operator device's existing subscription).
+   */
+  @Post('generate-vapid-keys')
+  @UseGuards(JwtAuthGuard)
+  async generate(@Req() req: FastifyRequest & { user?: { sub?: string; email?: string } }) {
+    const subjectFallback = req.user?.email ? `mailto:${req.user.email}` : undefined;
+    return this.push.generateAndSaveKeys(subjectFallback);
+  }
 }
