@@ -25,14 +25,33 @@ export class CrispWebsitesController {
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
-  add(@Body() dto: { label: string; websiteId: string; identifier: string; apiKey: string }) {
+  add(
+    @Body()
+    dto: {
+      label: string;
+      websiteId: string;
+      identifier: string;
+      apiKey: string;
+      productContext?: string;
+      replyTone?: string;
+    },
+  ) {
     return this.crisp.addWebsite(dto);
   }
 
   @Patch(':id')
   update(
     @Param('id') id: string,
-    @Body() dto: { label?: string; websiteId?: string; identifier?: string; apiKey?: string; enabled?: boolean },
+    @Body()
+    dto: {
+      label?: string;
+      websiteId?: string;
+      identifier?: string;
+      apiKey?: string;
+      enabled?: boolean;
+      productContext?: string | null;
+      replyTone?: string | null;
+    },
   ) {
     return this.crisp.updateWebsite(id, dto);
   }

@@ -427,6 +427,8 @@ interface CrispWebsite {
   identifier: string;
   apiKeyMasked: string;
   enabled: boolean;
+  productContext: string | null;
+  replyTone: string | null;
   createdAt: string;
 }
 
@@ -477,16 +479,16 @@ function CrispTab({ token, rows }: { token: string; rows: SettingRow[] }) {
   }, [tokenStored]);
   const [sub, setSub] = useState<'settings' | 'docs'>('settings');
   const [adding, setAdding] = useState(false);
-  const [form, setForm] = useState({ label: '', websiteId: '', identifier: '', apiKey: '' });
+  const [form, setForm] = useState({ label: '', websiteId: '', identifier: '', apiKey: '', productContext: '', replyTone: '' });
   const [showKey, setShowKey] = useState(false);
   const [testResults, setTestResults] = useState<Record<string, { ok: boolean; message: string }>>({});
   const [testingId, setTestingId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState({ label: '', websiteId: '', identifier: '', apiKey: '' });
+  const [editForm, setEditForm] = useState({ label: '', websiteId: '', identifier: '', apiKey: '', productContext: '', replyTone: '' });
   const [editShowKey, setEditShowKey] = useState(false);
 
   const editMutation = useMutation({
-    mutationFn: async ({ id, patch }: { id: string; patch: Partial<{ label: string; websiteId: string; identifier: string; apiKey: string }> }) => {
+    mutationFn: async ({ id, patch }: { id: string; patch: Partial<{ label: string; websiteId: string; identifier: string; apiKey: string; productContext: string | null; replyTone: string | null }> }) => {
       const res = await fetch(`/crisp/websites/${id}`, {
         method: 'PATCH',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -496,7 +498,7 @@ function CrispTab({ token, rows }: { token: string; rows: SettingRow[] }) {
     },
     onSuccess: () => {
       setEditingId(null);
-      setEditForm({ label: '', websiteId: '', identifier: '', apiKey: '' });
+      setEditForm({ label: '', websiteId: '', identifier: '', apiKey: '', productContext: '', replyTone: '' });
       qc.invalidateQueries({ queryKey: ['crisp-websites'] });
     },
   });
@@ -521,7 +523,7 @@ function CrispTab({ token, rows }: { token: string; rows: SettingRow[] }) {
     },
     onSuccess: () => {
       setAdding(false);
-      setForm({ label: '', websiteId: '', identifier: '', apiKey: '' });
+      setForm({ label: '', websiteId: '', identifier: '', apiKey: '', productContext: '', replyTone: '' });
       qc.invalidateQueries({ queryKey: ['crisp-websites'] });
     },
   });
@@ -679,7 +681,7 @@ function CrispTab({ token, rows }: { token: string; rows: SettingRow[] }) {
                       className="text-muted-foreground px-2"
                       onClick={() => {
                         setEditingId(site.id);
-                        setEditForm({ label: site.label, websiteId: site.websiteId, identifier: site.identifier, apiKey: '' });
+                        setEditForm({ label: site.label, websiteId: site.websiteId, identifier: site.identifier, apiKey: '', productContext: site.productContext ?? '', replyTone: site.replyTone ?? '' });
                         setEditShowKey(false);
                       }}
                       title="Edit"
@@ -735,6 +737,31 @@ function CrispTab({ token, rows }: { token: string; rows: SettingRow[] }) {
                         </div>
                       </div>
                     </div>
+                    <div className="grid grid-cols-1 gap-3">
+                      <div>
+                        <label className="text-xs text-muted-foreground mb-1 block">
+                          Product context <span className="text-muted-foreground/60">(per-site override; falls back to agent config)</span>
+                        </label>
+                        <textarea
+                          rows={2}
+                          placeholder="e.g. Xgenious is a website builder marketplace."
+                          value={editForm.productContext}
+                          onChange={(e) => setEditForm((f) => ({ ...f, productContext: e.target.value }))}
+                          className="w-full text-sm rounded-md border border-input bg-background px-3 py-2 placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs text-muted-foreground mb-1 block">
+                          Reply tone <span className="text-muted-foreground/60">(per-site override; falls back to agent config)</span>
+                        </label>
+                        <Input
+                          placeholder="e.g. concise, helpful, founder-style"
+                          value={editForm.replyTone}
+                          onChange={(e) => setEditForm((f) => ({ ...f, replyTone: e.target.value }))}
+                          className="text-sm"
+                        />
+                      </div>
+                    </div>
                     <div className="flex gap-2">
                       <Button
                         size="sm"
@@ -744,6 +771,8 @@ function CrispTab({ token, rows }: { token: string; rows: SettingRow[] }) {
                             label: editForm.label,
                             websiteId: editForm.websiteId,
                             identifier: editForm.identifier,
+                            productContext: editForm.productContext.trim() || null,
+                            replyTone: editForm.replyTone.trim() || null,
                             ...(editForm.apiKey ? { apiKey: editForm.apiKey } : {}),
                           },
                         })}
@@ -752,7 +781,7 @@ function CrispTab({ token, rows }: { token: string; rows: SettingRow[] }) {
                         {editMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : <Save className="w-3.5 h-3.5 mr-1" />}
                         Save changes
                       </Button>
-                      <Button size="sm" variant="ghost" onClick={() => { setEditingId(null); setEditForm({ label: '', websiteId: '', identifier: '', apiKey: '' }); }}>
+                      <Button size="sm" variant="ghost" onClick={() => { setEditingId(null); setEditForm({ label: '', websiteId: '', identifier: '', apiKey: '', productContext: '', replyTone: '' }); }}>
                         Cancel
                       </Button>
                     </div>
@@ -798,6 +827,31 @@ function CrispTab({ token, rows }: { token: string; rows: SettingRow[] }) {
                     </div>
                   </div>
                 </div>
+                <div className="grid grid-cols-1 gap-3">
+                  <div>
+                    <label className="text-xs text-muted-foreground mb-1 block">
+                      Product context <span className="text-muted-foreground/60">(per-site; overrides agent config)</span>
+                    </label>
+                    <textarea
+                      rows={2}
+                      placeholder="e.g. Xgenious is a website builder marketplace."
+                      value={form.productContext}
+                      onChange={(e) => setForm((f) => ({ ...f, productContext: e.target.value }))}
+                      className="w-full text-sm rounded-md border border-input bg-background px-3 py-2 placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-muted-foreground mb-1 block">
+                      Reply tone <span className="text-muted-foreground/60">(per-site; overrides agent config)</span>
+                    </label>
+                    <Input
+                      placeholder="e.g. concise, helpful, founder-style"
+                      value={form.replyTone}
+                      onChange={(e) => setForm((f) => ({ ...f, replyTone: e.target.value }))}
+                      className="text-sm"
+                    />
+                  </div>
+                </div>
                 <div className="flex gap-2">
                   <Button size="sm" onClick={() => addMutation.mutate()}
                     disabled={!formValid || addMutation.isPending}>
@@ -805,7 +859,7 @@ function CrispTab({ token, rows }: { token: string; rows: SettingRow[] }) {
                     Save
                   </Button>
                   <Button size="sm" variant="ghost"
-                    onClick={() => { setAdding(false); setForm({ label: '', websiteId: '', identifier: '', apiKey: '' }); }}>
+                    onClick={() => { setAdding(false); setForm({ label: '', websiteId: '', identifier: '', apiKey: '', productContext: '', replyTone: '' }); }}>
                     Cancel
                   </Button>
                 </div>

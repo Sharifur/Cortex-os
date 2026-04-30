@@ -27,5 +27,7 @@ export const crispWebsites = pgTable('crisp_websites', {
   identifier: text('identifier').notNull(),
   apiKey: text('api_key').notNull(), // AES-256-GCM encrypted
   enabled: boolean('enabled').notNull().default(true),
+  productContext: text('product_context'),
+  replyTone: text('reply_tone'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 });

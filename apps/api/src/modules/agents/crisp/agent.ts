@@ -129,12 +129,16 @@ export class CrispAgent implements IAgent, OnModuleInit {
 
     for (const msg of newMessages) {
       try {
-        // Per-message: FTS search + visitor memory + conversation thread (parallel)
-        const [references, previousReplies, threadHistory] = await Promise.all([
+        // Per-message: FTS search + visitor memory + conversation thread + per-site overrides (parallel)
+        const [references, previousReplies, threadHistory, overrides] = await Promise.all([
           this.kb.searchEntries(msg.content ?? '', this.key, 5),
           this.getVisitorHistory(msg.visitorEmail, msg.visitorNickname),
           this.crisp.getSessionThread(msg.sessionId, msg.websiteId, 5),
+          this.crisp.getOverridesForWebsite(msg.websiteId),
         ]);
+
+        const productContext = overrides.productContext || config.productContext;
+        const replyTone = overrides.replyTone || config.replyTone;
 
         const kbBlock = this.kb.buildKbPromptBlock({
           voiceProfile: alwaysOn.find(e => e.entryType === 'voice_profile') ?? null,
@@ -159,7 +163,7 @@ export class CrispAgent implements IAgent, OnModuleInit {
           if (verifyResult) purchaseBlock = PurchaseVerifyService.buildVerifyPromptBlock(verifyResult);
         }
 
-        const defaultSystem = `You are a customer support agent. Context: ${config.productContext}\nTone: ${config.replyTone}\nWrite a direct reply to the customer message. 2-4 sentences max. No greetings like "Dear" or closings like "Best regards". Just the reply.`;
+        const defaultSystem = `You are a customer support agent. Context: ${productContext}\nTone: ${replyTone}\nWrite a direct reply to the customer message. 2-4 sentences max. No greetings like "Dear" or closings like "Best regards". Just the reply.`;
         const systemPrompt = (template?.system ?? defaultSystem) + kbBlock + visitorMemory + purchaseBlock;
 
         const response = await this.llm.complete({
