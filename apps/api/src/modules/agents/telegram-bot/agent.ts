@@ -4,7 +4,6 @@ import { DbService } from '../../../db/db.service';
 import { agents, tasks } from '../../../db/schema';
 import { AgentRegistryService } from '../runtime/agent-registry.service';
 import { LlmRouterService } from '../../llm/llm-router.service';
-import { GREETING_SET, normalizeForGreeting } from '../../telegram/greetings';
 import type {
   IAgent,
   TriggerSpec,
@@ -41,7 +40,14 @@ export type TelegramRouteResult =
   | { kind: 'time_unparseable'; reply: string }
   | { kind: 'mention_route'; agentKey: string; agentName: string; instructions: string }
   | { kind: 'classified_route'; agentKey: string; agentName: string; instructions: string }
+  | { kind: 'clarify'; reply: string }
   | { kind: 'show_picker'; text: string };
+
+type IntentDecision =
+  | { kind: 'smalltalk'; reply: string }
+  | { kind: 'reminder'; message: string; whenIso?: string }
+  | { kind: 'route'; agentKey: string; instructions: string; confidence: number }
+  | { kind: 'clarify'; question: string };
 
 interface TelegramBotConfig {
   llm?: { provider?: string; model?: string };
@@ -62,6 +68,13 @@ export class TelegramBotAgent implements IAgent, OnModuleInit {
 
   // Per-chat pending reminder waiting for the user to reply with a time.
   private pendingReminders = new Map<string, { message: string; expiresAt: number }>();
+
+  // Cached intent decisions keyed by exact text. Saves an LLM call when the
+  // user repeats a phrase ("status", "today's brief", "hello").
+  private intentCache = new Map<string, { decision: IntentDecision; expiresAt: number }>();
+  private static INTENT_CACHE_TTL_MS = 60 * 60 * 1000;
+  private static CLASSIFIER_TIMEOUT_MS = 3_000;
+  private static ROUTE_CONFIDENCE_THRESHOLD = 0.55;
 
   constructor(
     private db: DbService,
@@ -146,40 +159,7 @@ export class TelegramBotAgent implements IAgent, OnModuleInit {
       };
     }
 
-    // 0b. Smalltalk
-    if (this.isSmalltalk(text)) {
-      return { kind: 'smalltalk', reply: this.smalltalkReply(text) };
-    }
-
-    // 1. Reminder with explicit time
-    try {
-      const reminder = await this.detectReminder(text, tz);
-      if (reminder) {
-        await this.scheduleReminder(reminder);
-        return {
-          kind: 'reminder_scheduled',
-          reply: `Reminder scheduled for *${reminder.sendAtLabel}*\n_"${reminder.message}"_`,
-        };
-      }
-    } catch (err) {
-      this.logger.warn(`Reminder detection failed: ${(err as Error).message}`);
-    }
-
-    // 1b. Reminder/task INTENT but no time — ask for it
-    if (this.hasTaskIntent(text)) {
-      const cleaned = this.stripTaskIntent(text);
-      this.pendingReminders.set(chatId, {
-        message: cleaned || text,
-        expiresAt: Date.now() + 5 * 60_000,
-      });
-      return {
-        kind: 'ask_for_time',
-        pendingMessage: cleaned || text,
-        reply: `Got it — I'll set a reminder for: _"${cleaned || text}"_\n\nWhen should I trigger it? Reply with something like \`in 20 min\`, \`tomorrow at 9am\`, or \`8pm\`.`,
-      };
-    }
-
-    // 2. @mention
+    // 1. @mention fast-path (exact, no LLM)
     const mentionMatch = text.match(/^@(\S+)\s+([\s\S]+)/i);
     if (mentionMatch) {
       const [, mention, instruction] = mentionMatch;
@@ -194,31 +174,197 @@ export class TelegramBotAgent implements IAgent, OnModuleInit {
       }
     }
 
-    // 3. LLM classifier
+    // 2. Single schema-constrained classifier (with cache + timeout)
+    let decision: IntentDecision | null = null;
+    const startedAt = Date.now();
     try {
-      const agentKey = await this.classifyWithLlm(text);
-      if (agentKey) {
-        const meta = ROUTABLE_AGENTS.find((a) => a.key === agentKey)!;
-        return {
-          kind: 'classified_route',
-          agentKey,
-          agentName: meta.name,
-          instructions: text,
-        };
-      }
+      decision = await this.decideIntent(text, tz);
     } catch (err) {
-      this.logger.warn(`LLM routing failed: ${(err as Error).message}`);
+      this.logger.warn(`Intent classifier failed: ${(err as Error).message}`);
+    }
+    this.logger.log(`route chatId=${chatId} kind=${decision?.kind ?? 'null'} latency=${Date.now() - startedAt}ms`);
+
+    // Apply the decision
+    if (decision) {
+      switch (decision.kind) {
+        case 'smalltalk':
+          return { kind: 'smalltalk', reply: decision.reply || this.helpReply() };
+
+        case 'reminder': {
+          if (decision.whenIso) {
+            const sendAt = new Date(decision.whenIso);
+            if (!isNaN(sendAt.getTime())) {
+              const reminder = {
+                message: decision.message || text,
+                sendAt,
+                sendAtLabel: sendAt.toLocaleString('en-US', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: true, weekday: 'short', month: 'short', day: 'numeric' }),
+              };
+              try {
+                await this.scheduleReminder(reminder);
+                return {
+                  kind: 'reminder_scheduled',
+                  reply: `Reminder scheduled for *${reminder.sendAtLabel}*\n_"${reminder.message}"_`,
+                };
+              } catch (err) {
+                this.logger.warn(`Schedule reminder failed: ${(err as Error).message}`);
+              }
+            }
+          }
+          // Reminder intent without a parseable time → ask for it.
+          const cleaned = decision.message || this.stripTaskIntent(text) || text;
+          this.pendingReminders.set(chatId, { message: cleaned, expiresAt: Date.now() + 5 * 60_000 });
+          return {
+            kind: 'ask_for_time',
+            pendingMessage: cleaned,
+            reply: `Got it — I'll set a reminder for: _"${cleaned}"_\n\nWhen should I trigger it? Reply with something like \`in 20 min\`, \`tomorrow at 9am\`, or \`8pm\`.`,
+          };
+        }
+
+        case 'route': {
+          const meta = ROUTABLE_AGENTS.find((a) => a.key === decision!.agentKey);
+          if (meta && decision.confidence >= TelegramBotAgent.ROUTE_CONFIDENCE_THRESHOLD) {
+            return {
+              kind: 'classified_route',
+              agentKey: meta.key,
+              agentName: meta.name,
+              instructions: decision.instructions || text,
+            };
+          }
+          // Low-confidence route → ask for confirmation rather than guessing.
+          return {
+            kind: 'clarify',
+            reply: meta
+              ? `Did you mean *${meta.name}*? Reply 'yes' to confirm or describe what you want.`
+              : `I'm not sure which agent fits. Could you give me a bit more detail?`,
+          };
+        }
+
+        case 'clarify':
+          return { kind: 'clarify', reply: decision.question || `Could you tell me a little more?` };
+      }
     }
 
-    // 4. Short/casual messages with no classifier match → smalltalk fallback
-    // rather than confusing the user with the picker. A 1-3 word message
-    // under 30 chars almost never represents an agent task.
-    const wordCount = text.trim().split(/\s+/).length;
-    if (text.trim().length < 30 && wordCount <= 3) {
+    // Classifier failed AND text is short → safest fallback is smalltalk
+    if (text.trim().length < 30 && text.trim().split(/\s+/).length <= 3) {
       return { kind: 'smalltalk', reply: this.smalltalkReply(text) };
     }
 
     return { kind: 'show_picker', text };
+  }
+
+  // ── Schema-constrained classifier ────────────────────────────────────────
+
+  private async decideIntent(text: string, tz: string): Promise<IntentDecision | null> {
+    // Cache by exact text (case-preserving). Greetings, "/status", "today's
+    // brief" repeat constantly and should never re-hit the LLM.
+    const cacheKey = text.trim();
+    const cached = this.intentCache.get(cacheKey);
+    if (cached && Date.now() < cached.expiresAt) return cached.decision;
+
+    const config = await this.getConfig();
+    const nowUtc = new Date();
+    const nowLocal = nowUtc.toLocaleString('en-US', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: true, weekday: 'short', month: 'short', day: 'numeric' });
+    const agentList = ROUTABLE_AGENTS.map((a) => `- ${a.key}: ${a.desc}`).join('\n');
+
+    const tools = [
+      {
+        name: 'decide',
+        description: 'Decide what to do with the user message. Call exactly once.',
+        parameters: {
+          type: 'object',
+          properties: {
+            kind: { type: 'string', enum: ['smalltalk', 'reminder', 'route', 'clarify'] },
+            // smalltalk
+            smalltalk_reply: { type: 'string', description: 'Short friendly reply when kind=smalltalk. Required.' },
+            // reminder
+            reminder_message: { type: 'string', description: 'What to remind about (no time words). Required when kind=reminder.' },
+            reminder_when_iso: { type: 'string', description: 'ISO 8601 UTC datetime to fire the reminder. OMIT if user did not specify a time.' },
+            // route
+            agent_key: { type: 'string', enum: ROUTABLE_AGENTS.map((a) => a.key) },
+            instructions: { type: 'string', description: 'Forwarded as the agent prompt. Defaults to the original message.' },
+            confidence: { type: 'number', description: '0..1 confidence in the agent choice. Use <0.55 if unsure.' },
+            // clarify
+            clarify_question: { type: 'string', description: 'A short question to ask the user when uncertain.' },
+          },
+          required: ['kind'],
+        },
+      },
+    ];
+
+    const systemPrompt = `You classify a single Telegram message from the bot's owner and decide one of four actions: smalltalk, reminder, route, clarify. ALWAYS call the "decide" tool exactly once.
+
+Guidelines:
+- smalltalk: greetings, thanks, vibes, casual chat. Provide a brief friendly smalltalk_reply (under 20 words).
+- reminder: the message asks to be reminded / scheduled. Set reminder_message. If a time is given, set reminder_when_iso. Otherwise omit reminder_when_iso so the bot can ask.
+- route: the message is a task that fits one of the available agents. Set agent_key, instructions (rephrase if needed), and confidence (0..1). If confidence < 0.55 prefer clarify instead.
+- clarify: ambiguous or out-of-scope. Set clarify_question (under 20 words).
+
+Available agents:
+${agentList}
+
+Current local time: ${nowLocal} (${tz}). Current UTC: ${nowUtc.toISOString()}.`;
+
+    const completion = this.llm.completeWithTools({
+      ...agentLlmOpts(config),
+      tools,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: text },
+      ],
+      maxTokens: 300,
+      temperature: 0.1,
+    });
+
+    const result = await Promise.race([
+      completion,
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('classifier timeout')), TelegramBotAgent.CLASSIFIER_TIMEOUT_MS),
+      ),
+    ]);
+
+    if (result.type !== 'tool_calls' || result.tool_calls.length === 0) return null;
+
+    let args: Record<string, unknown>;
+    try {
+      args = JSON.parse(result.tool_calls[0].arguments);
+    } catch {
+      return null;
+    }
+
+    const decision = this.normalizeDecision(args);
+    if (decision) {
+      this.intentCache.set(cacheKey, { decision, expiresAt: Date.now() + TelegramBotAgent.INTENT_CACHE_TTL_MS });
+    }
+    return decision;
+  }
+
+  private normalizeDecision(args: Record<string, unknown>): IntentDecision | null {
+    const kind = args.kind as string;
+    switch (kind) {
+      case 'smalltalk':
+        return { kind: 'smalltalk', reply: String(args.smalltalk_reply ?? '').trim() };
+      case 'reminder':
+        return {
+          kind: 'reminder',
+          message: String(args.reminder_message ?? '').trim(),
+          ...(args.reminder_when_iso ? { whenIso: String(args.reminder_when_iso) } : {}),
+        };
+      case 'route': {
+        const agentKey = String(args.agent_key ?? '').trim();
+        if (!agentKey) return null;
+        const confidenceRaw = typeof args.confidence === 'number' ? args.confidence : 0.5;
+        return {
+          kind: 'route',
+          agentKey,
+          instructions: String(args.instructions ?? '').trim(),
+          confidence: Math.max(0, Math.min(1, confidenceRaw)),
+        };
+      }
+      case 'clarify':
+        return { kind: 'clarify', question: String(args.clarify_question ?? '').trim() };
+      default:
+        return null;
+    }
   }
 
   // Used by TelegramService when the user taps a quick-time inline button:
@@ -269,35 +415,7 @@ export class TelegramBotAgent implements IAgent, OnModuleInit {
     });
   }
 
-  // ── Smalltalk ────────────────────────────────────────────────────────────
-
-  private static SMALLTALK_PHRASES: readonly RegExp[] = [
-    /^good\s*(morning|afternoon|evening|night|day)$/i,
-    /^how\s+(are|r)\s+(you|u|ya|yall|y'all)\b.*$/i,
-    /^how(\s+are)?\s+things\b.*$/i,
-    /^how(\s+is|'s|s)\s+it\s+going\b.*$/i,
-    /^how\s+do\s+you\s+do\b.*$/i,
-    /^what'?s\s+up\b.*$/i,
-    /^thank\s+you(\s+(so\s+much|very\s+much|kindly))?$/i,
-    /^thanks\s+(a\s+lot|a\s+ton|a\s+bunch|so\s+much|very\s+much)$/i,
-    /^see\s+(you|ya|u)(\s+(later|soon|tomorrow))?$/i,
-    /^talk\s+(to\s+you\s+)?later$/i,
-    /^take\s+care$/i,
-    /^have\s+a\s+(good|great|nice)\s+(day|one|night|evening)$/i,
-    /^what\s+can\s+you\s+do\b.*$/i,
-    /^who\s+(are|r)\s+you\b.*$/i,
-  ];
-
-  private isSmalltalk(text: string): boolean {
-    const normalized = normalizeForGreeting(text);
-    if (!normalized || normalized.length === 1) return true;
-    if (GREETING_SET.has(normalized)) return true;
-    if (/^\/(start|help|menu|about)\b/i.test(text.trim())) return true;
-    for (const re of TelegramBotAgent.SMALLTALK_PHRASES) {
-      if (re.test(normalized)) return true;
-    }
-    return false;
-  }
+  // ── Smalltalk fallback (used when the LLM classifier times out) ──────────
 
   private smalltalkReply(text: string): string {
     const t = text.trim().toLowerCase();
@@ -339,11 +457,7 @@ export class TelegramBotAgent implements IAgent, OnModuleInit {
     ].join('\n');
   }
 
-  // ── Task-intent detection ────────────────────────────────────────────────
-
-  private hasTaskIntent(text: string): boolean {
-    return /\b(remind\s+me|set\s+(a\s+|me\s+a\s+)?reminder|give\s+me\s+(a\s+)?reminder|create\s+(a\s+)?(reminder|task|alarm)|add\s+(a\s+)?(reminder|task)|schedule\s+(a\s+|me\s+a\s+)?(reminder|task|message|notification)|alert\s+me|set\s+(a\s+|an\s+)?alarm|set\s+(a\s+)?task|new\s+(reminder|task))\b/i.test(text);
-  }
+  // ── Task-intent stripping (used to clean reminder messages) ──────────────
 
   private stripTaskIntent(text: string): string {
     return text
@@ -368,59 +482,7 @@ export class TelegramBotAgent implements IAgent, OnModuleInit {
     );
   }
 
-  // ── LLM classifier ───────────────────────────────────────────────────────
-
-  private async classifyWithLlm(text: string): Promise<string | null> {
-    const config = await this.getConfig();
-    const agentList = ROUTABLE_AGENTS.map((a) => `- ${a.key}: ${a.desc}`).join('\n');
-
-    const response = await this.llm.complete({
-      ...agentLlmOpts(config),
-      messages: [
-        {
-          role: 'system',
-          content: `You route a single user message to ONE agent in an AI agent platform.
-
-Available agents:
-${agentList}
-
-Decision rules:
-- Pick the single best-matching agent. Bias toward picking an agent rather than null.
-- Reminders, motivational messages, daily briefs, status checks → daily_reminder
-- Emails, inbox, drafting replies, Gmail → email_manager
-- Customer support / live chat / Crisp → crisp
-- LinkedIn connections, outreach, DMs, posts → linkedin
-- Reddit threads, comments, monitoring keywords → reddit
-- Twitter/X, Facebook, social posts, scheduling → social
-- WhatsApp messages → whatsapp
-- Trial signups, onboarding emails for Taskip → taskip_trial
-- Leave / salary / payroll / employee questions → hr
-- Designs, banners, posters, Canva → canva
-- YouTube Shorts, video scripts → shorts
-
-Output ONLY JSON: {"agent": "<agent_key>", "confidence": "high|medium|low"}
-Use {"agent": null, "confidence": "low"} only for greetings or unrelated chatter.`,
-        },
-        { role: 'user', content: text },
-      ],
-      maxTokens: 60,
-      temperature: 0,
-    });
-
-    try {
-      const raw = response.content.trim().replace(/^```json\s*|```$/g, '');
-      const parsed = JSON.parse(raw) as { agent: string | null; confidence: string };
-      if ((parsed.confidence === 'high' || parsed.confidence === 'medium') && parsed.agent) {
-        const valid = ROUTABLE_AGENTS.find((a) => a.key === parsed.agent);
-        return valid ? valid.key : null;
-      }
-    } catch {
-      // ignore parse errors
-    }
-    return null;
-  }
-
-  // ── Reminder detection (relative + absolute) ─────────────────────────────
+  // ── Reminder detection (relative + absolute, used by pending-reminder branch) ─
 
   private async detectReminder(text: string, tz: string): Promise<{ message: string; sendAt: Date; sendAtLabel: string } | null> {
     const nowUtc = new Date();

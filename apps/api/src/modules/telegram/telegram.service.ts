@@ -501,6 +501,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       case 'cancelled':
       case 'reminder_scheduled':
       case 'time_unparseable':
+      case 'clarify':
         await ctx.reply(result.reply, { parse_mode: 'Markdown' });
         return;
 
