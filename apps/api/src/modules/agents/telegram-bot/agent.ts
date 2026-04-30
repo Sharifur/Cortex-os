@@ -1,7 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
 import { DbService } from '../../../db/db.service';
-import { agents, tasks } from '../../../db/schema';
+import { agents } from '../../../db/schema';
 import { AgentRegistryService } from '../runtime/agent-registry.service';
 import { LlmRouterService } from '../../llm/llm-router.service';
 import type {
@@ -17,6 +17,7 @@ import type {
 } from '../runtime/types';
 import { agentLlmOpts } from '../runtime/llm-config.util';
 import { TelegramChatStateService } from '../../telegram/telegram-chat-state.service';
+import { RemindersService } from '../../reminders/reminders.service';
 
 const ROUTABLE_AGENTS = [
   { key: 'daily_reminder', name: 'Daily Reminder', aliases: ['daily', 'reminder', 'brief', 'status'], desc: 'Status updates, pending tasks, daily briefs, system status' },
@@ -82,6 +83,7 @@ export class TelegramBotAgent implements IAgent, OnModuleInit {
     private llm: LlmRouterService,
     private registry: AgentRegistryService,
     private chatState: TelegramChatStateService,
+    private reminders: RemindersService,
   ) {}
 
   onModuleInit() {
@@ -143,9 +145,9 @@ export class TelegramBotAgent implements IAgent, OnModuleInit {
     if (pending) {
       await this.chatState.clearPendingReminder(chatId);
       try {
-        const reminder = await this.detectReminder(`${pending.message} ${text}`, tz);
+        const reminder = await this.reminders.parse(`${pending.message} ${text}`, tz);
         if (reminder) {
-          await this.scheduleReminder(reminder);
+          await this.reminders.schedule(reminder);
           return {
             kind: 'reminder_scheduled',
             reply: `Reminder scheduled for *${reminder.sendAtLabel}*\n_"${reminder.message}"_`,
@@ -256,16 +258,12 @@ export class TelegramBotAgent implements IAgent, OnModuleInit {
           if (decision.whenIso) {
             const sendAt = new Date(decision.whenIso);
             if (!isNaN(sendAt.getTime())) {
-              const reminder = {
-                message: decision.message || text,
-                sendAt,
-                sendAtLabel: sendAt.toLocaleString('en-US', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: true, weekday: 'short', month: 'short', day: 'numeric' }),
-              };
+              const message = decision.message || text;
               try {
-                await this.scheduleReminder(reminder);
+                await this.reminders.schedule({ message, sendAt });
                 return {
                   kind: 'reminder_scheduled',
-                  reply: `Reminder scheduled for *${reminder.sendAtLabel}*\n_"${reminder.message}"_`,
+                  reply: `Reminder scheduled for *${this.reminders.formatLocal(sendAt, tz)}*\n_"${message}"_`,
                 };
               } catch (err) {
                 this.logger.warn(`Schedule reminder failed: ${(err as Error).message}`);
@@ -273,7 +271,7 @@ export class TelegramBotAgent implements IAgent, OnModuleInit {
             }
           }
           // Reminder intent without a parseable time → ask for it.
-          const cleaned = decision.message || this.stripTaskIntent(text) || text;
+          const cleaned = decision.message || this.reminders.stripTaskIntent(text) || text;
           await this.chatState.setPendingReminder(chatId, cleaned, TelegramBotAgent.PENDING_REMINDER_TTL_MS);
           return {
             kind: 'ask_for_time',
@@ -481,7 +479,7 @@ ${turnsBlock}${lastRouteBlock}Current local time: ${nowLocal} (${tz}). Current U
     }
     await this.chatState.clearPendingReminder(chatId);
     const sendAt = new Date(Date.now() + delayMinutes * 60 * 1000);
-    await this.scheduleReminder({ message: pending.message, sendAt });
+    await this.reminders.schedule({ message: pending.message, sendAt });
     const sendAtLabel =
       sendAt.toLocaleString('en-US', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: true }) +
       ` (in ${delayMinutes} min)`;
@@ -505,16 +503,6 @@ ${turnsBlock}${lastRouteBlock}Current local time: ${nowLocal} (${tz}). Current U
     } catch {
       return DEFAULT_CONFIG;
     }
-  }
-
-  private async scheduleReminder(reminder: { message: string; sendAt: Date }): Promise<void> {
-    await this.db.db.insert(tasks).values({
-      title: 'Reminder',
-      instructions: `REMINDER: ${reminder.message}`,
-      agentKey: 'daily_reminder',
-      status: 'pending',
-      nextRunAt: reminder.sendAt,
-    });
   }
 
   // ── Smalltalk fallback (used when the LLM classifier times out) ──────────
@@ -559,17 +547,6 @@ ${turnsBlock}${lastRouteBlock}Current local time: ${nowLocal} (${tz}). Current U
     ].join('\n');
   }
 
-  // ── Task-intent stripping (used to clean reminder messages) ──────────────
-
-  private stripTaskIntent(text: string): string {
-    return text
-      .replace(/^(please\s+)?(can\s+you\s+|could\s+you\s+|will\s+you\s+)?/i, '')
-      .replace(/\b(remind\s+me\s+(to\s+|about\s+)?|set\s+(a\s+|me\s+a\s+)?reminder\s+(to\s+|about\s+|for\s+)?|give\s+me\s+(a\s+)?reminder\s+(to\s+|about\s+|for\s+)?|create\s+(a\s+)?(reminder|task|alarm)\s+(to\s+|for\s+)?|add\s+(a\s+)?(reminder|task)\s+(to\s+|for\s+)?|schedule\s+(a\s+|me\s+a\s+)?(reminder|task|message|notification)\s+(to\s+|about\s+|for\s+)?|alert\s+me\s+(to\s+|about\s+)?|new\s+(reminder|task)\s+(to\s+|about\s+|for\s+)?)/i, '')
-      .trim()
-      .replace(/^["'`]+|["'`]+$/g, '')
-      .replace(/^[.,;:\s]+|[.,;:\s]+$/g, '');
-  }
-
   // ── @mention resolver ────────────────────────────────────────────────────
 
   private resolveAgentByAlias(input: string): typeof ROUTABLE_AGENTS[0] | null {
@@ -584,116 +561,4 @@ ${turnsBlock}${lastRouteBlock}Current local time: ${nowLocal} (${tz}). Current U
     );
   }
 
-  // ── Reminder detection (relative + absolute, used by pending-reminder branch) ─
-
-  private async detectReminder(text: string, tz: string): Promise<{ message: string; sendAt: Date; sendAtLabel: string } | null> {
-    const nowUtc = new Date();
-    const nowLocal = nowUtc.toLocaleString('en-US', { timeZone: tz, hour12: false });
-
-    const rel = this.parseRelativeDuration(text);
-    if (rel) {
-      const sendAt = new Date(nowUtc.getTime() + rel.minutes * 60 * 1000);
-      return {
-        message: rel.message,
-        sendAt,
-        sendAtLabel:
-          sendAt.toLocaleString('en-US', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: true }) +
-          ` (in ${rel.minutes} min)`,
-      };
-    }
-
-    const config = await this.getConfig();
-    const response = await this.llm.complete({
-      ...agentLlmOpts(config),
-      messages: [
-        {
-          role: 'system',
-          content: `You detect timed reminders in user messages. Current UTC time: ${nowUtc.toISOString()}. User timezone: ${tz}, local time now: ${nowLocal}.
-
-If a reminder, output ONE of:
-(a) absolute: {"isReminder": true, "kind": "absolute", "message": "<clean reminder text>", "targetLocalHHMM": "HH:MM", "sendMinutesBefore": 0}
-(b) relative: {"isReminder": true, "kind": "relative", "message": "<clean reminder text>", "delayMinutes": 5}
-
-Otherwise: {"isReminder": false}
-ONLY JSON, no prose.`,
-        },
-        { role: 'user', content: text },
-      ],
-      maxTokens: 150,
-      temperature: 0,
-    });
-
-    try {
-      const raw = response.content.trim().replace(/^```json\s*|```$/g, '');
-      const parsed = JSON.parse(raw) as {
-        isReminder: boolean;
-        kind?: 'absolute' | 'relative';
-        message?: string;
-        targetLocalHHMM?: string;
-        sendMinutesBefore?: number;
-        delayMinutes?: number;
-      };
-      if (!parsed.isReminder || !parsed.message) return null;
-
-      if (parsed.kind === 'relative' && parsed.delayMinutes && parsed.delayMinutes > 0) {
-        const sendAt = new Date(nowUtc.getTime() + parsed.delayMinutes * 60 * 1000);
-        return {
-          message: parsed.message,
-          sendAt,
-          sendAtLabel:
-            sendAt.toLocaleString('en-US', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: true }) +
-            ` (in ${parsed.delayMinutes} min)`,
-        };
-      }
-
-      if (parsed.targetLocalHHMM) {
-        const [hh, mm] = parsed.targetLocalHHMM.split(':').map(Number);
-        const sendBefore = parsed.sendMinutesBefore ?? 0;
-        const sendAt = this.computeNextLocalTimeUtc(hh, mm, tz, nowUtc, sendBefore);
-        const localLabel = sendAt.toLocaleString('en-US', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: true });
-        return { message: parsed.message, sendAt, sendAtLabel: localLabel };
-      }
-      return null;
-    } catch {
-      return null;
-    }
-  }
-
-  private parseRelativeDuration(text: string): { minutes: number; message: string } | null {
-    const m = text.match(/\b(?:in|after|after\s+next|in\s+next)\s+(\d+)\s*(s|sec|secs|second|seconds|m|min|mins|minute|minutes|h|hr|hrs|hour|hours)\b/i);
-    if (!m) return null;
-    const value = parseInt(m[1], 10);
-    const unit = m[2].toLowerCase();
-    let minutes: number;
-    if (/^(s|sec|secs|second|seconds)$/.test(unit)) minutes = Math.max(1, Math.round(value / 60));
-    else if (/^(h|hr|hrs|hour|hours)$/.test(unit)) minutes = value * 60;
-    else minutes = value;
-    if (minutes < 1 || minutes > 60 * 24 * 7) return null;
-
-    let message = text.replace(m[0], '').trim();
-    message = message.replace(/^(please\s+)?(can\s+you\s+)?(send|remind|tell|message|text|give)\s+me\s+(a\s+)?(reminder\s+)?(to\s+|about\s+|for\s+)?/i, '').trim();
-    message = message.replace(/^(a|an)\s+/i, '').trim();
-    if (!message) message = text.trim();
-    message = message.charAt(0).toUpperCase() + message.slice(1);
-    return { minutes, message };
-  }
-
-  private computeNextLocalTimeUtc(hh: number, mm: number, tz: string, now: Date, minutesBefore: number): Date {
-    const nowParts = new Intl.DateTimeFormat('en-US', {
-      timeZone: tz, hour12: false,
-      year: 'numeric', month: '2-digit', day: '2-digit',
-      hour: '2-digit', minute: '2-digit', second: '2-digit',
-    }).formatToParts(now);
-    const get = (k: string) => Number(nowParts.find((p) => p.type === k)?.value ?? '0');
-    const localY = get('year'), localMo = get('month'), localD = get('day');
-    const localH = get('hour'), localMi = get('minute');
-
-    const offsetMin = (localH * 60 + localMi) - (now.getUTCHours() * 60 + now.getUTCMinutes());
-    let candidateUtc = Date.UTC(localY, localMo - 1, localD, hh, mm, 0) - offsetMin * 60 * 1000;
-    const nowMs = now.getTime();
-    if (candidateUtc - minutesBefore * 60 * 1000 <= nowMs) {
-      candidateUtc += 24 * 60 * 60 * 1000;
-    }
-    return new Date(candidateUtc - minutesBefore * 60 * 1000);
-  }
 }
