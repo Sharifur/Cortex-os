@@ -386,6 +386,27 @@ export const SETTING_DEFINITIONS: Record<string, SettingDefinition> = {
     group: 'ses',
   },
 
+  // Web Push (PWA notifications) — operator gets notified when a visitor
+  // sends a message and no operator is currently looking at the inbox.
+  push_vapid_public_key: {
+    label: 'VAPID Public Key',
+    description: 'Generated once with web-push: `npx web-push generate-vapid-keys`. Exposed to the browser to subscribe to pushes.',
+    isSecret: false,
+    group: 'general',
+  },
+  push_vapid_private_key: {
+    label: 'VAPID Private Key',
+    description: 'Generated alongside the public key. Used to sign push messages — keep secret.',
+    isSecret: true,
+    group: 'general',
+  },
+  push_vapid_subject: {
+    label: 'VAPID Subject (mailto:)',
+    description: 'Contact email like `mailto:ops@taskip.net` — required by the Web Push spec.',
+    isSecret: false,
+    group: 'general',
+  },
+
   // Taskip Insight API
   insight_base_url: {
     label: 'Base URL',

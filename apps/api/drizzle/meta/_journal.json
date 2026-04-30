@@ -225,6 +225,13 @@
       "when": 1777400023000,
       "tag": "0031_livechat_auto_approve",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "6",
+      "when": 1777400024000,
+      "tag": "0032_push_subscriptions",
+      "breakpoints": true
     }
   ]
 }

@@ -42,6 +42,7 @@ import { RealtimeModule } from './modules/realtime/realtime.module';
 import { TelegramBotAgentModule } from './modules/agents/telegram-bot/telegram-bot.module';
 import { VisitorEnrichmentModule } from './common/visitor-enrichment/visitor-enrichment.module';
 import { StorageModule } from './modules/storage/storage.module';
+import { PushModule } from './modules/push/push.module';
 
 @Module({
   imports: [
@@ -106,6 +107,7 @@ import { StorageModule } from './modules/storage/storage.module';
     TelegramBotAgentModule,
     VisitorEnrichmentModule,
     StorageModule,
+    PushModule,
   ],
 })
 export class AppModule {}
