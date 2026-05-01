@@ -31,7 +31,7 @@ const RATE_LIMIT_WINDOW_MS = 60_000;
 export function mountWidget(cfg: WidgetConfig, siteConfig: SiteConfigResponse = DEFAULT_SITE_CONFIG) {
   const host = document.createElement('div');
   host.id = 'livechat-widget-root';
-  host.style.cssText = 'position: fixed; bottom: 0; right: 0; z-index: 2147483646;';
+  host.style.cssText = 'position: fixed; bottom: 40px; right: 40px; z-index: 2147483646;';
   document.body.appendChild(host);
 
   const shadow = host.attachShadow({ mode: 'open' });
@@ -85,13 +85,20 @@ export function mountWidget(cfg: WidgetConfig, siteConfig: SiteConfigResponse = 
 
   bubbleBtn.addEventListener('click', () => {
     state.open = !state.open;
-    panel.style.display = state.open ? 'flex' : 'none';
     if (state.open) {
+      panel.classList.remove('lc-panel--closing');
+      panel.style.display = 'flex';
       state.unread = 0;
       unreadBadge.style.display = 'none';
       const composer = panel.querySelector<HTMLTextAreaElement>('textarea');
       composer?.focus();
       scrollMessagesToEnd(panel);
+    } else {
+      panel.classList.add('lc-panel--closing');
+      setTimeout(() => {
+        if (!state.open) panel.style.display = 'none';
+        panel.classList.remove('lc-panel--closing');
+      }, 180);
     }
   });
 
@@ -116,13 +123,19 @@ function buildPanel(shadow: ShadowRoot, cfg: WidgetConfig, state: any, render: (
   panel.className = 'lc-panel';
   panel.innerHTML = `
     <div class="lc-header">
-      <div>
-        <div class="lc-header-title">${escapeHtml(siteConfig.botName)}</div>
-        <div class="lc-header-sub">${escapeHtml(siteConfig.botSubtitle)}</div>
+      <div class="lc-header-inner">
+        <div class="lc-header-avatar">${botAvatarIcon()}</div>
+        <div class="lc-header-text">
+          <div class="lc-header-title">${escapeHtml(siteConfig.botName)}</div>
+          <div class="lc-header-sub"><span class="lc-online-dot"></span>${escapeHtml(siteConfig.botSubtitle)}</div>
+        </div>
       </div>
-      <button class="lc-close" aria-label="Close">${closeIcon()}</button>
+      <button class="lc-close" aria-label="Close">${chevronDownIcon()}</button>
     </div>
-    <div class="lc-messages"></div>
+    <div class="lc-messages-wrap">
+      <div class="lc-messages"></div>
+      <button class="lc-scroll-btn" type="button" style="display:none;" aria-label="Scroll to latest">${chevronDownIcon()} New messages</button>
+    </div>
     <div class="lc-quick-replies" style="display:none;"></div>
     <div class="lc-identify" style="display:none;">
       <div>What's your email? We'll only use it to follow up if needed.</div>
@@ -146,7 +159,22 @@ function buildPanel(shadow: ShadowRoot, cfg: WidgetConfig, state: any, render: (
   const closeBtn = panel.querySelector<HTMLButtonElement>('.lc-close')!;
   closeBtn.addEventListener('click', () => {
     state.open = false;
-    panel.style.display = 'none';
+    panel.classList.add('lc-panel--closing');
+    setTimeout(() => {
+      if (!state.open) panel.style.display = 'none';
+      panel.classList.remove('lc-panel--closing');
+    }, 180);
+  });
+
+  const msgsEl = panel.querySelector<HTMLDivElement>('.lc-messages')!;
+  const scrollBtn = panel.querySelector<HTMLButtonElement>('.lc-scroll-btn')!;
+  msgsEl.addEventListener('scroll', () => {
+    const dist = msgsEl.scrollHeight - msgsEl.scrollTop - msgsEl.clientHeight;
+    scrollBtn.style.display = dist > 120 ? 'flex' : 'none';
+  });
+  scrollBtn.addEventListener('click', () => {
+    msgsEl.scrollTop = msgsEl.scrollHeight;
+    scrollBtn.style.display = 'none';
   });
 
   const form = panel.querySelector<HTMLFormElement>('.lc-composer')!;
@@ -439,11 +467,30 @@ function renderMessages(panel: HTMLDivElement, state: any) {
   }
   list.innerHTML = state.messages
     .map((m: VisitorMessage) => {
-      const cls = m.role === 'visitor' ? 'lc-msg-visitor' : m.role === 'system' ? 'lc-msg-system' : 'lc-msg-agent';
       const text = m.content ? linkifyHtml(m.content) : '';
       const atts = (m.attachments ?? []).map(renderAttachment).join('');
-      const wrapper = atts ? `<div class="lc-attachments">${atts}</div>` : '';
-      return `<div class="lc-msg ${cls}">${text}${wrapper}</div>`;
+      const attWrapper = atts ? `<div class="lc-attachments">${atts}</div>` : '';
+      const time = formatTime(m.createdAt);
+      const timeEl = time ? `<div class="lc-msg-time">${time}</div>` : '';
+
+      if (m.role === 'system') {
+        return `<div class="lc-msg lc-msg-system">${text}</div>`;
+      }
+      if (m.role === 'visitor') {
+        return `<div class="lc-msg-row lc-msg-row-visitor">
+          <div class="lc-msg-body">
+            <div class="lc-msg lc-msg-visitor">${text}${attWrapper}</div>
+            ${timeEl}
+          </div>
+        </div>`;
+      }
+      return `<div class="lc-msg-row lc-msg-row-agent">
+        <div class="lc-msg-avatar">${msgBotIcon()}</div>
+        <div class="lc-msg-body">
+          <div class="lc-msg lc-msg-agent">${text}${attWrapper}</div>
+          ${timeEl}
+        </div>
+      </div>`;
     })
     .join('');
   scrollMessagesToEnd(panel);
@@ -588,6 +635,16 @@ function formatBytes(b: number): string {
   return `${(b / 1024 / 1024).toFixed(1)} MB`;
 }
 
+function formatTime(iso: string): string {
+  try {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return '';
+    return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  } catch {
+    return '';
+  }
+}
+
 function attachIcon() {
   return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 17.93 8.83l-8.58 8.57a2 2 0 1 1-2.83-2.83l8.49-8.48"/></svg>`;
 }
@@ -599,9 +656,19 @@ function fileIcon() {
 function chatIcon() {
   return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>`;
 }
-function closeIcon() {
-  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>`;
+
+function botAvatarIcon() {
+  return `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/></svg>`;
 }
+
+function msgBotIcon() {
+  return `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/></svg>`;
+}
+
+function chevronDownIcon() {
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>`;
+}
+
 function sendIcon() {
   return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>`;
 }
