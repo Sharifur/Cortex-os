@@ -273,10 +273,42 @@ export const WIDGET_STYLES = `
 
 /* ── Pending attachments ── */
 .lc-pending { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px 12px 0 12px; background: #fff; flex-shrink: 0; }
-.lc-chip { display: inline-flex; align-items: center; gap: 6px; background: #f3f4f6; border: 1px solid #e5e7eb; border-radius: 16px; padding: 4px 10px; font-size: 12px; color: #1f2937; max-width: 220px; }
-.lc-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.lc-chip button { background: transparent; border: 0; padding: 0 0 0 4px; cursor: pointer; color: #6b7280; font-size: 14px; line-height: 1; }
+.lc-chip { display: inline-flex; align-items: center; gap: 6px; background: #f3f4f6; border: 1px solid #e5e7eb; border-radius: 10px; padding: 4px 8px; font-size: 12px; color: #1f2937; max-width: 240px; }
+.lc-chip--busy { opacity: 0.6; }
+.lc-chip-thumb { width: 36px; height: 36px; object-fit: cover; border-radius: 6px; flex-shrink: 0; }
+.lc-chip-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lc-chip-uploading { color: #6b7280; font-style: italic; }
+.lc-chip button { background: transparent; border: 0; padding: 0 0 0 2px; cursor: pointer; color: #6b7280; font-size: 14px; line-height: 1; }
 .lc-chip button:hover { color: #1f2937; }
+
+/* ── Session ended banner ── */
+.lc-session-end {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 14px;
+  background: #fef9ec;
+  border-top: 1px solid #fde68a;
+  font-size: 12px;
+  color: #92400e;
+  flex-shrink: 0;
+}
+.lc-session-end-btn {
+  background: #1f2937;
+  color: #fff;
+  border: 0;
+  border-radius: 6px;
+  padding: 5px 12px;
+  font-size: 12px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.lc-session-end-btn:hover { background: #374151; }
 
 /* ── Composer ── */
 .lc-composer {
@@ -329,7 +361,7 @@ export const WIDGET_STYLES = `
 
 /* ── Attachments in messages ── */
 .lc-attachments { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
-.lc-attach-img { display: block; max-width: 220px; max-height: 200px; border-radius: 10px; cursor: zoom-in; }
+.lc-attach-img { display: block; width: 100%; max-width: 220px; min-width: 80px; min-height: 60px; max-height: 200px; object-fit: contain; border-radius: 10px; cursor: zoom-in; background: #f3f4f6; }
 .lc-attach-file { display: inline-flex; align-items: center; gap: 8px; background: #f3f4f6; border: 1px solid #e5e7eb; border-radius: 10px; padding: 6px 10px; font-size: 12px; color: #1f2937; text-decoration: none; max-width: 240px; }
 .lc-attach-file:hover { background: #e5e7eb; }
 .lc-attach-file svg { width: 16px; height: 16px; flex-shrink: 0; color: #6b7280; }

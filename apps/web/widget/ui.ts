@@ -57,6 +57,7 @@ export function mountWidget(cfg: WidgetConfig, siteConfig: SiteConfigResponse = 
     panel: null as HTMLDivElement | null,
     askedForEmail: false,
     unread: 0,
+    sessionClosed: false,
     host,
   };
 
@@ -191,6 +192,10 @@ function buildPanel(shadow: ShadowRoot, cfg: WidgetConfig, state: any, render: (
       <button class="lc-identify-skip">Skip</button>
     </div>
     <div class="lc-pending" style="display:none;"></div>
+    <div class="lc-session-end" style="display:none;">
+      <span>This conversation has ended.</span>
+      <button type="button" class="lc-session-end-btn">Start new chat</button>
+    </div>
     <form class="lc-composer" autocomplete="off">
       <input class="lc-hp" name="website" tabindex="-1" autocomplete="off" />
       <input class="lc-file-input" type="file" accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.txt,.zip" style="display:none;" />
@@ -234,7 +239,34 @@ function buildPanel(shadow: ShadowRoot, cfg: WidgetConfig, state: any, render: (
   const fileInput = panel.querySelector<HTMLInputElement>('.lc-file-input')!;
   const pendingEl = panel.querySelector<HTMLDivElement>('.lc-pending')!;
   const quickRepliesEl = panel.querySelector<HTMLDivElement>('.lc-quick-replies')!;
-  const pendingAttachments: AttachmentSummary[] = [];
+  const sessionEndBanner = panel.querySelector<HTMLDivElement>('.lc-session-end')!;
+  const sessionEndBtn = panel.querySelector<HTMLButtonElement>('.lc-session-end-btn')!;
+
+  // "Start new chat" resets all session state so the visitor gets a fresh start.
+  function resetSession() {
+    state.socket?.disconnect();
+    state.socket = null;
+    state.sessionId = null;
+    state.sessionClosed = false;
+    state.messages = [];
+    state.askedForEmail = false;
+    state.unread = 0;
+    try { localStorage.removeItem(SESSION_KEY); } catch {}
+    try { localStorage.removeItem(MESSAGES_KEY); } catch {}
+    try { localStorage.removeItem(IDENTIFY_DISMISSED_KEY); } catch {}
+    sessionEndBanner.style.display = 'none';
+    textarea.disabled = false;
+    sendBtn.disabled = false;
+    attachBtn.disabled = false;
+    if (siteConfig?.welcomeMessage) {
+      state.messages.push({ id: 'welcome', role: 'agent', content: siteConfig.welcomeMessage, createdAt: new Date().toISOString() });
+      cacheMessages(state.messages);
+    }
+    render();
+  }
+  sessionEndBtn.addEventListener('click', resetSession);
+
+  const pendingAttachments: (AttachmentSummary & { localUrl?: string })[] = [];
 
   // Bot signals — sent with each message. Server uses these to silently
   // drop traffic without alerting attackers. Real users always pass.
@@ -285,23 +317,26 @@ function buildPanel(shadow: ShadowRoot, cfg: WidgetConfig, state: any, render: (
       showToast(panel, 'Send a message first, then attach files.');
       return;
     }
-    const placeholder: AttachmentSummary = {
+    const localUrl = file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined;
+    const placeholder: AttachmentSummary & { localUrl?: string } = {
       id: 'pending-' + Date.now(),
       mimeType: file.type,
       sizeBytes: file.size,
       originalFilename: file.name,
       url: '',
+      localUrl,
     };
     pendingAttachments.push(placeholder);
     renderPending();
     try {
       const att = await uploadAttachment(cfg, state.sessionId, file);
       const idx = pendingAttachments.indexOf(placeholder);
-      if (idx >= 0) pendingAttachments[idx] = att;
+      if (idx >= 0) pendingAttachments[idx] = { ...att, localUrl };
       renderPending();
     } catch (err) {
       const idx = pendingAttachments.indexOf(placeholder);
       if (idx >= 0) pendingAttachments.splice(idx, 1);
+      if (localUrl) URL.revokeObjectURL(localUrl);
       showToast(panel, `Upload failed: ${(err as Error).message}`);
       renderPending();
     }
@@ -315,12 +350,24 @@ function buildPanel(shadow: ShadowRoot, cfg: WidgetConfig, state: any, render: (
     }
     pendingEl.style.display = 'flex';
     pendingEl.innerHTML = pendingAttachments
-      .map((a, i) => `<span class="lc-chip"><span>${escapeHtml(a.originalFilename)}</span><button data-i="${i}" aria-label="Remove">×</button></span>`)
+      .map((a, i) => {
+        const isUploading = a.id.startsWith('pending-');
+        const previewUrl = a.localUrl ?? '';
+        const isImage = a.mimeType.startsWith('image/');
+        const thumb = isImage && previewUrl
+          ? `<img class="lc-chip-thumb" src="${escapeHtml(previewUrl)}" alt="">`
+          : '';
+        const label = isUploading
+          ? `${thumb}<span class="lc-chip-label lc-chip-uploading">Uploading…</span>`
+          : `${thumb}<span class="lc-chip-label">${escapeHtml(a.originalFilename)}</span><button data-i="${i}" aria-label="Remove">×</button>`;
+        return `<span class="lc-chip${isUploading ? ' lc-chip--busy' : ''}">${label}</span>`;
+      })
       .join('');
-    pendingEl.querySelectorAll<HTMLButtonElement>('button').forEach((btn) => {
+    pendingEl.querySelectorAll<HTMLButtonElement>('button[data-i]').forEach((btn) => {
       btn.addEventListener('click', () => {
         const i = Number(btn.dataset.i);
-        pendingAttachments.splice(i, 1);
+        const removed = pendingAttachments.splice(i, 1)[0];
+        if (removed?.localUrl) URL.revokeObjectURL(removed.localUrl);
         renderPending();
       });
     });
@@ -375,23 +422,26 @@ function buildPanel(shadow: ShadowRoot, cfg: WidgetConfig, state: any, render: (
       }
       if (pendingAttachments.length >= 5) break;
       const namedFile = file.name ? file : new File([file], `pasted-${Date.now()}.png`, { type: file.type });
-      const placeholder: AttachmentSummary = {
+      const localUrl = URL.createObjectURL(namedFile);
+      const placeholder: AttachmentSummary & { localUrl?: string } = {
         id: 'pending-' + Math.random().toString(36).slice(2),
         mimeType: file.type,
         sizeBytes: file.size,
         originalFilename: namedFile.name,
         url: '',
+        localUrl,
       };
       pendingAttachments.push(placeholder);
       renderPending();
       try {
         const att = await uploadAttachment(cfg, state.sessionId, namedFile);
         const idx = pendingAttachments.indexOf(placeholder);
-        if (idx >= 0) pendingAttachments[idx] = att;
+        if (idx >= 0) pendingAttachments[idx] = { ...att, localUrl };
         renderPending();
       } catch (err) {
         const idx = pendingAttachments.indexOf(placeholder);
         if (idx >= 0) pendingAttachments.splice(idx, 1);
+        URL.revokeObjectURL(localUrl);
         showToast(panel, `Upload failed: ${(err as Error).message}`);
         renderPending();
       }
@@ -399,9 +449,18 @@ function buildPanel(shadow: ShadowRoot, cfg: WidgetConfig, state: any, render: (
   });
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
-    if (honeypot.value) return; // bot — silently drop
+    if (honeypot.value) return;
+    if (state.sessionClosed) {
+      showToast(panel, 'This conversation has ended. Start a new chat below.');
+      return;
+    }
     const content = textarea.value.trim();
+    const stillUploading = pendingAttachments.some((a) => a.id.startsWith('pending-'));
     const readyAttachments = pendingAttachments.filter((a) => a.url && !a.id.startsWith('pending-'));
+    if (stillUploading && !content) {
+      showToast(panel, 'Your file is still uploading — please wait or add a message.');
+      return;
+    }
     if (!content && !readyAttachments.length) return;
     if (!checkRateLimit()) {
       showToast(panel, 'Slow down — too many messages in the last minute.');
@@ -492,16 +551,19 @@ function connectAndListen(cfg: WidgetConfig, state: any, render: () => void, sit
     if (event.type === 'session_status' && event.status === 'closed') {
       state.socket?.disconnect();
       state.socket = null;
-      state.sessionId = null;
-      state.messages = [];
-      state.askedForEmail = false;
-      state.unread = 0;
-      try { localStorage.removeItem(SESSION_KEY); } catch {}
-      try { localStorage.removeItem(MESSAGES_KEY); } catch {}
-      try { localStorage.removeItem(IDENTIFY_DISMISSED_KEY); } catch {}
-      if (siteConfig?.welcomeMessage) {
-        state.messages.push({ id: 'welcome', role: 'agent', content: siteConfig.welcomeMessage, createdAt: new Date().toISOString() });
-        cacheMessages(state.messages);
+      state.sessionClosed = true;
+      // Show the session-end banner and disable the composer so the visitor
+      // knows they need to start a new chat rather than keep typing.
+      const p = state.panel as HTMLDivElement | undefined;
+      if (p) {
+        const banner = p.querySelector<HTMLDivElement>('.lc-session-end');
+        const ta = p.querySelector<HTMLTextAreaElement>('textarea');
+        const sb = p.querySelector<HTMLButtonElement>('.lc-composer button[type="submit"]');
+        const ab = p.querySelector<HTMLButtonElement>('.lc-attach-btn');
+        if (banner) banner.style.display = 'flex';
+        if (ta) ta.disabled = true;
+        if (sb) sb.disabled = true;
+        if (ab) ab.disabled = true;
       }
       render();
       return;
