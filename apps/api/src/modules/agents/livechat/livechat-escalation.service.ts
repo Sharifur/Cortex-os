@@ -40,7 +40,9 @@ export class LivechatEscalationService {
     // 3. Three consecutive AI turns with no progress — visitor keeps asking
     //    the same kind of clarifying question. Looks like a loop.
     if (input.intent === 'clarification') {
-      const last20 = await this.livechat.getRecentMessages(input.sessionId, 20).catch(() => []);
+      const last20: Awaited<ReturnType<LivechatService['getRecentMessages']>> = await this.livechat
+        .getRecentMessages(input.sessionId, 20)
+        .catch(() => [] as Awaited<ReturnType<LivechatService['getRecentMessages']>>);
       const visitorTurns = last20.filter((m) => m.role === 'visitor').slice(0, 3);
       if (visitorTurns.length === 3) {
         // If all three are short / repetitive, escalate. We approximate
