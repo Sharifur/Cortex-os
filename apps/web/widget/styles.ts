@@ -232,21 +232,26 @@ export const WIDGET_STYLES = `
 }
 .lc-fb-btn:hover { transform: scale(1.15); }
 
-.lc-emoji-btn {
+/* Higher specificity than the global .lc-composer button rule below — the
+   picker button + tabs + grid items live inside .lc-composer so without
+   this they'd inherit the brand-blue circle styling. */
+.lc-composer .lc-emoji-btn {
   background: transparent;
   border: 0;
   color: #6b7280;
   cursor: pointer;
   padding: 6px;
+  width: 36px;
+  height: 36px;
   display: flex;
   align-items: center;
   justify-content: center;
   border-radius: 8px;
   flex-shrink: 0;
-  transition: background 0.15s;
+  transition: background 0.15s, color 0.15s;
 }
-.lc-emoji-btn:hover { background: #f3f4f6; color: #111827; }
-.lc-emoji-btn svg { width: 18px; height: 18px; }
+.lc-composer .lc-emoji-btn:hover { background: #f3f4f6; color: #111827; }
+.lc-composer .lc-emoji-btn svg { width: 18px; height: 18px; }
 
 .lc-emoji-pop {
   position: absolute;
@@ -266,18 +271,21 @@ export const WIDGET_STYLES = `
   border-bottom: 1px solid #e5e7eb;
   overflow-x: auto;
 }
-.lc-emoji-tab {
+.lc-composer .lc-emoji-tab {
   background: transparent;
   border: 0;
   padding: 8px 10px;
+  width: auto;
+  height: auto;
+  border-radius: 0;
   font-size: 11px;
   color: #6b7280;
   cursor: pointer;
   white-space: nowrap;
   border-bottom: 2px solid transparent;
 }
-.lc-emoji-tab:hover { color: #111827; }
-.lc-emoji-tab-active { color: #111827; border-bottom-color: var(--lc-brand, #2563eb); font-weight: 600; }
+.lc-composer .lc-emoji-tab:hover { color: #111827; background: transparent; }
+.lc-composer .lc-emoji-tab-active { color: #111827; border-bottom-color: var(--lc-brand, #2563eb); font-weight: 600; }
 .lc-emoji-grid {
   display: grid;
   grid-template-columns: repeat(8, 1fr);
@@ -286,16 +294,19 @@ export const WIDGET_STYLES = `
   max-height: 220px;
   overflow-y: auto;
 }
-.lc-emoji-pick {
+.lc-composer .lc-emoji-pick {
   background: transparent;
   border: 0;
   padding: 4px;
-  font-size: 18px;
+  width: auto;
+  height: 32px;
+  font-size: 20px;
   cursor: pointer;
-  border-radius: 4px;
+  border-radius: 6px;
   line-height: 1;
+  color: inherit;
 }
-.lc-emoji-pick:hover { background: #f3f4f6; }
+.lc-composer .lc-emoji-pick:hover { background: #f3f4f6; }
 
 .lc-composer { position: relative; }
 
