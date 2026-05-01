@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { BookOpen, Plus, Trash2, Edit2, X, Upload, Link, ChevronDown, ChevronRight, FileText, Globe, Code } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 
-const KB_AGENTS = ['crisp', 'support', 'whatsapp', 'email_manager', 'linkedin', 'reddit', 'social', 'shorts'];
+const KB_AGENTS = ['livechat', 'crisp', 'support', 'whatsapp', 'email_manager', 'linkedin', 'reddit', 'social', 'shorts'];
 const ENTRY_TYPES = ['reference', 'fact', 'voice_profile', 'blocklist'];
 const CATEGORIES = ['general', 'product', 'policy', 'faq', 'document', 'webpage', 'other'];
 

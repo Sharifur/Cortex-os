@@ -2,9 +2,11 @@ import type { WidgetConfig } from './config';
 
 export interface SiteConfigResponse {
   siteKey: string;
+  operatorName?: string | null;
   botName: string;
   botSubtitle: string;
   welcomeMessage: string | null;
+  welcomeQuickReplies?: string[];
   brandColor: string;
   position: 'bottom-right' | 'bottom-left';
 }
@@ -103,12 +105,19 @@ export function trackLeave(cfg: WidgetConfig, pageviewId: string) {
   fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, keepalive: true }).catch(() => undefined);
 }
 
-export function sendMessage(cfg: WidgetConfig, content: string, attachmentIds?: string[]) {
+export interface SendMessageMeta {
+  hp?: string;
+  elapsedMs?: number;
+  hadInteraction?: boolean;
+}
+
+export function sendMessage(cfg: WidgetConfig, content: string, attachmentIds?: string[], meta?: SendMessageMeta) {
   return postJson<MessageResponse>(`${cfg.apiBase}/livechat/message`, {
     siteKey: cfg.siteKey,
     visitorId: cfg.visitorId,
     content,
     attachmentIds: attachmentIds && attachmentIds.length ? attachmentIds : undefined,
+    meta,
   });
 }
 

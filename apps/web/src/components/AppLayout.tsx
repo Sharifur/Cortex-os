@@ -124,13 +124,44 @@ function UserMenu() {
   );
 }
 
-function Sidebar({ approvalCount, onNavigate }: { approvalCount: number; onNavigate?: () => void }) {
+function Sidebar({
+  approvalCount,
+  onNavigate,
+  collapsed,
+  onToggleCollapse,
+}: {
+  approvalCount: number;
+  onNavigate?: () => void;
+  collapsed?: boolean;
+  onToggleCollapse?: () => void;
+}) {
   return (
     <>
-      <div className="px-4 py-4 border-b border-border flex items-center gap-2 shrink-0">
-        <Bot className="w-5 h-5 text-primary" />
-        <span className="font-semibold text-sm">Cortex OS</span>
-        <span className="text-muted-foreground text-xs">v1.11</span>
+      <div className="h-12 px-3 border-b border-border flex items-center gap-2 shrink-0">
+        {collapsed ? (
+          <button
+            onClick={onToggleCollapse}
+            className="w-full flex items-center justify-center text-primary hover:bg-accent/50 rounded-lg py-2 transition-colors"
+            title="Expand menu"
+          >
+            <Bot className="w-5 h-5" />
+          </button>
+        ) : (
+          <>
+            <Bot className="w-5 h-5 text-primary shrink-0" />
+            <span className="font-semibold text-sm">Cortex OS</span>
+            <span className="text-muted-foreground text-xs">v1.17</span>
+            {onToggleCollapse && (
+              <button
+                onClick={onToggleCollapse}
+                className="ml-auto text-muted-foreground hover:text-foreground p-1 rounded transition-colors"
+                title="Collapse menu"
+              >
+                <ChevronDown className="w-4 h-4 -rotate-90" />
+              </button>
+            )}
+          </>
+        )}
       </div>
       <nav className="flex-1 p-3 space-y-0.5 overflow-y-auto">
         {NAV.map((item) => (
@@ -138,8 +169,9 @@ function Sidebar({ approvalCount, onNavigate }: { approvalCount: number; onNavig
             key={item.to}
             to={item.to}
             onClick={onNavigate}
+            title={collapsed ? item.label : undefined}
             className={({ isActive }) =>
-              `flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors ${
+              `flex items-center gap-2.5 ${collapsed ? 'justify-center px-2' : 'px-3'} py-2 rounded-lg text-sm transition-colors ${
                 isActive
                   ? 'bg-accent text-foreground font-medium'
                   : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
@@ -147,11 +179,14 @@ function Sidebar({ approvalCount, onNavigate }: { approvalCount: number; onNavig
             }
           >
             {item.icon}
-            {item.label}
-            {item.badge && approvalCount > 0 && (
+            {!collapsed && item.label}
+            {!collapsed && item.badge && approvalCount > 0 && (
               <span className="ml-auto text-xs bg-yellow-500/15 text-yellow-500 px-1.5 py-0.5 rounded-full font-medium">
                 {approvalCount}
               </span>
+            )}
+            {collapsed && item.badge && approvalCount > 0 && (
+              <span className="absolute right-1 top-1 w-2 h-2 bg-yellow-500 rounded-full" />
             )}
           </NavLink>
         ))}
@@ -165,6 +200,23 @@ export default function AppLayout() {
   const approvalCount = useApprovalCount(token);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const location = useLocation();
+
+  // Desktop sidebar collapse state — persisted. Auto-collapses on the first
+  // visit to /livechat in this session (operators want horizontal space for
+  // the 3-column inbox); after that, the user's toggle wins.
+  const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => {
+    try { return localStorage.getItem('lc-app-sidebar-collapsed') === '1'; } catch { return false; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem('lc-app-sidebar-collapsed', sidebarCollapsed ? '1' : '0'); } catch { /* ignore */ }
+  }, [sidebarCollapsed]);
+  const seenLivechatRef = useRef(false);
+  useEffect(() => {
+    if (location.pathname.startsWith('/livechat') && !seenLivechatRef.current) {
+      seenLivechatRef.current = true;
+      setSidebarCollapsed(true);
+    }
+  }, [location.pathname]);
 
   // Close drawer on route change.
   useEffect(() => {
@@ -180,9 +232,14 @@ export default function AppLayout() {
 
   return (
     <div className="h-[100dvh] bg-background flex overflow-hidden">
-      {/* Desktop sidebar — pinned on md+ */}
-      <aside className="hidden md:flex w-56 shrink-0 border-r border-border flex-col h-full">
-        <Sidebar approvalCount={approvalCount} />
+      {/* Desktop sidebar — pinned on md+. Auto-collapses on /livechat;
+          operator can also toggle manually anywhere. */}
+      <aside className={`hidden md:flex ${sidebarCollapsed ? 'w-14' : 'w-56'} shrink-0 border-r border-border flex-col h-full transition-[width] duration-150`}>
+        <Sidebar
+          approvalCount={approvalCount}
+          collapsed={sidebarCollapsed}
+          onToggleCollapse={() => setSidebarCollapsed((c) => !c)}
+        />
       </aside>
 
       {/* Mobile drawer + backdrop */}
@@ -201,7 +258,7 @@ export default function AppLayout() {
           <div className="flex items-center gap-2">
             <Bot className="w-5 h-5 text-primary" />
             <span className="font-semibold text-sm">Cortex OS</span>
-            <span className="text-muted-foreground text-xs">v1.11</span>
+            <span className="text-muted-foreground text-xs">v1.17</span>
           </div>
           <button
             onClick={() => setDrawerOpen(false)}

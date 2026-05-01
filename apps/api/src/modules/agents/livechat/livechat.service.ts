@@ -12,8 +12,14 @@ import { EnrichmentService, EnrichedVisitor } from '../../../common/visitor-enri
 import { LivechatOriginCache } from './livechat-origin.cache';
 import { ContactsService } from '../../contacts/contacts.service';
 import { KnowledgeBaseService } from '../../knowledge-base/knowledge-base.service';
+import { SettingsService } from '../../settings/settings.service';
 
 export type WidgetPosition = 'bottom-right' | 'bottom-left';
+
+/** Real conversations are 5–30 visitor messages. Anything over this is abuse. */
+export const MAX_VISITOR_MSGS_PER_SESSION = 100;
+/** Default per-site agent-reply cap per day. Counter lives in Redis. */
+export const DEFAULT_DAILY_AGENT_REPLY_CAP = 500;
 
 export interface LivechatSiteRow {
   id: string;
@@ -25,9 +31,11 @@ export interface LivechatSiteRow {
   replyTone: string | null;
   trackBots: boolean;
   autoApprove: boolean;
+  operatorName: string | null;
   botName: string | null;
   botSubtitle: string | null;
   welcomeMessage: string | null;
+  welcomeQuickReplies: string[];
   brandColor: string | null;
   position: WidgetPosition;
   llmProvider: string | null;
@@ -46,9 +54,11 @@ export interface CreateSiteDto {
   replyTone?: string | null;
   trackBots?: boolean;
   autoApprove?: boolean;
+  operatorName?: string | null;
   botName?: string | null;
   botSubtitle?: string | null;
   welcomeMessage?: string | null;
+  welcomeQuickReplies?: string[] | string | null;
   brandColor?: string | null;
   position?: WidgetPosition;
   llmProvider?: string | null;
@@ -66,9 +76,11 @@ export interface UpdateSiteDto {
   replyTone?: string | null;
   trackBots?: boolean;
   autoApprove?: boolean;
+  operatorName?: string | null;
   botName?: string | null;
   botSubtitle?: string | null;
   welcomeMessage?: string | null;
+  welcomeQuickReplies?: string[] | string | null;
   brandColor?: string | null;
   position?: WidgetPosition;
   llmProvider?: string | null;
@@ -93,13 +105,45 @@ export interface SessionContext {
 export class LivechatService {
   private readonly logger = new Logger(LivechatService.name);
 
+  private limitsCache: { perSession: number; dailyReply: number; expiresAt: number } | null = null;
+  private readonly limitsCacheMs = 60_000;
+
   constructor(
     private db: DbService,
     private enrichment: EnrichmentService,
     private originCache: LivechatOriginCache,
     private contactsSvc: ContactsService,
     private kb: KnowledgeBaseService,
+    private settings: SettingsService,
   ) {}
+
+  /** Settings-backed limits with 60s cache. Falls back to constants on error. */
+  async getLimits(): Promise<{ perSession: number; dailyReply: number }> {
+    if (this.limitsCache && this.limitsCache.expiresAt > Date.now()) return this.limitsCache;
+    try {
+      const [perSessionRaw, dailyRaw] = await Promise.all([
+        this.settings.getDecrypted('livechat_per_session_msg_cap'),
+        this.settings.getDecrypted('livechat_daily_agent_reply_cap'),
+      ]);
+      const parseInt10 = (v: string | null, fallback: number) => {
+        if (!v) return fallback;
+        const n = parseInt(v, 10);
+        return Number.isFinite(n) && n > 0 ? n : fallback;
+      };
+      this.limitsCache = {
+        perSession: parseInt10(perSessionRaw, MAX_VISITOR_MSGS_PER_SESSION),
+        dailyReply: parseInt10(dailyRaw, DEFAULT_DAILY_AGENT_REPLY_CAP),
+        expiresAt: Date.now() + this.limitsCacheMs,
+      };
+    } catch {
+      this.limitsCache = {
+        perSession: MAX_VISITOR_MSGS_PER_SESSION,
+        dailyReply: DEFAULT_DAILY_AGENT_REPLY_CAP,
+        expiresAt: Date.now() + this.limitsCacheMs,
+      };
+    }
+    return this.limitsCache;
+  }
 
   /**
    * Upsert a Contact for a live-chat visitor and link the session row.
@@ -382,6 +426,25 @@ export class LivechatService {
         .limit(1);
       if (recent) {
         return { id: recent.id, createdAt: recent.createdAt, pendingApproval: recent.pendingApproval, duplicate: true };
+      }
+
+      // Per-session cap. Real conversations never approach this; a spammer
+      // hammering one session does. Returns the duplicate-shape so the
+      // public controller silently no-ops without leaking the cap to the
+      // attacker. Cap is settings-driven (Settings → General).
+      const limits = await this.getLimits();
+      const [{ count }] = await this.db.db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(livechatMessages)
+        .where(and(eq(livechatMessages.sessionId, input.sessionId), eq(livechatMessages.role, 'visitor')));
+      if ((count ?? 0) >= limits.perSession) {
+        this.logger.warn(`session ${input.sessionId.slice(-8)} hit visitor message cap (${count}/${limits.perSession})`);
+        return {
+          id: 'capped',
+          createdAt: new Date(),
+          pendingApproval: false,
+          duplicate: true,
+        };
       }
     }
 
@@ -745,6 +808,7 @@ export class LivechatService {
         botName: (dto.botName?.trim()) || defaults.botName,
         botSubtitle: (dto.botSubtitle?.trim()) || defaults.botSubtitle,
         welcomeMessage: (dto.welcomeMessage?.trim()) || defaults.welcomeMessage,
+        welcomeQuickReplies: this.normalizeQuickReplies(dto.welcomeQuickReplies) || defaults.welcomeQuickReplies,
         brandColor: this.normalizeColor(dto.brandColor),
         position: this.normalizePosition(dto.position),
         llmProvider: dto.llmProvider?.trim() || null,
@@ -774,12 +838,14 @@ export class LivechatService {
     botName: string;
     botSubtitle: string;
     welcomeMessage: string;
+    welcomeQuickReplies: string;
     replyTone: string;
   } {
     return {
       botName: label,
       botSubtitle: 'We typically reply in a few seconds.',
       welcomeMessage: `Hi! I'm here to help — ask me anything about ${label}.`,
+      welcomeQuickReplies: ['Pricing', 'How does it work?', 'Talk to a human'].join('\n'),
       replyTone: 'friendly, concise, and helpful — like a knowledgeable founder replying to a customer',
     };
   }
@@ -872,9 +938,11 @@ export class LivechatService {
     if (dto.replyTone !== undefined) set.replyTone = dto.replyTone?.toString().trim() || null;
     if (dto.trackBots !== undefined) set.trackBots = dto.trackBots;
     if (dto.autoApprove !== undefined) set.autoApprove = dto.autoApprove;
+    if (dto.operatorName !== undefined) set.operatorName = dto.operatorName?.trim() || null;
     if (dto.botName !== undefined) set.botName = dto.botName?.trim() || null;
     if (dto.botSubtitle !== undefined) set.botSubtitle = dto.botSubtitle?.trim() || null;
     if (dto.welcomeMessage !== undefined) set.welcomeMessage = dto.welcomeMessage?.trim() || null;
+    if (dto.welcomeQuickReplies !== undefined) set.welcomeQuickReplies = this.normalizeQuickReplies(dto.welcomeQuickReplies);
     if (dto.brandColor !== undefined) set.brandColor = this.normalizeColor(dto.brandColor);
     if (dto.position !== undefined) set.position = this.normalizePosition(dto.position);
     if (dto.llmProvider !== undefined) set.llmProvider = dto.llmProvider?.trim() || null;
@@ -920,6 +988,39 @@ export class LivechatService {
     return p === 'bottom-left' ? 'bottom-left' : 'bottom-right';
   }
 
+  /**
+   * Quick replies are stored as a newline-separated string (compact, easy to
+   * read in DB), but accept either a string or array from the DTO. Each
+   * label is trimmed, deduped, and capped at 6 items × 60 chars to keep the
+   * widget chip row manageable.
+   */
+  private normalizeQuickReplies(value: string[] | string | null | undefined): string | null {
+    if (value === null || value === undefined) return null;
+    const list = Array.isArray(value) ? value : value.split(/[\n,]/);
+    const cleaned: string[] = [];
+    const seen = new Set<string>();
+    for (const raw of list) {
+      const trimmed = raw.trim().slice(0, 60);
+      if (!trimmed) continue;
+      const key = trimmed.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      cleaned.push(trimmed);
+      if (cleaned.length >= 6) break;
+    }
+    return cleaned.length ? cleaned.join('\n') : null;
+  }
+
+  /** Parse the stored newline-string back into an array for API responses. */
+  private parseQuickReplies(stored: string | null): string[] {
+    if (!stored) return [];
+    return stored
+      .split(/\r?\n/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .slice(0, 6);
+  }
+
   private toSiteRow(r: typeof livechatSites.$inferSelect): LivechatSiteRow {
     return {
       id: r.id,
@@ -931,9 +1032,11 @@ export class LivechatService {
       replyTone: r.replyTone,
       trackBots: r.trackBots,
       autoApprove: r.autoApprove,
+      operatorName: r.operatorName,
       botName: r.botName,
       botSubtitle: r.botSubtitle,
       welcomeMessage: r.welcomeMessage,
+      welcomeQuickReplies: this.parseQuickReplies(r.welcomeQuickReplies),
       brandColor: r.brandColor,
       position: (r.position === 'bottom-left' ? 'bottom-left' : 'bottom-right') as WidgetPosition,
       llmProvider: r.llmProvider,

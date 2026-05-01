@@ -43,13 +43,32 @@ interface MessageBody {
   visitorId: string;
   content: string;
   attachmentIds?: string[];
+  /** Anti-bot signals — silently fail the request when triggered. */
+  meta?: {
+    /** Honeypot field. Real widget keeps this empty; bots auto-fill. */
+    hp?: string;
+    /** ms since panel was first shown. Bots blast under 800. */
+    elapsedMs?: number;
+    /** Did the textarea ever fire an input/keydown? Bots set value via JS. */
+    hadInteraction?: boolean;
+  };
+}
+
+function detectBot(meta: MessageBody['meta'], isFirstMessage: boolean): string | null {
+  if (!meta) return null;
+  if (meta.hp && meta.hp.length > 0) return 'honeypot_filled';
+  if (meta.hadInteraction === false) return 'no_keystrokes';
+  if (isFirstMessage && typeof meta.elapsedMs === 'number' && meta.elapsedMs < 800) return 'too_fast';
+  return null;
 }
 
 interface WidgetConfigResponse {
   siteKey: string;
+  operatorName: string | null;
   botName: string;
   botSubtitle: string;
   welcomeMessage: string | null;
+  welcomeQuickReplies: string[];
   brandColor: string;
   position: 'bottom-right' | 'bottom-left';
 }
@@ -73,9 +92,11 @@ export class LivechatPublicController {
     const site = await this.livechat.resolveSiteForRequest(siteKey, origin ?? null);
     return {
       siteKey: site.key,
+      operatorName: site.operatorName ?? null,
       botName: site.botName?.trim() || site.label,
       botSubtitle: site.botSubtitle?.trim() || 'We typically reply in a few seconds.',
       welcomeMessage: site.welcomeMessage,
+      welcomeQuickReplies: site.welcomeQuickReplies,
       brandColor: site.brandColor || '#2563eb',
       position: site.position,
     };
@@ -202,6 +223,26 @@ export class LivechatPublicController {
     });
 
     const visitorContent = (body.content ?? '').trim();
+
+    // Bot heuristics — silent. Real users always pass; we don't error so
+    // the attacker can't tell their messages aren't getting through.
+    const sessionDetail = await this.livechat.getSession(sessionId).catch(() => null);
+    const messageCount = sessionDetail
+      ? await this.livechat.getRecentMessages(sessionId, 1).then((rs) => rs.length).catch(() => 0)
+      : 0;
+    const isFirstMessage = messageCount === 0;
+    const botReason = detectBot(body.meta, isFirstMessage);
+    if (botReason) {
+      // Pretend it succeeded — return the same shape as a deduped send.
+      return {
+        ok: true,
+        sessionId,
+        deduped: true,
+        visitor: { id: 'silenced', createdAt: new Date() },
+        agent: { skipped: 'silenced' },
+      };
+    }
+
     const visitorMsg = await this.livechat.appendMessage({
       sessionId,
       role: 'visitor',
