@@ -1530,6 +1530,15 @@ function SessionPane({
             >
               <UserIcon className="w-4 h-4" />
             </button>
+            {sidebarCollapsedDesktop && (
+              <button
+                onClick={() => setSidebarCollapsedDesktop(false)}
+                className="hidden lg:flex w-9 h-9 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent items-center justify-center transition-colors"
+                title="Show visitor info"
+              >
+                <UserIcon className="w-4 h-4" />
+              </button>
+            )}
             {status === 'human_taken_over' ? (
               <button
                 onClick={() => releaseMut.mutate()}
@@ -1765,20 +1774,9 @@ function SessionPane({
         </div>
       </div>
 
-      {/* Collapsed state — thin strip with expand button */}
-      {sidebarCollapsedDesktop && (
-        <aside className="hidden lg:flex w-7 shrink-0 border-l border-border items-start justify-center pt-3">
-          <button
-            onClick={() => setSidebarCollapsedDesktop(false)}
-            className="text-muted-foreground hover:text-foreground p-1 rounded"
-            title="Expand visitor info"
-          >
-            <ArrowLeft className="w-4 h-4" />
-          </button>
-        </aside>
-      )}
-
-      {/* RIGHT — Visitor sidebar (pinned on lg+, drawer on smaller screens) */}
+      {/* RIGHT — Visitor sidebar (pinned on lg+, drawer on smaller screens).
+          When collapsed, the aside is hidden entirely so the chat pane gets
+          the freed-up space. Expand from the top-bar UserIcon. */}
       <aside className={`${sidebarCollapsedDesktop ? 'hidden' : 'hidden lg:block'} w-[320px] shrink-0 border-l border-border overflow-auto relative`}>
         <button
           onClick={() => setSidebarCollapsedDesktop(true)}
