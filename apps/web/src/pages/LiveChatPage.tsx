@@ -1389,6 +1389,26 @@ function SessionPane({
         if (event.on) {
           visitorTypingTimerRef.current = setTimeout(() => setVisitorTyping(false), 5000);
         }
+      } else if (event.type === 'agent_stream_start' && event.draftId) {
+        // Mirror the widget: render a placeholder bubble keyed by draftId,
+        // accumulate deltas into it, and finalize on stream_end.
+        setLiveMessages((prev) =>
+          prev.some((m) => m.id === event.draftId)
+            ? prev
+            : [...prev, {
+                id: event.draftId,
+                sessionId: event.sessionId,
+                role: 'agent',
+                content: '',
+                createdAt: event.createdAt ?? new Date().toISOString(),
+                attachments: [],
+                pendingApproval: false,
+              }],
+        );
+      } else if (event.type === 'agent_stream_delta' && event.draftId && event.delta) {
+        setLiveMessages((prev) => prev.map((m) => m.id === event.draftId ? { ...m, content: m.content + event.delta } : m));
+      } else if (event.type === 'agent_stream_end' && event.draftId && event.messageId) {
+        setLiveMessages((prev) => prev.map((m) => m.id === event.draftId ? { ...m, id: event.messageId, content: event.content ?? m.content } : m));
       }
     });
     return () => {

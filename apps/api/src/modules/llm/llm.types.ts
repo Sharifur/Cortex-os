@@ -15,6 +15,16 @@ export interface LlmCompleteOpts {
   runId?: string;
 }
 
+export interface LlmStreamChunk {
+  /** Newly emitted text since last chunk. Empty string on the final chunk. */
+  delta: string;
+}
+
+export interface LlmStreamCompleteOpts extends LlmCompleteOpts {
+  /** Called for every text delta. Throw to abort. */
+  onToken: (chunk: LlmStreamChunk) => void | Promise<void>;
+}
+
 export interface LlmResponse {
   content: string;
   provider: string;

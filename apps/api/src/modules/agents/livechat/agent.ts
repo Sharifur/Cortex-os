@@ -201,15 +201,37 @@ export class LivechatAgent implements IAgent, OnModuleInit {
     if (site?.llmModel) llmOpts.model = site.llmModel;
 
     const retries = Math.max(0, Math.min(2, config.selfCritiqueRetries ?? 1));
+    const autoApprove = site?.autoApprove ?? true;
+    // Stream tokens to the visitor in real time when auto-approve is on. In
+    // moderation mode we buffer server-side (visitor must not see the draft
+    // before the operator approves it), so streaming would be misleading.
+    const draftId = `draft-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    if (autoApprove) {
+      this.stream.publish(input.sessionId, {
+        type: 'agent_stream_start',
+        sessionId: input.sessionId,
+        draftId,
+        createdAt: new Date().toISOString(),
+      });
+    }
     let draft: string;
     try {
-      const response = await this.llm.complete({
+      const response = await this.llm.streamComplete({
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: input.visitorMessage },
         ],
         ...llmOpts,
         maxTokens: 220,
+        onToken: ({ delta }) => {
+          if (!autoApprove) return; // moderation: don't leak partial drafts
+          this.stream.publish(input.sessionId, {
+            type: 'agent_stream_delta',
+            sessionId: input.sessionId,
+            draftId,
+            delta,
+          });
+        },
       });
       draft = response.content.trim();
     } catch (err) {
@@ -241,7 +263,6 @@ export class LivechatAgent implements IAgent, OnModuleInit {
       return this.postFallback(input.sessionId);
     }
 
-    const autoApprove = site?.autoApprove ?? true;
     const agentMsg = await this.livechat.appendMessage({
       sessionId: input.sessionId,
       role: 'agent',
@@ -255,14 +276,18 @@ export class LivechatAgent implements IAgent, OnModuleInit {
     }
 
     if (autoApprove) {
+      // The widget already painted the streamed text into a placeholder bubble
+      // keyed by draftId. agent_stream_end carries the real messageId + the
+      // post-critique final content so the widget can finalize the bubble.
       this.stream.publish(input.sessionId, {
-        type: 'message',
+        type: 'agent_stream_end',
         sessionId: input.sessionId,
-        role: 'agent',
-        content: draft,
+        draftId,
         messageId: agentMsg.id,
-        createdAt: agentMsg.createdAt.toISOString(),
+        content: draft,
       });
+      // Operator dashboards also need a regular message event for inbox refresh.
+      this.stream.publishToOperators({ type: 'session_upserted', sessionId: input.sessionId });
     } else {
       // Moderation mode — visitor must NOT see the draft. Notify operators only.
       this.stream.publishToOperators({ type: 'session_upserted', sessionId: input.sessionId });

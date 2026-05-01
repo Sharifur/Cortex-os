@@ -14,7 +14,12 @@ export type LivechatStreamEvent =
   | { type: 'message_removed'; sessionId: string; messageId: string }
   | { type: 'pageview'; sessionId: string | null; visitorPk: string; url: string; title: string | null; at: string }
   | { type: 'session_status'; sessionId: string; status: string }
-  | { type: 'typing'; sessionId: string; from: 'agent' | 'operator' | 'visitor'; on: boolean };
+  | { type: 'typing'; sessionId: string; from: 'agent' | 'operator' | 'visitor'; on: boolean }
+  // Streaming agent reply: a placeholder draftId, then deltas accumulating into it.
+  | { type: 'agent_stream_start'; sessionId: string; draftId: string; createdAt: string }
+  | { type: 'agent_stream_delta'; sessionId: string; draftId: string; delta: string }
+  // End frame with the final messageId once the message is persisted.
+  | { type: 'agent_stream_end'; sessionId: string; draftId: string; messageId: string; content: string };
 
 export type OperatorEvent =
   | { type: 'session_upserted'; sessionId: string }

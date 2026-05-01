@@ -627,6 +627,43 @@ function connectAndListen(cfg: WidgetConfig, state: any, render: () => void, sit
       return;
     }
 
+    // Streaming reply: render a placeholder bubble keyed by draftId, append
+    // deltas, then on stream_end swap the placeholder's id for the real
+    // messageId so future renders dedupe correctly.
+    if (event.type === 'agent_stream_start' && event.draftId) {
+      const panel = state.panel as HTMLDivElement | undefined;
+      if (panel) hideTyping(panel);
+      if (!state.messages.some((m: VisitorMessage) => m.id === event.draftId)) {
+        state.messages.push({
+          id: event.draftId,
+          role: 'agent',
+          content: '',
+          createdAt: event.createdAt ?? new Date().toISOString(),
+        });
+        render();
+      }
+      return;
+    }
+    if (event.type === 'agent_stream_delta' && event.draftId && event.delta) {
+      const idx = state.messages.findIndex((m: VisitorMessage) => m.id === event.draftId);
+      if (idx >= 0) {
+        state.messages[idx] = { ...state.messages[idx], content: state.messages[idx].content + event.delta };
+        render();
+      }
+      return;
+    }
+    if (event.type === 'agent_stream_end' && event.draftId && event.messageId) {
+      const idx = state.messages.findIndex((m: VisitorMessage) => m.id === event.draftId);
+      if (idx >= 0) {
+        // Final content beats accumulated deltas — self-critique may have rewritten.
+        state.messages[idx] = { ...state.messages[idx], id: event.messageId, content: event.content ?? state.messages[idx].content };
+        cacheMessages(state.messages);
+        if (!state.open) state.unread = (state.unread ?? 0) + 1;
+        render();
+      }
+      return;
+    }
+
     if (event.type !== 'message' || !event.messageId) return;
     if (event.role === 'visitor') return;
     if (state.messages.some((m: VisitorMessage) => m.id === event.messageId)) return;
