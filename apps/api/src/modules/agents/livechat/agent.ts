@@ -166,8 +166,25 @@ export class LivechatAgent implements IAgent, OnModuleInit {
       pageviews: recentPageviews,
     });
 
-    const botPersona = site?.botName ? `You are ${site.botName}, a live chat assistant. ` : 'You are a live chat assistant on the website. ';
-    const defaultSystem = `${botPersona}${productContext ? `Product context: ${productContext}\n` : ''}Tone: ${replyTone}\nWrite a direct reply to the visitor. 2-4 sentences max. No greetings like "Dear" or closings like "Best regards". When the visitor's current page is relevant (pricing, docs, a specific feature), reference it naturally. Just the reply.`;
+    // Operator-voice persona: speak AS the website's owner/team, not as a third-party
+    // chatbot helping the user. "We", "our product", confident product knowledge.
+    const productLabel = site?.botName?.trim() || site?.label?.trim() || 'our product';
+    const operatorPersona = site?.operatorName?.trim()
+      ? `You are ${site.operatorName} from the ${productLabel} team, replying to a visitor on ${productLabel}'s website.`
+      : `You are part of the ${productLabel} team, replying to a visitor on ${productLabel}'s website.`;
+    const defaultSystem = [
+      operatorPersona,
+      productContext ? `What we make: ${productContext}` : '',
+      `Tone: ${replyTone}`,
+      `Voice rules:`,
+      `- Speak in the first person plural ("we", "our team", "our product"). Never refer to the company in the third person.`,
+      `- Never say "let me know if I can help you", "I'm here to assist", "feel free to ask" — those are chatbot tells.`,
+      `- Lead with the answer. No "Great question" or "Thanks for reaching out". No greetings, no signatures.`,
+      `- 2-4 sentences max. Direct, useful, then optionally one short forward-moving question.`,
+      `- Plain text only. Do not use markdown bold/italic/headings — write the actual words instead of wrapping them in **asterisks**.`,
+      `- When the visitor's current page is relevant (pricing, docs, a specific feature), reference it naturally.`,
+      `Output: just the reply text. No labels, no quoting.`,
+    ].filter(Boolean).join('\n');
     const systemPrompt = (template?.system ?? defaultSystem) + kbBlock + visitorBlock;
 
     // Per-site LLM override beats the agent-level config.

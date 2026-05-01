@@ -14,13 +14,6 @@ export const AGENT_TASK_SUGGESTIONS: Record<string, string[]> = {
     'Send a celebrate_activation message to workspace acme',
   ],
 
-  crisp: [
-    'Summarize unread Crisp chats from the last 24h',
-    'Draft a reply for the most recent unanswered conversation',
-    'Find conversations mentioning a refund or cancellation',
-    'Identify conversations stalled for more than 4 hours',
-  ],
-
   support: [
     'Show open support tickets sorted by priority',
     'Draft replies for the 3 oldest unanswered tickets',
@@ -66,7 +59,7 @@ export const AGENT_TASK_SUGGESTIONS: Record<string, string[]> = {
   shorts: [
     'Generate a 30-second Shorts script about Taskip\'s Insight feature',
     'Write 3 hook ideas for a Reddit growth video',
-    'Outline a 60-second tutorial for Crisp routing',
+    'Outline a 60-second tutorial for live chat routing',
     'List Shorts scripts created this week',
   ],
 

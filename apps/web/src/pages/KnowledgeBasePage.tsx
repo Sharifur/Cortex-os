@@ -1,9 +1,9 @@
 import { useState, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { BookOpen, Plus, Trash2, Edit2, X, Upload, Link, ChevronDown, ChevronRight, FileText, Globe, Code } from 'lucide-react';
+import { BookOpen, Plus, Trash2, Edit2, X, Upload, Link, ChevronDown, ChevronRight, FileText, Globe, Code, Layers } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 
-const KB_AGENTS = ['livechat', 'crisp', 'support', 'whatsapp', 'email_manager', 'linkedin', 'reddit', 'social', 'shorts'];
+const KB_AGENTS = ['livechat', 'support', 'whatsapp', 'email_manager', 'linkedin', 'reddit', 'social', 'shorts'];
 const ENTRY_TYPES = ['reference', 'fact', 'voice_profile', 'blocklist', 'product', 'service', 'offer'];
 const CATEGORIES = ['general', 'product', 'policy', 'faq', 'document', 'webpage', 'other'];
 
@@ -499,6 +499,7 @@ function EntriesTab({ token }: { token: string }) {
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [modal, setModal] = useState<null | 'add' | any>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const { data: sites = [] } = useLivechatSites(token);
 
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
@@ -562,6 +563,27 @@ function EntriesTab({ token }: { token: string }) {
     if (!key) return null;
     const m = sites.find((s) => s.key === key);
     return m ? m.label : key;
+  };
+
+  // Group chunks under their parent doc so the list stays readable when an
+  // imported document explodes into 11+ rows. A top-level row is anything
+  // that has no parent, OR an orphan whose parent isn't in this page.
+  const childrenByParent = new Map<string, any[]>();
+  for (const e of entries as any[]) {
+    if (e.parentDocId) {
+      const list = childrenByParent.get(e.parentDocId) ?? [];
+      list.push(e);
+      childrenByParent.set(e.parentDocId, list);
+    }
+  }
+  const presentIds = new Set((entries as any[]).map((e) => e.id));
+  const topLevel = (entries as any[]).filter((e) => !e.parentDocId || !presentIds.has(e.parentDocId));
+  const toggleExpanded = (id: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
   };
 
   return (
@@ -648,47 +670,98 @@ function EntriesTab({ token }: { token: string }) {
               Select all on this page
             </label>
           )}
-          {entries.map((entry: any) => (
-            <div key={entry.id} className="bg-card border border-border rounded-lg px-4 py-3 flex items-start gap-3">
-              {!entry.parentDocId ? (
-                <input
-                  type="checkbox"
-                  checked={selected.has(entry.id)}
-                  onChange={() => toggleSelected(entry.id)}
-                  className="accent-primary mt-1 shrink-0"
-                />
-              ) : (
-                <span className="w-4" />
-              )}
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-sm font-medium">{entry.title}</span>
-                  <span className={`text-xs px-1.5 py-0.5 rounded-full ${typeBadge(entry.entryType)}`}>{entry.entryType}</span>
-                  <span className={`text-xs px-1.5 py-0.5 rounded-full ${sourceBadge(entry.sourceType)}`}>{entry.sourceType}</span>
-                  {entry.parentDocId && <span className="text-xs text-muted-foreground">chunk</span>}
-                  <span className="text-xs text-muted-foreground">{entry.category}</span>
-                  {entry.priority !== 50 && <span className="text-xs text-muted-foreground">p:{entry.priority}</span>}
-                  <AgentPills csv={entry.agentKeys} fallback="all agents" />
-                  <SiteScopeBadge siteKeys={entry.siteKeys} excludedSiteKeys={entry.excludedSiteKeys} siteLabel={siteLabel} />
+          {topLevel.map((entry: any) => {
+            const children = childrenByParent.get(entry.id) ?? [];
+            const hasChildren = children.length > 0;
+            const isOpen = expanded.has(entry.id);
+            return (
+              <div key={entry.id} className="bg-card border border-border rounded-lg overflow-hidden">
+                <div className="px-4 py-3 flex items-start gap-3">
+                  {!entry.parentDocId ? (
+                    <input
+                      type="checkbox"
+                      checked={selected.has(entry.id)}
+                      onChange={() => toggleSelected(entry.id)}
+                      className="accent-primary mt-1 shrink-0"
+                    />
+                  ) : (
+                    <span className="w-4" />
+                  )}
+                  {hasChildren ? (
+                    <button
+                      onClick={() => toggleExpanded(entry.id)}
+                      className="text-muted-foreground hover:text-foreground p-0.5 mt-0.5 shrink-0"
+                      title={isOpen ? 'Collapse chunks' : 'Expand chunks'}
+                    >
+                      {isOpen ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                    </button>
+                  ) : (
+                    <span className="w-4" />
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm font-medium">{entry.title}</span>
+                      <span className={`text-xs px-1.5 py-0.5 rounded-full ${typeBadge(entry.entryType)}`}>{entry.entryType}</span>
+                      <span className={`text-xs px-1.5 py-0.5 rounded-full ${sourceBadge(entry.sourceType)}`}>{entry.sourceType}</span>
+                      {entry.parentDocId && <span className="text-xs text-muted-foreground">chunk</span>}
+                      {hasChildren && (
+                        <span className="text-[10px] inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-indigo-500/15 text-indigo-400 font-medium">
+                          <Layers className="w-3 h-3" /> {children.length} chunk{children.length === 1 ? '' : 's'}
+                        </span>
+                      )}
+                      <span className="text-xs text-muted-foreground">{entry.category}</span>
+                      {entry.priority !== 50 && <span className="text-xs text-muted-foreground">p:{entry.priority}</span>}
+                      <AgentPills csv={entry.agentKeys} fallback="all agents" />
+                      <SiteScopeBadge siteKeys={entry.siteKeys} excludedSiteKeys={entry.excludedSiteKeys} siteLabel={siteLabel} />
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-0.5 truncate">{entry.content}</p>
+                  </div>
+                  {!entry.parentDocId && (
+                    <button
+                      onClick={() => setModal(entry)}
+                      className="text-muted-foreground hover:text-foreground p-1"
+                    >
+                      <Edit2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                  <button
+                    onClick={() => {
+                      const msg = hasChildren
+                        ? `Delete "${entry.title}" and its ${children.length} chunk${children.length === 1 ? '' : 's'}? This cannot be undone.`
+                        : `Delete "${entry.title}"? This cannot be undone.`;
+                      if (confirm(msg)) deleteMut.mutate(entry.id);
+                    }}
+                    className="text-muted-foreground hover:text-destructive p-1"
+                    title={hasChildren ? `Delete with ${children.length} chunks` : 'Delete'}
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
                 </div>
-                <p className="text-xs text-muted-foreground mt-0.5 truncate">{entry.content}</p>
+                {hasChildren && isOpen && (
+                  <div className="border-t border-border bg-muted/20 px-4 py-2 space-y-1">
+                    {children.map((c: any) => (
+                      <div key={c.id} className="flex items-start gap-2 text-xs py-1">
+                        <span className="text-muted-foreground shrink-0 font-mono">↳</span>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium truncate">{c.title}</span>
+                          </div>
+                          <p className="text-muted-foreground mt-0.5 truncate">{c.content}</p>
+                        </div>
+                        <button
+                          onClick={() => deleteMut.mutate(c.id)}
+                          className="text-muted-foreground hover:text-destructive p-1"
+                          title="Delete this chunk"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
-              {!entry.parentDocId && (
-                <button
-                  onClick={() => setModal(entry)}
-                  className="text-muted-foreground hover:text-foreground p-1"
-                >
-                  <Edit2 className="w-3.5 h-3.5" />
-                </button>
-              )}
-              <button
-                onClick={() => deleteMut.mutate(entry.id)}
-                className="text-muted-foreground hover:text-destructive p-1"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 

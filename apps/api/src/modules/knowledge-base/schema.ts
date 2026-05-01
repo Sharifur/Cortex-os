@@ -12,7 +12,7 @@ export const knowledgeEntries = pgTable('knowledge_entries', {
   // 'voice_profile'— global tone/style guide, always injected
   // 'blocklist'    — pattern to avoid in LLM output; one rule per entry
   priority:    integer('priority').notNull().default(50), // 1=low … 100=critical
-  agentKeys:   text('agent_keys'),     // null = all agents; "crisp,support" = specific
+  agentKeys:   text('agent_keys'),     // null = all agents; "livechat,support" = specific
   // Livechat-only site scoping. CSV strings; null/empty in both = applies to all sites.
   // siteKeys (include): only these sites match. excludedSiteKeys: all sites except these.
   // If both are set, include wins and exclude further narrows.

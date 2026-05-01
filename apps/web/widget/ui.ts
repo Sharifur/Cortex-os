@@ -589,7 +589,11 @@ function renderMessages(panel: HTMLDivElement, state: any) {
   }
   list.innerHTML = state.messages
     .map((m: VisitorMessage) => {
-      const text = m.content ? linkifyHtml(m.content) : '';
+      // Visitor input stays plain (their own typing); agent / operator / system
+      // get the markdown subset so **bold**, *italic*, and [links](…) render.
+      const text = m.content
+        ? (m.role === 'visitor' ? linkifyHtml(m.content) : mdToHtml(m.content))
+        : '';
       const atts = (m.attachments ?? []).map(renderAttachment).join('');
       const attWrapper = atts ? `<div class="lc-attachments">${atts}</div>` : '';
       const time = formatTime(m.createdAt);
@@ -757,6 +761,42 @@ function linkifyHtml(text: string): string {
     const clean = tail ? url.slice(0, -tail.length) : url;
     return `<a href="${escapeAttr(clean)}" target="_blank" rel="noopener noreferrer nofollow">${clean}</a>${tail}`;
   });
+}
+
+/**
+ * Render a small markdown subset for agent/operator messages safely:
+ * `code`, **bold**, *italic*, [text](url), and line breaks. Everything is
+ * escaped first; markdown tokens then re-introduce a tightly whitelisted set
+ * of tags. No headings, no images, no raw HTML — keeps the surface tiny.
+ */
+function mdToHtml(text: string): string {
+  let s = escapeHtml(text);
+  // Inline code first so its contents aren't re-processed by bold/italic/link.
+  const codes: string[] = [];
+  s = s.replace(/`([^`\n]+)`/g, (_, c) => {
+    codes.push(`<code class="lc-md-code">${c}</code>`);
+    return ` C${codes.length - 1} `;
+  });
+  // Markdown links [text](http(s)://...).
+  s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, (_, label, url) => {
+    return `<a href="${escapeAttr(url)}" target="_blank" rel="noopener noreferrer nofollow">${label}</a>`;
+  });
+  // Bold **text** — non-greedy, no line breaks inside.
+  s = s.replace(/\*\*([^*\n]+?)\*\*/g, '<strong>$1</strong>');
+  // Italic *text* — guard against the second char of `**` by requiring no `*` inside.
+  s = s.replace(/(^|[\s(])\*([^*\n]+?)\*(?=[\s.,;:!?)]|$)/g, '$1<em>$2</em>');
+  // Bare URL linkify (avoid those already inside an href).
+  s = s.replace(/(^|[\s>])(https?:\/\/[^\s<]+)/g, (_match, lead, url) => {
+    const m = url.match(/[.,;:!?)]+$/);
+    const tail = m ? m[0] : '';
+    const clean = tail ? url.slice(0, -tail.length) : url;
+    return `${lead}<a href="${escapeAttr(clean)}" target="_blank" rel="noopener noreferrer nofollow">${clean}</a>${tail}`;
+  });
+  // Restore code spans.
+  s = s.replace(/ C(\d+) /g, (_, i) => codes[Number(i)] ?? '');
+  // Newlines → <br>. Markdown's double-newline → paragraph would be overkill here.
+  s = s.replace(/\n/g, '<br>');
+  return s;
 }
 
 function escapeAttr(s: string): string {
