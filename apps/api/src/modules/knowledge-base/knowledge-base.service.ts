@@ -38,13 +38,36 @@ export class KnowledgeBaseService {
       OR agent_keys LIKE ${'%,' + agentKey + ',%'})`;
   }
 
-  // Livechat KB can be site-scoped. Pass siteKey to include only entries
-  // that apply to that site (siteKey IS NULL acts as "all sites" fallback).
-  // Omit to fetch every entry regardless of site (used by the admin list).
+  // Livechat KB can be site-scoped via two CSV columns:
+  //   site_keys           — include list. Empty/null means "applies to all sites".
+  //   excluded_site_keys  — exclude list. Empty/null means "no exclusions".
+  // Pass siteKey to include only entries that apply to that session's site.
+  // Pass null to limit to entries with no site scoping at all (admin filter view).
+  // Omit (undefined) to fetch every entry regardless of site.
   private siteKeyWhere(siteKey?: string | null) {
     if (siteKey === undefined) return sql`1=1`;
-    if (siteKey === null) return sql`site_key IS NULL`;
-    return sql`(site_key IS NULL OR site_key = ${siteKey})`;
+    if (siteKey === null) {
+      return sql`(site_keys IS NULL OR site_keys = '') AND (excluded_site_keys IS NULL OR excluded_site_keys = '')`;
+    }
+    const inc = sql`(
+      site_keys IS NULL
+      OR site_keys = ''
+      OR site_keys = ${siteKey}
+      OR site_keys LIKE ${siteKey + ',%'}
+      OR site_keys LIKE ${'%,' + siteKey}
+      OR site_keys LIKE ${'%,' + siteKey + ',%'}
+    )`;
+    const exc = sql`(
+      excluded_site_keys IS NULL
+      OR excluded_site_keys = ''
+      OR (
+        excluded_site_keys != ${siteKey}
+        AND excluded_site_keys NOT LIKE ${siteKey + ',%'}
+        AND excluded_site_keys NOT LIKE ${'%,' + siteKey}
+        AND excluded_site_keys NOT LIKE ${'%,' + siteKey + ',%'}
+      )
+    )`;
+    return sql`${inc} AND ${exc}`;
   }
 
   // ─── Knowledge Entries ─────────────────────────────────────────────────────
@@ -122,7 +145,8 @@ export class KnowledgeBaseService {
     entryType?: string;
     priority?: number;
     agentKeys?: string;
-    siteKey?: string | null;
+    siteKeys?: string | null;
+    excludedSiteKeys?: string | null;
     sourceType?: string;
     sourceUrl?: string;
     parentDocId?: string;
@@ -137,7 +161,8 @@ export class KnowledgeBaseService {
         entryType: dto.entryType ?? 'reference',
         priority: dto.priority ?? 50,
         agentKeys: dto.agentKeys ?? null,
-        siteKey: dto.siteKey ?? null,
+        siteKeys: dto.siteKeys ?? null,
+        excludedSiteKeys: dto.excludedSiteKeys ?? null,
         sourceType: dto.sourceType ?? 'manual',
         sourceUrl: dto.sourceUrl ?? null,
         parentDocId: dto.parentDocId ?? null,
@@ -154,7 +179,8 @@ export class KnowledgeBaseService {
     entryType: string;
     priority: number;
     agentKeys: string | null;
-    siteKey: string | null;
+    siteKeys: string | null;
+    excludedSiteKeys: string | null;
   }>) {
     const [row] = await this.db.db
       .update(knowledgeEntries)
@@ -222,7 +248,7 @@ export class KnowledgeBaseService {
       .orderBy(writingSamples.polarity, desc(writingSamples.createdAt));
   }
 
-  async createSample(dto: { context: string; sampleText: string; polarity?: string; agentKeys?: string; siteKey?: string | null }) {
+  async createSample(dto: { context: string; sampleText: string; polarity?: string; agentKeys?: string; siteKeys?: string | null; excludedSiteKeys?: string | null }) {
     const [row] = await this.db.db
       .insert(writingSamples)
       .values({
@@ -231,14 +257,15 @@ export class KnowledgeBaseService {
         sampleText: dto.sampleText,
         polarity: dto.polarity ?? 'positive',
         agentKeys: dto.agentKeys ?? null,
-        siteKey: dto.siteKey ?? null,
+        siteKeys: dto.siteKeys ?? null,
+        excludedSiteKeys: dto.excludedSiteKeys ?? null,
       })
       .returning();
     await this.invalidateSamplesCache(row.agentKeys);
     return row;
   }
 
-  async updateSample(id: string, dto: Partial<{ context: string; sampleText: string; polarity: string; agentKeys: string | null; siteKey: string | null }>) {
+  async updateSample(id: string, dto: Partial<{ context: string; sampleText: string; polarity: string; agentKeys: string | null; siteKeys: string | null; excludedSiteKeys: string | null }>) {
     const [row] = await this.db.db
       .update(writingSamples)
       .set(dto)

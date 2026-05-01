@@ -95,32 +95,122 @@ function useLivechatSites(token: string) {
   });
 }
 
-function LivechatSitePicker({
+type SiteScopeMode = 'all' | 'include' | 'exclude';
+
+function csvToList(csv: string): string[] {
+  return csv.split(',').map((s) => s.trim()).filter(Boolean);
+}
+
+function SiteScopeBadge({
+  siteKeys,
+  excludedSiteKeys,
+  siteLabel,
+}: {
+  siteKeys?: string | null;
+  excludedSiteKeys?: string | null;
+  siteLabel: (k: string) => string | null;
+}) {
+  const inc = siteKeys ? csvToList(siteKeys) : [];
+  const exc = excludedSiteKeys ? csvToList(excludedSiteKeys) : [];
+  if (!inc.length && !exc.length) return null;
+  if (exc.length) {
+    return (
+      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-red-500/15 text-red-400 font-medium" title={`Excluded sites: ${exc.join(', ')}`}>
+        except: {exc.map((k) => siteLabel(k) ?? k).join(', ')}
+      </span>
+    );
+  }
+  return (
+    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-cyan-500/15 text-cyan-400 font-medium" title={`Sites: ${inc.join(', ')}`}>
+      sites: {inc.map((k) => siteLabel(k) ?? k).join(', ')}
+    </span>
+  );
+}
+
+/**
+ * Three-mode site scope editor for livechat KB entries:
+ *   - all       — applies to every site (both lists empty)
+ *   - include   — applies only to checked sites (siteKeys = csv)
+ *   - exclude   — applies to all sites except checked ones (excludedSiteKeys = csv)
+ */
+function LivechatSiteScopeEditor({
   token,
-  value,
+  siteKeys,
+  excludedSiteKeys,
   onChange,
-  disabled,
 }: {
   token: string;
-  value: string;
-  onChange: (next: string) => void;
-  disabled?: boolean;
+  siteKeys: string;
+  excludedSiteKeys: string;
+  onChange: (next: { siteKeys: string; excludedSiteKeys: string }) => void;
 }) {
   const { data: sites = [] } = useLivechatSites(token);
+  const initialMode: SiteScopeMode = excludedSiteKeys.trim()
+    ? 'exclude'
+    : siteKeys.trim()
+      ? 'include'
+      : 'all';
+  const [mode, setMode] = useState<SiteScopeMode>(initialMode);
+  const checked = mode === 'include' ? csvToList(siteKeys) : mode === 'exclude' ? csvToList(excludedSiteKeys) : [];
+
+  const setMode_ = (next: SiteScopeMode) => {
+    setMode(next);
+    if (next === 'all') onChange({ siteKeys: '', excludedSiteKeys: '' });
+    else if (next === 'include') onChange({ siteKeys: csvToList(siteKeys).join(','), excludedSiteKeys: '' });
+    else onChange({ siteKeys: '', excludedSiteKeys: csvToList(excludedSiteKeys).join(',') });
+  };
+
+  const toggle = (key: string) => {
+    const next = checked.includes(key) ? checked.filter((k) => k !== key) : [...checked, key];
+    if (mode === 'include') onChange({ siteKeys: next.join(','), excludedSiteKeys: '' });
+    else if (mode === 'exclude') onChange({ siteKeys: '', excludedSiteKeys: next.join(',') });
+  };
+
   return (
-    <select
-      disabled={disabled}
-      className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none disabled:opacity-50"
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-    >
-      <option value="">All sites (shared across livechat)</option>
-      {sites.map((s) => (
-        <option key={s.key} value={s.key}>
-          {s.label} ({s.key})
-        </option>
-      ))}
-    </select>
+    <div className="space-y-2">
+      <div className="flex flex-wrap gap-3 text-xs">
+        {(['all', 'include', 'exclude'] as SiteScopeMode[]).map((m) => (
+          <label key={m} className="flex items-center gap-1.5 cursor-pointer">
+            <input
+              type="radio"
+              name="site-scope"
+              checked={mode === m}
+              onChange={() => setMode_(m)}
+              className="accent-primary"
+            />
+            {m === 'all' ? 'All sites' : m === 'include' ? 'Only these sites' : 'All sites except these'}
+          </label>
+        ))}
+      </div>
+      {mode !== 'all' && (
+        <div className="bg-background border border-border rounded-lg p-2 flex flex-wrap gap-1.5 max-h-[140px] overflow-auto">
+          {sites.length === 0 ? (
+            <span className="text-xs text-muted-foreground px-1">No livechat sites configured.</span>
+          ) : (
+            sites.map((s) => {
+              const on = checked.includes(s.key);
+              return (
+                <button
+                  key={s.key}
+                  type="button"
+                  onClick={() => toggle(s.key)}
+                  className={`text-[11px] px-2 py-1 rounded-full border transition-colors ${
+                    on
+                      ? mode === 'exclude'
+                        ? 'bg-red-500/15 text-red-500 border-red-500/40'
+                        : 'bg-primary text-primary-foreground border-primary'
+                      : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground/30'
+                  }`}
+                  title={s.key}
+                >
+                  {s.label}
+                </button>
+              );
+            })
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -175,7 +265,8 @@ function EntryModal({ entry, onClose, onSave, token }: {
     entryType: entry?.entryType ?? 'reference',
     priority: entry?.priority ?? 50,
     agentKeys: entry?.agentKeys ?? '',
-    siteKey: entry?.siteKey ?? '',
+    siteKeys: entry?.siteKeys ?? '',
+    excludedSiteKeys: entry?.excludedSiteKeys ?? '',
   });
   const livechatTagged = parseAgentKeys(form.agentKeys).includes('livechat');
 
@@ -248,17 +339,26 @@ function EntryModal({ entry, onClose, onSave, token }: {
               <label className="text-xs text-muted-foreground mb-1 block">Agents (blank = all)</label>
               <AgentMultiSelect
                 value={form.agentKeys}
-                onChange={(next) => setForm((f) => ({ ...f, agentKeys: next, siteKey: parseAgentKeys(next).includes('livechat') ? f.siteKey : '' }))}
+                onChange={(next) => {
+                  const lc = parseAgentKeys(next).includes('livechat');
+                  setForm((f) => ({
+                    ...f,
+                    agentKeys: next,
+                    siteKeys: lc ? f.siteKeys : '',
+                    excludedSiteKeys: lc ? f.excludedSiteKeys : '',
+                  }));
+                }}
               />
             </div>
           </div>
           {livechatTagged && (
             <div>
-              <label className="text-xs text-muted-foreground mb-1 block">Live Chat website (blank = all sites)</label>
-              <LivechatSitePicker
+              <label className="text-xs text-muted-foreground mb-1 block">Live Chat site scope</label>
+              <LivechatSiteScopeEditor
                 token={token}
-                value={form.siteKey}
-                onChange={(next) => setForm((f) => ({ ...f, siteKey: next }))}
+                siteKeys={form.siteKeys}
+                excludedSiteKeys={form.excludedSiteKeys}
+                onChange={(next) => setForm((f) => ({ ...f, ...next }))}
               />
             </div>
           )}
@@ -266,7 +366,12 @@ function EntryModal({ entry, onClose, onSave, token }: {
         <div className="flex justify-end gap-2 p-4 border-t border-border">
           <button onClick={onClose} className="px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground border border-border rounded-lg">Cancel</button>
           <button
-            onClick={() => onSave({ ...form, agentKeys: form.agentKeys || null, siteKey: form.siteKey || null })}
+            onClick={() => onSave({
+              ...form,
+              agentKeys: form.agentKeys || null,
+              siteKeys: form.siteKeys || null,
+              excludedSiteKeys: form.excludedSiteKeys || null,
+            })}
             disabled={!form.title.trim() || !form.content.trim()}
             className="px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded-lg hover:opacity-90 disabled:opacity-50"
           >
@@ -291,7 +396,8 @@ function SampleModal({ sample, onClose, onSave, token }: {
     sampleText: sample?.sampleText ?? '',
     polarity: sample?.polarity ?? 'positive',
     agentKeys: sample?.agentKeys ?? '',
-    siteKey: sample?.siteKey ?? '',
+    siteKeys: sample?.siteKeys ?? '',
+    excludedSiteKeys: sample?.excludedSiteKeys ?? '',
   });
   const livechatTagged = parseAgentKeys(form.agentKeys).includes('livechat');
 
@@ -338,17 +444,26 @@ function SampleModal({ sample, onClose, onSave, token }: {
               <label className="text-xs text-muted-foreground mb-1 block">Agents (blank = all)</label>
               <AgentMultiSelect
                 value={form.agentKeys}
-                onChange={(next) => setForm((f) => ({ ...f, agentKeys: next, siteKey: parseAgentKeys(next).includes('livechat') ? f.siteKey : '' }))}
+                onChange={(next) => {
+                  const lc = parseAgentKeys(next).includes('livechat');
+                  setForm((f) => ({
+                    ...f,
+                    agentKeys: next,
+                    siteKeys: lc ? f.siteKeys : '',
+                    excludedSiteKeys: lc ? f.excludedSiteKeys : '',
+                  }));
+                }}
               />
             </div>
           </div>
           {livechatTagged && (
             <div>
-              <label className="text-xs text-muted-foreground mb-1 block">Live Chat website (blank = all sites)</label>
-              <LivechatSitePicker
+              <label className="text-xs text-muted-foreground mb-1 block">Live Chat site scope</label>
+              <LivechatSiteScopeEditor
                 token={token}
-                value={form.siteKey}
-                onChange={(next) => setForm((f) => ({ ...f, siteKey: next }))}
+                siteKeys={form.siteKeys}
+                excludedSiteKeys={form.excludedSiteKeys}
+                onChange={(next) => setForm((f) => ({ ...f, ...next }))}
               />
             </div>
           )}
@@ -356,7 +471,12 @@ function SampleModal({ sample, onClose, onSave, token }: {
         <div className="flex justify-end gap-2 p-4 border-t border-border">
           <button onClick={onClose} className="px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground border border-border rounded-lg">Cancel</button>
           <button
-            onClick={() => onSave({ ...form, agentKeys: form.agentKeys || null, siteKey: form.siteKey || null })}
+            onClick={() => onSave({
+              ...form,
+              agentKeys: form.agentKeys || null,
+              siteKeys: form.siteKeys || null,
+              excludedSiteKeys: form.excludedSiteKeys || null,
+            })}
             disabled={!form.context.trim() || !form.sampleText.trim()}
             className="px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded-lg hover:opacity-90 disabled:opacity-50"
           >
@@ -549,11 +669,7 @@ function EntriesTab({ token }: { token: string }) {
                   <span className="text-xs text-muted-foreground">{entry.category}</span>
                   {entry.priority !== 50 && <span className="text-xs text-muted-foreground">p:{entry.priority}</span>}
                   <AgentPills csv={entry.agentKeys} fallback="all agents" />
-                  {entry.siteKey && (
-                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-cyan-500/15 text-cyan-400 font-medium">
-                      site: {siteLabel(entry.siteKey)}
-                    </span>
-                  )}
+                  <SiteScopeBadge siteKeys={entry.siteKeys} excludedSiteKeys={entry.excludedSiteKeys} siteLabel={siteLabel} />
                 </div>
                 <p className="text-xs text-muted-foreground mt-0.5 truncate">{entry.content}</p>
               </div>
@@ -745,11 +861,7 @@ function SamplesTab({ token }: { token: string }) {
                     {s.polarity === 'positive' ? '✓' : '✗'} {s.polarity}
                   </span>
                   <AgentPills csv={s.agentKeys} fallback="all agents" />
-                  {s.siteKey && (
-                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-cyan-500/15 text-cyan-400 font-medium">
-                      site: {siteLabel(s.siteKey)}
-                    </span>
-                  )}
+                  <SiteScopeBadge siteKeys={s.siteKeys} excludedSiteKeys={s.excludedSiteKeys} siteLabel={siteLabel} />
                 </div>
                 <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{s.sampleText}</p>
               </div>
@@ -845,6 +957,7 @@ function ImportTab({ token }: { token: string }) {
     setUploading(true);
     setFileResults({});
 
+    const localResults: Record<string, { ok: boolean; chunks?: number; title?: string; error?: string }> = {};
     for (const f of files) {
       setActiveFileName(f.name);
       try {
@@ -854,15 +967,26 @@ function ImportTab({ token }: { token: string }) {
           method: 'POST',
           body: JSON.stringify({ filename: f.name, mimeType: f.type, data: base64, agentKeys: fileAgentKeys || undefined, category: fileCategory }),
         });
-        setFileResults((prev) => ({ ...prev, [f.name]: { ok: true, chunks: result.chunks, title: result.title } }));
+        localResults[f.name] = { ok: true, chunks: result.chunks, title: result.title };
+        setFileResults((prev) => ({ ...prev, [f.name]: localResults[f.name] }));
       } catch (err: unknown) {
-        setFileResults((prev) => ({ ...prev, [f.name]: { ok: false, error: (err as Error).message ?? 'Upload failed' } }));
+        localResults[f.name] = { ok: false, error: (err as Error).message ?? 'Upload failed' };
+        setFileResults((prev) => ({ ...prev, [f.name]: localResults[f.name] }));
       }
     }
 
     setActiveFileName(null);
     qc.invalidateQueries({ queryKey: ['kb-imports', 'kb-entries'] });
     setUploading(false);
+
+    // Reset form on success — drop successful files, keep failed ones for retry,
+    // and clear the agent / category selection so the next batch starts clean.
+    setFiles((prev) => prev.filter((f) => !localResults[f.name]?.ok));
+    if (Object.values(localResults).every((r) => r.ok)) {
+      setFileAgentKeys('');
+      setFileCategory('document');
+      if (fileRef.current) fileRef.current.value = '';
+    }
   }
 
   async function handleLinkImport() {
@@ -876,6 +1000,8 @@ function ImportTab({ token }: { token: string }) {
       setLinkResult(result);
       qc.invalidateQueries({ queryKey: ['kb-imports', 'kb-entries'] });
       setUrl('');
+      setLinkAgentKeys('');
+      setLinkCategory('webpage');
     } catch (err: any) {
       setLinkError(err.message ?? 'Import failed');
     } finally {
