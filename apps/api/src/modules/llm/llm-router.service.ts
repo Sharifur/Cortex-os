@@ -144,6 +144,27 @@ export class LlmRouterService {
     return res;
   }
 
+  /**
+   * Embed a single string with OpenAI text-embedding-3-small (1536 dims).
+   * Used for hybrid KB retrieval. Returns null if the API key isn't set so
+   * callers can transparently fall back to FTS-only.
+   */
+  async embed(text: string): Promise<number[] | null> {
+    const apiKey = await this.settings.getDecrypted('openai_api_key');
+    if (!apiKey) return null;
+    try {
+      const client = new OpenAI({ apiKey });
+      const res = await client.embeddings.create({
+        model: 'text-embedding-3-small',
+        input: text.slice(0, 8000),
+      });
+      return res.data[0]?.embedding ?? null;
+    } catch (err) {
+      this.logger.warn(`embed() failed: ${(err as Error).message}`);
+      return null;
+    }
+  }
+
   async completeWithTools(opts: LlmCompleteWithToolsOpts): Promise<LlmToolResult> {
     const provider = opts.provider ?? 'auto';
 

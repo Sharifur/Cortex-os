@@ -21,6 +21,9 @@ import { LivechatUploadsController } from './livechat-uploads.controller';
 import { LivechatTranscriptService } from './livechat-transcript.service';
 import { LivechatInboundService } from './livechat-inbound.service';
 import { LivechatInboundController } from './livechat-inbound.controller';
+import { LivechatIntentService } from './livechat-intent.service';
+import { LivechatEscalationService } from './livechat-escalation.service';
+import { LivechatMetricsService } from './livechat-metrics.service';
 import { SesModule } from '../../ses/ses.module';
 import { SettingsModule } from '../../settings/settings.module';
 
@@ -41,6 +44,9 @@ import { SettingsModule } from '../../settings/settings.module';
     LivechatAttachmentsService,
     LivechatTranscriptService,
     LivechatInboundService,
+    LivechatIntentService,
+    LivechatEscalationService,
+    LivechatMetricsService,
   ],
   exports: [LivechatService, LivechatAgent, LivechatOriginCache, LivechatStreamService],
 })

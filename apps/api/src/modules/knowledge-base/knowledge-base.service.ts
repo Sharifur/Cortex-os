@@ -1,8 +1,9 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger, forwardRef, Inject } from '@nestjs/common';
 import { eq, and, desc, inArray, sql, or } from 'drizzle-orm';
 import { DbService } from '../../db/db.service';
 import { knowledgeEntries, writingSamples, promptTemplates, pendingApprovals, agentRuns, agents } from '../../db/schema';
 import { KnowledgeBaseCacheService } from './knowledge-base-cache.service';
+import { LlmRouterService } from '../llm/llm-router.service';
 import { createId } from '@paralleldrive/cuid2';
 
 export type KnowledgeEntry = typeof knowledgeEntries.$inferSelect;
@@ -22,9 +23,13 @@ export interface KbPromptBlockParams {
 
 @Injectable()
 export class KnowledgeBaseService {
+  private readonly logger = new Logger(KnowledgeBaseService.name);
+
   constructor(
     private readonly db: DbService,
     private readonly cache: KnowledgeBaseCacheService,
+    @Inject(forwardRef(() => LlmRouterService))
+    private readonly llm: LlmRouterService,
   ) {}
 
   // ─── Agent key filtering ───────────────────────────────────────────────────
@@ -97,7 +102,13 @@ export class KnowledgeBaseService {
         .orderBy(desc(knowledgeEntries.priority))
         .limit(limit);
     }
-    return this.db.db
+
+    // Hybrid retrieval: run FTS and vector lookup in parallel, then merge with
+    // reciprocal-rank fusion (RRF) so paraphrases ("get my money back") match
+    // their canonical entry ("refund policy"). FTS-only when embeddings or the
+    // OpenAI key are unavailable.
+    const widerLimit = Math.max(limit * 4, 20);
+    const ftsPromise = this.db.db
       .select()
       .from(knowledgeEntries)
       .where(
@@ -107,7 +118,62 @@ export class KnowledgeBaseService {
           AND to_tsvector('english', title || ' ' || content) @@ plainto_tsquery('english', ${q})`,
       )
       .orderBy(desc(knowledgeEntries.priority))
+      .limit(widerLimit);
+
+    const vectorPromise = this.vectorSearch(q, agentKey, siteKey, widerLimit).catch((err) => {
+      this.logger.debug(`vector search skipped: ${(err as Error).message}`);
+      return [] as KnowledgeEntry[];
+    });
+
+    const [fts, vec] = await Promise.all([ftsPromise, vectorPromise]);
+    if (!vec.length) return fts.slice(0, limit);
+    return reciprocalRankFusion(fts, vec, limit);
+  }
+
+  /**
+   * Embed the query and run a cosine-similarity lookup against any rows that
+   * have an embedding. Returns rows ordered by similarity (closest first).
+   * Returns [] if pgvector isn't installed or no rows have embeddings yet —
+   * the caller can fall back to FTS-only with no behaviour change.
+   */
+  private async vectorSearch(
+    query: string,
+    agentKey?: string,
+    siteKey?: string | null,
+    limit = 20,
+  ): Promise<KnowledgeEntry[]> {
+    const embedding = await this.llm.embed(query);
+    if (!embedding) return [];
+    const literal = `[${embedding.join(',')}]`;
+    const rows = await this.db.db
+      .select()
+      .from(knowledgeEntries)
+      .where(
+        sql`${this.agentKeyWhere(agentKey)}
+          AND ${this.siteKeyWhere(siteKey)}
+          AND entry_type = 'reference'
+          AND embedding IS NOT NULL`,
+      )
+      .orderBy(sql`embedding <=> ${literal}::vector`)
       .limit(limit);
+    return rows;
+  }
+
+  /**
+   * Embed and persist the embedding for a single entry. Best-effort — silently
+   * swallows errors so a transient OpenAI outage doesn't block KB writes.
+   */
+  async embedEntry(entryId: string, text: string): Promise<void> {
+    try {
+      const embedding = await this.llm.embed(text);
+      if (!embedding) return;
+      const literal = `[${embedding.join(',')}]`;
+      await this.db.db.execute(
+        sql`UPDATE knowledge_entries SET embedding = ${literal}::vector WHERE id = ${entryId}`,
+      );
+    } catch (err) {
+      this.logger.warn(`embedEntry(${entryId}) failed: ${(err as Error).message}`);
+    }
   }
 
   async getAlwaysOnContext(agentKey?: string, siteKey?: string | null): Promise<KnowledgeEntry[]> {
@@ -169,6 +235,10 @@ export class KnowledgeBaseService {
       })
       .returning();
     await this.invalidateCacheForEntry(row);
+    // Background embed — don't block the create response on the OpenAI call.
+    if (row.entryType === 'reference') {
+      void this.embedEntry(row.id, `${row.title}\n${row.content}`);
+    }
     return row;
   }
 
@@ -188,6 +258,10 @@ export class KnowledgeBaseService {
       .where(eq(knowledgeEntries.id, id))
       .returning();
     if (row) await this.invalidateCacheForEntry(row);
+    // Re-embed only when the searchable text actually changed.
+    if (row && (dto.title !== undefined || dto.content !== undefined) && row.entryType === 'reference') {
+      void this.embedEntry(row.id, `${row.title}\n${row.content}`);
+    }
     return row;
   }
 
@@ -467,4 +541,32 @@ export class KnowledgeBaseService {
 function trunc(str: string, maxLen: number): string {
   if (str.length <= maxLen) return str;
   return str.slice(0, maxLen - 1) + '…';
+}
+
+/**
+ * Reciprocal-rank fusion: combine two ranked lists into one, preferring rows
+ * that show up high in BOTH (FTS keyword and vector semantic). The constant
+ * `k=60` is the canonical RRF default — dampens the influence of low ranks.
+ */
+function reciprocalRankFusion<T extends { id: string; priority: number }>(
+  fts: T[],
+  vec: T[],
+  limit: number,
+  k = 60,
+): T[] {
+  const scores = new Map<string, { row: T; score: number }>();
+  fts.forEach((row, idx) => {
+    scores.set(row.id, { row, score: 1 / (k + idx) });
+  });
+  vec.forEach((row, idx) => {
+    const existing = scores.get(row.id);
+    const add = 1 / (k + idx);
+    if (existing) existing.score += add;
+    else scores.set(row.id, { row, score: add });
+  });
+  return Array.from(scores.values())
+    // Tie-break by manual priority so curated entries win when scores are close.
+    .sort((a, b) => b.score - a.score || b.row.priority - a.row.priority)
+    .slice(0, limit)
+    .map((x) => x.row);
 }

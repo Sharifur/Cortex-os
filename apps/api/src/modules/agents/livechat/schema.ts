@@ -159,3 +159,13 @@ export const livechatOperators = pgTable('livechat_operators', {
   siteKeys: text('site_keys'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 });
+
+// Visitor-submitted thumbs rating after a session ends. One row per session.
+export const livechatSessionFeedback = pgTable('livechat_session_feedback', {
+  id: text('id').primaryKey().$defaultFn(() => createId()),
+  sessionId: text('session_id').notNull(),
+  siteId: text('site_id').notNull(),
+  rating: text('rating').notNull(), // 'up' | 'down'
+  comment: text('comment'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+});

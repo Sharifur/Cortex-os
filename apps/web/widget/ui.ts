@@ -2,6 +2,7 @@ import type { WidgetConfig } from './config';
 import { sendMessage, identify, uploadAttachment, MessageResponse, SiteConfigResponse, AttachmentSummary } from './api';
 import { connectVisitorSocket, LivechatEvent } from './socket';
 import { WIDGET_STYLES } from './styles';
+import { EMOJI_CATEGORIES, applyEmojiShortcuts } from './emoji';
 import type { Socket } from 'socket.io-client';
 
 const DEFAULT_SITE_CONFIG: SiteConfigResponse = {
@@ -20,6 +21,8 @@ interface VisitorMessage {
   createdAt: string;
   attachments?: AttachmentSummary[];
   operatorName?: string;
+  /** Quick-reply chips, attached server-side after a streamed reply ends. */
+  suggestions?: string[];
 }
 
 const MESSAGES_KEY = 'livechat_messages_cache';
@@ -58,7 +61,9 @@ export function mountWidget(cfg: WidgetConfig, siteConfig: SiteConfigResponse = 
     askedForEmail: false,
     unread: 0,
     sessionClosed: false,
+    feedbackAsked: false,
     host,
+    cfg,
   };
 
   const bubbleBtn = document.createElement('button');
@@ -207,6 +212,11 @@ function buildPanel(shadow: ShadowRoot, cfg: WidgetConfig, state: any, render: (
       <input class="lc-hp" name="website" tabindex="-1" autocomplete="off" />
       <input class="lc-file-input" type="file" accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.txt,.zip" style="display:none;" />
       <button type="button" class="lc-attach-btn" aria-label="Attach file">${attachIcon()}</button>
+      <button type="button" class="lc-emoji-btn" aria-label="Insert emoji">${smileyIcon()}</button>
+      <div class="lc-emoji-pop" style="display:none;" role="dialog" aria-label="Emoji picker">
+        <div class="lc-emoji-tabs">${EMOJI_CATEGORIES.map((c, i) => `<button type="button" class="lc-emoji-tab${i === 0 ? ' lc-emoji-tab-active' : ''}" data-cat="${i}">${c.name}</button>`).join('')}</div>
+        <div class="lc-emoji-grid">${EMOJI_CATEGORIES[0].emojis.map((e) => `<button type="button" class="lc-emoji-pick" data-emoji="${e}">${e}</button>`).join('')}</div>
+      </div>
       <textarea placeholder="Type your message…" rows="1"></textarea>
       <button type="submit" aria-label="Send">${sendIcon()}</button>
     </form>
@@ -299,6 +309,57 @@ function buildPanel(shadow: ShadowRoot, cfg: WidgetConfig, state: any, render: (
   const quickRepliesEl = panel.querySelector<HTMLDivElement>('.lc-quick-replies')!;
   const sessionEndBanner = panel.querySelector<HTMLDivElement>('.lc-session-end')!;
   const sessionEndBtn = panel.querySelector<HTMLButtonElement>('.lc-session-end-btn')!;
+  const emojiBtn = panel.querySelector<HTMLButtonElement>('.lc-emoji-btn')!;
+  const emojiPop = panel.querySelector<HTMLDivElement>('.lc-emoji-pop')!;
+  const emojiTabs = panel.querySelector<HTMLDivElement>('.lc-emoji-tabs')!;
+  const emojiGrid = panel.querySelector<HTMLDivElement>('.lc-emoji-grid')!;
+
+  // Emoji picker — toggle visibility, switch categories, insert at caret.
+  function insertAtCaret(value: string) {
+    const start = textarea.selectionStart ?? textarea.value.length;
+    const end = textarea.selectionEnd ?? start;
+    textarea.value = textarea.value.slice(0, start) + value + textarea.value.slice(end);
+    const pos = start + value.length;
+    textarea.setSelectionRange(pos, pos);
+    textarea.focus();
+  }
+  function renderCategory(idx: number) {
+    const cat = EMOJI_CATEGORIES[idx];
+    if (!cat) return;
+    emojiGrid.innerHTML = cat.emojis.map((e) => `<button type="button" class="lc-emoji-pick" data-emoji="${e}">${e}</button>`).join('');
+  }
+  emojiBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    emojiPop.style.display = emojiPop.style.display === 'none' ? 'block' : 'none';
+  });
+  panel.addEventListener('click', (e) => {
+    if (e.target instanceof Node && !emojiPop.contains(e.target) && e.target !== emojiBtn) {
+      emojiPop.style.display = 'none';
+    }
+  });
+  emojiTabs.addEventListener('click', (e) => {
+    const t = (e.target as HTMLElement).closest<HTMLButtonElement>('.lc-emoji-tab');
+    if (!t) return;
+    emojiTabs.querySelectorAll('.lc-emoji-tab').forEach((b) => b.classList.remove('lc-emoji-tab-active'));
+    t.classList.add('lc-emoji-tab-active');
+    renderCategory(Number(t.getAttribute('data-cat') ?? 0));
+  });
+  emojiGrid.addEventListener('click', (e) => {
+    const t = (e.target as HTMLElement).closest<HTMLButtonElement>('.lc-emoji-pick');
+    if (!t) return;
+    insertAtCaret(t.getAttribute('data-emoji') ?? '');
+  });
+  // Live shortcut auto-replace as the visitor types space, enter, or punctuation.
+  textarea.addEventListener('input', () => {
+    const before = textarea.value;
+    const after = applyEmojiShortcuts(before);
+    if (after !== before) {
+      const caretShift = after.length - before.length;
+      const pos = (textarea.selectionStart ?? before.length) + caretShift;
+      textarea.value = after;
+      textarea.setSelectionRange(pos, pos);
+    }
+  });
 
   // "Start new chat" resets all session state so the visitor gets a fresh start.
   function resetSession() {
@@ -622,6 +683,17 @@ function connectAndListen(cfg: WidgetConfig, state: any, render: () => void, sit
         if (ta) ta.disabled = true;
         if (sb) sb.disabled = true;
         if (ab) ab.disabled = true;
+        // Push a system-style "How was this chat?" prompt with thumbs chips
+        // unless we already asked.
+        if (!state.feedbackAsked) {
+          state.feedbackAsked = true;
+          state.messages.push({
+            id: `feedback-${Date.now()}`,
+            role: 'system',
+            content: '__feedback__',
+            createdAt: new Date().toISOString(),
+          });
+        }
       }
       render();
       return;
@@ -663,6 +735,14 @@ function connectAndListen(cfg: WidgetConfig, state: any, render: () => void, sit
       }
       return;
     }
+    if (event.type === 'agent_suggestions' && event.messageId && event.suggestions?.length) {
+      const idx = state.messages.findIndex((m: VisitorMessage) => m.id === event.messageId);
+      if (idx >= 0) {
+        state.messages[idx] = { ...state.messages[idx], suggestions: event.suggestions.slice(0, 3) };
+        render();
+      }
+      return;
+    }
 
     if (event.type !== 'message' || !event.messageId) return;
     if (event.role === 'visitor') return;
@@ -682,8 +762,18 @@ function renderMessages(panel: HTMLDivElement, state: any) {
     list.innerHTML = `<div class="lc-empty">Send us a message — we will get right back to you.</div>`;
     return;
   }
+  // Only the very last agent/operator message can show chips — once the visitor
+  // replies, they're stale.
+  const lastAgentIdx = (() => {
+    for (let i = state.messages.length - 1; i >= 0; i--) {
+      const m = state.messages[i] as VisitorMessage;
+      if (m.role === 'agent' || m.role === 'operator') return i;
+      if (m.role === 'visitor') return -1;
+    }
+    return -1;
+  })();
   list.innerHTML = state.messages
-    .map((m: VisitorMessage) => {
+    .map((m: VisitorMessage, idx: number) => {
       // Visitor input stays plain (their own typing); agent / operator / system
       // get the markdown subset so **bold**, *italic*, and [links](…) render.
       const text = m.content
@@ -693,8 +783,18 @@ function renderMessages(panel: HTMLDivElement, state: any) {
       const attWrapper = atts ? `<div class="lc-attachments">${atts}</div>` : '';
       const time = formatTime(m.createdAt);
       const timeEl = time ? `<div class="lc-msg-time">${time}</div>` : '';
+      const chips = (idx === lastAgentIdx && m.suggestions && m.suggestions.length)
+        ? `<div class="lc-chips">${m.suggestions.map((s) => `<button class="lc-chip" data-chip="${escapeAttr(s)}">${escapeHtml(s)}</button>`).join('')}</div>`
+        : '';
 
       if (m.role === 'system') {
+        if (m.content === '__feedback__') {
+          return `<div class="lc-msg lc-msg-system lc-feedback" data-feedback-id="${escapeAttr(m.id)}">
+            <span>How was this chat?</span>
+            <button class="lc-fb-btn" data-rating="up" aria-label="Good">👍</button>
+            <button class="lc-fb-btn" data-rating="down" aria-label="Bad">👎</button>
+          </div>`;
+        }
         return `<div class="lc-msg lc-msg-system">${text}</div>`;
       }
       if (m.role === 'visitor') {
@@ -713,6 +813,7 @@ function renderMessages(panel: HTMLDivElement, state: any) {
             <div class="lc-msg-sender">${escapeHtml(m.operatorName)}</div>
             <div class="lc-msg lc-msg-agent">${text}${attWrapper}</div>
             ${timeEl}
+            ${chips}
           </div>
         </div>`;
       }
@@ -721,10 +822,44 @@ function renderMessages(panel: HTMLDivElement, state: any) {
         <div class="lc-msg-body">
           <div class="lc-msg lc-msg-agent">${text}${attWrapper}</div>
           ${timeEl}
+          ${chips}
         </div>
       </div>`;
     })
     .join('');
+  // Bind chip clicks: paste the chip text into the textarea and submit.
+  list.querySelectorAll<HTMLButtonElement>('.lc-chip').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const ta = panel.querySelector<HTMLTextAreaElement>('textarea');
+      const form = panel.querySelector<HTMLFormElement>('.lc-composer');
+      const value = btn.getAttribute('data-chip') ?? '';
+      if (!ta || !form || !value) return;
+      ta.value = value;
+      form.requestSubmit();
+    });
+  });
+  // Bind feedback-button clicks. Posts to /livechat/session/:id/feedback,
+  // then collapses the prompt into a thank-you line.
+  list.querySelectorAll<HTMLButtonElement>('.lc-fb-btn').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const wrapper = btn.closest('.lc-feedback') as HTMLDivElement | null;
+      const rating = btn.getAttribute('data-rating') as 'up' | 'down' | null;
+      if (!wrapper || !rating) return;
+      const sessionId = state.sessionId;
+      const cfg = state.cfg;
+      if (sessionId && cfg) {
+        try {
+          await fetch(`${cfg.apiBase}/livechat/session/${encodeURIComponent(sessionId)}/feedback`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ siteKey: cfg.siteKey, visitorId: cfg.visitorId, rating }),
+            credentials: 'omit',
+          });
+        } catch { /* ignore */ }
+      }
+      wrapper.innerHTML = `<span>Thanks for the feedback!</span>`;
+    });
+  });
   scrollMessagesToEnd(panel);
 }
 
@@ -965,4 +1100,8 @@ function refreshIcon() {
 
 function xIcon() {
   return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>`;
+}
+
+function smileyIcon() {
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>`;
 }

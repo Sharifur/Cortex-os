@@ -166,6 +166,116 @@ export const WIDGET_STYLES = `
   font-size: 0.92em;
 }
 
+.lc-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+.lc-chip {
+  background: #fff;
+  border: 1px solid var(--lc-brand, #2563eb);
+  color: var(--lc-brand, #2563eb);
+  border-radius: 16px;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.lc-chip:hover {
+  background: var(--lc-brand, #2563eb);
+  color: #fff;
+}
+
+.lc-feedback {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(0,0,0,0.04);
+  padding: 6px 10px;
+  border-radius: 10px;
+  margin: 8px auto;
+}
+.lc-feedback span { font-size: 12px; color: #4b5563; }
+.lc-fb-btn {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: transform 0.1s;
+}
+.lc-fb-btn:hover { transform: scale(1.15); }
+
+.lc-emoji-btn {
+  background: transparent;
+  border: 0;
+  color: #6b7280;
+  cursor: pointer;
+  padding: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+.lc-emoji-btn:hover { background: #f3f4f6; color: #111827; }
+.lc-emoji-btn svg { width: 18px; height: 18px; }
+
+.lc-emoji-pop {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 8px;
+  width: 280px;
+  max-width: calc(100% - 16px);
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  box-shadow: 0 12px 28px rgba(0,0,0,0.15);
+  z-index: 12;
+  overflow: hidden;
+}
+.lc-emoji-tabs {
+  display: flex;
+  border-bottom: 1px solid #e5e7eb;
+  overflow-x: auto;
+}
+.lc-emoji-tab {
+  background: transparent;
+  border: 0;
+  padding: 8px 10px;
+  font-size: 11px;
+  color: #6b7280;
+  cursor: pointer;
+  white-space: nowrap;
+  border-bottom: 2px solid transparent;
+}
+.lc-emoji-tab:hover { color: #111827; }
+.lc-emoji-tab-active { color: #111827; border-bottom-color: var(--lc-brand, #2563eb); font-weight: 600; }
+.lc-emoji-grid {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 2px;
+  padding: 8px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+.lc-emoji-pick {
+  background: transparent;
+  border: 0;
+  padding: 4px;
+  font-size: 18px;
+  cursor: pointer;
+  border-radius: 4px;
+  line-height: 1;
+}
+.lc-emoji-pick:hover { background: #f3f4f6; }
+
+.lc-composer { position: relative; }
+
 /* ── Messages area ── */
 .lc-messages-wrap { flex: 1; overflow: hidden; position: relative; min-height: 0; }
 

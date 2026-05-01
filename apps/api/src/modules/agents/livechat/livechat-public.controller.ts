@@ -6,6 +6,7 @@ import { LivechatStreamService } from './livechat-stream.service';
 import { LivechatAgent } from './agent';
 import { LivechatRateLimitService } from './livechat-rate-limit.service';
 import { LivechatAttachmentsService } from './livechat-attachments.service';
+import { LivechatMetricsService } from './livechat-metrics.service';
 import { PushService } from '../../push/push.service';
 
 interface PageviewBody {
@@ -82,6 +83,7 @@ export class LivechatPublicController {
     private agent: LivechatAgent,
     private rateLimit: LivechatRateLimitService,
     private attachments: LivechatAttachmentsService,
+    private metrics: LivechatMetricsService,
     private push: PushService,
   ) {}
 
@@ -203,6 +205,35 @@ export class LivechatPublicController {
     await this.livechat.setSessionStatus(sessionId, 'closed');
     this.stream.publish(sessionId, { type: 'session_status', sessionId, status: 'closed' });
     this.stream.publishToOperators({ type: 'session_upserted', sessionId });
+    return { ok: true };
+  }
+
+  /**
+   * Visitor-submitted thumbs rating after a session ends. Origin-gated and
+   * ownership-checked the same way as session close so a malicious page can't
+   * stuff someone else's CSAT.
+   */
+  @Post('session/:id/feedback')
+  async sessionFeedback(
+    @Req() req: FastifyRequest,
+    @Param('id') sessionId: string,
+    @Body() body: { siteKey?: string; visitorId?: string; rating?: 'up' | 'down'; comment?: string },
+  ) {
+    if (!body?.siteKey || !body?.visitorId) throw new BadRequestException('siteKey and visitorId are required');
+    if (body.rating !== 'up' && body.rating !== 'down') throw new BadRequestException('rating must be "up" or "down"');
+    const origin = req.headers.origin as string | undefined;
+    const site = await this.livechat.resolveSiteForRequest(body.siteKey, origin ?? null);
+    const session = await this.livechat.getSession(sessionId);
+    if (!session || session.siteId !== site.id || session.visitorId !== body.visitorId) {
+      // Same opaque-failure pattern as session close.
+      return { ok: true };
+    }
+    await this.metrics.submitFeedback({
+      sessionId,
+      siteId: site.id,
+      rating: body.rating,
+      comment: body.comment?.slice(0, 600),
+    });
     return { ok: true };
   }
 

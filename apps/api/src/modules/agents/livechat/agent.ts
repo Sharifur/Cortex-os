@@ -9,6 +9,8 @@ import { agentLlmOpts } from '../runtime/llm-config.util';
 import { LivechatService } from './livechat.service';
 import { LivechatStreamService } from './livechat-stream.service';
 import { LivechatRateLimitService } from './livechat-rate-limit.service';
+import { LivechatIntentService, type VisitorIntent } from './livechat-intent.service';
+import { LivechatEscalationService } from './livechat-escalation.service';
 import type {
   IAgent,
   TriggerSpec,
@@ -36,6 +38,13 @@ const DEFAULT_CONFIG: LivechatConfig = {
 
 const FALLBACK_REPLY = 'Let me get someone from the team to help with that — they will reply here shortly.';
 
+/** Cheap heuristic: trailing "?", or sentence-final imperative like "let me know", "should we". */
+function looksLikeQuestion(text: string): boolean {
+  const t = text.trim();
+  if (t.endsWith('?')) return true;
+  return /\b(want me to|should i|should we|would you like|let me know|do you want|are you|can i|can we|happy to)\b/i.test(t);
+}
+
 export interface HandleVisitorMessageResult {
   ok: boolean;
   status: 'replied' | 'pending_approval' | 'skipped_taken_over' | 'skipped_needs_human' | 'fallback_needs_human' | 'error';
@@ -57,6 +66,8 @@ export class LivechatAgent implements IAgent, OnModuleInit {
     private livechat: LivechatService,
     private stream: LivechatStreamService,
     private rateLimit: LivechatRateLimitService,
+    private intent: LivechatIntentService,
+    private escalation: LivechatEscalationService,
   ) {}
 
   onModuleInit() {
@@ -123,7 +134,20 @@ export class LivechatAgent implements IAgent, OnModuleInit {
     const replyTone = (site?.replyTone?.trim()) || config.replyTone;
 
     const siteKey = site?.key ?? null;
-    const [alwaysOn, samples, blocklist, rejections, references, recentMessages, recentPageviews, visitor] = await Promise.all([
+    // Build the thread snapshot up-front so we can hand it to the intent
+    // classifier in parallel with KB fetches — same network round-trip cost.
+    const recentMessagesForIntent = await this.livechat.getRecentMessages(input.sessionId, 10);
+    const intentThread = recentMessagesForIntent
+      .slice()
+      .reverse()
+      .filter((m) => m.role === 'visitor' || m.role === 'agent' || m.role === 'operator')
+      .slice(-6, -1)
+      .map((m) => ({
+        role: m.role === 'visitor' ? ('customer' as const) : ('agent' as const),
+        text: String(m.content).slice(0, 240),
+      }));
+
+    const [alwaysOn, samples, blocklist, rejections, references, recentMessages, recentPageviews, visitor, intentResult] = await Promise.all([
       this.kb.getAlwaysOnContext(this.key, siteKey),
       this.kb.getWritingSamples(this.key, siteKey),
       this.kb.getBlocklistRules(this.key, siteKey),
@@ -132,10 +156,27 @@ export class LivechatAgent implements IAgent, OnModuleInit {
         this.logger.warn(`KB search failed: ${e.message}`);
         return [];
       }),
-      this.livechat.getRecentMessages(input.sessionId, 10),
+      Promise.resolve(recentMessagesForIntent),
       this.livechat.getRecentPageviews(session.visitorPk, 5),
       this.livechat.getVisitor(session.visitorPk),
+      this.intent.classify(input.visitorMessage, intentThread).catch(() => ({ intent: 'new_question' as VisitorIntent, sentiment: 0 })),
     ]);
+
+    // Run escalation rules BEFORE the LLM. If a trigger fires, post the
+    // human-handoff fallback and skip the model entirely — saves tokens and
+    // gets the operator paged faster.
+    const escalation = await this.escalation.shouldEscalate({
+      sessionId: input.sessionId,
+      intent: intentResult.intent,
+      sentiment: intentResult.sentiment,
+      visitorMessage: input.visitorMessage,
+      currentPageUrl: session.currentPageUrl,
+      sessionStartedAt: session.createdAt,
+    }).catch(() => null);
+    if (escalation) {
+      this.logger.log(`Escalating session ${input.sessionId}: ${escalation.reason}`);
+      return this.postFallback(input.sessionId);
+    }
 
     const template = await this.kb.getPromptTemplate(this.key);
 
@@ -192,7 +233,22 @@ export class LivechatAgent implements IAgent, OnModuleInit {
       ``,
       `Output: just the reply text. No labels, no quoting.`,
     ].filter(Boolean).join('\n');
-    const systemPrompt = (template?.system ?? defaultSystem) + kbBlock + visitorBlock;
+    // Stamp the classified intent into the prompt so the LLM can branch
+    // explicitly: affirmations should deliver, objections should de-escalate,
+    // human_request triggers a fallback before this even gets here.
+    const intentBlock = `\n\n## Visitor Intent (computed)\nIntent: ${intentResult.intent}\nSentiment: ${intentResult.sentiment.toFixed(2)} (${intentResult.sentiment < -0.3 ? 'frustrated' : intentResult.sentiment > 0.3 ? 'positive' : 'neutral'})\n` +
+      (intentResult.intent === 'affirmation'
+        ? '→ The visitor confirmed your last offer. Deliver the content now (list / explain / show). Do NOT re-offer.\n'
+        : intentResult.intent === 'objection'
+          ? '→ The visitor is pushing back. Acknowledge their concern in one sentence, then address it directly with facts.\n'
+          : intentResult.intent === 'thanks'
+            ? '→ Brief, warm acknowledgement (≤1 short sentence). Optionally offer one specific next step.\n'
+            : intentResult.intent === 'greeting'
+              ? '→ Greet briefly and ask what they need help with — but only if they have not already asked something.\n'
+              : intentResult.intent === 'leaving'
+                ? '→ Wrap up warmly in one sentence. Do not ask another question.\n'
+                : '');
+    const systemPrompt = (template?.system ?? defaultSystem) + kbBlock + visitorBlock + intentBlock;
 
     // Per-site LLM override beats the agent-level config.
     const baseLlmOpts = agentLlmOpts(config);
@@ -242,19 +298,25 @@ export class LivechatAgent implements IAgent, OnModuleInit {
     if (!draft) return this.postFallback(input.sessionId);
 
     const voiceProfile = alwaysOn.find((e) => e.entryType === 'voice_profile')?.content;
-    let critiquePassed = false;
-    for (let attempt = 0; attempt <= retries; attempt++) {
-      const critiqued = await this.selfCritique(draft, voiceProfile, blocklist).catch(() => draft);
-      if (critiqued !== draft) {
-        draft = critiqued;
-      } else {
-        critiquePassed = true;
-        break;
+    // Skip the critique round-trip on trivial intents — saves ~300ms and a
+    // spare LLM call. Only the substantive answers go through editing.
+    const skipCritiqueIntents: VisitorIntent[] = ['affirmation', 'thanks', 'greeting', 'leaving'];
+    const skipCritique = skipCritiqueIntents.includes(intentResult.intent);
+    let critiquePassed = skipCritique;
+    if (!skipCritique) {
+      for (let attempt = 0; attempt <= retries; attempt++) {
+        const critiqued = await this.selfCritique(draft, voiceProfile, blocklist).catch(() => draft);
+        if (critiqued !== draft) {
+          draft = critiqued;
+        } else {
+          critiquePassed = true;
+          break;
+        }
       }
-    }
-    if (!critiquePassed && retries > 0) {
-      // Used all retries and critique kept rewriting — bail to human.
-      return this.postFallback(input.sessionId);
+      if (!critiquePassed && retries > 0) {
+        // Used all retries and critique kept rewriting — bail to human.
+        return this.postFallback(input.sessionId);
+      }
     }
 
     const violation = blocklist.find((p) => draft.toLowerCase().includes(p.toLowerCase()));
@@ -288,6 +350,20 @@ export class LivechatAgent implements IAgent, OnModuleInit {
       });
       // Operator dashboards also need a regular message event for inbox refresh.
       this.stream.publishToOperators({ type: 'session_upserted', sessionId: input.sessionId });
+      // Quick-reply suggestions — fire-and-forget. Only when the reply ends
+      // in a question, otherwise chips are noise. ~200ms LLM call, runs after
+      // the visitor already has the answer so it doesn't block UX.
+      if (looksLikeQuestion(draft)) {
+        void this.suggestQuickReplies(draft, intentResult.intent).then((suggestions) => {
+          if (!suggestions.length) return;
+          this.stream.publish(input.sessionId, {
+            type: 'agent_suggestions',
+            sessionId: input.sessionId,
+            messageId: agentMsg.id,
+            suggestions,
+          });
+        }).catch(() => undefined);
+      }
     } else {
       // Moderation mode — visitor must NOT see the draft. Notify operators only.
       this.stream.publishToOperators({ type: 'session_upserted', sessionId: input.sessionId });
@@ -375,6 +451,39 @@ If not, rewrite and return: {"ok":false,"revised":"improved reply here"}`,
       // fail-open: use original draft
     }
     return draft;
+  }
+
+  /**
+   * Tiny LLM call (gpt-4o-mini, ~50 tokens) that returns 2-3 short replies a
+   * visitor would plausibly tap as the next message. Returns [] on any failure
+   * so the chips just don't appear.
+   */
+  private async suggestQuickReplies(reply: string, intent: VisitorIntent): Promise<string[]> {
+    // Don't bother for non-substantive replies — the bot isn't really asking.
+    if (intent === 'thanks' || intent === 'leaving' || intent === 'greeting') return [];
+    try {
+      const res = await this.llm.complete({
+        provider: 'openai',
+        model: 'gpt-4o-mini',
+        maxTokens: 80,
+        temperature: 0.3,
+        messages: [
+          {
+            role: 'system',
+            content: `You generate 2-3 ultra-short quick-reply chips a visitor might tap as their next message. JSON output only: {"suggestions":["...","..."]}. Each chip ≤ 4 words, lowercase, no punctuation. If the agent's reply does not actually ask a question or invite a next step, return {"suggestions":[]}.`,
+          },
+          { role: 'user', content: `Agent's reply: "${reply.slice(0, 400)}"` },
+        ],
+      });
+      const parsed = JSON.parse(res.content);
+      const arr = Array.isArray(parsed?.suggestions) ? parsed.suggestions : [];
+      return arr
+        .map((s: unknown) => String(s ?? '').trim())
+        .filter((s: string) => s.length > 0 && s.length <= 32)
+        .slice(0, 3);
+    } catch {
+      return [];
+    }
   }
 
   private async getConfig(): Promise<LivechatConfig> {
