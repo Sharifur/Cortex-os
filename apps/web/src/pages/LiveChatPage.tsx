@@ -1313,9 +1313,11 @@ function InboxRow({ session, selected, onClick }: { session: SessionRow; selecte
   const name = shortVisitorName(session);
   const lastTime = session.lastMessage?.createdAt ?? session.lastSeenAt;
   const online = isVisitorOnline(session.lastSeenAt, session.status);
-  // Fall back to the country half of the Accept-Language header (en-GB → GB)
-  // so the flag still renders when MaxMind couldn't geolocate the IP.
-  const country = session.ipCountry || (session.language?.split('-')[1] ?? null);
+  // Country flag comes from MaxMind GeoLite2 IP lookup only — never from the
+  // Accept-Language header. The header reflects the visitor's UI language
+  // (en-US, en-GB) which is misleading for travellers / VPN users; better
+  // to show no flag than the wrong flag.
+  const country = session.ipCountry ?? null;
   return (
     <button
       onClick={onClick}

@@ -868,7 +868,12 @@ function connectAndListen(cfg: WidgetConfig, state: any, render: () => void, sit
     if (event.role === 'visitor') return;
     if (state.messages.some((m: VisitorMessage) => m.id === event.messageId)) return;
     const opName: string | undefined = (event as any).operatorName ?? undefined;
-    const opAvatar = opName ? (siteConfig?.operators?.find((op) => op.name === opName)?.avatarUrl ?? undefined) : undefined;
+    // Server resolves the default operator and ships the avatar URL on the
+    // event itself; fall back to the operators roster from /livechat/config
+    // for older bundles still emitting just the name.
+    const opAvatar: string | undefined =
+      ((event as any).operatorAvatarUrl as string | undefined)
+      ?? (opName ? (siteConfig?.operators?.find((op) => op.name === opName)?.avatarUrl ?? undefined) : undefined);
     pushAgent(state, event.content ?? '', event.messageId, event.role === 'operator', (event as any).attachments, opName, opAvatar);
     const panel = state.panel as HTMLDivElement | undefined;
     if (panel) hideTyping(panel);

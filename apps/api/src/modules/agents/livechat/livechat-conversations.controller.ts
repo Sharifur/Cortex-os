@@ -245,10 +245,26 @@ export class LivechatConversationsController {
 
     const site = await this.livechat.getSiteById(session.siteId).catch(() => null);
 
+    // Resolve who's "speaking" to the visitor:
+    //   - If the operator UI passed an explicit operatorId, use that row.
+    //   - Otherwise pick the default operator configured for this site.
+    //   - Otherwise fall back to the legacy site.operatorName text field
+    //     with no avatar.
     let operatorName: string | null = site?.operatorName ?? null;
+    let operatorAvatarUrl: string | null = null;
     if (body.operatorId) {
       const operator = await this.livechat.getOperatorById(body.operatorId);
-      if (operator) operatorName = operator.name;
+      if (operator) {
+        operatorName = operator.name;
+        operatorAvatarUrl = operator.avatarUrl ?? null;
+      }
+    } else if (site?.key) {
+      const ops = await this.livechat.getOperatorsForSite(site.key).catch(() => []);
+      const def = ops.find((op) => op.isDefault) ?? ops[0];
+      if (def) {
+        operatorName = def.name;
+        operatorAvatarUrl = def.avatarUrl ?? null;
+      }
     }
 
     this.stream.publish(id, {
@@ -259,6 +275,7 @@ export class LivechatConversationsController {
       messageId: msg.id,
       createdAt: msg.createdAt.toISOString(),
       operatorName,
+      operatorAvatarUrl,
       attachments: attachments.map((a) => ({
         id: a.id,
         mimeType: a.mimeType,
