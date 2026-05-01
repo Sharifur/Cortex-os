@@ -132,6 +132,7 @@ export const WIDGET_STYLES = `
 .lc-messages {
   height: 100%;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 12px 14px;
   background: #f9fafb;
   display: flex;

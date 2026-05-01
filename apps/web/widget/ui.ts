@@ -87,12 +87,33 @@ export function mountWidget(cfg: WidgetConfig, siteConfig: SiteConfigResponse = 
 
   const isMobile = () => window.innerWidth <= 480;
   const DESKTOP_HOST_STYLE = `position: fixed; bottom: 40px; right: 40px; z-index: 2147483646;`;
-  const MOBILE_HOST_OPEN  = `position: fixed; inset: 0; z-index: 2147483646;`;
+
+  // On mobile we pin the host to the Visual Viewport so it tracks the
+  // visible area exactly — accounting for the browser URL bar (which slides
+  // in/out on scroll) and the software keyboard. Without this the header
+  // ends up hidden behind the URL bar on Chrome, Firefox, and Safari.
+  function applyMobileHostStyle() {
+    const vv = window.visualViewport;
+    if (vv) {
+      host.style.cssText = `position: fixed; top: ${vv.offsetTop}px; left: ${vv.offsetLeft}px; width: ${vv.width}px; height: ${vv.height}px; z-index: 2147483646;`;
+    } else {
+      host.style.cssText = `position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 2147483646;`;
+    }
+  }
+
+  let vvListenerInstalled = false;
+  function ensureVvListener() {
+    if (vvListenerInstalled || !window.visualViewport) return;
+    vvListenerInstalled = true;
+    const onChange = () => { if (state.open && isMobile()) applyMobileHostStyle(); };
+    window.visualViewport!.addEventListener('resize', onChange);
+    window.visualViewport!.addEventListener('scroll', onChange);
+  }
 
   bubbleBtn.addEventListener('click', () => {
     state.open = !state.open;
     if (state.open) {
-      if (isMobile()) host.style.cssText = MOBILE_HOST_OPEN;
+      if (isMobile()) { applyMobileHostStyle(); ensureVvListener(); }
       panel.classList.remove('lc-panel--closing');
       panel.style.display = 'flex';
       state.unread = 0;
