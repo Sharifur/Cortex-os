@@ -4,7 +4,7 @@ import { BookOpen, Plus, Trash2, Edit2, X, Upload, Link, ChevronDown, ChevronRig
 import { useAuthStore } from '@/stores/authStore';
 
 const KB_AGENTS = ['livechat', 'crisp', 'support', 'whatsapp', 'email_manager', 'linkedin', 'reddit', 'social', 'shorts'];
-const ENTRY_TYPES = ['reference', 'fact', 'voice_profile', 'blocklist'];
+const ENTRY_TYPES = ['reference', 'fact', 'voice_profile', 'blocklist', 'product', 'service', 'offer'];
 const CATEGORIES = ['general', 'product', 'policy', 'faq', 'document', 'webpage', 'other'];
 
 function parseAgentKeys(csv: string): string[] {
@@ -142,6 +142,9 @@ function typeBadge(type: string) {
     fact: 'bg-amber-500/15 text-amber-400',
     voice_profile: 'bg-purple-500/15 text-purple-400',
     blocklist: 'bg-red-500/15 text-red-400',
+    product: 'bg-emerald-500/15 text-emerald-400',
+    service: 'bg-teal-500/15 text-teal-400',
+    offer: 'bg-pink-500/15 text-pink-400',
   };
   return map[type] ?? 'bg-muted text-muted-foreground';
 }
@@ -215,6 +218,9 @@ function EntryModal({ entry, onClose, onSave, token }: {
                 <option value="fact">Always-On Fact</option>
                 <option value="voice_profile">Voice Profile</option>
                 <option value="blocklist">Blocklist Rule</option>
+                <option value="product">Product (always-on)</option>
+                <option value="service">Service (always-on)</option>
+                <option value="offer">Offer / Promo (always-on)</option>
               </select>
             </div>
             <div>

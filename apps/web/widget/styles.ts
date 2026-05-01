@@ -132,6 +132,7 @@ export const WIDGET_STYLES = `
 .lc-messages {
   height: 100%;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 12px 14px;
   background: #f9fafb;
   display: flex;
@@ -272,10 +273,42 @@ export const WIDGET_STYLES = `
 
 /* ── Pending attachments ── */
 .lc-pending { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px 12px 0 12px; background: #fff; flex-shrink: 0; }
-.lc-chip { display: inline-flex; align-items: center; gap: 6px; background: #f3f4f6; border: 1px solid #e5e7eb; border-radius: 16px; padding: 4px 10px; font-size: 12px; color: #1f2937; max-width: 220px; }
-.lc-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.lc-chip button { background: transparent; border: 0; padding: 0 0 0 4px; cursor: pointer; color: #6b7280; font-size: 14px; line-height: 1; }
+.lc-chip { display: inline-flex; align-items: center; gap: 6px; background: #f3f4f6; border: 1px solid #e5e7eb; border-radius: 10px; padding: 4px 8px; font-size: 12px; color: #1f2937; max-width: 240px; }
+.lc-chip--busy { opacity: 0.6; }
+.lc-chip-thumb { width: 36px; height: 36px; object-fit: cover; border-radius: 6px; flex-shrink: 0; }
+.lc-chip-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lc-chip-uploading { color: #6b7280; font-style: italic; }
+.lc-chip button { background: transparent; border: 0; padding: 0 0 0 2px; cursor: pointer; color: #6b7280; font-size: 14px; line-height: 1; }
 .lc-chip button:hover { color: #1f2937; }
+
+/* ── Session ended banner ── */
+.lc-session-end {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 14px;
+  background: #fef9ec;
+  border-top: 1px solid #fde68a;
+  font-size: 12px;
+  color: #92400e;
+  flex-shrink: 0;
+}
+.lc-session-end-btn {
+  background: #1f2937;
+  color: #fff;
+  border: 0;
+  border-radius: 6px;
+  padding: 5px 12px;
+  font-size: 12px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.lc-session-end-btn:hover { background: #374151; }
 
 /* ── Composer ── */
 .lc-composer {
@@ -328,7 +361,7 @@ export const WIDGET_STYLES = `
 
 /* ── Attachments in messages ── */
 .lc-attachments { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
-.lc-attach-img { display: block; max-width: 220px; max-height: 200px; border-radius: 10px; cursor: zoom-in; }
+.lc-attach-img { display: block; width: 100%; max-width: 220px; min-width: 80px; min-height: 60px; max-height: 200px; object-fit: contain; border-radius: 10px; cursor: zoom-in; background: #f3f4f6; }
 .lc-attach-file { display: inline-flex; align-items: center; gap: 8px; background: #f3f4f6; border: 1px solid #e5e7eb; border-radius: 10px; padding: 6px 10px; font-size: 12px; color: #1f2937; text-decoration: none; max-width: 240px; }
 .lc-attach-file:hover { background: #e5e7eb; }
 .lc-attach-file svg { width: 16px; height: 16px; flex-shrink: 0; color: #6b7280; }
@@ -336,8 +369,9 @@ export const WIDGET_STYLES = `
 .lc-attach-file .lc-attach-size { color: #6b7280; flex-shrink: 0; }
 
 /* ── Mobile ── */
-/* On mobile the host is expanded to inset:0 via JS when the panel opens.
-   The panel fills 100% of the host so it becomes full-screen. */
+/* On mobile the host is sized via the Visual Viewport API so it tracks
+   exactly the visible area — URL bar, keyboard, and safe-area are all
+   accounted for in JS. The panel fills 100% of that host element. */
 @media (max-width: 480px) {
   .lc-panel {
     position: absolute;
@@ -348,6 +382,44 @@ export const WIDGET_STYLES = `
     width: 100%;
     height: 100%;
     border-radius: 0;
+    /* Block touch events from reaching the page behind the panel. */
+    touch-action: none;
   }
+  /* Safe-area insets: notch / status bar (top) and home indicator (bottom). */
+  .lc-header {
+    padding-top: calc(14px + env(safe-area-inset-top, 0px));
+  }
+  .lc-composer {
+    padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+  }
+  /* Allow vertical scroll in the messages area only. */
+  .lc-messages {
+    touch-action: pan-y;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+  }
+  /* Prevent iOS Safari from zooming in when an input is focused.
+     Any font-size below 16px triggers the auto-zoom. */
+  .lc-composer textarea,
+  .lc-identify input {
+    font-size: 16px;
+  }
+  /* Expand tap targets to the 44px minimum recommended for touch. */
+  .lc-close {
+    width: 44px;
+    height: 44px;
+  }
+  .lc-attach-btn {
+    width: 44px;
+    height: 44px;
+  }
+}
+
+/* Landscape + soft keyboard: very short viewport — tighten spacing so the
+   composer stays visible without sacrificing the message area. */
+@media (max-width: 480px) and (max-height: 400px) {
+  .lc-header { padding-top: calc(8px + env(safe-area-inset-top, 0px)); padding-bottom: 8px; }
+  .lc-messages { padding: 6px 12px; }
+  .lc-composer { padding-top: 6px; padding-bottom: calc(6px + env(safe-area-inset-bottom, 0px)); }
 }
 `;
