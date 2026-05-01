@@ -36,29 +36,38 @@ export class KnowledgeBaseService {
       OR agent_keys LIKE ${'%,' + agentKey + ',%'})`;
   }
 
+  // Livechat KB can be site-scoped. Pass siteKey to include only entries
+  // that apply to that site (siteKey IS NULL acts as "all sites" fallback).
+  // Omit to fetch every entry regardless of site (used by the admin list).
+  private siteKeyWhere(siteKey?: string | null) {
+    if (siteKey === undefined) return sql`1=1`;
+    if (siteKey === null) return sql`site_key IS NULL`;
+    return sql`(site_key IS NULL OR site_key = ${siteKey})`;
+  }
+
   // ─── Knowledge Entries ─────────────────────────────────────────────────────
 
-  async listEntries(agentKey?: string, entryType?: string) {
+  async listEntries(agentKey?: string, entryType?: string, siteKey?: string | null) {
     const rows = await this.db.db
       .select()
       .from(knowledgeEntries)
       .where(
         entryType
-          ? sql`${this.agentKeyWhere(agentKey)} AND entry_type = ${entryType}`
-          : this.agentKeyWhere(agentKey),
+          ? sql`${this.agentKeyWhere(agentKey)} AND ${this.siteKeyWhere(siteKey)} AND entry_type = ${entryType}`
+          : sql`${this.agentKeyWhere(agentKey)} AND ${this.siteKeyWhere(siteKey)}`,
       )
       .orderBy(desc(knowledgeEntries.priority), desc(knowledgeEntries.createdAt));
     return rows;
   }
 
-  async searchEntries(query: string, agentKey?: string, limit = 5): Promise<KnowledgeEntry[]> {
+  async searchEntries(query: string, agentKey?: string, limit = 5, siteKey?: string | null): Promise<KnowledgeEntry[]> {
     const q = query?.trim();
     if (!q) {
       return this.db.db
         .select()
         .from(knowledgeEntries)
         .where(
-          sql`${this.agentKeyWhere(agentKey)} AND entry_type = 'reference'`,
+          sql`${this.agentKeyWhere(agentKey)} AND ${this.siteKeyWhere(siteKey)} AND entry_type = 'reference'`,
         )
         .orderBy(desc(knowledgeEntries.priority))
         .limit(limit);
@@ -68,6 +77,7 @@ export class KnowledgeBaseService {
       .from(knowledgeEntries)
       .where(
         sql`${this.agentKeyWhere(agentKey)}
+          AND ${this.siteKeyWhere(siteKey)}
           AND entry_type = 'reference'
           AND to_tsvector('english', title || ' ' || content) @@ plainto_tsquery('english', ${q})`,
       )
@@ -75,30 +85,32 @@ export class KnowledgeBaseService {
       .limit(limit);
   }
 
-  async getAlwaysOnContext(agentKey?: string): Promise<KnowledgeEntry[]> {
+  async getAlwaysOnContext(agentKey?: string, siteKey?: string | null): Promise<KnowledgeEntry[]> {
+    const cacheKey = this.cache.alwaysOnKey(`${agentKey ?? 'global'}${siteKey ? `:site:${siteKey}` : ''}`);
     const loader = () =>
       this.db.db
         .select()
         .from(knowledgeEntries)
         .where(
-          sql`${this.agentKeyWhere(agentKey)} AND entry_type IN ('fact', 'voice_profile')`,
+          sql`${this.agentKeyWhere(agentKey)} AND ${this.siteKeyWhere(siteKey)} AND entry_type IN ('fact', 'voice_profile')`,
         )
         .orderBy(desc(knowledgeEntries.priority));
 
-    return this.cache.getOrSet(this.cache.alwaysOnKey(agentKey ?? 'global'), loader);
+    return this.cache.getOrSet(cacheKey, loader);
   }
 
-  async getBlocklistRules(agentKey?: string): Promise<string[]> {
+  async getBlocklistRules(agentKey?: string, siteKey?: string | null): Promise<string[]> {
+    const cacheKey = this.cache.blocklistKey(`${agentKey ?? 'global'}${siteKey ? `:site:${siteKey}` : ''}`);
     const loader = async () => {
       const rows = await this.db.db
         .select({ content: knowledgeEntries.content })
         .from(knowledgeEntries)
         .where(
-          sql`${this.agentKeyWhere(agentKey)} AND entry_type = 'blocklist'`,
+          sql`${this.agentKeyWhere(agentKey)} AND ${this.siteKeyWhere(siteKey)} AND entry_type = 'blocklist'`,
         );
       return rows.map(r => r.content);
     };
-    return this.cache.getOrSet(this.cache.blocklistKey(agentKey ?? 'global'), loader);
+    return this.cache.getOrSet(cacheKey, loader);
   }
 
   async createEntry(dto: {
@@ -108,6 +120,7 @@ export class KnowledgeBaseService {
     entryType?: string;
     priority?: number;
     agentKeys?: string;
+    siteKey?: string | null;
     sourceType?: string;
     sourceUrl?: string;
     parentDocId?: string;
@@ -122,6 +135,7 @@ export class KnowledgeBaseService {
         entryType: dto.entryType ?? 'reference',
         priority: dto.priority ?? 50,
         agentKeys: dto.agentKeys ?? null,
+        siteKey: dto.siteKey ?? null,
         sourceType: dto.sourceType ?? 'manual',
         sourceUrl: dto.sourceUrl ?? null,
         parentDocId: dto.parentDocId ?? null,
@@ -138,6 +152,7 @@ export class KnowledgeBaseService {
     entryType: string;
     priority: number;
     agentKeys: string | null;
+    siteKey: string | null;
   }>) {
     const [row] = await this.db.db
       .update(knowledgeEntries)
@@ -161,6 +176,20 @@ export class KnowledgeBaseService {
     return row;
   }
 
+  async deleteEntries(ids: string[]) {
+    if (!ids.length) return { deleted: 0 };
+    // Cascade-delete chunks of any parent docs in the set
+    await this.db.db
+      .delete(knowledgeEntries)
+      .where(inArray(knowledgeEntries.parentDocId, ids));
+    const rows = await this.db.db
+      .delete(knowledgeEntries)
+      .where(inArray(knowledgeEntries.id, ids))
+      .returning();
+    await Promise.all(rows.map((r) => this.invalidateCacheForEntry(r)));
+    return { deleted: rows.length };
+  }
+
   async countChunks(parentDocId: string) {
     const rows = await this.db.db
       .select({ id: knowledgeEntries.id })
@@ -171,26 +200,27 @@ export class KnowledgeBaseService {
 
   // ─── Writing Samples ───────────────────────────────────────────────────────
 
-  async getWritingSamples(agentKey?: string): Promise<WritingSample[]> {
+  async getWritingSamples(agentKey?: string, siteKey?: string | null): Promise<WritingSample[]> {
+    const cacheKey = this.cache.samplesKey(`${agentKey ?? 'global'}${siteKey ? `:site:${siteKey}` : ''}`);
     const loader = () =>
       this.db.db
         .select()
         .from(writingSamples)
-        .where(this.agentKeyWhere(agentKey))
+        .where(sql`${this.agentKeyWhere(agentKey)} AND ${this.siteKeyWhere(siteKey)}`)
         .orderBy(writingSamples.polarity, desc(writingSamples.createdAt));
 
-    return this.cache.getOrSet(this.cache.samplesKey(agentKey ?? 'global'), loader);
+    return this.cache.getOrSet(cacheKey, loader);
   }
 
-  async listSamples(agentKey?: string) {
+  async listSamples(agentKey?: string, siteKey?: string | null) {
     return this.db.db
       .select()
       .from(writingSamples)
-      .where(this.agentKeyWhere(agentKey))
+      .where(sql`${this.agentKeyWhere(agentKey)} AND ${this.siteKeyWhere(siteKey)}`)
       .orderBy(writingSamples.polarity, desc(writingSamples.createdAt));
   }
 
-  async createSample(dto: { context: string; sampleText: string; polarity?: string; agentKeys?: string }) {
+  async createSample(dto: { context: string; sampleText: string; polarity?: string; agentKeys?: string; siteKey?: string | null }) {
     const [row] = await this.db.db
       .insert(writingSamples)
       .values({
@@ -199,13 +229,14 @@ export class KnowledgeBaseService {
         sampleText: dto.sampleText,
         polarity: dto.polarity ?? 'positive',
         agentKeys: dto.agentKeys ?? null,
+        siteKey: dto.siteKey ?? null,
       })
       .returning();
     await this.invalidateSamplesCache(row.agentKeys);
     return row;
   }
 
-  async updateSample(id: string, dto: Partial<{ context: string; sampleText: string; polarity: string; agentKeys: string | null }>) {
+  async updateSample(id: string, dto: Partial<{ context: string; sampleText: string; polarity: string; agentKeys: string | null; siteKey: string | null }>) {
     const [row] = await this.db.db
       .update(writingSamples)
       .set(dto)
@@ -222,6 +253,16 @@ export class KnowledgeBaseService {
       .returning();
     if (row) await this.invalidateSamplesCache(row.agentKeys);
     return row;
+  }
+
+  async deleteSamples(ids: string[]) {
+    if (!ids.length) return { deleted: 0 };
+    const rows = await this.db.db
+      .delete(writingSamples)
+      .where(inArray(writingSamples.id, ids))
+      .returning();
+    await Promise.all(rows.map((r) => this.invalidateSamplesCache(r.agentKeys)));
+    return { deleted: rows.length };
   }
 
   // ─── Prompt Templates ─────────────────────────────────────────────────────
