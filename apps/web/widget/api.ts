@@ -1,8 +1,14 @@
 import type { WidgetConfig } from './config';
 
+export interface OperatorSummary {
+  name: string;
+  avatarUrl: string | null;
+}
+
 export interface SiteConfigResponse {
   siteKey: string;
   operatorName?: string | null;
+  operators?: OperatorSummary[];
   botName: string;
   botSubtitle: string;
   welcomeMessage: string | null;

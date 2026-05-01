@@ -31,6 +31,7 @@ export const WIDGET_STYLES = `
   align-items: center;
   justify-content: center;
   transition: transform 0.18s ease, box-shadow 0.18s ease;
+  touch-action: manipulation;
 }
 .lc-bubble:hover { transform: translateY(-2px); box-shadow: 0 10px 24px var(--lc-brand-shadow-hover); }
 .lc-bubble svg { width: 24px; height: 24px; }
@@ -104,6 +105,25 @@ export const WIDGET_STYLES = `
   flex-shrink: 0;
 }
 .lc-header-avatar svg { width: 20px; height: 20px; }
+.lc-header-avatars { display: flex; align-items: center; flex-shrink: 0; position: relative; }
+.lc-op-avatar {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 2px solid rgba(255,255,255,0.85);
+  object-fit: cover;
+  flex-shrink: 0;
+  position: relative;
+}
+.lc-op-initials {
+  background: rgba(255,255,255,0.22);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
 .lc-header-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .lc-header-title { font-weight: 600; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .lc-header-sub { font-size: 12px; opacity: 0.9; display: flex; align-items: center; gap: 5px; }
@@ -111,6 +131,7 @@ export const WIDGET_STYLES = `
 
 .lc-header-actions { display: flex; align-items: center; gap: 6px; position: relative; }
 
+.lc-newchat-btn,
 .lc-close, .lc-menu-btn {
   background: rgba(255,255,255,0.15);
   border: 0;
@@ -126,7 +147,9 @@ export const WIDGET_STYLES = `
   transition: background 0.15s;
   padding: 0;
 }
+.lc-newchat-btn:hover,
 .lc-close:hover, .lc-menu-btn:hover { background: rgba(255,255,255,0.28); }
+.lc-newchat-btn svg,
 .lc-close svg, .lc-menu-btn svg { width: 16px; height: 16px; }
 
 .lc-menu {
@@ -312,6 +335,8 @@ export const WIDGET_STYLES = `
 }
 .lc-msg-avatar svg { width: 13px; height: 13px; }
 .lc-msg-avatar-op { background: #374151; font-size: 10px; font-weight: 700; letter-spacing: 0.02em; }
+.lc-msg-avatar-ai { background: var(--lc-brand); }
+.lc-msg-avatar-img { object-fit: cover; padding: 0; }
 
 .lc-msg-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .lc-msg-row-visitor .lc-msg-body { align-items: flex-end; }
@@ -518,6 +543,66 @@ export const WIDGET_STYLES = `
 .lc-attach-file span:first-of-type { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
 .lc-attach-file .lc-attach-size { color: #6b7280; flex-shrink: 0; }
 
+/* ── Per-message rating ── */
+.lc-msg-rating {
+  display: flex;
+  gap: 4px;
+  margin-top: 4px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.lc-msg-row:hover .lc-msg-rating { opacity: 1; }
+.lc-rate-btn {
+  background: transparent;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 2px 6px;
+  font-size: 13px;
+  cursor: pointer;
+  line-height: 1;
+  transition: background 0.12s, border-color 0.12s;
+}
+.lc-rate-btn:hover:not(:disabled) { background: #f3f4f6; border-color: #d1d5db; }
+.lc-rate-btn:disabled { cursor: default; opacity: 0.5; }
+.lc-rate-btn--active { background: #f0fdf4; border-color: #86efac; }
+
+/* ── Proactive bubble ── */
+.lc-proactive {
+  position: absolute;
+  bottom: 70px;
+  right: 0;
+  max-width: 280px;
+  background: #fff;
+  border-radius: 12px 12px 4px 12px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.16);
+  padding: 12px 36px 12px 14px;
+  font-size: 14px;
+  color: #1f2937;
+  line-height: 1.45;
+  animation: lc-slide-in 0.3s ease;
+}
+.lc-proactive-text { cursor: pointer; }
+.lc-proactive-text:hover { text-decoration: underline; }
+.lc-proactive-close {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  background: transparent;
+  border: 0;
+  color: #9ca3af;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  border-radius: 50%;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.lc-proactive-close:hover { color: #374151; background: #f3f4f6; }
+
 /* ── Mobile ── */
 /* On mobile the host is sized via the Visual Viewport API so it tracks
    exactly the visible area — URL bar, keyboard, and safe-area are all
@@ -562,6 +647,31 @@ export const WIDGET_STYLES = `
   .lc-attach-btn {
     width: 44px;
     height: 44px;
+  }
+  /* Prevent double-tap zoom on all interactive elements. */
+  .lc-close, .lc-menu-btn, .lc-newchat-btn,
+  .lc-attach-btn, .lc-emoji-btn,
+  .lc-rate-btn, .lc-chip, .lc-fb-btn,
+  .lc-quick-replies button, .lc-session-end-btn {
+    touch-action: manipulation;
+  }
+  /* Rating buttons: always visible on touch (no hover state). */
+  .lc-msg-rating {
+    opacity: 1;
+  }
+  /* Proactive bubble: keep it within the viewport on narrow screens. */
+  .lc-proactive {
+    max-width: calc(100vw - 60px);
+    right: 0;
+  }
+  /* Emoji picker: clamp width so it never overflows the panel edge. */
+  .lc-emoji-pop {
+    left: 0;
+    right: 0;
+    width: auto;
+    max-width: 100%;
+    border-radius: 12px 12px 0 0;
+    bottom: calc(100% + 4px);
   }
 }
 

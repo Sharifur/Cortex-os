@@ -77,6 +77,7 @@ interface Site {
   transcriptEnabled: boolean;
   transcriptBcc: string | null;
   transcriptFrom: string | null;
+  topicHandlingRules: string | null;
   createdAt: string;
 }
 
@@ -152,6 +153,23 @@ interface SessionDetail {
   session: SessionRow & { visitorPk: string; siteId: string };
   visitor: Visitor | null;
   messages: MessageRow[];
+}
+
+function playNotificationSound() {
+  try {
+    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(880, ctx.currentTime);
+    osc.frequency.setValueAtTime(1100, ctx.currentTime + 0.08);
+    gain.gain.setValueAtTime(0.12, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.35);
+  } catch {}
 }
 
 type Tab = 'conversations' | 'sites' | 'operators' | 'setup';
@@ -328,6 +346,7 @@ function SitesTab() {
         transcriptEnabled: s.transcriptEnabled ?? false,
         transcriptBcc: s.transcriptBcc ?? null,
         transcriptFrom: s.transcriptFrom ?? null,
+        topicHandlingRules: s.topicHandlingRules ?? null,
       };
       if (s.id) {
         return apiFetch(token, `/agents/livechat/sites/${s.id}`, { method: 'PATCH', body: JSON.stringify(payload) });
@@ -764,6 +783,14 @@ function SiteFormModal({ site, onClose, onSave, error }: { site: Partial<Site>; 
             <Field label="Reply tone">
               <Input value={draft.replyTone ?? ''} onChange={(e) => setDraft({ ...draft, replyTone: e.target.value })} placeholder="friendly, concise" />
             </Field>
+            <Field label="Topic handling instructions" hint="Tell the bot how to handle specific topics: support tickets, pricing questions, custom requests, etc. One instruction per line.">
+              <textarea
+                value={draft.topicHandlingRules ?? ''}
+                onChange={(e) => setDraft({ ...draft, topicHandlingRules: e.target.value })}
+                className="w-full text-sm bg-background border border-border rounded-md px-3 py-2 min-h-[90px]"
+                placeholder={"For support tickets: ask visitor to email support@yourcompany.com\nFor custom development: say we offer Enterprise plans, direct to /pricing\nFor refund requests: ask them to email billing@yourcompany.com"}
+              />
+            </Field>
             <div className="border border-border rounded-md p-3 bg-muted/30">
               <label className="flex items-center gap-2 text-sm font-medium">
                 <input
@@ -1018,6 +1045,7 @@ function ConversationsTab() {
       if (event.type === 'session_upserted' || event.type === 'inbox_dirty') {
         qc.invalidateQueries({ queryKey: ['livechat-sessions'] });
         qc.invalidateQueries({ queryKey: pendingCountKey });
+        if (event.type === 'session_upserted') playNotificationSound();
       }
       if (event.type === 'visitor_activity' || event.type === 'visitor_offline') {
         qc.invalidateQueries({ queryKey: liveKey });
@@ -1449,7 +1477,7 @@ function SessionPane({
             pendingApproval: event.pendingApproval ?? false,
           },
         ]);
-        if (event.role === 'visitor') setVisitorTyping(false);
+        if (event.role === 'visitor') { setVisitorTyping(false); playNotificationSound(); }
       } else if (event.type === 'message_removed') {
         setLiveMessages((prev) => prev.filter((m) => m.id !== event.messageId));
       } else if (event.type === 'pageview') {

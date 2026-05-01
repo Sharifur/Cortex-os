@@ -8,6 +8,7 @@ export default defineConfig({
   publicDir: false,
   define: {
     'process.env.NODE_ENV': JSON.stringify('production'),
+    __LIVECHAT_BUILD__: JSON.stringify(Date.now().toString(36)),
   },
   build: {
     outDir: path.resolve(__dirname, '../api/public'),
