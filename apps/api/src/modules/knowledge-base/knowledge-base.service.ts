@@ -11,6 +11,8 @@ export type WritingSample = typeof writingSamples.$inferSelect;
 export interface KbPromptBlockParams {
   voiceProfile: KnowledgeEntry | null;
   facts: KnowledgeEntry[];
+  /** Products / services / offers — rendered as a catalog the agent can pitch from. */
+  catalog?: KnowledgeEntry[];
   references: KnowledgeEntry[];
   positiveSamples: WritingSample[];
   negativeSamples: WritingSample[];
@@ -92,7 +94,7 @@ export class KnowledgeBaseService {
         .select()
         .from(knowledgeEntries)
         .where(
-          sql`${this.agentKeyWhere(agentKey)} AND ${this.siteKeyWhere(siteKey)} AND entry_type IN ('fact', 'voice_profile')`,
+          sql`${this.agentKeyWhere(agentKey)} AND ${this.siteKeyWhere(siteKey)} AND entry_type IN ('fact', 'voice_profile', 'product', 'service', 'offer')`,
         )
         .orderBy(desc(knowledgeEntries.priority));
 
@@ -335,7 +337,7 @@ export class KnowledgeBaseService {
   // ─── KB prompt block builder ───────────────────────────────────────────────
 
   buildKbPromptBlock(params: KbPromptBlockParams): string {
-    const { voiceProfile, facts, references, positiveSamples, negativeSamples, rejections, threadHistory } = params;
+    const { voiceProfile, facts, catalog, references, positiveSamples, negativeSamples, rejections, threadHistory } = params;
     const parts: string[] = [];
 
     if (voiceProfile) {
@@ -348,6 +350,28 @@ export class KnowledgeBaseService {
         .join('\n')
         .slice(0, 800);
       parts.push(`\n\n## Key Facts (always apply)\n${factText}`);
+    }
+
+    if (catalog && catalog.length) {
+      const grouped: Record<'product' | 'service' | 'offer', KnowledgeEntry[]> = { product: [], service: [], offer: [] };
+      for (const e of catalog) {
+        if (e.entryType === 'product' || e.entryType === 'service' || e.entryType === 'offer') {
+          grouped[e.entryType].push(e);
+        }
+      }
+      const sections: string[] = [];
+      if (grouped.product.length) {
+        sections.push(`### Products\n${grouped.product.map(p => `- **${p.title}**: ${trunc(p.content, 220)}`).join('\n')}`);
+      }
+      if (grouped.service.length) {
+        sections.push(`### Services\n${grouped.service.map(s => `- **${s.title}**: ${trunc(s.content, 220)}`).join('\n')}`);
+      }
+      if (grouped.offer.length) {
+        sections.push(`### Active Offers\n${grouped.offer.map(o => `- **${o.title}**: ${trunc(o.content, 220)}`).join('\n')}`);
+      }
+      if (sections.length) {
+        parts.push(`\n\n## What You Can Pitch\n${sections.join('\n\n')}\nMention these only when the visitor's question is relevant — never force a pitch.`);
+      }
     }
 
     if (references.length) {
