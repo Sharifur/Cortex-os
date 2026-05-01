@@ -176,6 +176,29 @@ export class LivechatConversationsController {
     return { ok: true };
   }
 
+  /** Operator-side identify — set / update the visitor email on a session. */
+  @Post('sessions/:id/identify')
+  @HttpCode(HttpStatus.OK)
+  async identifyVisitor(@Param('id') id: string, @Body() body: { email?: string; name?: string }) {
+    const session = await this.livechat.getSession(id);
+    if (!session) throw new NotFoundException(`Session not found: ${id}`);
+    const email = body?.email?.trim();
+    const name = body?.name?.trim();
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      throw new BadRequestException('Invalid email address');
+    }
+    const site = await this.livechat.getSiteById(session.siteId);
+    await this.livechat.setVisitorIdentity({
+      siteId: session.siteId,
+      siteKey: site.key,
+      visitorId: session.visitorId,
+      email: email ?? undefined,
+      name: name ?? undefined,
+    });
+    this.stream.publishToOperators({ type: 'session_upserted', sessionId: id });
+    return { ok: true };
+  }
+
   @Post('sessions/:id/message')
   @HttpCode(HttpStatus.CREATED)
   async operatorReply(@Param('id') id: string, @Body() body: { content: string; attachmentIds?: string[] }) {

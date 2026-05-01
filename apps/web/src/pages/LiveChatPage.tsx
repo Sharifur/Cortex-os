@@ -651,11 +651,22 @@ function SiteFormModal({ site, onClose, onSave, error }: { site: Partial<Site>; 
               </p>
             </div>
             <div className="flex items-end gap-3">
-              <Field label="Brand color" hint="Bubble + visitor message background">
+              <Field
+                label="Brand color"
+                hint={
+                  draft.brandColor && !/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(draft.brandColor.trim())
+                    ? 'Invalid hex — use #RRGGBB or #RGB. Will be ignored on save.'
+                    : 'Bubble + visitor message background'
+                }
+              >
                 <div className="flex items-center gap-2">
                   <input
                     type="color"
-                    value={draft.brandColor ?? '#2563eb'}
+                    value={
+                      draft.brandColor && /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(draft.brandColor.trim())
+                        ? draft.brandColor
+                        : '#2563eb'
+                    }
                     onChange={(e) => setDraft({ ...draft, brandColor: e.target.value })}
                     className="w-10 h-9 border border-border rounded cursor-pointer bg-transparent"
                   />
@@ -663,7 +674,11 @@ function SiteFormModal({ site, onClose, onSave, error }: { site: Partial<Site>; 
                     value={draft.brandColor ?? ''}
                     onChange={(e) => setDraft({ ...draft, brandColor: e.target.value })}
                     placeholder="#2563eb"
-                    className="font-mono text-xs"
+                    className={`font-mono text-xs ${
+                      draft.brandColor && !/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(draft.brandColor.trim())
+                        ? 'border-red-500/50'
+                        : ''
+                    }`}
                   />
                 </div>
               </Field>
@@ -1125,7 +1140,21 @@ function SessionPane({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [visitorSidebarOpen, setVisitorSidebarOpen] = useState(false);
 
-  const { data: detail, refetch } = useQuery<SessionDetail>({
+  // Ephemeral error banner — surfaces failed mutations + auto-dismisses
+  // after 6s. Better than alert() for a flow operators do dozens of times.
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const errorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showError = (msg: string) => {
+    setErrorMsg(msg);
+    if (errorTimerRef.current) clearTimeout(errorTimerRef.current);
+    errorTimerRef.current = setTimeout(() => setErrorMsg(null), 6000);
+  };
+  const handleMutationError = (label: string) => (err: Error) => {
+    const detail = parseSaveError(err.message) ?? err.message;
+    showError(`${label}: ${detail}`);
+  };
+
+  const { data: detail, refetch, isError, isLoading } = useQuery<SessionDetail>({
     queryKey: ['livechat-session', sessionId],
     queryFn: () => apiFetch(token, `/agents/livechat/sessions/${sessionId}`),
   });
@@ -1212,6 +1241,7 @@ function SessionPane({
       refetch();
       onAfterMutation();
     },
+    onError: handleMutationError('Take over failed'),
   });
   const releaseMut = useMutation({
     mutationFn: () => apiFetch(token, `/agents/livechat/sessions/${sessionId}/release`, { method: 'POST' }),
@@ -1219,6 +1249,7 @@ function SessionPane({
       refetch();
       onAfterMutation();
     },
+    onError: handleMutationError('Release failed'),
   });
   const closeMut = useMutation({
     mutationFn: () => apiFetch(token, `/agents/livechat/sessions/${sessionId}/close`, { method: 'POST' }),
@@ -1226,6 +1257,7 @@ function SessionPane({
       refetch();
       onAfterMutation();
     },
+    onError: handleMutationError('Close failed'),
   });
   const transcriptMut = useMutation({
     mutationFn: () =>
@@ -1243,11 +1275,13 @@ function SessionPane({
     mutationFn: (messageId: string) =>
       apiFetch(token, `/agents/livechat/messages/${messageId}/approve`, { method: 'POST' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['livechat-session', sessionId] }),
+    onError: handleMutationError('Approve failed'),
   });
   const rejectMut = useMutation({
     mutationFn: (messageId: string) =>
       apiFetch(token, `/agents/livechat/messages/${messageId}/reject`, { method: 'POST' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['livechat-session', sessionId] }),
+    onError: handleMutationError('Reject failed'),
   });
   const editApproveMut = useMutation({
     mutationFn: ({ messageId, content }: { messageId: string; content: string }) =>
@@ -1256,6 +1290,7 @@ function SessionPane({
         body: JSON.stringify({ content }),
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['livechat-session', sessionId] }),
+    onError: handleMutationError('Edit & approve failed'),
   });
   const [pendingAttachments, setPendingAttachments] = useState<AttachmentSummary[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1273,6 +1308,7 @@ function SessionPane({
       return (await res.json()) as AttachmentSummary;
     },
     onSuccess: (att) => setPendingAttachments((prev) => [...prev, att]),
+    onError: handleMutationError('Upload failed'),
   });
 
   const sendMut = useMutation({
@@ -1293,6 +1329,22 @@ function SessionPane({
       qc.invalidateQueries({ queryKey: ['livechat-session', sessionId] });
       onAfterMutation();
     },
+    onError: handleMutationError('Send failed'),
+  });
+
+  // Identify (set / update visitor email) — operator can capture email
+  // mid-conversation to enable transcript-on-close.
+  const identifyMut = useMutation({
+    mutationFn: (email: string) =>
+      apiFetch(token, `/agents/livechat/sessions/${sessionId}/identify`, {
+        method: 'POST',
+        body: JSON.stringify({ email }),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['livechat-session', sessionId] });
+      onAfterMutation();
+    },
+    onError: handleMutationError('Set email failed'),
   });
 
   const submitOperator = () => {
@@ -1301,7 +1353,17 @@ function SessionPane({
     sendMut.mutate({ content, attachmentIds: pendingAttachments.map((a) => a.id) });
   };
 
-  if (!detail) return <div className="p-6 text-sm text-muted-foreground">Loading…</div>;
+  if (isError) {
+    return (
+      <div className="h-full flex items-center justify-center p-6">
+        <div className="text-sm text-center space-y-2">
+          <div className="text-destructive">Could not load this conversation.</div>
+          <Button size="sm" variant="ghost" onClick={() => refetch()}>Retry</Button>
+        </div>
+      </div>
+    );
+  }
+  if (isLoading || !detail) return <div className="p-6 text-sm text-muted-foreground">Loading…</div>;
 
   const composerEnabled = status === 'human_taken_over';
   const visitorName = detail.session.visitorName || detail.session.visitorEmail || `visitor${detail.session.visitorId.slice(-5)}`;
@@ -1377,6 +1439,15 @@ function SessionPane({
             )}
           </div>
         </div>
+
+        {errorMsg && (
+          <div className="px-4 py-2 bg-red-500/10 border-b border-red-500/30 text-red-500 text-xs flex items-center justify-between gap-2">
+            <span>{errorMsg}</span>
+            <button onClick={() => setErrorMsg(null)} className="text-red-500 hover:text-red-600 shrink-0">
+              <XCircle className="w-4 h-4" />
+            </button>
+          </div>
+        )}
 
         {/* MESSAGES */}
         <div className="flex-1 overflow-auto px-6 py-5">
@@ -1553,6 +1624,8 @@ function SessionPane({
           currentPageUrl={currentPageUrl}
           currentPageTitle={currentPageTitle}
           onSelectSession={onSelectSession}
+          onSetEmail={(email) => identifyMut.mutate(email)}
+          identifyBusy={identifyMut.isPending}
         />
       </aside>
 
@@ -1842,15 +1915,31 @@ function VisitorSidebar({
   currentPageUrl,
   currentPageTitle,
   onSelectSession,
+  onSetEmail,
+  identifyBusy,
 }: {
   visitor: Visitor | null;
   session: SessionRow;
   currentPageUrl: string | null;
   currentPageTitle: string | null;
   onSelectSession?: (id: string) => void;
+  onSetEmail?: (email: string) => void;
+  identifyBusy?: boolean;
 }) {
   const [revealIp, setRevealIp] = useState(false);
+  const [editingEmail, setEditingEmail] = useState(false);
+  const [emailDraft, setEmailDraft] = useState(session.visitorEmail ?? '');
+  useEffect(() => {
+    setEmailDraft(session.visitorEmail ?? '');
+    setEditingEmail(false);
+  }, [session.id, session.visitorEmail]);
   const visitorName = session.visitorName || session.visitorEmail || `visitor${session.visitorId.slice(-5)}`;
+  const submitEmail = () => {
+    const trimmed = emailDraft.trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) return;
+    onSetEmail?.(trimmed);
+    setEditingEmail(false);
+  };
 
   return (
     <div>
@@ -1858,9 +1947,41 @@ function VisitorSidebar({
       <div className="px-4 py-5 border-b border-border flex flex-col items-center text-center">
         <Avatar name={visitorName} country={visitor?.ipCountry ?? null} online={session.status !== 'closed'} size="lg" />
         <div className="mt-3 font-semibold">{visitorName}</div>
-        <button className="text-xs text-muted-foreground hover:text-foreground mt-0.5">
-          {session.visitorEmail ?? 'set email'}
-        </button>
+        {editingEmail ? (
+          <div className="mt-1 flex items-center gap-1">
+            <input
+              type="email"
+              autoFocus
+              value={emailDraft}
+              onChange={(e) => setEmailDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') submitEmail();
+                if (e.key === 'Escape') {
+                  setEmailDraft(session.visitorEmail ?? '');
+                  setEditingEmail(false);
+                }
+              }}
+              placeholder="visitor@example.com"
+              className="text-xs bg-background border border-border rounded px-2 py-1 w-44"
+              disabled={identifyBusy}
+            />
+            <button
+              onClick={submitEmail}
+              disabled={identifyBusy || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailDraft.trim())}
+              className="text-xs text-emerald-500 hover:text-emerald-400 disabled:opacity-50"
+            >
+              Save
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={() => onSetEmail && setEditingEmail(true)}
+            className="text-xs text-muted-foreground hover:text-foreground mt-0.5"
+            disabled={!onSetEmail}
+          >
+            {session.visitorEmail ?? 'set email'}
+          </button>
+        )}
         {visitor?.ipCity || visitor?.ipCountryName ? (
           <div className="mt-1 text-xs text-muted-foreground flex items-center gap-1">
             {visitor?.ipCountry && <span>{flagFor(visitor.ipCountry)}</span>}
