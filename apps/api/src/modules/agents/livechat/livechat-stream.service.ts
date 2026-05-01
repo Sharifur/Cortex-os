@@ -10,7 +10,7 @@ export interface AttachmentSummary {
 }
 
 export type LivechatStreamEvent =
-  | { type: 'message'; sessionId: string; role: 'visitor' | 'agent' | 'operator' | 'system'; content: string; messageId: string; createdAt: string; attachments?: AttachmentSummary[]; pendingApproval?: boolean; operatorName?: string | null }
+  | { type: 'message'; sessionId: string; role: 'visitor' | 'agent' | 'operator' | 'system'; content: string; messageId: string; createdAt: string; attachments?: AttachmentSummary[]; pendingApproval?: boolean; operatorName?: string | null; operatorAvatarUrl?: string | null }
   | { type: 'message_removed'; sessionId: string; messageId: string }
   | { type: 'pageview'; sessionId: string | null; visitorPk: string; url: string; title: string | null; at: string }
   | { type: 'session_status'; sessionId: string; status: string }

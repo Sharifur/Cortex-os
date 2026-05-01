@@ -434,11 +434,30 @@ function buildPanel(shadow: ShadowRoot, cfg: WidgetConfig, state: any, render: (
   textarea.addEventListener('keydown', () => { hadInteraction = true; });
   textarea.addEventListener('input', () => { hadInteraction = true; });
 
+  // Programmatic chip / quick-reply submit. Tapping a chip sets value
+  // assignment which doesn't fire input/keydown, so we'd otherwise look
+  // like a bot to the server. Mark interaction explicitly before submit.
+  function submitFromChip(value: string) {
+    textarea.value = value;
+    hadInteraction = true;
+    form.requestSubmit();
+  }
+  // Expose to renderMessages, which lives outside this closure but needs
+  // to wire up agent-suggestion chips through the same hadInteraction gate.
+  (panel as any)._submitFromChip = submitFromChip;
+
   // Show quick reply chips below the welcome bubble while no visitor message has
   // been sent yet. Tap = send that label as the visitor's first message.
   const renderQuickReplies = () => {
     const visitorHasSpoken = state.messages.some((m: VisitorMessage) => m.role === 'visitor');
-    const chips = (siteConfig.welcomeQuickReplies ?? []).filter(Boolean);
+    // Drop "talk to human" / "speak to a human" style pills — visitors don't
+    // need a button for that; the AI escalates to human automatically when
+    // the visitor asks. Surfacing the option on first paint signals the bot
+    // can't actually help, which kills engagement.
+    const HUMAN_RE = /\b(talk|speak|connect|chat)\b.*\b(human|agent|person|representative|support team)\b|\b(human|live agent|real person)\b/i;
+    const chips = (siteConfig.welcomeQuickReplies ?? [])
+      .filter(Boolean)
+      .filter((label) => !HUMAN_RE.test(label));
     if (visitorHasSpoken || chips.length === 0) {
       quickRepliesEl.style.display = 'none';
       quickRepliesEl.innerHTML = '';
@@ -453,8 +472,7 @@ function buildPanel(shadow: ShadowRoot, cfg: WidgetConfig, state: any, render: (
         const i = Number(btn.dataset.i);
         const label = chips[i];
         if (!label) return;
-        textarea.value = label;
-        form.requestSubmit();
+        submitFromChip(label);
       });
     });
   };
@@ -857,7 +875,12 @@ function connectAndListen(cfg: WidgetConfig, state: any, render: () => void, sit
     if (event.role === 'visitor') return;
     if (state.messages.some((m: VisitorMessage) => m.id === event.messageId)) return;
     const opName: string | undefined = (event as any).operatorName ?? undefined;
-    const opAvatar = opName ? (siteConfig?.operators?.find((op) => op.name === opName)?.avatarUrl ?? undefined) : undefined;
+    // Server resolves the default operator and ships the avatar URL on the
+    // event itself; fall back to the operators roster from /livechat/config
+    // for older bundles still emitting just the name.
+    const opAvatar: string | undefined =
+      ((event as any).operatorAvatarUrl as string | undefined)
+      ?? (opName ? (siteConfig?.operators?.find((op) => op.name === opName)?.avatarUrl ?? undefined) : undefined);
     pushAgent(state, event.content ?? '', event.messageId, event.role === 'operator', (event as any).attachments, opName, opAvatar);
     const panel = state.panel as HTMLDivElement | undefined;
     if (panel) hideTyping(panel);
@@ -1002,12 +1025,19 @@ function renderMessages(panel: HTMLDivElement, state: any) {
   // Bind chip clicks: paste the chip text into the textarea and submit.
   list.querySelectorAll<HTMLButtonElement>('.lc-chip').forEach((btn) => {
     btn.addEventListener('click', () => {
-      const ta = panel.querySelector<HTMLTextAreaElement>('textarea');
-      const form = panel.querySelector<HTMLFormElement>('.lc-composer');
       const value = btn.getAttribute('data-chip') ?? '';
-      if (!ta || !form || !value) return;
-      ta.value = value;
-      form.requestSubmit();
+      if (!value) return;
+      const submit = (panel as any)._submitFromChip as ((v: string) => void) | undefined;
+      if (submit) submit(value);
+      else {
+        // Fallback for older builds — still set interaction flag via input event.
+        const ta = panel.querySelector<HTMLTextAreaElement>('textarea');
+        const f = panel.querySelector<HTMLFormElement>('.lc-composer');
+        if (!ta || !f) return;
+        ta.value = value;
+        ta.dispatchEvent(new Event('input', { bubbles: true }));
+        f.requestSubmit();
+      }
     });
   });
   // Bind feedback-button clicks. Posts to /livechat/session/:id/feedback,

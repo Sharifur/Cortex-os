@@ -142,7 +142,7 @@ interface AttachmentSummary {
 interface MessageRow {
   id: string;
   sessionId: string;
-  role: 'visitor' | 'agent' | 'operator' | 'system';
+  role: 'visitor' | 'agent' | 'operator' | 'system' | 'note';
   content: string;
   createdAt: string;
   attachments?: AttachmentSummary[];
@@ -1313,9 +1313,11 @@ function InboxRow({ session, selected, onClick }: { session: SessionRow; selecte
   const name = shortVisitorName(session);
   const lastTime = session.lastMessage?.createdAt ?? session.lastSeenAt;
   const online = isVisitorOnline(session.lastSeenAt, session.status);
-  // Fall back to the country half of the Accept-Language header (en-GB → GB)
-  // so the flag still renders when MaxMind couldn't geolocate the IP.
-  const country = session.ipCountry || (session.language?.split('-')[1] ?? null);
+  // Country flag comes from MaxMind GeoLite2 IP lookup only — never from the
+  // Accept-Language header. The header reflects the visitor's UI language
+  // (en-US, en-GB) which is misleading for travellers / VPN users; better
+  // to show no flag than the wrong flag.
+  const country = session.ipCountry ?? null;
   return (
     <button
       onClick={onClick}
@@ -1422,6 +1424,12 @@ function SessionPane({
   };
 
   const [selectedOperatorId, setSelectedOperatorId] = useState<string>('');
+  const [composerTab, setComposerTab] = useState<'reply' | 'note' | 'shortcuts' | 'kb'>('reply');
+  const [showEmoji, setShowEmoji] = useState(false);
+  const [showFormat, setShowFormat] = useState(false);
+  const [kbQuery, setKbQuery] = useState('');
+  const [debouncedKbQuery, setDebouncedKbQuery] = useState('');
+  const kbDebounceRef = useRef<ReturnType<typeof setTimeout>>();
 
   const { data: detail, refetch, isError, isLoading } = useQuery<SessionDetail>({
     queryKey: ['livechat-session', sessionId],
@@ -1431,6 +1439,23 @@ function SessionPane({
   const { data: allOperators = [] } = useQuery<Operator[]>({
     queryKey: ['livechat-operators'],
     queryFn: () => apiFetch(token, '/agents/livechat/operators'),
+  });
+
+  // Shortcuts pulled from the KB writing-samples store, filtered by livechat
+  // agent. Operators can use the existing KB UI to add new ones — they show
+  // up here as 1-tap canned replies.
+  const { data: shortcuts = [] } = useQuery<{ id: string; context: string; sampleText: string }[]>({
+    queryKey: ['kb-shortcuts'],
+    queryFn: () => apiFetch(token, '/knowledge-base/samples?agentKey=livechat'),
+  });
+
+  // KB search results — only fetches when the operator is on the KB tab and
+  // has typed something, to avoid hammering the endpoint while idle.
+  const { data: kbResults = [] } = useQuery<{ rows: { id: string; title: string; content: string }[] }>({
+    queryKey: ['kb-composer-search', debouncedKbQuery],
+    queryFn: () => apiFetch(token, `/knowledge-base/entries?agentKey=livechat&q=${encodeURIComponent(debouncedKbQuery)}&limit=10`),
+    enabled: composerTab === 'kb' && debouncedKbQuery.length > 1,
+    select: (r: any) => r?.rows ?? [],
   });
 
   const { data: sites = [] } = useQuery<Site[]>({
@@ -1616,13 +1641,14 @@ function SessionPane({
   });
 
   const sendMut = useMutation({
-    mutationFn: (payload: { content: string; attachmentIds: string[]; operatorId?: string }) =>
+    mutationFn: (payload: { content: string; attachmentIds: string[]; operatorId?: string; internal?: boolean }) =>
       apiFetch(token, `/agents/livechat/sessions/${sessionId}/message`, {
         method: 'POST',
         body: JSON.stringify({
           content: payload.content,
           attachmentIds: payload.attachmentIds.length ? payload.attachmentIds : undefined,
           operatorId: payload.operatorId || undefined,
+          internal: payload.internal === true,
         }),
       }),
     onSuccess: () => {
@@ -1655,7 +1681,14 @@ function SessionPane({
   const submitOperator = () => {
     const content = composerRef.current?.value?.trim() ?? '';
     if (!content && pendingAttachments.length === 0) return;
-    sendMut.mutate({ content, attachmentIds: pendingAttachments.map((a) => a.id), operatorId: selectedOperatorId || undefined });
+    sendMut.mutate({
+      content,
+      attachmentIds: pendingAttachments.map((a) => a.id),
+      operatorId: selectedOperatorId || undefined,
+      // Note tab sends as an internal note — server records role='note' and
+      // skips the visitor-room broadcast, so only operators ever see it.
+      internal: composerTab === 'note',
+    });
   };
 
   if (isError) {
@@ -1811,11 +1844,85 @@ function SessionPane({
         {/* COMPOSER */}
         <div className="border-t border-border bg-card">
           <div className="flex items-center px-4 pt-2 gap-1 text-sm border-b border-border">
-            <ComposerTab active>Reply</ComposerTab>
-            <ComposerTab disabled>Note</ComposerTab>
-            <ComposerTab disabled>Shortcuts</ComposerTab>
-            <ComposerTab disabled>Knowledge Base</ComposerTab>
+            <ComposerTab active={composerTab === 'reply'} onClick={() => setComposerTab('reply')}>Reply</ComposerTab>
+            <ComposerTab active={composerTab === 'note'} onClick={() => setComposerTab('note')}>Note</ComposerTab>
+            <ComposerTab active={composerTab === 'shortcuts'} onClick={() => setComposerTab('shortcuts')}>Shortcuts</ComposerTab>
+            <ComposerTab active={composerTab === 'kb'} onClick={() => setComposerTab('kb')}>Knowledge Base</ComposerTab>
           </div>
+
+          {composerTab === 'shortcuts' && (
+            <div className="max-h-48 overflow-auto p-2 border-b border-border">
+              {shortcuts.length === 0 ? (
+                <p className="px-2 py-3 text-xs text-muted-foreground">
+                  No shortcuts yet. Add writing samples in Knowledge Base → Samples (agent: livechat) and they show up here.
+                </p>
+              ) : (
+                shortcuts.map((s) => (
+                  <button
+                    key={s.id}
+                    onClick={() => {
+                      const ta = composerRef.current;
+                      if (ta) {
+                        const insert = (s.sampleText ?? '').trim();
+                        ta.value = ta.value ? `${ta.value} ${insert}` : insert;
+                        ta.focus();
+                        ta.setSelectionRange(ta.value.length, ta.value.length);
+                      }
+                      setComposerTab('reply');
+                    }}
+                    className="w-full text-left px-3 py-2 rounded hover:bg-accent/40 text-sm"
+                  >
+                    <div className="text-xs text-muted-foreground mb-0.5">/{s.context}</div>
+                    <div className="text-foreground/90 truncate">{s.sampleText}</div>
+                  </button>
+                ))
+              )}
+            </div>
+          )}
+
+          {composerTab === 'kb' && (
+            <div className="border-b border-border">
+              <input
+                value={kbQuery}
+                onChange={(e) => {
+                  setKbQuery(e.target.value);
+                  clearTimeout(kbDebounceRef.current);
+                  kbDebounceRef.current = setTimeout(() => setDebouncedKbQuery(e.target.value), 300);
+                }}
+                placeholder="Search knowledge base…"
+                className="w-full text-sm bg-background px-4 py-2 border-b border-border focus:outline-none placeholder:text-muted-foreground"
+              />
+              <div className="max-h-48 overflow-auto p-2">
+                {!debouncedKbQuery ? (
+                  <p className="px-2 py-3 text-xs text-muted-foreground">Type to search KB entries.</p>
+                ) : (kbResults as any).length === 0 ? (
+                  <p className="px-2 py-3 text-xs text-muted-foreground">No matches.</p>
+                ) : (
+                  ((kbResults as unknown) as { id: string; title: string; content: string }[]).map((r) => (
+                    <button
+                      key={r.id}
+                      onClick={() => {
+                        const ta = composerRef.current;
+                        if (ta) {
+                          const insert = r.content.trim();
+                          ta.value = ta.value ? `${ta.value} ${insert}` : insert;
+                          ta.focus();
+                          ta.setSelectionRange(ta.value.length, ta.value.length);
+                        }
+                        setComposerTab('reply');
+                        setKbQuery('');
+                        setDebouncedKbQuery('');
+                      }}
+                      className="w-full text-left px-3 py-2 rounded hover:bg-accent/40 text-sm"
+                    >
+                      <div className="text-xs font-medium text-foreground mb-0.5">{r.title}</div>
+                      <div className="text-xs text-muted-foreground line-clamp-2">{r.content}</div>
+                    </button>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
           {composerEnabled && availableOperators.length > 0 && (
             <div className="flex items-center gap-2 px-4 py-1.5 border-b border-border bg-muted/30">
               <span className="text-xs text-muted-foreground shrink-0">Speaking as:</span>
@@ -1833,9 +1940,17 @@ function SessionPane({
           )}
           <textarea
             ref={composerRef}
-            disabled={!composerEnabled}
-            placeholder={composerEnabled ? `Send your message to ${visitorName} in chat…` : 'Click "Take over" to reply'}
-            className="w-full text-sm bg-card px-4 py-3 resize-none min-h-[80px] focus:outline-none disabled:opacity-50 placeholder:text-muted-foreground"
+            disabled={!composerEnabled && composerTab !== 'note'}
+            placeholder={
+              composerTab === 'note'
+                ? 'Internal note — only visible to operators. Not sent to the visitor.'
+                : composerEnabled
+                  ? `Send your message to ${visitorName} in chat…`
+                  : 'Click "Take over" to reply'
+            }
+            className={`w-full text-sm px-4 py-3 resize-none min-h-[80px] focus:outline-none disabled:opacity-50 placeholder:text-muted-foreground ${
+              composerTab === 'note' ? 'bg-yellow-500/10 border-l-2 border-yellow-500/50' : 'bg-card'
+            }`}
             onInput={() => {
               // Live emoji-shortcut substitution mirrors the visitor widget
               // so :D / :) / <3 / etc. expand inline.
@@ -1952,12 +2067,60 @@ function SessionPane({
               <ToolbarButton title="Attach file" onClick={() => fileInputRef.current?.click()}>
                 <Paperclip className="w-4 h-4" />
               </ToolbarButton>
-              <ToolbarButton title="Format">
-                <Type className="w-4 h-4" />
-              </ToolbarButton>
-              <ToolbarButton title="Emoji">
-                <Smile className="w-4 h-4" />
-              </ToolbarButton>
+              <div className="relative">
+                <ToolbarButton
+                  title="Format"
+                  onClick={() => { setShowFormat((v) => !v); setShowEmoji(false); }}
+                >
+                  <Type className="w-4 h-4" />
+                </ToolbarButton>
+                {showFormat && (
+                  <div className="absolute bottom-full mb-2 left-0 bg-card border border-border rounded-lg shadow-xl p-1 flex gap-0.5 z-20">
+                    <button
+                      onClick={() => { wrapSelection(composerRef.current, '**', '**'); setShowFormat(false); }}
+                      className="px-2 py-1 rounded hover:bg-accent/40 text-sm font-bold"
+                      title="Bold"
+                    >B</button>
+                    <button
+                      onClick={() => { wrapSelection(composerRef.current, '*', '*'); setShowFormat(false); }}
+                      className="px-2 py-1 rounded hover:bg-accent/40 text-sm italic"
+                      title="Italic"
+                    >I</button>
+                    <button
+                      onClick={() => { wrapSelection(composerRef.current, '`', '`'); setShowFormat(false); }}
+                      className="px-2 py-1 rounded hover:bg-accent/40 text-sm font-mono"
+                      title="Code"
+                    >&lt;/&gt;</button>
+                    <button
+                      onClick={() => { wrapSelection(composerRef.current, '[', '](https://)'); setShowFormat(false); }}
+                      className="px-2 py-1 rounded hover:bg-accent/40 text-sm"
+                      title="Link"
+                    >🔗</button>
+                  </div>
+                )}
+              </div>
+              <div className="relative">
+                <ToolbarButton
+                  title="Emoji"
+                  onClick={() => { setShowEmoji((v) => !v); setShowFormat(false); }}
+                >
+                  <Smile className="w-4 h-4" />
+                </ToolbarButton>
+                {showEmoji && (
+                  <div className="absolute bottom-full mb-2 left-0 bg-card border border-border rounded-lg shadow-xl p-2 z-20 w-72 max-h-64 overflow-auto grid grid-cols-8 gap-1">
+                    {OPERATOR_EMOJI_PICKER.map((e) => (
+                      <button
+                        key={e}
+                        onClick={() => {
+                          insertAtCursor(composerRef.current, e);
+                          setShowEmoji(false);
+                        }}
+                        className="text-xl rounded hover:bg-accent/40 w-8 h-8 flex items-center justify-center"
+                      >{e}</button>
+                    ))}
+                  </div>
+                )}
+              </div>
               <ToolbarButton title="More">
                 <MoreHorizontal className="w-4 h-4" />
               </ToolbarButton>
@@ -2045,10 +2208,11 @@ function ToolbarButton({ children, title, onClick }: { children: React.ReactNode
   );
 }
 
-function ComposerTab({ active, disabled, children }: { active?: boolean; disabled?: boolean; children: React.ReactNode }) {
+function ComposerTab({ active, disabled, onClick, children }: { active?: boolean; disabled?: boolean; onClick?: () => void; children: React.ReactNode }) {
   return (
     <button
       disabled={disabled}
+      onClick={onClick}
       className={`px-3 py-1.5 text-sm rounded-t-md border-b-2 transition-colors ${
         active
           ? 'border-blue-500 text-blue-500 font-medium bg-blue-500/5'
@@ -2087,6 +2251,18 @@ function MessageBubble({
   if (message.role === 'system') {
     return (
       <div className="text-center text-xs text-muted-foreground py-1">{message.content}</div>
+    );
+  }
+  if (message.role === 'note') {
+    // Internal note — shown to operators as a yellow sticky-style block,
+    // never broadcast to the visitor.
+    return (
+      <div className="flex justify-center my-1">
+        <div className="max-w-[80%] bg-yellow-500/10 border-l-4 border-yellow-500/60 rounded-r-md px-3 py-2 text-xs text-yellow-900 dark:text-yellow-200">
+          <div className="font-medium uppercase tracking-wide text-[10px] text-yellow-600 mb-0.5">Internal note</div>
+          <div className="whitespace-pre-wrap">{message.content}</div>
+        </div>
+      </div>
     );
   }
 
@@ -2340,13 +2516,28 @@ function VisitorSidebar({
               Save
             </button>
           </div>
+        ) : session.visitorEmail ? (
+          <div className="inline-flex items-center gap-1.5 mt-0.5">
+            <CopyButton value={session.visitorEmail} className="text-xs text-muted-foreground hover:text-foreground" copyOnClick>
+              {session.visitorEmail}
+            </CopyButton>
+            {onSetEmail && (
+              <button
+                onClick={() => setEditingEmail(true)}
+                className="text-xs text-muted-foreground hover:text-foreground"
+                title="Edit email"
+              >
+                <Pencil className="w-3 h-3" />
+              </button>
+            )}
+          </div>
         ) : (
           <button
             onClick={() => onSetEmail && setEditingEmail(true)}
             className="text-xs text-muted-foreground hover:text-foreground mt-0.5"
             disabled={!onSetEmail}
           >
-            {session.visitorEmail ?? 'set email'}
+            set email
           </button>
         )}
         {visitor?.ipCity || visitor?.ipCountryName ? (
@@ -2400,10 +2591,13 @@ function VisitorSidebar({
           <Row label="Local time">{visitor?.ipTimezone ? localTimeIn(visitor.ipTimezone) : '—'}</Row>
           <Row label="IP">
             {visitor?.ip ? (
-              <button onClick={() => setRevealIp(!revealIp)} className="inline-flex items-center gap-1 hover:text-foreground transition-colors">
-                <span className="font-mono text-xs">{revealIp ? visitor.ip : maskIp(visitor.ip)}</span>
-                {revealIp ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-              </button>
+              <span className="inline-flex items-center gap-1.5">
+                <button onClick={() => setRevealIp(!revealIp)} className="inline-flex items-center gap-1 hover:text-foreground transition-colors">
+                  <span className="font-mono text-xs">{revealIp ? visitor.ip : maskIp(visitor.ip)}</span>
+                  {revealIp ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                </button>
+                <CopyButton value={visitor.ip} />
+              </span>
             ) : (
               '—'
             )}
@@ -2531,6 +2725,55 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
       <span className="text-muted-foreground shrink-0">{label}</span>
       <span className="text-right truncate text-foreground">{children}</span>
     </div>
+  );
+}
+
+/**
+ * Copy a string to the clipboard with a tiny check-mark confirmation. Two modes:
+ *   - icon-only (no children): renders a Copy/Check icon button.
+ *   - with children + copyOnClick: wraps the text and copies on click.
+ */
+function CopyButton({
+  value,
+  className,
+  copyOnClick,
+  children,
+}: {
+  value: string;
+  className?: string;
+  copyOnClick?: boolean;
+  children?: React.ReactNode;
+}) {
+  const [copied, setCopied] = useState(false);
+  const copy = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    } catch { /* ignore — older browsers */ }
+  };
+  if (children && copyOnClick) {
+    return (
+      <button
+        onClick={copy}
+        className={`inline-flex items-center gap-1 ${className ?? ''}`}
+        title={copied ? 'Copied!' : 'Click to copy'}
+      >
+        <span className="truncate">{children}</span>
+        {copied ? <Check className="w-3 h-3 text-emerald-500 shrink-0" /> : <Copy className="w-3 h-3 opacity-60 shrink-0" />}
+      </button>
+    );
+  }
+  return (
+    <button
+      onClick={copy}
+      className={`text-muted-foreground hover:text-foreground p-0.5 ${className ?? ''}`}
+      title={copied ? 'Copied!' : 'Copy'}
+      aria-label={copied ? 'Copied' : 'Copy'}
+    >
+      {copied ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}
+    </button>
   );
 }
 
@@ -3133,6 +3376,38 @@ function prettyLanguage(lang: string): string {
     return lang;
   }
 }
+
+/** Wrap the textarea's current selection (or insert at caret) with `before` + `after`. */
+function wrapSelection(ta: HTMLTextAreaElement | null, before: string, after: string) {
+  if (!ta) return;
+  const start = ta.selectionStart ?? ta.value.length;
+  const end = ta.selectionEnd ?? start;
+  const selected = ta.value.slice(start, end);
+  ta.value = ta.value.slice(0, start) + before + selected + after + ta.value.slice(end);
+  const pos = end + before.length + after.length;
+  ta.focus();
+  ta.setSelectionRange(start + before.length, pos - after.length);
+}
+
+/** Insert text at the caret. */
+function insertAtCursor(ta: HTMLTextAreaElement | null, text: string) {
+  if (!ta) return;
+  const start = ta.selectionStart ?? ta.value.length;
+  const end = ta.selectionEnd ?? start;
+  ta.value = ta.value.slice(0, start) + text + ta.value.slice(end);
+  const pos = start + text.length;
+  ta.focus();
+  ta.setSelectionRange(pos, pos);
+}
+
+/** Compact emoji set for the operator-side picker — broader than the visitor widget. */
+const OPERATOR_EMOJI_PICKER = [
+  '👍','👎','👌','✌️','🤞','🙏','💪','👏','🙌','🤝',
+  '🙂','😊','😄','😅','😂','🤣','😉','😍','🥰','😘',
+  '🤔','😐','😬','😕','🙃','😴','😵','🤯','😱','😢',
+  '🔥','✨','⭐','🎉','🎊','💯','✅','❌','⚠️','💡',
+  '❤️','🧡','💛','💚','💙','💜','🖤','🤍','💔','💕',
+];
 
 // Same shortcuts as the visitor widget (apps/web/widget/emoji.ts) — duplicated
 // here so the operator UI doesn't have to import from the embedded widget bundle.

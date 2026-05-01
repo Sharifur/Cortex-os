@@ -228,14 +228,22 @@ export class LivechatConversationsController {
 
   @Post('sessions/:id/message')
   @HttpCode(HttpStatus.CREATED)
-  async operatorReply(@Param('id') id: string, @Body() body: { content: string; attachmentIds?: string[]; operatorId?: string }) {
+  async operatorReply(@Param('id') id: string, @Body() body: { content: string; attachmentIds?: string[]; operatorId?: string; internal?: boolean }) {
     const hasAttachments = Array.isArray(body?.attachmentIds) && body.attachmentIds.length > 0;
     if (!body?.content?.trim() && !hasAttachments) throw new BadRequestException('content or attachments required');
     const session = await this.livechat.getSession(id);
     if (!session) throw new NotFoundException(`Session not found: ${id}`);
 
     const content = (body.content ?? '').trim();
-    const msg = await this.livechat.appendMessage({ sessionId: id, role: 'operator', content });
+    // Internal notes use role='note' and skip the visitor-facing socket
+    // broadcast — only operators viewing this session ever see them via
+    // the session detail re-fetch + the operator-room session_upserted ping.
+    const isInternal = body.internal === true;
+    const msg = await this.livechat.appendMessage({ sessionId: id, role: isInternal ? 'note' : 'operator', content });
+    if (isInternal) {
+      this.stream.publishToOperators({ type: 'session_upserted', sessionId: id });
+      return { ok: true, message: { id: msg.id, content, createdAt: msg.createdAt, attachments: [], role: 'note' } };
+    }
 
     let attachments: Awaited<ReturnType<LivechatAttachmentsService['getById']>>[] = [];
     if (hasAttachments) {
@@ -245,10 +253,26 @@ export class LivechatConversationsController {
 
     const site = await this.livechat.getSiteById(session.siteId).catch(() => null);
 
+    // Resolve who's "speaking" to the visitor:
+    //   - If the operator UI passed an explicit operatorId, use that row.
+    //   - Otherwise pick the default operator configured for this site.
+    //   - Otherwise fall back to the legacy site.operatorName text field
+    //     with no avatar.
     let operatorName: string | null = site?.operatorName ?? null;
+    let operatorAvatarUrl: string | null = null;
     if (body.operatorId) {
       const operator = await this.livechat.getOperatorById(body.operatorId);
-      if (operator) operatorName = operator.name;
+      if (operator) {
+        operatorName = operator.name;
+        operatorAvatarUrl = operator.avatarUrl ?? null;
+      }
+    } else if (site?.key) {
+      const ops = await this.livechat.getOperatorsForSite(site.key).catch(() => []);
+      const def = ops.find((op) => op.isDefault) ?? ops[0];
+      if (def) {
+        operatorName = def.name;
+        operatorAvatarUrl = def.avatarUrl ?? null;
+      }
     }
 
     this.stream.publish(id, {
@@ -259,6 +283,7 @@ export class LivechatConversationsController {
       messageId: msg.id,
       createdAt: msg.createdAt.toISOString(),
       operatorName,
+      operatorAvatarUrl,
       attachments: attachments.map((a) => ({
         id: a.id,
         mimeType: a.mimeType,

@@ -411,7 +411,7 @@ export class LivechatService {
 
   async appendMessage(input: {
     sessionId: string;
-    role: 'visitor' | 'agent' | 'operator' | 'system';
+    role: 'visitor' | 'agent' | 'operator' | 'system' | 'note';
     content: string;
     pendingApproval?: boolean;
   }): Promise<{ id: string; createdAt: Date; pendingApproval: boolean; duplicate?: boolean }> {
@@ -698,18 +698,45 @@ export class LivechatService {
     return { session, visitor: visitor ?? null, messages };
   }
 
-  /** Bump the visitor's last_seen_at without inserting a pageview row. */
-  async heartbeatVisitor(input: { siteId: string; visitorId: string; currentUrl?: string | null; currentTitle?: string | null }): Promise<void> {
+  /**
+   * Bump the visitor's last_seen_at without inserting a pageview row.
+   * Returns the active session id + previous URL so callers can decide
+   * whether to push a `pageview` socket event for the operator UI.
+   */
+  async heartbeatVisitor(input: {
+    siteId: string;
+    visitorId: string;
+    currentUrl?: string | null;
+    currentTitle?: string | null;
+  }): Promise<{ sessionId: string | null; previousUrl: string | null; previousTitle: string | null }> {
     await this.db.db
       .update(livechatVisitors)
       .set({ lastSeenAt: new Date() })
       .where(and(eq(livechatVisitors.siteId, input.siteId), eq(livechatVisitors.visitorId, input.visitorId)));
+
+    // Read previous URL/title so the controller can decide whether to fan
+    // out a pageview event when something actually changed.
+    const [existing] = await this.db.db
+      .select({
+        id: livechatSessions.id,
+        currentPageUrl: livechatSessions.currentPageUrl,
+        currentPageTitle: livechatSessions.currentPageTitle,
+      })
+      .from(livechatSessions)
+      .where(and(eq(livechatSessions.siteId, input.siteId), eq(livechatSessions.visitorId, input.visitorId)))
+      .limit(1);
+
     if (input.currentUrl) {
       await this.db.db
         .update(livechatSessions)
         .set({ currentPageUrl: input.currentUrl, currentPageTitle: input.currentTitle ?? null, lastSeenAt: new Date() })
         .where(and(eq(livechatSessions.siteId, input.siteId), eq(livechatSessions.visitorId, input.visitorId)));
     }
+    return {
+      sessionId: existing?.id ?? null,
+      previousUrl: existing?.currentPageUrl ?? null,
+      previousTitle: existing?.currentPageTitle ?? null,
+    };
   }
 
   /** All visitors seen in the last `windowSec` seconds, joined with their open session if any. */
