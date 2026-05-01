@@ -350,8 +350,9 @@ function buildPanel(shadow: ShadowRoot, cfg: WidgetConfig, state: any, render: (
       hideTyping(panel);
       state.sessionId = res.sessionId;
       writeSessionId(res.sessionId);
-      if ('content' in res.agent && res.agent.content) {
-        pushAgent(state, res.agent.content, res.agent.id ?? '');
+      const agentId = res.agent.id ?? '';
+      if ('content' in res.agent && res.agent.content && !state.messages.some((m: VisitorMessage) => m.id === agentId && agentId)) {
+        pushAgent(state, res.agent.content, agentId);
       }
       if (!state.socket) connectAndListen(cfg, state, render);
       maybePromptEmail(panel, state);
