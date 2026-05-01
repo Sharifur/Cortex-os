@@ -25,3 +25,4 @@ export * from '../modules/contacts/contacts.schema';
 export * from '../modules/telegram/schema';
 export * from '../modules/llm/llm-usage.schema';
 export * from '../modules/push/push.schema';
+export * from '../modules/gmail/schema';
