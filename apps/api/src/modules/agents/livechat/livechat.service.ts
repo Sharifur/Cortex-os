@@ -499,11 +499,14 @@ export class LivechatService {
   }
 
   async rateMessage(messageId: string, sessionId: string, rating: 'up' | 'down'): Promise<boolean> {
-    const result = await this.db.db
+    // .returning() gives us a row array we can length-check; Drizzle's
+    // postgres-js driver doesn't expose rowCount on the bare update result.
+    const updated = await this.db.db
       .update(livechatMessages)
       .set({ visitorRating: rating })
-      .where(and(eq(livechatMessages.id, messageId), eq(livechatMessages.sessionId, sessionId)));
-    return (result.rowCount ?? 0) > 0;
+      .where(and(eq(livechatMessages.id, messageId), eq(livechatMessages.sessionId, sessionId)))
+      .returning({ id: livechatMessages.id });
+    return updated.length > 0;
   }
 
   async getRecentMessages(sessionId: string, limit = 50) {

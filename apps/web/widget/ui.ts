@@ -3,6 +3,7 @@ import { sendMessage, identify, uploadAttachment, MessageResponse, SiteConfigRes
 import { connectVisitorSocket, LivechatEvent } from './socket';
 import { WIDGET_STYLES } from './styles';
 import { EMOJI_CATEGORIES, applyEmojiShortcuts } from './emoji';
+import { isDisposableEmail, warmDisposableEmailCache } from './disposable-email';
 import type { Socket } from 'socket.io-client';
 
 const DEFAULT_SITE_CONFIG: SiteConfigResponse = {
@@ -28,11 +29,14 @@ interface VisitorMessage {
 
 const MESSAGES_KEY = 'livechat_messages_cache';
 const SESSION_KEY = 'livechat_session_id';
-const IDENTIFY_DISMISSED_KEY = 'livechat_identify_dismissed';
+const IDENTIFY_DISMISSED_KEY = 'livechat_identify_dismissed'; // legacy, retained to not re-prompt loyal visitors
+const IDENTIFY_NAME_KEY = 'livechat_identify_name';            // 'saved' | 'skipped' | <stored name>
+const IDENTIFY_EMAIL_KEY = 'livechat_identify_email';          // 'saved' | 'skipped'
 const RATE_LIMIT_KEY = 'livechat_send_log';
 const PROACTIVE_KEY = 'livechat_proactive_seen';
 const RATE_LIMIT_MAX = 30;
 const RATE_LIMIT_WINDOW_MS = 60_000;
+const EMAIL_PROMPT_AFTER_VISITOR_MSGS = 3;
 
 export function mountWidget(cfg: WidgetConfig, siteConfig: SiteConfigResponse = DEFAULT_SITE_CONFIG) {
   const host = document.createElement('div');
@@ -61,6 +65,8 @@ export function mountWidget(cfg: WidgetConfig, siteConfig: SiteConfigResponse = 
     socket: null as Socket | null,
     panel: null as HTMLDivElement | null,
     askedForEmail: false,
+    askedForName: false,
+    knownName: readKnownName(),
     unread: 0,
     sessionClosed: false,
     feedbackAsked: false,
@@ -187,6 +193,9 @@ export function mountWidget(cfg: WidgetConfig, siteConfig: SiteConfigResponse = 
 
   // If we already had a session from a previous page load, reconnect socket.
   if (state.sessionId) connectAndListen(cfg, state, render, siteConfig);
+  // Pre-fetch the disposable email domain list so the email-prompt save
+  // handler can validate locally without a network round-trip.
+  warmDisposableEmailCache();
 
   function render() {
     renderMessages(panel, state);
@@ -207,7 +216,7 @@ function buildPanel(shadow: ShadowRoot, cfg: WidgetConfig, state: any, render: (
   panel.innerHTML = `
     <div class="lc-header">
       <div class="lc-header-inner">
-        ${renderHeaderAvatars(siteConfig.operators ?? [])}
+        ${renderHeaderAvatars(siteConfig.operators ?? [], siteConfig.operatorName)}
         <div class="lc-header-text">
           <div class="lc-header-title">${escapeHtml(siteConfig.operatorName || siteConfig.botName)}</div>
           <div class="lc-header-sub"><span class="lc-online-dot"></span>${escapeHtml(siteConfig.botSubtitle)}</div>
@@ -229,17 +238,6 @@ function buildPanel(shadow: ShadowRoot, cfg: WidgetConfig, state: any, render: (
     </div>
     <div class="lc-quick-replies" style="display:none;"></div>
     <div class="lc-toast" role="alert" style="display:none;"></div>
-    <div class="lc-identify" style="display:none;">
-      <div class="lc-identify-label">Share your details so we can follow up if needed.</div>
-      <div class="lc-identify-row">
-        <input class="lc-identify-name" type="text" placeholder="Your name" />
-      </div>
-      <div class="lc-identify-row">
-        <input type="email" placeholder="your@email.com" />
-        <button>Save</button>
-      </div>
-      <button class="lc-identify-skip">Skip</button>
-    </div>
     <div class="lc-pending" style="display:none;"></div>
     <div class="lc-session-end" style="display:none;">
       <span>This conversation has ended.</span>
@@ -660,7 +658,7 @@ function buildPanel(shadow: ShadowRoot, cfg: WidgetConfig, state: any, render: (
         }
       }
       if (!state.socket) connectAndListen(cfg, state, render, siteConfig);
-      maybePromptEmail(panel, state);
+      maybePromptEmail(panel, state, render);
     } catch (err) {
       hideTyping(panel);
       showToast(panel, 'Could not send — please try again.');
@@ -669,27 +667,96 @@ function buildPanel(shadow: ShadowRoot, cfg: WidgetConfig, state: any, render: (
     render();
   });
 
-  // Email + name capture handlers
-  const ident = panel.querySelector<HTMLDivElement>('.lc-identify')!;
-  const identNameInput = ident.querySelector<HTMLInputElement>('.lc-identify-name')!;
-  const identEmailInput = ident.querySelector<HTMLInputElement>('input[type="email"]')!;
-  const identSave = ident.querySelectorAll<HTMLButtonElement>('button')[0];
-  const identSkip = ident.querySelectorAll<HTMLButtonElement>('button')[1];
-  identSave.addEventListener('click', async () => {
-    const email = identEmailInput.value.trim();
-    const name = identNameInput.value.trim() || undefined;
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return;
-    try {
-      await identify(cfg, { email, name });
-      ident.style.display = 'none';
-      try { localStorage.setItem(IDENTIFY_DISMISSED_KEY, 'saved'); } catch {}
-    } catch {
-      // ignore
+  // Identify prompts are rendered inline in the message list as agent
+  // messages — see renderMessages() for the markup. We bind click handlers
+  // post-render via event delegation on the messages container.
+  const messagesEl = panel.querySelector<HTMLDivElement>('.lc-messages')!;
+  messagesEl.addEventListener('click', async (e) => {
+    const target = e.target as HTMLElement;
+    const skipBtn = target.closest<HTMLButtonElement>('.lc-inline-skip');
+    if (skipBtn) {
+      const step = skipBtn.getAttribute('data-step');
+      if (step === 'name') {
+        try { localStorage.setItem(IDENTIFY_NAME_KEY, 'skipped'); } catch {}
+      } else if (step === 'email') {
+        try { localStorage.setItem(IDENTIFY_EMAIL_KEY, 'skipped'); } catch {}
+      }
+      // Drop the inline prompt from state and re-render.
+      state.messages = (state.messages as VisitorMessage[]).filter((m) => m.id !== `identify-${step}`);
+      render();
+      return;
+    }
+    const saveBtn = target.closest<HTMLButtonElement>('.lc-inline-save');
+    if (saveBtn) {
+      const step = saveBtn.getAttribute('data-step');
+      const wrap = saveBtn.closest('.lc-inline-identify') as HTMLDivElement | null;
+      const input = wrap?.querySelector<HTMLInputElement>('input');
+      const value = input?.value?.trim() ?? '';
+      if (step === 'name') {
+        if (!value) return;
+        try {
+          await identify(cfg, { name: value });
+          state.knownName = value;
+          try { localStorage.setItem(IDENTIFY_NAME_KEY, value); } catch {}
+          // Replace the prompt with a friendly confirmation that stays in the thread.
+          const idx = state.messages.findIndex((m: VisitorMessage) => m.id === 'identify-name');
+          if (idx >= 0) {
+            state.messages[idx] = {
+              id: `identify-name-done`,
+              role: 'system',
+              content: `Nice to meet you, ${value}!`,
+              createdAt: new Date().toISOString(),
+            };
+          }
+          render();
+        } catch { /* ignore */ }
+      } else if (step === 'email') {
+        const setError = (msg: string) => {
+          input?.classList.add('lc-inline-input--invalid');
+          let errEl = wrap?.querySelector('.lc-inline-error') as HTMLDivElement | null;
+          if (!errEl && wrap) {
+            errEl = document.createElement('div');
+            errEl.className = 'lc-inline-error';
+            wrap.querySelector('.lc-inline-row')?.after(errEl);
+          }
+          if (errEl) errEl.textContent = msg;
+        };
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+          setError("That doesn't look right — double-check?");
+          return;
+        }
+        if (await isDisposableEmail(value)) {
+          setError('Please use a permanent email — we can’t follow up on temporary inboxes.');
+          return;
+        }
+        try {
+          await identify(cfg, { email: value });
+          try { localStorage.setItem(IDENTIFY_EMAIL_KEY, 'saved'); } catch {}
+          try { localStorage.setItem(IDENTIFY_DISMISSED_KEY, 'saved'); } catch {}
+          const idx = state.messages.findIndex((m: VisitorMessage) => m.id === 'identify-email');
+          if (idx >= 0) {
+            state.messages[idx] = {
+              id: `identify-email-done`,
+              role: 'system',
+              content: `Great — we'll reach out at ${value} if we miss you here.`,
+              createdAt: new Date().toISOString(),
+            };
+          }
+          render();
+        } catch { /* ignore */ }
+      }
     }
   });
-  identSkip.addEventListener('click', () => {
-    ident.style.display = 'none';
-    try { localStorage.setItem(IDENTIFY_DISMISSED_KEY, 'skipped'); } catch {}
+  // Enter-to-save inside the inline inputs.
+  messagesEl.addEventListener('keydown', (e) => {
+    const ke = e as KeyboardEvent;
+    if (ke.key !== 'Enter') return;
+    const target = ke.target as HTMLElement;
+    if (!target.matches('.lc-inline-identify input')) return;
+    ke.preventDefault();
+    const wrap = target.closest('.lc-inline-identify');
+    const saveBtn = wrap?.querySelector<HTMLButtonElement>('.lc-inline-save');
+    saveBtn?.click();
   });
 
   // Initial quick-reply render — runs before the user has typed anything.
@@ -818,6 +885,34 @@ function renderMessages(panel: HTMLDivElement, state: any) {
   })();
   list.innerHTML = state.messages
     .map((m: VisitorMessage, idx: number) => {
+      // Inline identify prompts render as agent bubbles with embedded inputs
+      // — no separate form below the composer, so it reads as part of the
+      // conversation. data-step on the bubble drives the click handlers.
+      if (m.content === '__identify_name__' || m.content === '__identify_email__') {
+        const isName = m.content === '__identify_name__';
+        const step = isName ? 'name' : 'email';
+        const greet = !isName && state.knownName ? `<span class="lc-inline-greet">Thanks ${escapeHtml(state.knownName)}! </span>` : '';
+        const prompt = isName
+          ? `Mind if I get your name?`
+          : `${greet}If we miss you here, what's the best email to follow up on?`;
+        const placeholder = isName ? 'Your name' : 'you@example.com';
+        const inputType = isName ? 'text' : 'email';
+        const autoComp = isName ? 'given-name' : 'email';
+        return `<div class="lc-msg-row lc-msg-row-agent">
+          <div class="lc-msg-avatar lc-msg-avatar-ai">${aiSparkleIcon()}</div>
+          <div class="lc-msg-body">
+            <div class="lc-msg lc-msg-agent lc-inline-identify" data-step="${step}">
+              <div class="lc-inline-prompt">${prompt}</div>
+              <div class="lc-inline-row">
+                <input type="${inputType}" class="lc-inline-input" placeholder="${placeholder}" autocomplete="${autoComp}" />
+                <button type="button" class="lc-inline-save" data-step="${step}" aria-label="Save">${sendIcon()}</button>
+              </div>
+              <button type="button" class="lc-inline-skip" data-step="${step}">${isName ? 'Skip' : 'Maybe later'}</button>
+            </div>
+          </div>
+        </div>`;
+      }
+
       // Visitor input stays plain (their own typing); agent / operator / system
       // get the markdown subset so **bold**, *italic*, and [links](…) render.
       const text = m.content
@@ -959,15 +1054,61 @@ function hideTyping(panel: HTMLDivElement) {
   panel.querySelectorAll('.lc-typing').forEach((n) => n.remove());
 }
 
-function maybePromptEmail(panel: HTMLDivElement, state: any) {
-  if (state.askedForEmail) return;
+/**
+ * Two-step identify flow rendered inline in the conversation thread, not as
+ * a separate form. Each prompt is pushed as an agent-style message with a
+ * single inline input so it reads as a natural part of the chat.
+ *
+ * Stage 1 — name: triggered after the first agent reply.
+ * Stage 2 — email: triggered after EMAIL_PROMPT_AFTER_VISITOR_MSGS visitor turns.
+ *
+ * Each step is gated by a localStorage flag so dismissals stick across reloads.
+ */
+function maybePromptEmail(panel: HTMLDivElement, state: any, render: () => void) {
+  let legacyDismissed = false;
+  try { legacyDismissed = !!localStorage.getItem(IDENTIFY_DISMISSED_KEY); } catch {}
+  const messages = state.messages as VisitorMessage[];
+  const visitorTurns = messages.filter((m) => m.role === 'visitor').length;
+  const agentTurns = messages.filter((m) => m.role === 'agent').length;
+
+  let nameStored: string | null = null;
+  try { nameStored = localStorage.getItem(IDENTIFY_NAME_KEY); } catch {}
+  const nameAlreadyHandled = !!nameStored || !!state.knownName || legacyDismissed;
+  const namePromptShown = messages.some((m) => m.id === 'identify-name' || m.id === 'identify-name-done');
+  if (!nameAlreadyHandled && !namePromptShown && agentTurns >= 1) {
+    state.askedForName = true;
+    state.messages.push({
+      id: 'identify-name',
+      role: 'agent',
+      content: '__identify_name__',
+      createdAt: new Date().toISOString(),
+    });
+    render();
+  }
+
+  let emailHandled = false;
+  try { emailHandled = !!localStorage.getItem(IDENTIFY_EMAIL_KEY); } catch {}
+  const emailPromptShown = messages.some((m) => m.id === 'identify-email' || m.id === 'identify-email-done');
+  if (!emailHandled && !legacyDismissed && !emailPromptShown && visitorTurns >= EMAIL_PROMPT_AFTER_VISITOR_MSGS) {
+    state.askedForEmail = true;
+    state.messages.push({
+      id: 'identify-email',
+      role: 'agent',
+      content: '__identify_email__',
+      createdAt: new Date().toISOString(),
+    });
+    render();
+  }
+}
+
+function readKnownName(): string | null {
   try {
-    if (localStorage.getItem(IDENTIFY_DISMISSED_KEY)) return;
-  } catch {}
-  if (state.messages.filter((m: VisitorMessage) => m.role === 'agent').length < 1) return;
-  state.askedForEmail = true;
-  const ident = panel.querySelector<HTMLDivElement>('.lc-identify');
-  if (ident) ident.style.display = 'block';
+    const v = localStorage.getItem(IDENTIFY_NAME_KEY);
+    if (!v || v === 'saved' || v === 'skipped') return null;
+    return v;
+  } catch {
+    return null;
+  }
 }
 
 function pushVisitor(state: any, content: string, attachments?: AttachmentSummary[]) {
@@ -1209,7 +1350,12 @@ function composeIcon() {
   return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>`;
 }
 
-function renderHeaderAvatars(operators: OperatorSummary[]): string {
+function renderHeaderAvatars(operators: OperatorSummary[], fallbackName?: string | null): string {
+  // Empty roster but a fallback name (e.g. site.operatorName) — render a single
+  // initials-avatar so the header still feels personal instead of a generic bot.
+  if (!operators.length && fallbackName?.trim()) {
+    return `<div class="lc-header-avatars"><div class="lc-op-avatar lc-op-initials" style="z-index:3">${escapeHtml(getInitials(fallbackName.trim()))}</div></div>`;
+  }
   if (!operators.length) {
     return `<div class="lc-header-avatar">${botAvatarIcon()}</div>`;
   }
