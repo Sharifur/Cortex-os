@@ -4,10 +4,15 @@ WORKDIR /app
 
 COPY package.json ./
 COPY apps/api/package.json ./apps/api/
-RUN npm install --workspace=apps/api
+COPY apps/web/package.json ./apps/web/
+RUN npm install --workspace=apps/api --workspace=apps/web
 
 COPY tsconfig.base.json ./
 COPY apps/api/ ./apps/api/
+COPY apps/web/ ./apps/web/
+
+# Build widget bundle first so it lands in apps/api/public/livechat.js
+RUN npm --workspace=apps/web run build:widget
 
 WORKDIR /app/apps/api
 RUN npm run build
@@ -21,6 +26,7 @@ RUN npm install --omit=dev
 
 COPY --from=builder /app/apps/api/dist ./dist
 COPY --from=builder /app/apps/api/drizzle ./drizzle
+COPY --from=builder /app/apps/api/public ./public
 
 ENV NODE_ENV=production
 EXPOSE 3000
