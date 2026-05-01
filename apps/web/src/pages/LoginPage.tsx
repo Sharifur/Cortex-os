@@ -189,7 +189,7 @@ export default function LoginPage() {
 
           {/* Footer */}
           <p className="text-center text-xs text-muted-foreground mt-6">
-            Single-owner platform · Cortex OS v1.15
+            Single-owner platform · Cortex OS v1.16
           </p>
         </div>
       </div>
