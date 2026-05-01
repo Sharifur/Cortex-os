@@ -402,9 +402,11 @@ function buildPanel(shadow: ShadowRoot, cfg: WidgetConfig, state: any, render: (
       hideTyping(panel);
       state.sessionId = res.sessionId;
       writeSessionId(res.sessionId);
-      const agentId = res.agent.id ?? '';
-      if ('content' in res.agent && res.agent.content && !state.messages.some((m: VisitorMessage) => m.id === agentId && agentId)) {
-        pushAgent(state, res.agent.content, agentId);
+      if ('content' in res.agent && res.agent.content) {
+        const agentId = res.agent.id ?? '';
+        if (!state.messages.some((m: VisitorMessage) => m.id === agentId && agentId)) {
+          pushAgent(state, res.agent.content, agentId);
+        }
       }
       if (!state.socket) connectAndListen(cfg, state, render);
       maybePromptEmail(panel, state);
