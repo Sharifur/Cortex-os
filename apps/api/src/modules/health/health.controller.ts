@@ -40,17 +40,16 @@ export class HealthController {
 
   @Get()
   async check() {
-    const [postgres, redis, llm, telegram, ses, gmail, whatsapp, linkedin, reddit, crisp] = await Promise.all([
+    const [postgres, redis, llm, telegram, ses, gmail, whatsapp, linkedin, reddit] = await Promise.all([
       this.checkPostgres(),
       this.checkRedis(),
       this.checkLlm(),
       this.checkAllPresent(['telegram_bot_token', 'telegram_owner_chat_id']),
       this.checkAllPresent(['aws_access_key_id', 'aws_secret_access_key', 'ses_from_address']),
-      this.checkAllPresent(['gmail_client_id', 'gmail_client_secret', 'gmail_refresh_token']),
+      this.checkGmail(),
       this.checkAllPresent(['whatsapp_api_token', 'whatsapp_phone_number_id']),
       this.checkLinkedIn(),
       this.checkAllPresent(['reddit_client_id', 'reddit_client_secret', 'reddit_username', 'reddit_password']),
-      this.checkCrisp(),
     ]);
 
     const checks: Record<string, ServiceCheck> = {
@@ -64,7 +63,6 @@ export class HealthController {
       whatsapp,
       linkedin,
       reddit,
-      crisp,
     };
 
     const coreOk = checks.postgres.status === 'ok';
@@ -146,23 +144,16 @@ export class HealthController {
     return { status: 'not_configured' };
   }
 
-  private async checkCrisp(): Promise<ServiceCheck> {
+  private async checkGmail(): Promise<ServiceCheck> {
     try {
-      const [{ count: siteCount }] = await this.db.db.execute<{ count: number }>(sql`
-        SELECT COUNT(*)::int AS count FROM crisp_websites WHERE enabled = true
+      const [{ count }] = await this.db.db.execute<{ count: number }>(sql`
+        SELECT COUNT(*)::int AS count FROM gmail_accounts
       `);
-      if (siteCount > 0) {
-        return { status: 'ok', message: `${siteCount} website${siteCount === 1 ? '' : 's'} configured` };
-      }
+      return count > 0
+        ? { status: 'ok', message: `${count} account${count === 1 ? '' : 's'} connected` }
+        : { status: 'not_configured' };
     } catch {
-      // table may not exist yet; fall through to legacy settings check
+      return { status: 'not_configured' };
     }
-    const [identifier, key, websiteId] = await Promise.all([
-      this.settings.getDecrypted('crisp_api_identifier'),
-      this.settings.getDecrypted('crisp_api_key'),
-      this.settings.getDecrypted('crisp_website_id'),
-    ]);
-    if (identifier && key && websiteId) return { status: 'ok', message: 'Legacy single-site' };
-    return { status: 'not_configured' };
   }
 }

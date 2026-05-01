@@ -267,6 +267,27 @@
       "when": 1777400029000,
       "tag": "0037_gmail_oauth",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "6",
+      "when": 1777400030000,
+      "tag": "0038_kb_multi_site",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "6",
+      "when": 1777400031000,
+      "tag": "0039_kb_embeddings",
+      "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "6",
+      "when": 1777400032000,
+      "tag": "0040_livechat_feedback",
+      "breakpoints": true
     }
   ]
 }

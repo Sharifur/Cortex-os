@@ -7,6 +7,7 @@ import {
   ChatMessage,
   LlmCompleteOpts,
   LlmResponse,
+  LlmStreamCompleteOpts,
   LlmCompleteWithToolsOpts,
   LlmToolResult,
   ToolCall,
@@ -56,6 +57,112 @@ export class LlmRouterService {
     }
 
     return this.autoRoute(opts);
+  }
+
+  /**
+   * Streaming variant of complete(). Calls `onToken` for every text delta
+   * the provider emits, then resolves with the full assembled LlmResponse
+   * (including usage tokens) once the stream ends. Falls back to a single
+   * non-streaming call if the provider doesn't support streaming or fails
+   * mid-stream — onToken is called once with the full text in that case.
+   */
+  async streamComplete(opts: LlmStreamCompleteOpts): Promise<LlmResponse> {
+    const provider = opts.provider && opts.provider !== 'auto'
+      ? opts.provider
+      : (await this.settings.getDecrypted('llm_default_provider')) ?? 'openai';
+    try {
+      if (provider === 'openai') return await this.streamOpenAi(opts);
+      if (provider === 'deepseek') return await this.streamDeepSeek(opts);
+      // Gemini supports streaming but the SDK shape is different; route to
+      // a "fake stream" fallback for now (single call, single delta) — still
+      // gives the visitor a result, just without progressive paint.
+      return await this.fakeStream(opts);
+    } catch (err) {
+      this.logger.warn(`stream failed (${provider}): ${(err as Error).message} — falling back`);
+      return this.fakeStream(opts);
+    }
+  }
+
+  private async streamOpenAi(opts: LlmStreamCompleteOpts): Promise<LlmResponse> {
+    const apiKey = await this.settings.getDecrypted('openai_api_key');
+    if (!apiKey) throw new Error('OpenAI API key not configured');
+    const defaultModel = (await this.settings.getDecrypted('openai_default_model')) ?? 'gpt-4o-mini';
+    const model = opts.model ?? defaultModel;
+    const client = new OpenAI({ apiKey });
+    return this.streamOpenAiCompatible(client, opts, model, 'openai');
+  }
+
+  private async streamDeepSeek(opts: LlmStreamCompleteOpts): Promise<LlmResponse> {
+    const apiKey = await this.settings.getDecrypted('deepseek_api_key');
+    if (!apiKey) throw new Error('DeepSeek API key not configured');
+    const defaultModel = (await this.settings.getDecrypted('deepseek_default_model')) ?? 'deepseek-chat';
+    const model = opts.model ?? defaultModel;
+    const client = new OpenAI({ apiKey, baseURL: 'https://api.deepseek.com' });
+    return this.streamOpenAiCompatible(client, opts, model, 'deepseek');
+  }
+
+  private async streamOpenAiCompatible(
+    client: OpenAI,
+    opts: LlmStreamCompleteOpts,
+    model: string,
+    provider: 'openai' | 'deepseek',
+  ): Promise<LlmResponse> {
+    const stream = await client.chat.completions.create({
+      model,
+      messages: opts.messages as OpenAI.Chat.ChatCompletionMessageParam[],
+      max_tokens: opts.maxTokens,
+      temperature: opts.temperature,
+      stream: true,
+      stream_options: { include_usage: true },
+    });
+
+    let assembled = '';
+    let inputTokens: number | undefined;
+    let outputTokens: number | undefined;
+    for await (const chunk of stream) {
+      // Usage frame arrives last with empty choices array.
+      if (chunk.usage) {
+        inputTokens = chunk.usage.prompt_tokens;
+        outputTokens = chunk.usage.completion_tokens;
+      }
+      const delta = chunk.choices?.[0]?.delta?.content ?? '';
+      if (delta) {
+        assembled += delta;
+        await opts.onToken({ delta });
+      }
+    }
+
+    const response: LlmResponse = { content: assembled, provider, model, inputTokens, outputTokens };
+    this.trackUsage(opts, response);
+    return response;
+  }
+
+  /** Fallback: do a single non-streaming call and emit the whole text in one delta. */
+  private async fakeStream(opts: LlmStreamCompleteOpts): Promise<LlmResponse> {
+    const res = await this.complete(opts);
+    if (res.content) await opts.onToken({ delta: res.content });
+    return res;
+  }
+
+  /**
+   * Embed a single string with OpenAI text-embedding-3-small (1536 dims).
+   * Used for hybrid KB retrieval. Returns null if the API key isn't set so
+   * callers can transparently fall back to FTS-only.
+   */
+  async embed(text: string): Promise<number[] | null> {
+    const apiKey = await this.settings.getDecrypted('openai_api_key');
+    if (!apiKey) return null;
+    try {
+      const client = new OpenAI({ apiKey });
+      const res = await client.embeddings.create({
+        model: 'text-embedding-3-small',
+        input: text.slice(0, 8000),
+      });
+      return res.data[0]?.embedding ?? null;
+    } catch (err) {
+      this.logger.warn(`embed() failed: ${(err as Error).message}`);
+      return null;
+    }
   }
 
   async completeWithTools(opts: LlmCompleteWithToolsOpts): Promise<LlmToolResult> {

@@ -12,8 +12,12 @@ export const knowledgeEntries = pgTable('knowledge_entries', {
   // 'voice_profile'— global tone/style guide, always injected
   // 'blocklist'    — pattern to avoid in LLM output; one rule per entry
   priority:    integer('priority').notNull().default(50), // 1=low … 100=critical
-  agentKeys:   text('agent_keys'),     // null = all agents; "crisp,support" = specific
-  siteKey:     text('site_key'),       // livechat-only: null = applies to all sites; otherwise scoped
+  agentKeys:   text('agent_keys'),     // null = all agents; "livechat,support" = specific
+  // Livechat-only site scoping. CSV strings; null/empty in both = applies to all sites.
+  // siteKeys (include): only these sites match. excludedSiteKeys: all sites except these.
+  // If both are set, include wins and exclude further narrows.
+  siteKeys:          text('site_keys'),
+  excludedSiteKeys:  text('excluded_site_keys'),
   sourceType:  text('source_type').notNull().default('manual'), // manual|pdf|docx|md|link
   sourceUrl:   text('source_url'),     // MinIO path or original URL
   parentDocId: text('parent_doc_id'), // set on chunk entries; FK to parent entry id
@@ -40,6 +44,8 @@ export const writingSamples = pgTable('writing_samples', {
   sampleText: text('sample_text').notNull(),
   polarity:   text('polarity').notNull().default('positive'), // 'positive' | 'negative'
   agentKeys:  text('agent_keys'),           // null = usable by all agents
-  siteKey:    text('site_key'),             // livechat-only: null = applies to all sites; otherwise scoped
+  // Livechat-only site scoping (same shape as knowledgeEntries above).
+  siteKeys:         text('site_keys'),
+  excludedSiteKeys: text('excluded_site_keys'),
   createdAt:  timestamp('created_at').notNull().defaultNow(),
 });

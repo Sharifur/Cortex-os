@@ -19,7 +19,7 @@ export class KnowledgeBaseIngestionService {
     file: Buffer,
     filename: string,
     mimeType: string,
-    dto: { agentKeys?: string; category?: string; siteKey?: string | null },
+    dto: { agentKeys?: string; category?: string; siteKeys?: string | null; excludedSiteKeys?: string | null },
   ) {
     if (file.length > MAX_FILE_BYTES) {
       throw new BadRequestException('File exceeds 10MB limit');
@@ -66,7 +66,8 @@ export class KnowledgeBaseIngestionService {
       category: dto.category ?? 'document',
       entryType: 'reference',
       agentKeys: dto.agentKeys,
-      siteKey: dto.siteKey ?? null,
+      siteKeys: dto.siteKeys ?? null,
+      excludedSiteKeys: dto.excludedSiteKeys ?? null,
       sourceType,
     });
 
@@ -78,7 +79,8 @@ export class KnowledgeBaseIngestionService {
         category: dto.category ?? 'document',
         entryType: 'reference',
         agentKeys: dto.agentKeys,
-      siteKey: dto.siteKey ?? null,
+      siteKeys: dto.siteKeys ?? null,
+      excludedSiteKeys: dto.excludedSiteKeys ?? null,
         sourceType,
         parentDocId: parent.id,
       });
@@ -87,7 +89,7 @@ export class KnowledgeBaseIngestionService {
     return { parentId: parent.id, chunks: chunks.length, totalChars: text.length };
   }
 
-  async ingestLink(url: string, dto: { agentKeys?: string; category?: string; siteKey?: string | null }) {
+  async ingestLink(url: string, dto: { agentKeys?: string; category?: string; siteKeys?: string | null; excludedSiteKeys?: string | null }) {
     if (!/^https?:\/\//i.test(url)) {
       throw new BadRequestException('URL must start with http:// or https://');
     }
@@ -166,7 +168,8 @@ export class KnowledgeBaseIngestionService {
       category: dto.category ?? 'webpage',
       entryType: 'reference',
       agentKeys: dto.agentKeys,
-      siteKey: dto.siteKey ?? null,
+      siteKeys: dto.siteKeys ?? null,
+      excludedSiteKeys: dto.excludedSiteKeys ?? null,
       sourceType: 'link',
       sourceUrl: url,
     });
@@ -178,7 +181,8 @@ export class KnowledgeBaseIngestionService {
         category: dto.category ?? 'webpage',
         entryType: 'reference',
         agentKeys: dto.agentKeys,
-      siteKey: dto.siteKey ?? null,
+      siteKeys: dto.siteKeys ?? null,
+      excludedSiteKeys: dto.excludedSiteKeys ?? null,
         sourceType: 'link',
         sourceUrl: url,
         parentDocId: parent.id,

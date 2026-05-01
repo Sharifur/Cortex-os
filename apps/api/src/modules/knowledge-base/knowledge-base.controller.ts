@@ -48,7 +48,8 @@ export class KnowledgeBaseController {
     entryType?: string;
     priority?: number;
     agentKeys?: string;
-    siteKey?: string | null;
+    siteKeys?: string | null;
+    excludedSiteKeys?: string | null;
   }) {
     if (!body.title?.trim()) throw new BadRequestException('title is required');
     if (!body.content?.trim()) throw new BadRequestException('content is required');
@@ -63,7 +64,8 @@ export class KnowledgeBaseController {
     entryType?: string;
     priority?: number;
     agentKeys?: string | null;
-    siteKey?: string | null;
+    siteKeys?: string | null;
+    excludedSiteKeys?: string | null;
   }) {
     const row = await this.kb.updateEntry(id, body);
     if (!row) throw new NotFoundException('Entry not found');
@@ -85,6 +87,16 @@ export class KnowledgeBaseController {
     return this.kb.deleteEntries(body.ids);
   }
 
+  @Get('embeddings/status')
+  embeddingStatus() {
+    return this.kb.embeddingStatus();
+  }
+
+  @Post('embeddings/backfill')
+  reembedPending() {
+    return this.kb.reembedPending();
+  }
+
   @Get('entries/:id/chunks')
   getChunkCount(@Param('id') id: string) {
     return this.kb.countChunks(id).then(count => ({ count }));
@@ -93,12 +105,13 @@ export class KnowledgeBaseController {
   // ─── Ingestion ─────────────────────────────────────────────────────────────
 
   @Post('ingest/link')
-  ingestLink(@Body() body: { url: string; agentKeys?: string; category?: string; siteKey?: string | null }) {
+  ingestLink(@Body() body: { url: string; agentKeys?: string; category?: string; siteKeys?: string | null; excludedSiteKeys?: string | null }) {
     if (!body.url) throw new BadRequestException('url is required');
     return this.ingestion.ingestLink(body.url, {
       agentKeys: body.agentKeys,
       category: body.category,
-      siteKey: body.siteKey ?? null,
+      siteKeys: body.siteKeys ?? null,
+      excludedSiteKeys: body.excludedSiteKeys ?? null,
     });
   }
 
@@ -109,7 +122,8 @@ export class KnowledgeBaseController {
     data: string; // base64
     agentKeys?: string;
     category?: string;
-    siteKey?: string | null;
+    siteKeys?: string | null;
+    excludedSiteKeys?: string | null;
   }) {
     if (!body.data) throw new BadRequestException('data (base64) is required');
     if (!body.filename) throw new BadRequestException('filename is required');
@@ -117,7 +131,8 @@ export class KnowledgeBaseController {
     return this.ingestion.ingestFile(buf, body.filename, body.mimeType ?? '', {
       agentKeys: body.agentKeys,
       category: body.category,
-      siteKey: body.siteKey ?? null,
+      siteKeys: body.siteKeys ?? null,
+      excludedSiteKeys: body.excludedSiteKeys ?? null,
     });
   }
 
@@ -135,7 +150,8 @@ export class KnowledgeBaseController {
     sampleText: string;
     polarity?: string;
     agentKeys?: string;
-    siteKey?: string | null;
+    siteKeys?: string | null;
+    excludedSiteKeys?: string | null;
   }) {
     if (!body.context?.trim()) throw new BadRequestException('context is required');
     if (!body.sampleText?.trim()) throw new BadRequestException('sampleText is required');
@@ -148,7 +164,8 @@ export class KnowledgeBaseController {
     sampleText?: string;
     polarity?: string;
     agentKeys?: string | null;
-    siteKey?: string | null;
+    siteKeys?: string | null;
+    excludedSiteKeys?: string | null;
   }) {
     const row = await this.kb.updateSample(id, body);
     if (!row) throw new NotFoundException('Sample not found');

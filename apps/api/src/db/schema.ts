@@ -12,7 +12,6 @@ export * from '../modules/agents/support/schema';
 export * from '../modules/agents/whatsapp/schema';
 export * from '../modules/agents/linkedin/schema';
 export * from '../modules/agents/reddit/schema';
-export * from '../modules/agents/crisp/schema';
 export * from '../modules/agents/hr/schema';
 export * from '../modules/agents/social/schema';
 export * from '../modules/agents/canva/schema';

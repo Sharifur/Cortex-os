@@ -2,7 +2,7 @@ export interface SettingDefinition {
   label: string;
   description?: string;
   isSecret: boolean;
-  group: 'general' | 'llm' | 'telegram' | 'ses' | 'gmail' | 'whatsapp' | 'linkedin' | 'reddit' | 'crisp' | 'license' | 'storage' | 'insight' | 'safety';
+  group: 'general' | 'llm' | 'telegram' | 'ses' | 'gmail' | 'whatsapp' | 'linkedin' | 'reddit' | 'license' | 'storage' | 'insight' | 'safety';
   defaultValue?: string;
   provider?: 'openai' | 'gemini' | 'deepseek' | 'general';
 }
@@ -243,38 +243,6 @@ export const SETTING_DEFINITIONS: Record<string, SettingDefinition> = {
     label: 'Reddit Password',
     isSecret: true,
     group: 'reddit',
-  },
-
-  // Crisp live chat
-  crisp_website_id: {
-    label: 'Website ID',
-    description: 'From Crisp → Settings → Website → Setup → Website ID',
-    isSecret: false,
-    group: 'crisp',
-  },
-  crisp_api_identifier: {
-    label: 'API Identifier',
-    description: 'From Crisp → Settings → Website → API Keys → Identifier',
-    isSecret: false,
-    group: 'crisp',
-  },
-  crisp_api_key: {
-    label: 'API Key',
-    description: 'From Crisp → Settings → Website → API Keys → Key (treat as secret)',
-    isSecret: true,
-    group: 'crisp',
-  },
-  crisp_webhook_signing_secret: {
-    label: 'Webhook Signing Secret',
-    description: 'Optional. From Crisp → Settings → Website → Hooks → "View signing secret" (if your Crisp plan exposes it). Used to verify incoming webhook HMAC.',
-    isSecret: true,
-    group: 'crisp',
-  },
-  crisp_webhook_token: {
-    label: 'Webhook URL Token',
-    description: 'Random secret you generate. Append it to the webhook URL as ?t=<token> when configuring the hook in Crisp. Used to authenticate the webhook when Crisp does not expose a signing secret.',
-    isSecret: true,
-    group: 'crisp',
   },
 
   // License Server

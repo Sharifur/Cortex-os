@@ -1,8 +1,9 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger, forwardRef, Inject } from '@nestjs/common';
 import { eq, and, desc, inArray, sql, or } from 'drizzle-orm';
 import { DbService } from '../../db/db.service';
 import { knowledgeEntries, writingSamples, promptTemplates, pendingApprovals, agentRuns, agents } from '../../db/schema';
 import { KnowledgeBaseCacheService } from './knowledge-base-cache.service';
+import { LlmRouterService } from '../llm/llm-router.service';
 import { createId } from '@paralleldrive/cuid2';
 
 export type KnowledgeEntry = typeof knowledgeEntries.$inferSelect;
@@ -22,9 +23,13 @@ export interface KbPromptBlockParams {
 
 @Injectable()
 export class KnowledgeBaseService {
+  private readonly logger = new Logger(KnowledgeBaseService.name);
+
   constructor(
     private readonly db: DbService,
     private readonly cache: KnowledgeBaseCacheService,
+    @Inject(forwardRef(() => LlmRouterService))
+    private readonly llm: LlmRouterService,
   ) {}
 
   // ─── Agent key filtering ───────────────────────────────────────────────────
@@ -38,13 +43,36 @@ export class KnowledgeBaseService {
       OR agent_keys LIKE ${'%,' + agentKey + ',%'})`;
   }
 
-  // Livechat KB can be site-scoped. Pass siteKey to include only entries
-  // that apply to that site (siteKey IS NULL acts as "all sites" fallback).
-  // Omit to fetch every entry regardless of site (used by the admin list).
+  // Livechat KB can be site-scoped via two CSV columns:
+  //   site_keys           — include list. Empty/null means "applies to all sites".
+  //   excluded_site_keys  — exclude list. Empty/null means "no exclusions".
+  // Pass siteKey to include only entries that apply to that session's site.
+  // Pass null to limit to entries with no site scoping at all (admin filter view).
+  // Omit (undefined) to fetch every entry regardless of site.
   private siteKeyWhere(siteKey?: string | null) {
     if (siteKey === undefined) return sql`1=1`;
-    if (siteKey === null) return sql`site_key IS NULL`;
-    return sql`(site_key IS NULL OR site_key = ${siteKey})`;
+    if (siteKey === null) {
+      return sql`(site_keys IS NULL OR site_keys = '') AND (excluded_site_keys IS NULL OR excluded_site_keys = '')`;
+    }
+    const inc = sql`(
+      site_keys IS NULL
+      OR site_keys = ''
+      OR site_keys = ${siteKey}
+      OR site_keys LIKE ${siteKey + ',%'}
+      OR site_keys LIKE ${'%,' + siteKey}
+      OR site_keys LIKE ${'%,' + siteKey + ',%'}
+    )`;
+    const exc = sql`(
+      excluded_site_keys IS NULL
+      OR excluded_site_keys = ''
+      OR (
+        excluded_site_keys != ${siteKey}
+        AND excluded_site_keys NOT LIKE ${siteKey + ',%'}
+        AND excluded_site_keys NOT LIKE ${'%,' + siteKey}
+        AND excluded_site_keys NOT LIKE ${'%,' + siteKey + ',%'}
+      )
+    )`;
+    return sql`${inc} AND ${exc}`;
   }
 
   // ─── Knowledge Entries ─────────────────────────────────────────────────────
@@ -74,7 +102,13 @@ export class KnowledgeBaseService {
         .orderBy(desc(knowledgeEntries.priority))
         .limit(limit);
     }
-    return this.db.db
+
+    // Hybrid retrieval: run FTS and vector lookup in parallel, then merge with
+    // reciprocal-rank fusion (RRF) so paraphrases ("get my money back") match
+    // their canonical entry ("refund policy"). FTS-only when embeddings or the
+    // OpenAI key are unavailable.
+    const widerLimit = Math.max(limit * 4, 20);
+    const ftsPromise = this.db.db
       .select()
       .from(knowledgeEntries)
       .where(
@@ -84,7 +118,123 @@ export class KnowledgeBaseService {
           AND to_tsvector('english', title || ' ' || content) @@ plainto_tsquery('english', ${q})`,
       )
       .orderBy(desc(knowledgeEntries.priority))
+      .limit(widerLimit);
+
+    const vectorPromise = this.vectorSearch(q, agentKey, siteKey, widerLimit).catch((err) => {
+      this.logger.debug(`vector search skipped: ${(err as Error).message}`);
+      return [] as KnowledgeEntry[];
+    });
+
+    const [fts, vec] = await Promise.all([ftsPromise, vectorPromise]);
+    if (!vec.length) return fts.slice(0, limit);
+    return reciprocalRankFusion(fts, vec, limit);
+  }
+
+  /**
+   * Embed the query and run a cosine-similarity lookup against any rows that
+   * have an embedding. Returns rows ordered by similarity (closest first).
+   * Returns [] if pgvector isn't installed or no rows have embeddings yet —
+   * the caller can fall back to FTS-only with no behaviour change.
+   */
+  private async vectorSearch(
+    query: string,
+    agentKey?: string,
+    siteKey?: string | null,
+    limit = 20,
+  ): Promise<KnowledgeEntry[]> {
+    const embedding = await this.llm.embed(query);
+    if (!embedding) return [];
+    const literal = `[${embedding.join(',')}]`;
+    const rows = await this.db.db
+      .select()
+      .from(knowledgeEntries)
+      .where(
+        sql`${this.agentKeyWhere(agentKey)}
+          AND ${this.siteKeyWhere(siteKey)}
+          AND entry_type = 'reference'
+          AND embedding IS NOT NULL`,
+      )
+      .orderBy(sql`embedding <=> ${literal}::vector`)
       .limit(limit);
+    return rows;
+  }
+
+  /**
+   * Counts of entries with vs without an embedding, so the admin UI can show
+   * a "12 of 47 embedded" badge and surface backfill needs.
+   */
+  async embeddingStatus(): Promise<{ total: number; embedded: number; pending: number; missingExtension: boolean }> {
+    try {
+      const rows = await this.db.db.execute<{ total: number; embedded: number }>(sql`
+        SELECT
+          COUNT(*)::int AS total,
+          COUNT(*) FILTER (WHERE embedding IS NOT NULL)::int AS embedded
+        FROM knowledge_entries
+        WHERE entry_type <> 'blocklist'
+      `);
+      const r = rows[0] ?? { total: 0, embedded: 0 };
+      return { total: r.total, embedded: r.embedded, pending: r.total - r.embedded, missingExtension: false };
+    } catch (err) {
+      // pgvector not installed — surface that to the UI instead of crashing.
+      const msg = (err as Error).message ?? '';
+      if (/extension|vector|column/i.test(msg)) {
+        return { total: 0, embedded: 0, pending: 0, missingExtension: true };
+      }
+      throw err;
+    }
+  }
+
+  /** Returns the entry IDs that lack embeddings; used by the admin re-embed flow. */
+  async listEntriesNeedingEmbedding(limit = 100): Promise<{ id: string; title: string; content: string }[]> {
+    try {
+      const rows = await this.db.db.execute<{ id: string; title: string; content: string }>(sql`
+        SELECT id, title, content
+        FROM knowledge_entries
+        WHERE embedding IS NULL AND entry_type <> 'blocklist'
+        ORDER BY created_at DESC
+        LIMIT ${limit}
+      `);
+      return rows;
+    } catch {
+      return [];
+    }
+  }
+
+  /** Re-embed every entry that currently lacks an embedding, in series. */
+  async reembedPending(): Promise<{ embedded: number; failed: number }> {
+    const pending = await this.listEntriesNeedingEmbedding(500);
+    let embedded = 0;
+    let failed = 0;
+    for (const r of pending) {
+      try {
+        const v = await this.llm.embed(`${r.title}\n${r.content}`);
+        if (!v) { failed++; continue; }
+        const literal = `[${v.join(',')}]`;
+        await this.db.db.execute(sql`UPDATE knowledge_entries SET embedding = ${literal}::vector WHERE id = ${r.id}`);
+        embedded++;
+      } catch (err) {
+        this.logger.warn(`reembed ${r.id} failed: ${(err as Error).message}`);
+        failed++;
+      }
+    }
+    return { embedded, failed };
+  }
+
+  /**
+   * Embed and persist the embedding for a single entry. Best-effort — silently
+   * swallows errors so a transient OpenAI outage doesn't block KB writes.
+   */
+  async embedEntry(entryId: string, text: string): Promise<void> {
+    try {
+      const embedding = await this.llm.embed(text);
+      if (!embedding) return;
+      const literal = `[${embedding.join(',')}]`;
+      await this.db.db.execute(
+        sql`UPDATE knowledge_entries SET embedding = ${literal}::vector WHERE id = ${entryId}`,
+      );
+    } catch (err) {
+      this.logger.warn(`embedEntry(${entryId}) failed: ${(err as Error).message}`);
+    }
   }
 
   async getAlwaysOnContext(agentKey?: string, siteKey?: string | null): Promise<KnowledgeEntry[]> {
@@ -122,7 +272,8 @@ export class KnowledgeBaseService {
     entryType?: string;
     priority?: number;
     agentKeys?: string;
-    siteKey?: string | null;
+    siteKeys?: string | null;
+    excludedSiteKeys?: string | null;
     sourceType?: string;
     sourceUrl?: string;
     parentDocId?: string;
@@ -137,13 +288,22 @@ export class KnowledgeBaseService {
         entryType: dto.entryType ?? 'reference',
         priority: dto.priority ?? 50,
         agentKeys: dto.agentKeys ?? null,
-        siteKey: dto.siteKey ?? null,
+        siteKeys: dto.siteKeys ?? null,
+        excludedSiteKeys: dto.excludedSiteKeys ?? null,
         sourceType: dto.sourceType ?? 'manual',
         sourceUrl: dto.sourceUrl ?? null,
         parentDocId: dto.parentDocId ?? null,
       })
       .returning();
     await this.invalidateCacheForEntry(row);
+    // Background embed — don't block the create response on the OpenAI call.
+    // Every entry type except blocklist gets an embedding (blocklist rules are
+    // short patterns, not worth the API call). Vector search filters by
+    // entry_type at query time so this is forward-compatible if we widen
+    // retrieval to facts / products / etc. later.
+    if (shouldEmbed(row.entryType)) {
+      void this.embedEntry(row.id, `${row.title}\n${row.content}`);
+    }
     return row;
   }
 
@@ -154,7 +314,8 @@ export class KnowledgeBaseService {
     entryType: string;
     priority: number;
     agentKeys: string | null;
-    siteKey: string | null;
+    siteKeys: string | null;
+    excludedSiteKeys: string | null;
   }>) {
     const [row] = await this.db.db
       .update(knowledgeEntries)
@@ -162,6 +323,10 @@ export class KnowledgeBaseService {
       .where(eq(knowledgeEntries.id, id))
       .returning();
     if (row) await this.invalidateCacheForEntry(row);
+    // Re-embed only when the searchable text actually changed.
+    if (row && (dto.title !== undefined || dto.content !== undefined) && shouldEmbed(row.entryType)) {
+      void this.embedEntry(row.id, `${row.title}\n${row.content}`);
+    }
     return row;
   }
 
@@ -222,7 +387,7 @@ export class KnowledgeBaseService {
       .orderBy(writingSamples.polarity, desc(writingSamples.createdAt));
   }
 
-  async createSample(dto: { context: string; sampleText: string; polarity?: string; agentKeys?: string; siteKey?: string | null }) {
+  async createSample(dto: { context: string; sampleText: string; polarity?: string; agentKeys?: string; siteKeys?: string | null; excludedSiteKeys?: string | null }) {
     const [row] = await this.db.db
       .insert(writingSamples)
       .values({
@@ -231,14 +396,15 @@ export class KnowledgeBaseService {
         sampleText: dto.sampleText,
         polarity: dto.polarity ?? 'positive',
         agentKeys: dto.agentKeys ?? null,
-        siteKey: dto.siteKey ?? null,
+        siteKeys: dto.siteKeys ?? null,
+        excludedSiteKeys: dto.excludedSiteKeys ?? null,
       })
       .returning();
     await this.invalidateSamplesCache(row.agentKeys);
     return row;
   }
 
-  async updateSample(id: string, dto: Partial<{ context: string; sampleText: string; polarity: string; agentKeys: string | null; siteKey: string | null }>) {
+  async updateSample(id: string, dto: Partial<{ context: string; sampleText: string; polarity: string; agentKeys: string | null; siteKeys: string | null; excludedSiteKeys: string | null }>) {
     const [row] = await this.db.db
       .update(writingSamples)
       .set(dto)
@@ -440,4 +606,37 @@ export class KnowledgeBaseService {
 function trunc(str: string, maxLen: number): string {
   if (str.length <= maxLen) return str;
   return str.slice(0, maxLen - 1) + '…';
+}
+
+/** Blocklist rules are short patterns — embeddings would be noise. Everything else gets vectorised. */
+function shouldEmbed(entryType: string): boolean {
+  return entryType !== 'blocklist';
+}
+
+/**
+ * Reciprocal-rank fusion: combine two ranked lists into one, preferring rows
+ * that show up high in BOTH (FTS keyword and vector semantic). The constant
+ * `k=60` is the canonical RRF default — dampens the influence of low ranks.
+ */
+function reciprocalRankFusion<T extends { id: string; priority: number }>(
+  fts: T[],
+  vec: T[],
+  limit: number,
+  k = 60,
+): T[] {
+  const scores = new Map<string, { row: T; score: number }>();
+  fts.forEach((row, idx) => {
+    scores.set(row.id, { row, score: 1 / (k + idx) });
+  });
+  vec.forEach((row, idx) => {
+    const existing = scores.get(row.id);
+    const add = 1 / (k + idx);
+    if (existing) existing.score += add;
+    else scores.set(row.id, { row, score: add });
+  });
+  return Array.from(scores.values())
+    // Tie-break by manual priority so curated entries win when scores are close.
+    .sort((a, b) => b.score - a.score || b.row.priority - a.row.priority)
+    .slice(0, limit)
+    .map((x) => x.row);
 }

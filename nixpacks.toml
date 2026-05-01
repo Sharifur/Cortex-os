@@ -1,0 +1,5 @@
+[phases.build]
+cmds = ["npm run build:api"]
+
+[start]
+cmd = "sh scripts/start-api.sh"

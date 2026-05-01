@@ -2,6 +2,7 @@ import type { WidgetConfig } from './config';
 import { sendMessage, identify, uploadAttachment, MessageResponse, SiteConfigResponse, AttachmentSummary } from './api';
 import { connectVisitorSocket, LivechatEvent } from './socket';
 import { WIDGET_STYLES } from './styles';
+import { EMOJI_CATEGORIES, applyEmojiShortcuts } from './emoji';
 import type { Socket } from 'socket.io-client';
 
 const DEFAULT_SITE_CONFIG: SiteConfigResponse = {
@@ -20,6 +21,8 @@ interface VisitorMessage {
   createdAt: string;
   attachments?: AttachmentSummary[];
   operatorName?: string;
+  /** Quick-reply chips, attached server-side after a streamed reply ends. */
+  suggestions?: string[];
 }
 
 const MESSAGES_KEY = 'livechat_messages_cache';
@@ -58,7 +61,9 @@ export function mountWidget(cfg: WidgetConfig, siteConfig: SiteConfigResponse = 
     askedForEmail: false,
     unread: 0,
     sessionClosed: false,
+    feedbackAsked: false,
     host,
+    cfg,
   };
 
   const bubbleBtn = document.createElement('button');
@@ -172,7 +177,14 @@ function buildPanel(shadow: ShadowRoot, cfg: WidgetConfig, state: any, render: (
           <div class="lc-header-sub"><span class="lc-online-dot"></span>${escapeHtml(siteConfig.botSubtitle)}</div>
         </div>
       </div>
-      <button class="lc-close" aria-label="Close">${chevronDownIcon()}</button>
+      <div class="lc-header-actions">
+        <button class="lc-menu-btn" aria-label="Conversation menu" aria-haspopup="true">${menuIcon()}</button>
+        <div class="lc-menu" role="menu" style="display:none;">
+          <button class="lc-menu-item" data-action="new">${refreshIcon()} Start a new conversation</button>
+          <button class="lc-menu-item" data-action="close">${xIcon()} End this chat</button>
+        </div>
+        <button class="lc-close" aria-label="Close">${chevronDownIcon()}</button>
+      </div>
     </div>
     <div class="lc-messages-wrap">
       <div class="lc-messages"></div>
@@ -200,6 +212,11 @@ function buildPanel(shadow: ShadowRoot, cfg: WidgetConfig, state: any, render: (
       <input class="lc-hp" name="website" tabindex="-1" autocomplete="off" />
       <input class="lc-file-input" type="file" accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.txt,.zip" style="display:none;" />
       <button type="button" class="lc-attach-btn" aria-label="Attach file">${attachIcon()}</button>
+      <button type="button" class="lc-emoji-btn" aria-label="Insert emoji">${smileyIcon()}</button>
+      <div class="lc-emoji-pop" style="display:none;" role="dialog" aria-label="Emoji picker">
+        <div class="lc-emoji-tabs">${EMOJI_CATEGORIES.map((c, i) => `<button type="button" class="lc-emoji-tab${i === 0 ? ' lc-emoji-tab-active' : ''}" data-cat="${i}">${c.name}</button>`).join('')}</div>
+        <div class="lc-emoji-grid">${EMOJI_CATEGORIES[0].emojis.map((e) => `<button type="button" class="lc-emoji-pick" data-emoji="${e}">${e}</button>`).join('')}</div>
+      </div>
       <textarea placeholder="Type your message…" rows="1"></textarea>
       <button type="submit" aria-label="Send">${sendIcon()}</button>
     </form>
@@ -218,6 +235,57 @@ function buildPanel(shadow: ShadowRoot, cfg: WidgetConfig, state: any, render: (
       }
       panel.classList.remove('lc-panel--closing');
     }, 180);
+  });
+
+  // Conversation menu — kebab in the header. Two actions:
+  //   "Start a new conversation" — drops the local sessionId and clears the
+  //     transcript so the next message creates a fresh session server-side.
+  //   "End this chat" — best-effort closes the session via the public endpoint
+  //     and shows the "new conversation" affordance once the panel is empty.
+  const menuBtn = panel.querySelector<HTMLButtonElement>('.lc-menu-btn')!;
+  const menu = panel.querySelector<HTMLDivElement>('.lc-menu')!;
+  const closeMenu = () => { menu.style.display = 'none'; };
+  menuBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+  });
+  panel.addEventListener('click', (e) => {
+    if (!menu.contains(e.target as Node) && e.target !== menuBtn) closeMenu();
+  });
+  menu.addEventListener('click', async (e) => {
+    const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('.lc-menu-item');
+    if (!btn) return;
+    closeMenu();
+    const action = btn.getAttribute('data-action');
+    if (action === 'new') {
+      if (!confirm('Start a new conversation? The current chat will be cleared.')) return;
+      resetSession();
+    } else if (action === 'close') {
+      if (!confirm('End this chat? You can always start a new one.')) return;
+      const sessionId = state.sessionId;
+      if (sessionId) {
+        // Fire-and-forget — the visitor doesn't need to wait on the network.
+        try {
+          await fetch(`${cfg.apiBase}/livechat/session/${encodeURIComponent(sessionId)}/close`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ siteKey: cfg.siteKey, visitorId: cfg.visitorId }),
+            credentials: 'omit',
+          });
+        } catch { /* ignore — the next /message call will start a fresh session anyway */ }
+      }
+      resetSession();
+      // Replace the auto-pushed welcome with a "chat ended" line so the
+      // visitor has visible confirmation that their request worked.
+      state.messages = [{
+        id: `system-${Date.now()}`,
+        role: 'system',
+        content: 'Chat ended. Type a message to start a new conversation.',
+        createdAt: new Date().toISOString(),
+      }];
+      cacheMessages(state.messages);
+      render();
+    }
   });
 
   const msgsEl = panel.querySelector<HTMLDivElement>('.lc-messages')!;
@@ -241,6 +309,57 @@ function buildPanel(shadow: ShadowRoot, cfg: WidgetConfig, state: any, render: (
   const quickRepliesEl = panel.querySelector<HTMLDivElement>('.lc-quick-replies')!;
   const sessionEndBanner = panel.querySelector<HTMLDivElement>('.lc-session-end')!;
   const sessionEndBtn = panel.querySelector<HTMLButtonElement>('.lc-session-end-btn')!;
+  const emojiBtn = panel.querySelector<HTMLButtonElement>('.lc-emoji-btn')!;
+  const emojiPop = panel.querySelector<HTMLDivElement>('.lc-emoji-pop')!;
+  const emojiTabs = panel.querySelector<HTMLDivElement>('.lc-emoji-tabs')!;
+  const emojiGrid = panel.querySelector<HTMLDivElement>('.lc-emoji-grid')!;
+
+  // Emoji picker — toggle visibility, switch categories, insert at caret.
+  function insertAtCaret(value: string) {
+    const start = textarea.selectionStart ?? textarea.value.length;
+    const end = textarea.selectionEnd ?? start;
+    textarea.value = textarea.value.slice(0, start) + value + textarea.value.slice(end);
+    const pos = start + value.length;
+    textarea.setSelectionRange(pos, pos);
+    textarea.focus();
+  }
+  function renderCategory(idx: number) {
+    const cat = EMOJI_CATEGORIES[idx];
+    if (!cat) return;
+    emojiGrid.innerHTML = cat.emojis.map((e) => `<button type="button" class="lc-emoji-pick" data-emoji="${e}">${e}</button>`).join('');
+  }
+  emojiBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    emojiPop.style.display = emojiPop.style.display === 'none' ? 'block' : 'none';
+  });
+  panel.addEventListener('click', (e) => {
+    if (e.target instanceof Node && !emojiPop.contains(e.target) && e.target !== emojiBtn) {
+      emojiPop.style.display = 'none';
+    }
+  });
+  emojiTabs.addEventListener('click', (e) => {
+    const t = (e.target as HTMLElement).closest<HTMLButtonElement>('.lc-emoji-tab');
+    if (!t) return;
+    emojiTabs.querySelectorAll('.lc-emoji-tab').forEach((b) => b.classList.remove('lc-emoji-tab-active'));
+    t.classList.add('lc-emoji-tab-active');
+    renderCategory(Number(t.getAttribute('data-cat') ?? 0));
+  });
+  emojiGrid.addEventListener('click', (e) => {
+    const t = (e.target as HTMLElement).closest<HTMLButtonElement>('.lc-emoji-pick');
+    if (!t) return;
+    insertAtCaret(t.getAttribute('data-emoji') ?? '');
+  });
+  // Live shortcut auto-replace as the visitor types space, enter, or punctuation.
+  textarea.addEventListener('input', () => {
+    const before = textarea.value;
+    const after = applyEmojiShortcuts(before);
+    if (after !== before) {
+      const caretShift = after.length - before.length;
+      const pos = (textarea.selectionStart ?? before.length) + caretShift;
+      textarea.value = after;
+      textarea.setSelectionRange(pos, pos);
+    }
+  });
 
   // "Start new chat" resets all session state so the visitor gets a fresh start.
   function resetSession() {
@@ -564,8 +683,64 @@ function connectAndListen(cfg: WidgetConfig, state: any, render: () => void, sit
         if (ta) ta.disabled = true;
         if (sb) sb.disabled = true;
         if (ab) ab.disabled = true;
+        // Push a system-style "How was this chat?" prompt with thumbs chips
+        // unless we already asked.
+        if (!state.feedbackAsked) {
+          state.feedbackAsked = true;
+          state.messages.push({
+            id: `feedback-${Date.now()}`,
+            role: 'system',
+            content: '__feedback__',
+            createdAt: new Date().toISOString(),
+          });
+        }
       }
       render();
+      return;
+    }
+
+    // Streaming reply: render a placeholder bubble keyed by draftId, append
+    // deltas, then on stream_end swap the placeholder's id for the real
+    // messageId so future renders dedupe correctly.
+    if (event.type === 'agent_stream_start' && event.draftId) {
+      const panel = state.panel as HTMLDivElement | undefined;
+      if (panel) hideTyping(panel);
+      if (!state.messages.some((m: VisitorMessage) => m.id === event.draftId)) {
+        state.messages.push({
+          id: event.draftId,
+          role: 'agent',
+          content: '',
+          createdAt: event.createdAt ?? new Date().toISOString(),
+        });
+        render();
+      }
+      return;
+    }
+    if (event.type === 'agent_stream_delta' && event.draftId && event.delta) {
+      const idx = state.messages.findIndex((m: VisitorMessage) => m.id === event.draftId);
+      if (idx >= 0) {
+        state.messages[idx] = { ...state.messages[idx], content: state.messages[idx].content + event.delta };
+        render();
+      }
+      return;
+    }
+    if (event.type === 'agent_stream_end' && event.draftId && event.messageId) {
+      const idx = state.messages.findIndex((m: VisitorMessage) => m.id === event.draftId);
+      if (idx >= 0) {
+        // Final content beats accumulated deltas — self-critique may have rewritten.
+        state.messages[idx] = { ...state.messages[idx], id: event.messageId, content: event.content ?? state.messages[idx].content };
+        cacheMessages(state.messages);
+        if (!state.open) state.unread = (state.unread ?? 0) + 1;
+        render();
+      }
+      return;
+    }
+    if (event.type === 'agent_suggestions' && event.messageId && event.suggestions?.length) {
+      const idx = state.messages.findIndex((m: VisitorMessage) => m.id === event.messageId);
+      if (idx >= 0) {
+        state.messages[idx] = { ...state.messages[idx], suggestions: event.suggestions.slice(0, 3) };
+        render();
+      }
       return;
     }
 
@@ -587,15 +762,39 @@ function renderMessages(panel: HTMLDivElement, state: any) {
     list.innerHTML = `<div class="lc-empty">Send us a message — we will get right back to you.</div>`;
     return;
   }
+  // Only the very last agent/operator message can show chips — once the visitor
+  // replies, they're stale.
+  const lastAgentIdx = (() => {
+    for (let i = state.messages.length - 1; i >= 0; i--) {
+      const m = state.messages[i] as VisitorMessage;
+      if (m.role === 'agent' || m.role === 'operator') return i;
+      if (m.role === 'visitor') return -1;
+    }
+    return -1;
+  })();
   list.innerHTML = state.messages
-    .map((m: VisitorMessage) => {
-      const text = m.content ? linkifyHtml(m.content) : '';
+    .map((m: VisitorMessage, idx: number) => {
+      // Visitor input stays plain (their own typing); agent / operator / system
+      // get the markdown subset so **bold**, *italic*, and [links](…) render.
+      const text = m.content
+        ? (m.role === 'visitor' ? linkifyHtml(m.content) : mdToHtml(m.content))
+        : '';
       const atts = (m.attachments ?? []).map(renderAttachment).join('');
       const attWrapper = atts ? `<div class="lc-attachments">${atts}</div>` : '';
       const time = formatTime(m.createdAt);
       const timeEl = time ? `<div class="lc-msg-time">${time}</div>` : '';
+      const chips = (idx === lastAgentIdx && m.suggestions && m.suggestions.length)
+        ? `<div class="lc-chips">${m.suggestions.map((s) => `<button class="lc-chip" data-chip="${escapeAttr(s)}">${escapeHtml(s)}</button>`).join('')}</div>`
+        : '';
 
       if (m.role === 'system') {
+        if (m.content === '__feedback__') {
+          return `<div class="lc-msg lc-msg-system lc-feedback" data-feedback-id="${escapeAttr(m.id)}">
+            <span>How was this chat?</span>
+            <button class="lc-fb-btn" data-rating="up" aria-label="Good">👍</button>
+            <button class="lc-fb-btn" data-rating="down" aria-label="Bad">👎</button>
+          </div>`;
+        }
         return `<div class="lc-msg lc-msg-system">${text}</div>`;
       }
       if (m.role === 'visitor') {
@@ -614,6 +813,7 @@ function renderMessages(panel: HTMLDivElement, state: any) {
             <div class="lc-msg-sender">${escapeHtml(m.operatorName)}</div>
             <div class="lc-msg lc-msg-agent">${text}${attWrapper}</div>
             ${timeEl}
+            ${chips}
           </div>
         </div>`;
       }
@@ -622,10 +822,44 @@ function renderMessages(panel: HTMLDivElement, state: any) {
         <div class="lc-msg-body">
           <div class="lc-msg lc-msg-agent">${text}${attWrapper}</div>
           ${timeEl}
+          ${chips}
         </div>
       </div>`;
     })
     .join('');
+  // Bind chip clicks: paste the chip text into the textarea and submit.
+  list.querySelectorAll<HTMLButtonElement>('.lc-chip').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const ta = panel.querySelector<HTMLTextAreaElement>('textarea');
+      const form = panel.querySelector<HTMLFormElement>('.lc-composer');
+      const value = btn.getAttribute('data-chip') ?? '';
+      if (!ta || !form || !value) return;
+      ta.value = value;
+      form.requestSubmit();
+    });
+  });
+  // Bind feedback-button clicks. Posts to /livechat/session/:id/feedback,
+  // then collapses the prompt into a thank-you line.
+  list.querySelectorAll<HTMLButtonElement>('.lc-fb-btn').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const wrapper = btn.closest('.lc-feedback') as HTMLDivElement | null;
+      const rating = btn.getAttribute('data-rating') as 'up' | 'down' | null;
+      if (!wrapper || !rating) return;
+      const sessionId = state.sessionId;
+      const cfg = state.cfg;
+      if (sessionId && cfg) {
+        try {
+          await fetch(`${cfg.apiBase}/livechat/session/${encodeURIComponent(sessionId)}/feedback`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ siteKey: cfg.siteKey, visitorId: cfg.visitorId, rating }),
+            credentials: 'omit',
+          });
+        } catch { /* ignore */ }
+      }
+      wrapper.innerHTML = `<span>Thanks for the feedback!</span>`;
+    });
+  });
   scrollMessagesToEnd(panel);
 }
 
@@ -759,6 +993,42 @@ function linkifyHtml(text: string): string {
   });
 }
 
+/**
+ * Render a small markdown subset for agent/operator messages safely:
+ * `code`, **bold**, *italic*, [text](url), and line breaks. Everything is
+ * escaped first; markdown tokens then re-introduce a tightly whitelisted set
+ * of tags. No headings, no images, no raw HTML — keeps the surface tiny.
+ */
+function mdToHtml(text: string): string {
+  let s = escapeHtml(text);
+  // Inline code first so its contents aren't re-processed by bold/italic/link.
+  const codes: string[] = [];
+  s = s.replace(/`([^`\n]+)`/g, (_, c) => {
+    codes.push(`<code class="lc-md-code">${c}</code>`);
+    return ` C${codes.length - 1} `;
+  });
+  // Markdown links [text](http(s)://...).
+  s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, (_, label, url) => {
+    return `<a href="${escapeAttr(url)}" target="_blank" rel="noopener noreferrer nofollow">${label}</a>`;
+  });
+  // Bold **text** — non-greedy, no line breaks inside.
+  s = s.replace(/\*\*([^*\n]+?)\*\*/g, '<strong>$1</strong>');
+  // Italic *text* — guard against the second char of `**` by requiring no `*` inside.
+  s = s.replace(/(^|[\s(])\*([^*\n]+?)\*(?=[\s.,;:!?)]|$)/g, '$1<em>$2</em>');
+  // Bare URL linkify (avoid those already inside an href).
+  s = s.replace(/(^|[\s>])(https?:\/\/[^\s<]+)/g, (_match, lead, url) => {
+    const m = url.match(/[.,;:!?)]+$/);
+    const tail = m ? m[0] : '';
+    const clean = tail ? url.slice(0, -tail.length) : url;
+    return `${lead}<a href="${escapeAttr(clean)}" target="_blank" rel="noopener noreferrer nofollow">${clean}</a>${tail}`;
+  });
+  // Restore code spans.
+  s = s.replace(/ C(\d+) /g, (_, i) => codes[Number(i)] ?? '');
+  // Newlines → <br>. Markdown's double-newline → paragraph would be overkill here.
+  s = s.replace(/\n/g, '<br>');
+  return s;
+}
+
 function escapeAttr(s: string): string {
   return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 }
@@ -818,4 +1088,20 @@ function chevronDownIcon() {
 
 function sendIcon() {
   return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>`;
+}
+
+function menuIcon() {
+  return `<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="6" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="18" r="1.5"/></svg>`;
+}
+
+function refreshIcon() {
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15.5-6.36L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.5 6.36L3 16"/><path d="M3 21v-5h5"/></svg>`;
+}
+
+function xIcon() {
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>`;
+}
+
+function smileyIcon() {
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>`;
 }

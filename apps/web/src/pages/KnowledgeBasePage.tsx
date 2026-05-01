@@ -1,9 +1,9 @@
 import { useState, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { BookOpen, Plus, Trash2, Edit2, X, Upload, Link, ChevronDown, ChevronRight, FileText, Globe, Code } from 'lucide-react';
+import { BookOpen, Plus, Trash2, Edit2, X, Upload, Link, ChevronDown, ChevronRight, FileText, Globe, Code, Layers } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 
-const KB_AGENTS = ['livechat', 'crisp', 'support', 'whatsapp', 'email_manager', 'linkedin', 'reddit', 'social', 'shorts'];
+const KB_AGENTS = ['livechat', 'support', 'whatsapp', 'email_manager', 'linkedin', 'reddit', 'social', 'shorts'];
 const ENTRY_TYPES = ['reference', 'fact', 'voice_profile', 'blocklist', 'product', 'service', 'offer'];
 const CATEGORIES = ['general', 'product', 'policy', 'faq', 'document', 'webpage', 'other'];
 
@@ -95,32 +95,122 @@ function useLivechatSites(token: string) {
   });
 }
 
-function LivechatSitePicker({
+type SiteScopeMode = 'all' | 'include' | 'exclude';
+
+function csvToList(csv: string): string[] {
+  return csv.split(',').map((s) => s.trim()).filter(Boolean);
+}
+
+function SiteScopeBadge({
+  siteKeys,
+  excludedSiteKeys,
+  siteLabel,
+}: {
+  siteKeys?: string | null;
+  excludedSiteKeys?: string | null;
+  siteLabel: (k: string) => string | null;
+}) {
+  const inc = siteKeys ? csvToList(siteKeys) : [];
+  const exc = excludedSiteKeys ? csvToList(excludedSiteKeys) : [];
+  if (!inc.length && !exc.length) return null;
+  if (exc.length) {
+    return (
+      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-red-500/15 text-red-400 font-medium" title={`Excluded sites: ${exc.join(', ')}`}>
+        except: {exc.map((k) => siteLabel(k) ?? k).join(', ')}
+      </span>
+    );
+  }
+  return (
+    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-cyan-500/15 text-cyan-400 font-medium" title={`Sites: ${inc.join(', ')}`}>
+      sites: {inc.map((k) => siteLabel(k) ?? k).join(', ')}
+    </span>
+  );
+}
+
+/**
+ * Three-mode site scope editor for livechat KB entries:
+ *   - all       — applies to every site (both lists empty)
+ *   - include   — applies only to checked sites (siteKeys = csv)
+ *   - exclude   — applies to all sites except checked ones (excludedSiteKeys = csv)
+ */
+function LivechatSiteScopeEditor({
   token,
-  value,
+  siteKeys,
+  excludedSiteKeys,
   onChange,
-  disabled,
 }: {
   token: string;
-  value: string;
-  onChange: (next: string) => void;
-  disabled?: boolean;
+  siteKeys: string;
+  excludedSiteKeys: string;
+  onChange: (next: { siteKeys: string; excludedSiteKeys: string }) => void;
 }) {
   const { data: sites = [] } = useLivechatSites(token);
+  const initialMode: SiteScopeMode = excludedSiteKeys.trim()
+    ? 'exclude'
+    : siteKeys.trim()
+      ? 'include'
+      : 'all';
+  const [mode, setMode] = useState<SiteScopeMode>(initialMode);
+  const checked = mode === 'include' ? csvToList(siteKeys) : mode === 'exclude' ? csvToList(excludedSiteKeys) : [];
+
+  const setMode_ = (next: SiteScopeMode) => {
+    setMode(next);
+    if (next === 'all') onChange({ siteKeys: '', excludedSiteKeys: '' });
+    else if (next === 'include') onChange({ siteKeys: csvToList(siteKeys).join(','), excludedSiteKeys: '' });
+    else onChange({ siteKeys: '', excludedSiteKeys: csvToList(excludedSiteKeys).join(',') });
+  };
+
+  const toggle = (key: string) => {
+    const next = checked.includes(key) ? checked.filter((k) => k !== key) : [...checked, key];
+    if (mode === 'include') onChange({ siteKeys: next.join(','), excludedSiteKeys: '' });
+    else if (mode === 'exclude') onChange({ siteKeys: '', excludedSiteKeys: next.join(',') });
+  };
+
   return (
-    <select
-      disabled={disabled}
-      className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none disabled:opacity-50"
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-    >
-      <option value="">All sites (shared across livechat)</option>
-      {sites.map((s) => (
-        <option key={s.key} value={s.key}>
-          {s.label} ({s.key})
-        </option>
-      ))}
-    </select>
+    <div className="space-y-2">
+      <div className="flex flex-wrap gap-3 text-xs">
+        {(['all', 'include', 'exclude'] as SiteScopeMode[]).map((m) => (
+          <label key={m} className="flex items-center gap-1.5 cursor-pointer">
+            <input
+              type="radio"
+              name="site-scope"
+              checked={mode === m}
+              onChange={() => setMode_(m)}
+              className="accent-primary"
+            />
+            {m === 'all' ? 'All sites' : m === 'include' ? 'Only these sites' : 'All sites except these'}
+          </label>
+        ))}
+      </div>
+      {mode !== 'all' && (
+        <div className="bg-background border border-border rounded-lg p-2 flex flex-wrap gap-1.5 max-h-[140px] overflow-auto">
+          {sites.length === 0 ? (
+            <span className="text-xs text-muted-foreground px-1">No livechat sites configured.</span>
+          ) : (
+            sites.map((s) => {
+              const on = checked.includes(s.key);
+              return (
+                <button
+                  key={s.key}
+                  type="button"
+                  onClick={() => toggle(s.key)}
+                  className={`text-[11px] px-2 py-1 rounded-full border transition-colors ${
+                    on
+                      ? mode === 'exclude'
+                        ? 'bg-red-500/15 text-red-500 border-red-500/40'
+                        : 'bg-primary text-primary-foreground border-primary'
+                      : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground/30'
+                  }`}
+                  title={s.key}
+                >
+                  {s.label}
+                </button>
+              );
+            })
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -175,7 +265,8 @@ function EntryModal({ entry, onClose, onSave, token }: {
     entryType: entry?.entryType ?? 'reference',
     priority: entry?.priority ?? 50,
     agentKeys: entry?.agentKeys ?? '',
-    siteKey: entry?.siteKey ?? '',
+    siteKeys: entry?.siteKeys ?? '',
+    excludedSiteKeys: entry?.excludedSiteKeys ?? '',
   });
   const livechatTagged = parseAgentKeys(form.agentKeys).includes('livechat');
 
@@ -248,17 +339,26 @@ function EntryModal({ entry, onClose, onSave, token }: {
               <label className="text-xs text-muted-foreground mb-1 block">Agents (blank = all)</label>
               <AgentMultiSelect
                 value={form.agentKeys}
-                onChange={(next) => setForm((f) => ({ ...f, agentKeys: next, siteKey: parseAgentKeys(next).includes('livechat') ? f.siteKey : '' }))}
+                onChange={(next) => {
+                  const lc = parseAgentKeys(next).includes('livechat');
+                  setForm((f) => ({
+                    ...f,
+                    agentKeys: next,
+                    siteKeys: lc ? f.siteKeys : '',
+                    excludedSiteKeys: lc ? f.excludedSiteKeys : '',
+                  }));
+                }}
               />
             </div>
           </div>
           {livechatTagged && (
             <div>
-              <label className="text-xs text-muted-foreground mb-1 block">Live Chat website (blank = all sites)</label>
-              <LivechatSitePicker
+              <label className="text-xs text-muted-foreground mb-1 block">Live Chat site scope</label>
+              <LivechatSiteScopeEditor
                 token={token}
-                value={form.siteKey}
-                onChange={(next) => setForm((f) => ({ ...f, siteKey: next }))}
+                siteKeys={form.siteKeys}
+                excludedSiteKeys={form.excludedSiteKeys}
+                onChange={(next) => setForm((f) => ({ ...f, ...next }))}
               />
             </div>
           )}
@@ -266,7 +366,12 @@ function EntryModal({ entry, onClose, onSave, token }: {
         <div className="flex justify-end gap-2 p-4 border-t border-border">
           <button onClick={onClose} className="px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground border border-border rounded-lg">Cancel</button>
           <button
-            onClick={() => onSave({ ...form, agentKeys: form.agentKeys || null, siteKey: form.siteKey || null })}
+            onClick={() => onSave({
+              ...form,
+              agentKeys: form.agentKeys || null,
+              siteKeys: form.siteKeys || null,
+              excludedSiteKeys: form.excludedSiteKeys || null,
+            })}
             disabled={!form.title.trim() || !form.content.trim()}
             className="px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded-lg hover:opacity-90 disabled:opacity-50"
           >
@@ -291,7 +396,8 @@ function SampleModal({ sample, onClose, onSave, token }: {
     sampleText: sample?.sampleText ?? '',
     polarity: sample?.polarity ?? 'positive',
     agentKeys: sample?.agentKeys ?? '',
-    siteKey: sample?.siteKey ?? '',
+    siteKeys: sample?.siteKeys ?? '',
+    excludedSiteKeys: sample?.excludedSiteKeys ?? '',
   });
   const livechatTagged = parseAgentKeys(form.agentKeys).includes('livechat');
 
@@ -338,17 +444,26 @@ function SampleModal({ sample, onClose, onSave, token }: {
               <label className="text-xs text-muted-foreground mb-1 block">Agents (blank = all)</label>
               <AgentMultiSelect
                 value={form.agentKeys}
-                onChange={(next) => setForm((f) => ({ ...f, agentKeys: next, siteKey: parseAgentKeys(next).includes('livechat') ? f.siteKey : '' }))}
+                onChange={(next) => {
+                  const lc = parseAgentKeys(next).includes('livechat');
+                  setForm((f) => ({
+                    ...f,
+                    agentKeys: next,
+                    siteKeys: lc ? f.siteKeys : '',
+                    excludedSiteKeys: lc ? f.excludedSiteKeys : '',
+                  }));
+                }}
               />
             </div>
           </div>
           {livechatTagged && (
             <div>
-              <label className="text-xs text-muted-foreground mb-1 block">Live Chat website (blank = all sites)</label>
-              <LivechatSitePicker
+              <label className="text-xs text-muted-foreground mb-1 block">Live Chat site scope</label>
+              <LivechatSiteScopeEditor
                 token={token}
-                value={form.siteKey}
-                onChange={(next) => setForm((f) => ({ ...f, siteKey: next }))}
+                siteKeys={form.siteKeys}
+                excludedSiteKeys={form.excludedSiteKeys}
+                onChange={(next) => setForm((f) => ({ ...f, ...next }))}
               />
             </div>
           )}
@@ -356,7 +471,12 @@ function SampleModal({ sample, onClose, onSave, token }: {
         <div className="flex justify-end gap-2 p-4 border-t border-border">
           <button onClick={onClose} className="px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground border border-border rounded-lg">Cancel</button>
           <button
-            onClick={() => onSave({ ...form, agentKeys: form.agentKeys || null, siteKey: form.siteKey || null })}
+            onClick={() => onSave({
+              ...form,
+              agentKeys: form.agentKeys || null,
+              siteKeys: form.siteKeys || null,
+              excludedSiteKeys: form.excludedSiteKeys || null,
+            })}
             disabled={!form.context.trim() || !form.sampleText.trim()}
             className="px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded-lg hover:opacity-90 disabled:opacity-50"
           >
@@ -370,6 +490,54 @@ function SampleModal({ sample, onClose, onSave, token }: {
 
 // ─── Tab 1: Entries ────────────────────────────────────────────────────────
 
+interface EmbeddingStatus {
+  total: number;
+  embedded: number;
+  pending: number;
+  missingExtension: boolean;
+}
+
+function EmbeddingStatusBanner({ token }: { token: string }) {
+  const qc = useQueryClient();
+  const { data: status } = useQuery<EmbeddingStatus>({
+    queryKey: ['kb-embedding-status'],
+    queryFn: () => apiFetch(token, '/knowledge-base/embeddings/status'),
+    refetchInterval: 8_000,
+  });
+  const backfillMut = useMutation({
+    mutationFn: () => apiFetch(token, '/knowledge-base/embeddings/backfill', { method: 'POST' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['kb-embedding-status'] }),
+  });
+  if (!status) return null;
+  if (status.missingExtension) {
+    return (
+      <div className="mb-3 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs">
+        Vector search disabled — pgvector extension is not installed on this database. KB still works via full-text search; install pgvector to enable semantic retrieval.
+      </div>
+    );
+  }
+  // Nothing to show: empty KB or everything is already embedded. No noise UI.
+  if (status.total === 0) return null;
+  if (status.pending === 0 && !backfillMut.isPending) return null;
+  const pct = status.total > 0 ? Math.round((status.embedded / status.total) * 100) : 0;
+  return (
+    <div className="mb-3 flex items-center gap-3 px-3 py-2 rounded-lg bg-card border border-border text-xs">
+      <span className="font-medium">Embeddings pending</span>
+      <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden max-w-xs">
+        <div className="h-full bg-primary transition-all" style={{ width: `${pct}%` }} />
+      </div>
+      <span className="text-muted-foreground tabular-nums">{status.embedded} / {status.total}</span>
+      <button
+        onClick={() => backfillMut.mutate()}
+        disabled={backfillMut.isPending}
+        className="ml-auto px-2 py-1 rounded text-xs bg-primary/15 text-primary hover:bg-primary/25 disabled:opacity-50"
+      >
+        {backfillMut.isPending ? 'Syncing…' : `Sync ${status.pending} entries`}
+      </button>
+    </div>
+  );
+}
+
 function EntriesTab({ token }: { token: string }) {
   const qc = useQueryClient();
   const [agentFilter, setAgentFilter] = useState('');
@@ -379,6 +547,7 @@ function EntriesTab({ token }: { token: string }) {
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [modal, setModal] = useState<null | 'add' | any>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const { data: sites = [] } = useLivechatSites(token);
 
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
@@ -444,8 +613,30 @@ function EntriesTab({ token }: { token: string }) {
     return m ? m.label : key;
   };
 
+  // Group chunks under their parent doc so the list stays readable when an
+  // imported document explodes into 11+ rows. A top-level row is anything
+  // that has no parent, OR an orphan whose parent isn't in this page.
+  const childrenByParent = new Map<string, any[]>();
+  for (const e of entries as any[]) {
+    if (e.parentDocId) {
+      const list = childrenByParent.get(e.parentDocId) ?? [];
+      list.push(e);
+      childrenByParent.set(e.parentDocId, list);
+    }
+  }
+  const presentIds = new Set((entries as any[]).map((e) => e.id));
+  const topLevel = (entries as any[]).filter((e) => !e.parentDocId || !presentIds.has(e.parentDocId));
+  const toggleExpanded = (id: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
   return (
     <div>
+      <EmbeddingStatusBanner token={token} />
       {/* Filter bar */}
       <div className="flex flex-wrap gap-2 mb-4">
         <input
@@ -528,51 +719,98 @@ function EntriesTab({ token }: { token: string }) {
               Select all on this page
             </label>
           )}
-          {entries.map((entry: any) => (
-            <div key={entry.id} className="bg-card border border-border rounded-lg px-4 py-3 flex items-start gap-3">
-              {!entry.parentDocId ? (
-                <input
-                  type="checkbox"
-                  checked={selected.has(entry.id)}
-                  onChange={() => toggleSelected(entry.id)}
-                  className="accent-primary mt-1 shrink-0"
-                />
-              ) : (
-                <span className="w-4" />
-              )}
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-sm font-medium">{entry.title}</span>
-                  <span className={`text-xs px-1.5 py-0.5 rounded-full ${typeBadge(entry.entryType)}`}>{entry.entryType}</span>
-                  <span className={`text-xs px-1.5 py-0.5 rounded-full ${sourceBadge(entry.sourceType)}`}>{entry.sourceType}</span>
-                  {entry.parentDocId && <span className="text-xs text-muted-foreground">chunk</span>}
-                  <span className="text-xs text-muted-foreground">{entry.category}</span>
-                  {entry.priority !== 50 && <span className="text-xs text-muted-foreground">p:{entry.priority}</span>}
-                  <AgentPills csv={entry.agentKeys} fallback="all agents" />
-                  {entry.siteKey && (
-                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-cyan-500/15 text-cyan-400 font-medium">
-                      site: {siteLabel(entry.siteKey)}
-                    </span>
+          {topLevel.map((entry: any) => {
+            const children = childrenByParent.get(entry.id) ?? [];
+            const hasChildren = children.length > 0;
+            const isOpen = expanded.has(entry.id);
+            return (
+              <div key={entry.id} className="bg-card border border-border rounded-lg overflow-hidden">
+                <div className="px-4 py-3 flex items-start gap-3">
+                  {!entry.parentDocId ? (
+                    <input
+                      type="checkbox"
+                      checked={selected.has(entry.id)}
+                      onChange={() => toggleSelected(entry.id)}
+                      className="accent-primary mt-1 shrink-0"
+                    />
+                  ) : (
+                    <span className="w-4" />
                   )}
+                  {hasChildren ? (
+                    <button
+                      onClick={() => toggleExpanded(entry.id)}
+                      className="text-muted-foreground hover:text-foreground p-0.5 mt-0.5 shrink-0"
+                      title={isOpen ? 'Collapse chunks' : 'Expand chunks'}
+                    >
+                      {isOpen ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                    </button>
+                  ) : (
+                    <span className="w-4" />
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm font-medium">{entry.title}</span>
+                      <span className={`text-xs px-1.5 py-0.5 rounded-full ${typeBadge(entry.entryType)}`}>{entry.entryType}</span>
+                      <span className={`text-xs px-1.5 py-0.5 rounded-full ${sourceBadge(entry.sourceType)}`}>{entry.sourceType}</span>
+                      {entry.parentDocId && <span className="text-xs text-muted-foreground">chunk</span>}
+                      {hasChildren && (
+                        <span className="text-[10px] inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-indigo-500/15 text-indigo-400 font-medium">
+                          <Layers className="w-3 h-3" /> {children.length} chunk{children.length === 1 ? '' : 's'}
+                        </span>
+                      )}
+                      <span className="text-xs text-muted-foreground">{entry.category}</span>
+                      {entry.priority !== 50 && <span className="text-xs text-muted-foreground">p:{entry.priority}</span>}
+                      <AgentPills csv={entry.agentKeys} fallback="all agents" />
+                      <SiteScopeBadge siteKeys={entry.siteKeys} excludedSiteKeys={entry.excludedSiteKeys} siteLabel={siteLabel} />
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-0.5 truncate">{entry.content}</p>
+                  </div>
+                  {!entry.parentDocId && (
+                    <button
+                      onClick={() => setModal(entry)}
+                      className="text-muted-foreground hover:text-foreground p-1"
+                    >
+                      <Edit2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                  <button
+                    onClick={() => {
+                      const msg = hasChildren
+                        ? `Delete "${entry.title}" and its ${children.length} chunk${children.length === 1 ? '' : 's'}? This cannot be undone.`
+                        : `Delete "${entry.title}"? This cannot be undone.`;
+                      if (confirm(msg)) deleteMut.mutate(entry.id);
+                    }}
+                    className="text-muted-foreground hover:text-destructive p-1"
+                    title={hasChildren ? `Delete with ${children.length} chunks` : 'Delete'}
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
                 </div>
-                <p className="text-xs text-muted-foreground mt-0.5 truncate">{entry.content}</p>
+                {hasChildren && isOpen && (
+                  <div className="border-t border-border bg-muted/20 px-4 py-2 space-y-1">
+                    {children.map((c: any) => (
+                      <div key={c.id} className="flex items-start gap-2 text-xs py-1">
+                        <span className="text-muted-foreground shrink-0 font-mono">↳</span>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium truncate">{c.title}</span>
+                          </div>
+                          <p className="text-muted-foreground mt-0.5 truncate">{c.content}</p>
+                        </div>
+                        <button
+                          onClick={() => deleteMut.mutate(c.id)}
+                          className="text-muted-foreground hover:text-destructive p-1"
+                          title="Delete this chunk"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
-              {!entry.parentDocId && (
-                <button
-                  onClick={() => setModal(entry)}
-                  className="text-muted-foreground hover:text-foreground p-1"
-                >
-                  <Edit2 className="w-3.5 h-3.5" />
-                </button>
-              )}
-              <button
-                onClick={() => deleteMut.mutate(entry.id)}
-                className="text-muted-foreground hover:text-destructive p-1"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -745,11 +983,7 @@ function SamplesTab({ token }: { token: string }) {
                     {s.polarity === 'positive' ? '✓' : '✗'} {s.polarity}
                   </span>
                   <AgentPills csv={s.agentKeys} fallback="all agents" />
-                  {s.siteKey && (
-                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-cyan-500/15 text-cyan-400 font-medium">
-                      site: {siteLabel(s.siteKey)}
-                    </span>
-                  )}
+                  <SiteScopeBadge siteKeys={s.siteKeys} excludedSiteKeys={s.excludedSiteKeys} siteLabel={siteLabel} />
                 </div>
                 <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{s.sampleText}</p>
               </div>
@@ -845,6 +1079,7 @@ function ImportTab({ token }: { token: string }) {
     setUploading(true);
     setFileResults({});
 
+    const localResults: Record<string, { ok: boolean; chunks?: number; title?: string; error?: string }> = {};
     for (const f of files) {
       setActiveFileName(f.name);
       try {
@@ -854,15 +1089,26 @@ function ImportTab({ token }: { token: string }) {
           method: 'POST',
           body: JSON.stringify({ filename: f.name, mimeType: f.type, data: base64, agentKeys: fileAgentKeys || undefined, category: fileCategory }),
         });
-        setFileResults((prev) => ({ ...prev, [f.name]: { ok: true, chunks: result.chunks, title: result.title } }));
+        localResults[f.name] = { ok: true, chunks: result.chunks, title: result.title };
+        setFileResults((prev) => ({ ...prev, [f.name]: localResults[f.name] }));
       } catch (err: unknown) {
-        setFileResults((prev) => ({ ...prev, [f.name]: { ok: false, error: (err as Error).message ?? 'Upload failed' } }));
+        localResults[f.name] = { ok: false, error: (err as Error).message ?? 'Upload failed' };
+        setFileResults((prev) => ({ ...prev, [f.name]: localResults[f.name] }));
       }
     }
 
     setActiveFileName(null);
     qc.invalidateQueries({ queryKey: ['kb-imports', 'kb-entries'] });
     setUploading(false);
+
+    // Reset form on success — drop successful files, keep failed ones for retry,
+    // and clear the agent / category selection so the next batch starts clean.
+    setFiles((prev) => prev.filter((f) => !localResults[f.name]?.ok));
+    if (Object.values(localResults).every((r) => r.ok)) {
+      setFileAgentKeys('');
+      setFileCategory('document');
+      if (fileRef.current) fileRef.current.value = '';
+    }
   }
 
   async function handleLinkImport() {
@@ -876,6 +1122,8 @@ function ImportTab({ token }: { token: string }) {
       setLinkResult(result);
       qc.invalidateQueries({ queryKey: ['kb-imports', 'kb-entries'] });
       setUrl('');
+      setLinkAgentKeys('');
+      setLinkCategory('webpage');
     } catch (err: any) {
       setLinkError(err.message ?? 'Import failed');
     } finally {
@@ -1091,7 +1339,7 @@ function TemplatesTab({ token }: { token: string }) {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <p className="text-xs text-muted-foreground">Templates override agent system prompts. Key format: <code className="font-mono bg-muted px-1 rounded">agentKey.reply</code> e.g. <code className="font-mono bg-muted px-1 rounded">crisp.reply</code></p>
+        <p className="text-xs text-muted-foreground">Templates override agent system prompts. Key format: <code className="font-mono bg-muted px-1 rounded">agentKey.reply</code> e.g. <code className="font-mono bg-muted px-1 rounded">livechat.reply</code></p>
         <button onClick={() => setShowAdd(v => !v)} className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-primary-foreground text-sm rounded-lg hover:opacity-90">
           <Plus className="w-3.5 h-3.5" /> New Template
         </button>

@@ -2,7 +2,6 @@ import { Injectable } from '@nestjs/common';
 import { SESClient, GetSendQuotaCommand } from '@aws-sdk/client-ses';
 import { Client as MinioClient } from 'minio';
 import { SettingsService } from '../settings/settings.service';
-import { CrispService } from '../agents/crisp/crisp.service';
 import { StorageService } from '../storage/storage.service';
 import { GmailService } from '../gmail/gmail.service';
 
@@ -15,7 +14,6 @@ export interface TestResult {
 export class IntegrationsService {
   constructor(
     private readonly settings: SettingsService,
-    private readonly crispService: CrispService,
     private readonly storageService: StorageService,
     private readonly gmailService: GmailService,
   ) {}
@@ -25,7 +23,6 @@ export class IntegrationsService {
       case 'whatsapp': return this.testWhatsApp();
       case 'linkedin':  return this.testLinkedIn();
       case 'reddit':    return this.testReddit();
-      case 'crisp':     return this.testCrisp();
       case 'telegram':  return this.testTelegram();
       case 'ses':       return this.testSes();
       case 'gmail':     return this.testGmail();
@@ -127,17 +124,6 @@ export class IntegrationsService {
     } catch (err) {
       return { ok: false, message: err instanceof Error ? err.message : String(err) };
     }
-  }
-
-  private async testCrisp(): Promise<TestResult> {
-    const sites = await this.crispService.listWebsites();
-    if (!sites.length) return { ok: false, message: 'No websites configured' };
-    const enabled = sites.filter((s) => s.enabled);
-    if (!enabled.length) return { ok: false, message: 'No websites enabled' };
-    const results = await Promise.all(enabled.map((s) => this.crispService.testWebsite(s.id)));
-    const failed = results.filter((r) => !r.ok);
-    if (!failed.length) return { ok: true, message: results.map((r) => r.message).join(' | ') };
-    return { ok: false, message: failed.map((r) => r.message).join(' | ') };
   }
 
   private async testTelegram(): Promise<TestResult> {

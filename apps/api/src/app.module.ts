@@ -25,7 +25,6 @@ import { SupportModule } from './modules/agents/support/support.module';
 import { WhatsAppModule } from './modules/agents/whatsapp/whatsapp.module';
 import { LinkedInModule } from './modules/agents/linkedin/linkedin.module';
 import { RedditModule } from './modules/agents/reddit/reddit.module';
-import { CrispModule } from './modules/agents/crisp/crisp.module';
 import { HrModule } from './modules/agents/hr/hr.module';
 import { SocialModule } from './modules/agents/social/social.module';
 import { CanvaModule } from './modules/agents/canva/canva.module';
@@ -90,7 +89,6 @@ import { PushModule } from './modules/push/push.module';
     WhatsAppModule,
     LinkedInModule,
     RedditModule,
-    CrispModule,
     HrModule,
     SocialModule,
     CanvaModule,

@@ -414,6 +414,7 @@ function SitesTab() {
                   </Button>
                 </div>
               </div>
+              <SiteMetricsRow siteId={s.id} token={token} />
             </div>
           ))
         )}
@@ -431,6 +432,83 @@ function SitesTab() {
         )}
         {installing && <InstallModal site={installing} freshlyCreated={!editing} onClose={() => setInstalling(null)} />}
       </div>
+    </div>
+  );
+}
+
+interface SiteMetrics {
+  siteId: string;
+  windowDays: number;
+  sessionsTotal: number;
+  sessionsClosed: number;
+  sessionsEscalated: number;
+  agentReplies: number;
+  operatorReplies: number;
+  fallbacks: number;
+  thumbsUp: number;
+  thumbsDown: number;
+  csatPct: number | null;
+  avgMessagesPerSession: number;
+  avgFirstResponseMs: number | null;
+}
+
+function SiteMetricsRow({ siteId, token }: { siteId: string; token: string }) {
+  const [days, setDays] = useState(7);
+  const { data, isLoading } = useQuery<SiteMetrics>({
+    queryKey: ['livechat-site-metrics', siteId, days],
+    queryFn: () => apiFetch(token, `/agents/livechat/sites/${siteId}/metrics?days=${days}`),
+    refetchInterval: 30_000,
+  });
+  if (isLoading || !data) {
+    return (
+      <div className="border-t border-border/50 pt-3 mt-2 grid grid-cols-2 sm:grid-cols-4 gap-2">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="h-10 bg-muted/40 rounded animate-pulse" />
+        ))}
+      </div>
+    );
+  }
+  const responseLabel = data.avgFirstResponseMs != null
+    ? data.avgFirstResponseMs < 1000
+      ? `${data.avgFirstResponseMs}ms`
+      : `${(data.avgFirstResponseMs / 1000).toFixed(1)}s`
+    : '—';
+  return (
+    <div className="border-t border-border/50 pt-3 mt-2">
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-[11px] uppercase tracking-wide text-muted-foreground">Quality · last {data.windowDays}d</span>
+        <select
+          className="text-[11px] bg-background border border-border rounded px-1.5 py-0.5"
+          value={days}
+          onChange={(e) => setDays(Number(e.target.value))}
+        >
+          <option value={1}>24h</option>
+          <option value={7}>7d</option>
+          <option value={30}>30d</option>
+        </select>
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+        <Metric label="Sessions" value={data.sessionsTotal} sub={`${data.sessionsEscalated} escalated`} />
+        <Metric label="AI replies" value={data.agentReplies} sub={data.fallbacks > 0 ? `${data.fallbacks} fallback${data.fallbacks === 1 ? '' : 's'}` : undefined} />
+        <Metric label="First response" value={responseLabel} sub={`${data.avgMessagesPerSession} msgs/session`} />
+        <Metric
+          label="CSAT"
+          value={data.csatPct != null ? `${data.csatPct}%` : '—'}
+          sub={data.thumbsUp + data.thumbsDown > 0 ? `${data.thumbsUp}👍 ${data.thumbsDown}👎` : 'no ratings yet'}
+          accent={data.csatPct != null ? (data.csatPct >= 70 ? 'good' : data.csatPct >= 40 ? 'warn' : 'bad') : undefined}
+        />
+      </div>
+    </div>
+  );
+}
+
+function Metric({ label, value, sub, accent }: { label: string; value: string | number; sub?: string; accent?: 'good' | 'warn' | 'bad' }) {
+  const accentClass = accent === 'good' ? 'text-emerald-500' : accent === 'warn' ? 'text-yellow-500' : accent === 'bad' ? 'text-red-500' : '';
+  return (
+    <div className="bg-muted/30 rounded px-2 py-1.5">
+      <div className={`text-base font-semibold ${accentClass}`}>{value}</div>
+      <div className="text-[10px] text-muted-foreground uppercase tracking-wide">{label}</div>
+      {sub && <div className="text-[10px] text-muted-foreground mt-0.5 truncate">{sub}</div>}
     </div>
   );
 }
@@ -1389,6 +1467,26 @@ function SessionPane({
         if (event.on) {
           visitorTypingTimerRef.current = setTimeout(() => setVisitorTyping(false), 5000);
         }
+      } else if (event.type === 'agent_stream_start' && event.draftId) {
+        // Mirror the widget: render a placeholder bubble keyed by draftId,
+        // accumulate deltas into it, and finalize on stream_end.
+        setLiveMessages((prev) =>
+          prev.some((m) => m.id === event.draftId)
+            ? prev
+            : [...prev, {
+                id: event.draftId,
+                sessionId: event.sessionId,
+                role: 'agent',
+                content: '',
+                createdAt: event.createdAt ?? new Date().toISOString(),
+                attachments: [],
+                pendingApproval: false,
+              }],
+        );
+      } else if (event.type === 'agent_stream_delta' && event.draftId && event.delta) {
+        setLiveMessages((prev) => prev.map((m) => m.id === event.draftId ? { ...m, content: m.content + event.delta } : m));
+      } else if (event.type === 'agent_stream_end' && event.draftId && event.messageId) {
+        setLiveMessages((prev) => prev.map((m) => m.id === event.draftId ? { ...m, id: event.messageId, content: event.content ?? m.content } : m));
       }
     });
     return () => {
@@ -1711,6 +1809,19 @@ function SessionPane({
             placeholder={composerEnabled ? `Send your message to ${visitorName} in chat…` : 'Click "Take over" to reply'}
             className="w-full text-sm bg-card px-4 py-3 resize-none min-h-[80px] focus:outline-none disabled:opacity-50 placeholder:text-muted-foreground"
             onInput={() => {
+              // Live emoji-shortcut substitution mirrors the visitor widget
+              // so :D / :) / <3 / etc. expand inline.
+              const ta = composerRef.current;
+              if (ta) {
+                const before = ta.value;
+                const after = applyOperatorEmojiShortcuts(before);
+                if (after !== before) {
+                  const caretShift = after.length - before.length;
+                  const pos = (ta.selectionStart ?? before.length) + caretShift;
+                  ta.value = after;
+                  ta.setSelectionRange(pos, pos);
+                }
+              }
               const sock = sockRef.current;
               if (!sock || !composerEnabled) return;
               const hasText = !!composerRef.current?.value.trim();
@@ -2993,6 +3104,27 @@ function prettyLanguage(lang: string): string {
   } catch {
     return lang;
   }
+}
+
+// Same shortcuts as the visitor widget (apps/web/widget/emoji.ts) — duplicated
+// here so the operator UI doesn't have to import from the embedded widget bundle.
+const OPERATOR_EMOJI_SHORTCUTS: Array<[string, string]> = [
+  [':)', '🙂'], [':-)', '🙂'], [':D', '😄'], [':-D', '😄'], ['xD', '😆'], ['XD', '😆'],
+  [':P', '😛'], [':p', '😋'], [':-P', '😛'],
+  [":'(", '😢'], [':(', '🙁'], [':-(', '🙁'],
+  [';)', '😉'], [';-)', '😉'],
+  [':O', '😮'], [':o', '😮'], [':-O', '😮'], [':oO', '😳'],
+  [':|', '😐'], [':-|', '😐'], [':/', '😕'], [':-/', '😕'],
+  ['<3', '❤️'], ['</3', '💔'], [':*', '😘'], ['B)', '😎'],
+];
+function applyOperatorEmojiShortcuts(input: string): string {
+  let out = input;
+  for (const [token, emoji] of OPERATOR_EMOJI_SHORTCUTS) {
+    const escaped = token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const re = new RegExp(`(^|\\s)${escaped}(?=\\s|$|[.,!?])`, 'g');
+    out = out.replace(re, `$1${emoji}`);
+  }
+  return out;
 }
 
 function groupMessagesByDay(messages: MessageRow[]): { day: string; items: MessageRow[] }[] {

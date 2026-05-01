@@ -23,7 +23,6 @@ import HealthPage from '@/pages/HealthPage';
 import LlmUsagePage from '@/pages/LlmUsagePage';
 import OpsPage from '@/pages/OpsPage';
 import ContactsPage from '@/pages/ContactsPage';
-import FollowUpsPage from '@/pages/FollowUpsPage';
 import NotFoundPage from '@/pages/NotFoundPage';
 import AppLayout from '@/components/AppLayout';
 import { useAuthStore } from '@/stores/authStore';
@@ -61,7 +60,6 @@ export default function App() {
             <Route path="/tasks" element={<TasksPage />} />
             <Route path="/inbox" element={<InboxPage />} />
             <Route path="/contacts" element={<ContactsPage />} />
-            <Route path="/follow-ups" element={<FollowUpsPage />} />
             <Route path="/debug-logs" element={<DebugLogsPage />} />
             <Route path="/approvals" element={<ApprovalsPage />} />
             <Route path="/runs/:id" element={<RunDetailPage />} />

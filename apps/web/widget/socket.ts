@@ -2,7 +2,9 @@ import { io, Socket } from 'socket.io-client';
 import type { WidgetConfig } from './config';
 
 export interface LivechatEvent {
-  type: 'message' | 'pageview' | 'session_status' | 'typing';
+  type: 'message' | 'pageview' | 'session_status' | 'typing'
+      | 'agent_stream_start' | 'agent_stream_delta' | 'agent_stream_end'
+      | 'agent_suggestions';
   sessionId: string;
   role?: 'visitor' | 'agent' | 'operator' | 'system';
   content?: string;
@@ -10,6 +12,11 @@ export interface LivechatEvent {
   createdAt?: string;
   status?: string;
   on?: boolean;
+  /** Streaming-only fields. */
+  draftId?: string;
+  delta?: string;
+  /** Quick-reply chips for the latest agent message. */
+  suggestions?: string[];
 }
 
 export function connectVisitorSocket(cfg: WidgetConfig, sessionId: string, onEvent: (e: LivechatEvent) => void): Socket {

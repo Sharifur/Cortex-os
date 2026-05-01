@@ -39,7 +39,8 @@ async function api<T>(token: string, path: string, opts?: RequestInit): Promise<
 }
 
 const SOURCE_LABELS: Record<string, string> = {
-  crisp: 'Crisp',
+  livechat: 'Live Chat',
+  crisp: 'Live Chat (legacy)',
   taskip: 'Taskip',
   email: 'Email',
   whatsapp: 'WhatsApp',
@@ -48,6 +49,7 @@ const SOURCE_LABELS: Record<string, string> = {
 };
 
 const SOURCE_COLORS: Record<string, string> = {
+  livechat: 'bg-violet-500/15 text-violet-300',
   crisp: 'bg-violet-500/15 text-violet-300',
   taskip: 'bg-emerald-500/15 text-emerald-300',
   email: 'bg-blue-500/15 text-blue-300',
@@ -111,7 +113,7 @@ export default function ContactsPage() {
           <div>
             <h1 className="text-xl font-semibold">Contacts</h1>
             <p className="text-xs text-muted-foreground">
-              Cross-channel address book. Each contact is linked to a source (Crisp visitor, email recipient, manual entry).
+              Cross-channel address book. Each contact is linked to a source (live chat visitor, email recipient, manual entry).
             </p>
           </div>
         </div>
@@ -123,7 +125,7 @@ export default function ContactsPage() {
 
       <div className="grid grid-cols-4 gap-3 mt-6 mb-6">
         <Stat label="Total" value={stats.data?.total ?? '–'} />
-        <Stat label="Crisp" value={stats.data?.crisp ?? '–'} accent="violet" />
+        <Stat label="Live Chat" value={stats.data?.crisp ?? '–'} accent="violet" />
         <Stat label="Email" value={stats.data?.email ?? '–'} accent="blue" />
         <Stat label="Manual" value={stats.data?.manual ?? '–'} accent="slate" />
       </div>
@@ -145,7 +147,7 @@ export default function ContactsPage() {
             className="text-xs bg-muted/40 border border-border rounded-md px-2 py-1.5"
           >
             <option value="">All sources</option>
-            <option value="crisp">Crisp</option>
+            <option value="livechat">Live Chat</option>
             <option value="email">Email</option>
             <option value="taskip">Taskip</option>
             <option value="manual">Manual</option>
@@ -159,7 +161,7 @@ export default function ContactsPage() {
           <div className="p-12 text-center">
             <p className="text-sm text-muted-foreground">No contacts yet.</p>
             <p className="text-xs text-muted-foreground/70 mt-1">
-              Crisp visitors are added automatically when they message you.
+              Live chat visitors are added automatically when they message you.
             </p>
           </div>
         )}
