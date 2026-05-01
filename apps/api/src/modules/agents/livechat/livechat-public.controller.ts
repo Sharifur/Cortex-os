@@ -239,6 +239,23 @@ export class LivechatPublicController {
     return { ok: true };
   }
 
+  @Post('session/:id/message/:msgId/rating')
+  async messageRating(
+    @Req() req: FastifyRequest,
+    @Param('id') sessionId: string,
+    @Param('msgId') messageId: string,
+    @Body() body: { siteKey?: string; visitorId?: string; rating?: 'up' | 'down' },
+  ) {
+    if (!body?.siteKey || !body?.visitorId) throw new BadRequestException('siteKey and visitorId are required');
+    if (body.rating !== 'up' && body.rating !== 'down') throw new BadRequestException('rating must be "up" or "down"');
+    const origin = req.headers.origin as string | undefined;
+    const site = await this.livechat.resolveSiteForRequest(body.siteKey, origin ?? null);
+    const session = await this.livechat.getSession(sessionId);
+    if (!session || session.siteId !== site.id || session.visitorId !== body.visitorId) return { ok: true };
+    await this.livechat.rateMessage(messageId, sessionId, body.rating);
+    return { ok: true };
+  }
+
   @Post('identify')
   async identify(@Req() req: FastifyRequest, @Body() body: IdentifyBody) {
     if (!body?.siteKey || !body?.visitorId) {

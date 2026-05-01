@@ -540,6 +540,29 @@ export const WIDGET_STYLES = `
 .lc-attach-file span:first-of-type { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
 .lc-attach-file .lc-attach-size { color: #6b7280; flex-shrink: 0; }
 
+/* ── Per-message rating ── */
+.lc-msg-rating {
+  display: flex;
+  gap: 4px;
+  margin-top: 4px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.lc-msg-row:hover .lc-msg-rating { opacity: 1; }
+.lc-rate-btn {
+  background: transparent;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 2px 6px;
+  font-size: 13px;
+  cursor: pointer;
+  line-height: 1;
+  transition: background 0.12s, border-color 0.12s;
+}
+.lc-rate-btn:hover:not(:disabled) { background: #f3f4f6; border-color: #d1d5db; }
+.lc-rate-btn:disabled { cursor: default; opacity: 0.5; }
+.lc-rate-btn--active { background: #f0fdf4; border-color: #86efac; }
+
 /* ── Proactive bubble ── */
 .lc-proactive {
   position: absolute;

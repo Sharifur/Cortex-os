@@ -120,6 +120,8 @@ export function mountWidget(cfg: WidgetConfig, siteConfig: SiteConfigResponse = 
   const panel = buildPanel(shadow, cfg, state, render, siteConfig);
   panel.style.display = 'none';
   state.panel = panel;
+  (panel as any)._state = state;
+  (panel as any)._cfg = cfg;
 
   const isMobile = () => window.innerWidth <= 480;
   const DESKTOP_HOST_STYLE = `position: fixed; bottom: 40px; right: 40px; z-index: 2147483646;`;
@@ -843,6 +845,12 @@ function renderMessages(panel: HTMLDivElement, state: any) {
           </div>
         </div>`;
       }
+      const ratingHtml = m.id && m.id !== 'welcome'
+        ? `<div class="lc-msg-rating" data-msg-id="${escapeAttr(m.id)}">
+            <button class="lc-rate-btn" data-rating="up" aria-label="Helpful">&#128077;</button>
+            <button class="lc-rate-btn" data-rating="down" aria-label="Not helpful">&#128078;</button>
+           </div>`
+        : '';
       if (m.role === 'operator' && m.operatorName) {
         const initials = getInitials(m.operatorName);
         return `<div class="lc-msg-row lc-msg-row-agent">
@@ -852,6 +860,7 @@ function renderMessages(panel: HTMLDivElement, state: any) {
             <div class="lc-msg lc-msg-agent">${text}${attWrapper}</div>
             ${timeEl}
             ${chips}
+            ${ratingHtml}
           </div>
         </div>`;
       }
@@ -861,10 +870,33 @@ function renderMessages(panel: HTMLDivElement, state: any) {
           <div class="lc-msg lc-msg-agent">${text}${attWrapper}</div>
           ${timeEl}
           ${chips}
+          ${ratingHtml}
         </div>
       </div>`;
     })
     .join('');
+  // Per-message rating buttons.
+  list.querySelectorAll<HTMLDivElement>('.lc-msg-rating').forEach((wrapper) => {
+    wrapper.querySelectorAll<HTMLButtonElement>('.lc-rate-btn').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const rating = btn.getAttribute('data-rating') as 'up' | 'down';
+        const msgId = wrapper.getAttribute('data-msg-id') ?? '';
+        const sessionId = (panel as any)._state?.sessionId ?? '';
+        const cfg = (panel as any)._cfg;
+        if (!msgId || !sessionId || !cfg) return;
+        wrapper.querySelectorAll('.lc-rate-btn').forEach((b) => (b as HTMLButtonElement).disabled = true);
+        btn.classList.add('lc-rate-btn--active');
+        try {
+          await fetch(`${cfg.apiBase}/livechat/session/${encodeURIComponent(sessionId)}/message/${encodeURIComponent(msgId)}/rating`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ siteKey: cfg.siteKey, visitorId: cfg.visitorId, rating }),
+            credentials: 'omit',
+          });
+        } catch {}
+      });
+    });
+  });
   // Bind chip clicks: paste the chip text into the textarea and submit.
   list.querySelectorAll<HTMLButtonElement>('.lc-chip').forEach((btn) => {
     btn.addEventListener('click', () => {

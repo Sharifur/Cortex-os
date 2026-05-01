@@ -77,6 +77,7 @@ interface Site {
   transcriptEnabled: boolean;
   transcriptBcc: string | null;
   transcriptFrom: string | null;
+  topicHandlingRules: string | null;
   createdAt: string;
 }
 
@@ -345,6 +346,7 @@ function SitesTab() {
         transcriptEnabled: s.transcriptEnabled ?? false,
         transcriptBcc: s.transcriptBcc ?? null,
         transcriptFrom: s.transcriptFrom ?? null,
+        topicHandlingRules: s.topicHandlingRules ?? null,
       };
       if (s.id) {
         return apiFetch(token, `/agents/livechat/sites/${s.id}`, { method: 'PATCH', body: JSON.stringify(payload) });
@@ -780,6 +782,14 @@ function SiteFormModal({ site, onClose, onSave, error }: { site: Partial<Site>; 
             </Field>
             <Field label="Reply tone">
               <Input value={draft.replyTone ?? ''} onChange={(e) => setDraft({ ...draft, replyTone: e.target.value })} placeholder="friendly, concise" />
+            </Field>
+            <Field label="Topic handling instructions" hint="Tell the bot how to handle specific topics: support tickets, pricing questions, custom requests, etc. One instruction per line.">
+              <textarea
+                value={draft.topicHandlingRules ?? ''}
+                onChange={(e) => setDraft({ ...draft, topicHandlingRules: e.target.value })}
+                className="w-full text-sm bg-background border border-border rounded-md px-3 py-2 min-h-[90px]"
+                placeholder={"For support tickets: ask visitor to email support@yourcompany.com\nFor custom development: say we offer Enterprise plans, direct to /pricing\nFor refund requests: ask them to email billing@yourcompany.com"}
+              />
             </Field>
             <div className="border border-border rounded-md p-3 bg-muted/30">
               <label className="flex items-center gap-2 text-sm font-medium">

@@ -44,6 +44,7 @@ export interface LivechatSiteRow {
   transcriptEnabled: boolean;
   transcriptBcc: string | null;
   transcriptFrom: string | null;
+  topicHandlingRules: string | null;
   createdAt: Date;
 }
 
@@ -67,6 +68,7 @@ export interface CreateSiteDto {
   transcriptEnabled?: boolean;
   transcriptBcc?: string | null;
   transcriptFrom?: string | null;
+  topicHandlingRules?: string | null;
 }
 
 export interface UpdateSiteDto {
@@ -89,6 +91,7 @@ export interface UpdateSiteDto {
   transcriptEnabled?: boolean;
   transcriptBcc?: string | null;
   transcriptFrom?: string | null;
+  topicHandlingRules?: string | null;
 }
 
 export interface LivechatOperatorRow {
@@ -493,6 +496,14 @@ export class LivechatService {
       }
     }
     return row;
+  }
+
+  async rateMessage(messageId: string, sessionId: string, rating: 'up' | 'down'): Promise<boolean> {
+    const result = await this.db.db
+      .update(livechatMessages)
+      .set({ visitorRating: rating })
+      .where(and(eq(livechatMessages.id, messageId), eq(livechatMessages.sessionId, sessionId)));
+    return (result.rowCount ?? 0) > 0;
   }
 
   async getRecentMessages(sessionId: string, limit = 50) {
@@ -937,6 +948,7 @@ export class LivechatService {
         transcriptEnabled: dto.transcriptEnabled ?? false,
         transcriptBcc: dto.transcriptBcc?.trim() || null,
         transcriptFrom: dto.transcriptFrom?.trim() || null,
+        topicHandlingRules: dto.topicHandlingRules?.trim() || null,
       })
       .returning();
     await this.originCache.refresh().catch(() => undefined);
@@ -1071,6 +1083,7 @@ export class LivechatService {
     if (dto.transcriptEnabled !== undefined) set.transcriptEnabled = dto.transcriptEnabled;
     if (dto.transcriptBcc !== undefined) set.transcriptBcc = dto.transcriptBcc?.trim() || null;
     if (dto.transcriptFrom !== undefined) set.transcriptFrom = dto.transcriptFrom?.trim() || null;
+    if (dto.topicHandlingRules !== undefined) set.topicHandlingRules = dto.topicHandlingRules?.trim() || null;
 
     if (Object.keys(set).length === 0) return this.toSiteRow(existing);
 
@@ -1165,6 +1178,7 @@ export class LivechatService {
       transcriptEnabled: r.transcriptEnabled,
       transcriptBcc: r.transcriptBcc,
       transcriptFrom: r.transcriptFrom,
+      topicHandlingRules: r.topicHandlingRules ?? null,
       createdAt: r.createdAt,
     };
   }

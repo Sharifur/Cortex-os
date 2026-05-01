@@ -295,6 +295,13 @@
       "when": 1777400033000,
       "tag": "0041_livechat_operators",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "6",
+      "when": 1777400034000,
+      "tag": "0042_livechat_site_rules_msg_rating",
+      "breakpoints": true
     }
   ]
 }

@@ -37,6 +37,7 @@ const DEFAULT_CONFIG: LivechatConfig = {
 };
 
 const FALLBACK_REPLY = 'Let me get someone from the team to help with that — they will reply here shortly.';
+const APOLOGY_REPLY = 'I ran into an issue processing that — please try asking again in a moment.';
 
 /** Cheap heuristic: trailing "?", or sentence-final imperative like "let me know", "should we". */
 function looksLikeQuestion(text: string): boolean {
@@ -152,7 +153,7 @@ export class LivechatAgent implements IAgent, OnModuleInit {
       this.kb.getWritingSamples(this.key, siteKey),
       this.kb.getBlocklistRules(this.key, siteKey),
       this.kb.getRecentRejections(this.key, 3),
-      this.kb.searchEntries(input.visitorMessage, this.key, 5, siteKey).catch((e: Error) => {
+      this.kb.searchEntries(input.visitorMessage, this.key, 10, siteKey).catch((e: Error) => {
         this.logger.warn(`KB search failed: ${e.message}`);
         return [];
       }),
@@ -254,7 +255,10 @@ export class LivechatAgent implements IAgent, OnModuleInit {
               : intentResult.intent === 'leaving'
                 ? '→ Wrap up warmly in one sentence. Do not ask another question.\n'
                 : '');
-    const systemPrompt = (template?.system ?? defaultSystem) + kbBlock + visitorBlock + intentBlock;
+    const topicRulesBlock = site?.topicHandlingRules?.trim()
+      ? `\n\n## Topic Handling Instructions (operator-configured — follow exactly)\n${site.topicHandlingRules.trim()}\n`
+      : '';
+    const systemPrompt = (template?.system ?? defaultSystem) + topicRulesBlock + kbBlock + visitorBlock + intentBlock;
 
     // Per-site LLM override beats the agent-level config.
     const baseLlmOpts = agentLlmOpts(config);
@@ -298,10 +302,10 @@ export class LivechatAgent implements IAgent, OnModuleInit {
       draft = response.content.trim();
     } catch (err) {
       this.logger.warn(`Live chat LLM call failed: ${(err as Error).message}`);
-      return this.postFallback(input.sessionId);
+      return this.postApology(input.sessionId);
     }
 
-    if (!draft) return this.postFallback(input.sessionId);
+    if (!draft) return this.postApology(input.sessionId);
 
     const voiceProfile = alwaysOn.find((e) => e.entryType === 'voice_profile')?.content;
     // Skip the critique round-trip on trivial intents — saves ~300ms and a
@@ -372,6 +376,12 @@ export class LivechatAgent implements IAgent, OnModuleInit {
       agentMessageId: agentMsg.id,
       reply: draft,
     };
+  }
+
+  private async postApology(sessionId: string): Promise<HandleVisitorMessageResult> {
+    const msg = await this.livechat.appendMessage({ sessionId, role: 'agent', content: APOLOGY_REPLY });
+    this.stream.publish(sessionId, { type: 'message', sessionId, role: 'agent', content: APOLOGY_REPLY, messageId: msg.id, createdAt: msg.createdAt.toISOString() });
+    return { ok: true, status: 'replied', agentMessageId: msg.id, reply: APOLOGY_REPLY };
   }
 
   private async postFallback(sessionId: string): Promise<HandleVisitorMessageResult> {
