@@ -28,16 +28,25 @@ export class KnowledgeBaseController {
   // ─── Entries ───────────────────────────────────────────────────────────────
 
   @Get('entries')
-  listEntries(
+  async listEntries(
     @Query('agentKey') agentKey?: string,
     @Query('q') q?: string,
     @Query('type') type?: string,
     @Query('siteKey') siteKey?: string,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
   ) {
     // siteKey only narrows results when present; admin list defaults to "all".
     const site = siteKey?.trim() ? siteKey.trim() : undefined;
-    if (q?.trim()) return this.kb.searchEntries(q, agentKey, 5, site);
-    return this.kb.listEntries(agentKey, type, site);
+    // Search results don't paginate — they're already top-N ranked. Cap so
+    // bursts of FTS hits stay reasonable.
+    if (q?.trim()) {
+      const rows = await this.kb.searchEntries(q, agentKey, 50, site);
+      return { rows, total: rows.length };
+    }
+    const lim = limit ? Math.max(1, Math.min(200, Number(limit))) : undefined;
+    const off = offset ? Math.max(0, Number(offset)) : undefined;
+    return this.kb.listEntries(agentKey, type, site, { limit: lim, offset: off });
   }
 
   @Post('entries')

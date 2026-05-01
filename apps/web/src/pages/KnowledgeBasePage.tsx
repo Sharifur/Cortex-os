@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { BookOpen, Plus, Trash2, Edit2, X, Upload, Link, ChevronDown, ChevronRight, FileText, Globe, Code, Layers } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
@@ -556,18 +556,38 @@ function EntriesTab({ token }: { token: string }) {
     setSearch(val);
     clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => setDebouncedSearch(val), 400);
+    setPage(0); // reset paging when the query changes
   }
+
+  // Pagination state. Search results are top-N ranked server-side, so the
+  // page controls stay hidden whenever a query is active.
+  const [page, setPage] = useState(0);
+  const PAGE_SIZE = 25;
+  const isSearching = !!debouncedSearch;
 
   const params = new URLSearchParams();
   if (agentFilter) params.set('agentKey', agentFilter);
   if (typeFilter) params.set('type', typeFilter);
   if (siteFilter) params.set('siteKey', siteFilter);
   if (debouncedSearch) params.set('q', debouncedSearch);
+  if (!isSearching) {
+    params.set('limit', String(PAGE_SIZE));
+    params.set('offset', String(page * PAGE_SIZE));
+  }
 
-  const { data: entries = [], isLoading } = useQuery<any[]>({
-    queryKey: ['kb-entries', agentFilter, typeFilter, siteFilter, debouncedSearch],
+  const { data: entriesPayload, isLoading } = useQuery<{ rows: any[]; total: number }>({
+    queryKey: ['kb-entries', agentFilter, typeFilter, siteFilter, debouncedSearch, page],
     queryFn: () => apiFetch(token, `/knowledge-base/entries?${params}`),
   });
+  const entries = entriesPayload?.rows ?? [];
+  const total = entriesPayload?.total ?? 0;
+  const totalPages = isSearching ? 1 : Math.max(1, Math.ceil(total / PAGE_SIZE));
+  // Reset page if filters yield fewer pages than the current index.
+  useEffect(() => {
+    if (page > 0 && page >= totalPages) setPage(0);
+  }, [page, totalPages]);
+  // Reset page when filters change.
+  useEffect(() => { setPage(0); }, [agentFilter, typeFilter, siteFilter]);
 
   const createMut = useMutation({
     mutationFn: (body: any) => apiFetch(token, '/knowledge-base/entries', { method: 'POST', body: JSON.stringify(body) }),
@@ -811,6 +831,47 @@ function EntriesTab({ token }: { token: string }) {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {!isSearching && total > PAGE_SIZE && (
+        <div className="mt-4 flex items-center justify-between text-xs text-muted-foreground">
+          <span>
+            Showing <strong className="text-foreground tabular-nums">{page * PAGE_SIZE + 1}</strong>–
+            <strong className="text-foreground tabular-nums">{Math.min((page + 1) * PAGE_SIZE, total)}</strong>
+            {' '}of <strong className="text-foreground tabular-nums">{total}</strong>
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setPage(0)}
+              disabled={page === 0}
+              className="px-2 py-1 rounded border border-border hover:bg-accent/40 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              First
+            </button>
+            <button
+              onClick={() => setPage((p) => Math.max(0, p - 1))}
+              disabled={page === 0}
+              className="px-2 py-1 rounded border border-border hover:bg-accent/40 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              ← Prev
+            </button>
+            <span className="tabular-nums">Page {page + 1} of {totalPages}</span>
+            <button
+              onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+              disabled={page >= totalPages - 1}
+              className="px-2 py-1 rounded border border-border hover:bg-accent/40 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Next →
+            </button>
+            <button
+              onClick={() => setPage(totalPages - 1)}
+              disabled={page >= totalPages - 1}
+              className="px-2 py-1 rounded border border-border hover:bg-accent/40 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Last
+            </button>
+          </div>
         </div>
       )}
 
@@ -1064,8 +1125,8 @@ function ImportTab({ token }: { token: string }) {
 
   const { data: imports = [] } = useQuery<any[]>({
     queryKey: ['kb-imports'],
-    queryFn: () => apiFetch(token, '/knowledge-base/entries?type=reference').then((rows: any[]) =>
-      rows.filter(r => r.sourceType !== 'manual' && !r.parentDocId).slice(0, 10)
+    queryFn: () => apiFetch(token, '/knowledge-base/entries?type=reference&limit=200').then((res: { rows: any[] }) =>
+      (res.rows ?? []).filter((r) => r.sourceType !== 'manual' && !r.parentDocId).slice(0, 10),
     ),
   });
 
