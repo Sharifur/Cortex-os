@@ -490,6 +490,54 @@ function SampleModal({ sample, onClose, onSave, token }: {
 
 // ─── Tab 1: Entries ────────────────────────────────────────────────────────
 
+interface EmbeddingStatus {
+  total: number;
+  embedded: number;
+  pending: number;
+  missingExtension: boolean;
+}
+
+function EmbeddingStatusBanner({ token }: { token: string }) {
+  const qc = useQueryClient();
+  const { data: status } = useQuery<EmbeddingStatus>({
+    queryKey: ['kb-embedding-status'],
+    queryFn: () => apiFetch(token, '/knowledge-base/embeddings/status'),
+    refetchInterval: 8_000,
+  });
+  const backfillMut = useMutation({
+    mutationFn: () => apiFetch(token, '/knowledge-base/embeddings/backfill', { method: 'POST' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['kb-embedding-status'] }),
+  });
+  if (!status) return null;
+  if (status.missingExtension) {
+    return (
+      <div className="mb-3 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs">
+        Vector search disabled — pgvector extension is not installed on this database. KB still works via full-text search; install pgvector to enable semantic retrieval.
+      </div>
+    );
+  }
+  // Nothing to show: empty KB or everything is already embedded. No noise UI.
+  if (status.total === 0) return null;
+  if (status.pending === 0 && !backfillMut.isPending) return null;
+  const pct = status.total > 0 ? Math.round((status.embedded / status.total) * 100) : 0;
+  return (
+    <div className="mb-3 flex items-center gap-3 px-3 py-2 rounded-lg bg-card border border-border text-xs">
+      <span className="font-medium">Embeddings pending</span>
+      <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden max-w-xs">
+        <div className="h-full bg-primary transition-all" style={{ width: `${pct}%` }} />
+      </div>
+      <span className="text-muted-foreground tabular-nums">{status.embedded} / {status.total}</span>
+      <button
+        onClick={() => backfillMut.mutate()}
+        disabled={backfillMut.isPending}
+        className="ml-auto px-2 py-1 rounded text-xs bg-primary/15 text-primary hover:bg-primary/25 disabled:opacity-50"
+      >
+        {backfillMut.isPending ? 'Syncing…' : `Sync ${status.pending} entries`}
+      </button>
+    </div>
+  );
+}
+
 function EntriesTab({ token }: { token: string }) {
   const qc = useQueryClient();
   const [agentFilter, setAgentFilter] = useState('');
@@ -588,6 +636,7 @@ function EntriesTab({ token }: { token: string }) {
 
   return (
     <div>
+      <EmbeddingStatusBanner token={token} />
       {/* Filter bar */}
       <div className="flex flex-wrap gap-2 mb-4">
         <input

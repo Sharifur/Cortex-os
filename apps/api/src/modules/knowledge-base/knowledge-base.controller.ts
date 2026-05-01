@@ -87,6 +87,16 @@ export class KnowledgeBaseController {
     return this.kb.deleteEntries(body.ids);
   }
 
+  @Get('embeddings/status')
+  embeddingStatus() {
+    return this.kb.embeddingStatus();
+  }
+
+  @Post('embeddings/backfill')
+  reembedPending() {
+    return this.kb.reembedPending();
+  }
+
   @Get('entries/:id/chunks')
   getChunkCount(@Param('id') id: string) {
     return this.kb.countChunks(id).then(count => ({ count }));

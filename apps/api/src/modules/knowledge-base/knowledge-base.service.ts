@@ -160,6 +160,67 @@ export class KnowledgeBaseService {
   }
 
   /**
+   * Counts of entries with vs without an embedding, so the admin UI can show
+   * a "12 of 47 embedded" badge and surface backfill needs.
+   */
+  async embeddingStatus(): Promise<{ total: number; embedded: number; pending: number; missingExtension: boolean }> {
+    try {
+      const rows = await this.db.db.execute<{ total: number; embedded: number }>(sql`
+        SELECT
+          COUNT(*)::int AS total,
+          COUNT(*) FILTER (WHERE embedding IS NOT NULL)::int AS embedded
+        FROM knowledge_entries
+        WHERE entry_type <> 'blocklist'
+      `);
+      const r = rows[0] ?? { total: 0, embedded: 0 };
+      return { total: r.total, embedded: r.embedded, pending: r.total - r.embedded, missingExtension: false };
+    } catch (err) {
+      // pgvector not installed — surface that to the UI instead of crashing.
+      const msg = (err as Error).message ?? '';
+      if (/extension|vector|column/i.test(msg)) {
+        return { total: 0, embedded: 0, pending: 0, missingExtension: true };
+      }
+      throw err;
+    }
+  }
+
+  /** Returns the entry IDs that lack embeddings; used by the admin re-embed flow. */
+  async listEntriesNeedingEmbedding(limit = 100): Promise<{ id: string; title: string; content: string }[]> {
+    try {
+      const rows = await this.db.db.execute<{ id: string; title: string; content: string }>(sql`
+        SELECT id, title, content
+        FROM knowledge_entries
+        WHERE embedding IS NULL AND entry_type <> 'blocklist'
+        ORDER BY created_at DESC
+        LIMIT ${limit}
+      `);
+      return rows;
+    } catch {
+      return [];
+    }
+  }
+
+  /** Re-embed every entry that currently lacks an embedding, in series. */
+  async reembedPending(): Promise<{ embedded: number; failed: number }> {
+    const pending = await this.listEntriesNeedingEmbedding(500);
+    let embedded = 0;
+    let failed = 0;
+    for (const r of pending) {
+      try {
+        const v = await this.llm.embed(`${r.title}\n${r.content}`);
+        if (!v) { failed++; continue; }
+        const literal = `[${v.join(',')}]`;
+        await this.db.db.execute(sql`UPDATE knowledge_entries SET embedding = ${literal}::vector WHERE id = ${r.id}`);
+        embedded++;
+      } catch (err) {
+        this.logger.warn(`reembed ${r.id} failed: ${(err as Error).message}`);
+        failed++;
+      }
+    }
+    return { embedded, failed };
+  }
+
+  /**
    * Embed and persist the embedding for a single entry. Best-effort — silently
    * swallows errors so a transient OpenAI outage doesn't block KB writes.
    */
@@ -236,7 +297,11 @@ export class KnowledgeBaseService {
       .returning();
     await this.invalidateCacheForEntry(row);
     // Background embed — don't block the create response on the OpenAI call.
-    if (row.entryType === 'reference') {
+    // Every entry type except blocklist gets an embedding (blocklist rules are
+    // short patterns, not worth the API call). Vector search filters by
+    // entry_type at query time so this is forward-compatible if we widen
+    // retrieval to facts / products / etc. later.
+    if (shouldEmbed(row.entryType)) {
       void this.embedEntry(row.id, `${row.title}\n${row.content}`);
     }
     return row;
@@ -259,7 +324,7 @@ export class KnowledgeBaseService {
       .returning();
     if (row) await this.invalidateCacheForEntry(row);
     // Re-embed only when the searchable text actually changed.
-    if (row && (dto.title !== undefined || dto.content !== undefined) && row.entryType === 'reference') {
+    if (row && (dto.title !== undefined || dto.content !== undefined) && shouldEmbed(row.entryType)) {
       void this.embedEntry(row.id, `${row.title}\n${row.content}`);
     }
     return row;
@@ -541,6 +606,11 @@ export class KnowledgeBaseService {
 function trunc(str: string, maxLen: number): string {
   if (str.length <= maxLen) return str;
   return str.slice(0, maxLen - 1) + '…';
+}
+
+/** Blocklist rules are short patterns — embeddings would be noise. Everything else gets vectorised. */
+function shouldEmbed(entryType: string): boolean {
+  return entryType !== 'blocklist';
 }
 
 /**
