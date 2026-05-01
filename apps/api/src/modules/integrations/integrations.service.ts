@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { SESClient, GetSendQuotaCommand } from '@aws-sdk/client-ses';
-import { google } from 'googleapis';
+import { ImapFlow } from 'imapflow';
 import { Client as MinioClient } from 'minio';
 import { SettingsService } from '../settings/settings.service';
 import { CrispService } from '../agents/crisp/crisp.service';
@@ -238,21 +238,24 @@ export class IntegrationsService {
   }
 
   private async testGmail(): Promise<TestResult> {
-    const [clientId, clientSecret, refreshToken] = await Promise.all([
-      this.settings.getDecrypted('gmail_client_id'),
-      this.settings.getDecrypted('gmail_client_secret'),
-      this.settings.getDecrypted('gmail_refresh_token'),
+    const [email, appPassword] = await Promise.all([
+      this.settings.getDecrypted('gmail_email'),
+      this.settings.getDecrypted('gmail_app_password'),
     ]);
-    if (!clientId || !clientSecret || !refreshToken) {
-      return { ok: false, message: 'OAuth2 credentials not configured' };
+    if (!email || !appPassword) {
+      return { ok: false, message: 'Email and App Password not configured' };
     }
 
+    const client = new ImapFlow({
+      host: 'imap.gmail.com',
+      port: 993,
+      secure: true,
+      auth: { user: email, pass: appPassword.replace(/\s+/g, '') },
+      logger: false,
+    });
     try {
-      const auth = new google.auth.OAuth2(clientId, clientSecret);
-      auth.setCredentials({ refresh_token: refreshToken });
-      const gmail = google.gmail({ version: 'v1', auth });
-      const profile = await gmail.users.getProfile({ userId: 'me' });
-      const email = profile.data.emailAddress ?? 'unknown';
+      await client.connect();
+      await client.logout().catch(() => undefined);
       return { ok: true, message: `Connected as ${email}` };
     } catch (err) {
       return { ok: false, message: err instanceof Error ? err.message : String(err) };
