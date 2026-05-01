@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Body, Query, Req, BadRequestException } from '@nestjs/common';
+import { Controller, Post, Get, Body, Param, Query, Req, BadRequestException } from '@nestjs/common';
 import type { FastifyRequest } from 'fastify';
 import { LivechatService } from './livechat.service';
 import { EnrichmentService } from '../../../common/visitor-enrichment/enrichment.service';
@@ -175,6 +175,34 @@ export class LivechatPublicController {
     const origin = req.headers.origin as string | undefined;
     if (body.siteKey) await this.livechat.resolveSiteForRequest(body.siteKey, origin ?? null);
     await this.livechat.recordPageviewLeave(body.pageviewId);
+    return { ok: true };
+  }
+
+  /**
+   * Visitor-initiated session close. Origin-gated and ownership-verified —
+   * the session must belong to the visitorId on the calling site, otherwise
+   * a malicious page on another origin could close someone else's chat.
+   */
+  @Post('session/:id/close')
+  async closeSession(
+    @Req() req: FastifyRequest,
+    @Param('id') sessionId: string,
+    @Body() body: { siteKey?: string; visitorId?: string },
+  ) {
+    if (!body?.siteKey || !body?.visitorId) {
+      throw new BadRequestException('siteKey and visitorId are required');
+    }
+    const origin = req.headers.origin as string | undefined;
+    const site = await this.livechat.resolveSiteForRequest(body.siteKey, origin ?? null);
+    const session = await this.livechat.getSession(sessionId);
+    if (!session || session.siteId !== site.id || session.visitorId !== body.visitorId) {
+      // Mirror the public widget's expectation: if it's not the visitor's
+      // own session, pretend it's already closed — don't leak existence.
+      return { ok: true };
+    }
+    await this.livechat.setSessionStatus(sessionId, 'closed');
+    this.stream.publish(sessionId, { type: 'session_status', sessionId, status: 'closed' });
+    this.stream.publishToOperators({ type: 'session_upserted', sessionId });
     return { ok: true };
   }
 

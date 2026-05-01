@@ -172,7 +172,14 @@ function buildPanel(shadow: ShadowRoot, cfg: WidgetConfig, state: any, render: (
           <div class="lc-header-sub"><span class="lc-online-dot"></span>${escapeHtml(siteConfig.botSubtitle)}</div>
         </div>
       </div>
-      <button class="lc-close" aria-label="Close">${chevronDownIcon()}</button>
+      <div class="lc-header-actions">
+        <button class="lc-menu-btn" aria-label="Conversation menu" aria-haspopup="true">${menuIcon()}</button>
+        <div class="lc-menu" role="menu" style="display:none;">
+          <button class="lc-menu-item" data-action="new">${refreshIcon()} Start a new conversation</button>
+          <button class="lc-menu-item" data-action="close">${xIcon()} End this chat</button>
+        </div>
+        <button class="lc-close" aria-label="Close">${chevronDownIcon()}</button>
+      </div>
     </div>
     <div class="lc-messages-wrap">
       <div class="lc-messages"></div>
@@ -218,6 +225,57 @@ function buildPanel(shadow: ShadowRoot, cfg: WidgetConfig, state: any, render: (
       }
       panel.classList.remove('lc-panel--closing');
     }, 180);
+  });
+
+  // Conversation menu — kebab in the header. Two actions:
+  //   "Start a new conversation" — drops the local sessionId and clears the
+  //     transcript so the next message creates a fresh session server-side.
+  //   "End this chat" — best-effort closes the session via the public endpoint
+  //     and shows the "new conversation" affordance once the panel is empty.
+  const menuBtn = panel.querySelector<HTMLButtonElement>('.lc-menu-btn')!;
+  const menu = panel.querySelector<HTMLDivElement>('.lc-menu')!;
+  const closeMenu = () => { menu.style.display = 'none'; };
+  menuBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+  });
+  panel.addEventListener('click', (e) => {
+    if (!menu.contains(e.target as Node) && e.target !== menuBtn) closeMenu();
+  });
+  menu.addEventListener('click', async (e) => {
+    const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('.lc-menu-item');
+    if (!btn) return;
+    closeMenu();
+    const action = btn.getAttribute('data-action');
+    if (action === 'new') {
+      if (!confirm('Start a new conversation? The current chat will be cleared.')) return;
+      resetSession();
+    } else if (action === 'close') {
+      if (!confirm('End this chat? You can always start a new one.')) return;
+      const sessionId = state.sessionId;
+      if (sessionId) {
+        // Fire-and-forget — the visitor doesn't need to wait on the network.
+        try {
+          await fetch(`${cfg.apiBase}/livechat/session/${encodeURIComponent(sessionId)}/close`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ siteKey: cfg.siteKey, visitorId: cfg.visitorId }),
+            credentials: 'omit',
+          });
+        } catch { /* ignore — the next /message call will start a fresh session anyway */ }
+      }
+      resetSession();
+      // Replace the auto-pushed welcome with a "chat ended" line so the
+      // visitor has visible confirmation that their request worked.
+      state.messages = [{
+        id: `system-${Date.now()}`,
+        role: 'system',
+        content: 'Chat ended. Type a message to start a new conversation.',
+        createdAt: new Date().toISOString(),
+      }];
+      cacheMessages(state.messages);
+      render();
+    }
   });
 
   const msgsEl = panel.querySelector<HTMLDivElement>('.lc-messages')!;
@@ -858,4 +916,16 @@ function chevronDownIcon() {
 
 function sendIcon() {
   return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>`;
+}
+
+function menuIcon() {
+  return `<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="6" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="18" r="1.5"/></svg>`;
+}
+
+function refreshIcon() {
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15.5-6.36L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.5 6.36L3 16"/><path d="M3 21v-5h5"/></svg>`;
+}
+
+function xIcon() {
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>`;
 }

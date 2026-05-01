@@ -1290,7 +1290,7 @@ function TemplatesTab({ token }: { token: string }) {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <p className="text-xs text-muted-foreground">Templates override agent system prompts. Key format: <code className="font-mono bg-muted px-1 rounded">agentKey.reply</code> e.g. <code className="font-mono bg-muted px-1 rounded">crisp.reply</code></p>
+        <p className="text-xs text-muted-foreground">Templates override agent system prompts. Key format: <code className="font-mono bg-muted px-1 rounded">agentKey.reply</code> e.g. <code className="font-mono bg-muted px-1 rounded">livechat.reply</code></p>
         <button onClick={() => setShowAdd(v => !v)} className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-primary-foreground text-sm rounded-lg hover:opacity-90">
           <Plus className="w-3.5 h-3.5" /> New Template
         </button>

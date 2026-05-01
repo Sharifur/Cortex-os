@@ -183,6 +183,13 @@ export class LivechatAgent implements IAgent, OnModuleInit {
       `- 2-4 sentences max. Direct, useful, then optionally one short forward-moving question.`,
       `- Plain text only. Do not use markdown bold/italic/headings — write the actual words instead of wrapping them in **asterisks**.`,
       `- When the visitor's current page is relevant (pricing, docs, a specific feature), reference it naturally.`,
+      ``,
+      `Conversation continuity rules (read these carefully):`,
+      `- The "Conversation Thread" below is the actual recent history with this visitor. Treat it as one continuous conversation.`,
+      `- If your previous reply offered to do X (e.g. "Want me to walk you through the package?", "Should I list the features?") and the visitor's current message is an affirmation ("yes", "sure", "okay", "list them", "go ahead", a single word, etc.), DELIVER X NOW. Do not re-offer the same thing in different words.`,
+      `- Never repeat an offer the visitor already accepted. Never re-introduce a topic the visitor already knows.`,
+      `- If the visitor's message is a follow-up question on something you just said, answer it directly using the relevant facts from "Key Facts" / "Products" / "Relevant Knowledge" below — do not stall with another question.`,
+      ``,
       `Output: just the reply text. No labels, no quoting.`,
     ].filter(Boolean).join('\n');
     const systemPrompt = (template?.system ?? defaultSystem) + kbBlock + visitorBlock;

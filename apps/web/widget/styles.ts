@@ -109,7 +109,9 @@ export const WIDGET_STYLES = `
 .lc-header-sub { font-size: 12px; opacity: 0.9; display: flex; align-items: center; gap: 5px; }
 .lc-online-dot { width: 7px; height: 7px; background: #22c55e; border-radius: 50%; flex-shrink: 0; display: inline-block; }
 
-.lc-close {
+.lc-header-actions { display: flex; align-items: center; gap: 6px; position: relative; }
+
+.lc-close, .lc-menu-btn {
   background: rgba(255,255,255,0.15);
   border: 0;
   color: #fff;
@@ -122,9 +124,47 @@ export const WIDGET_STYLES = `
   justify-content: center;
   flex-shrink: 0;
   transition: background 0.15s;
+  padding: 0;
 }
-.lc-close:hover { background: rgba(255,255,255,0.28); }
-.lc-close svg { width: 16px; height: 16px; }
+.lc-close:hover, .lc-menu-btn:hover { background: rgba(255,255,255,0.28); }
+.lc-close svg, .lc-menu-btn svg { width: 16px; height: 16px; }
+
+.lc-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  background: #fff;
+  color: #111827;
+  border-radius: 10px;
+  box-shadow: 0 12px 28px rgba(0,0,0,0.18);
+  min-width: 220px;
+  padding: 6px;
+  z-index: 10;
+}
+.lc-menu-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  font-size: 13px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.lc-menu-item:hover { background: #f3f4f6; }
+.lc-menu-item svg { width: 14px; height: 14px; flex-shrink: 0; color: #6b7280; }
+
+.lc-md-code {
+  background: rgba(0,0,0,0.06);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.92em;
+}
 
 /* ── Messages area ── */
 .lc-messages-wrap { flex: 1; overflow: hidden; position: relative; min-height: 0; }
