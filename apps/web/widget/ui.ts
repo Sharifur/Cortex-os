@@ -113,7 +113,7 @@ export function mountWidget(cfg: WidgetConfig, siteConfig: SiteConfigResponse = 
   });
 
   // If we already had a session from a previous page load, reconnect socket.
-  if (state.sessionId) connectAndListen(cfg, state, render);
+  if (state.sessionId) connectAndListen(cfg, state, render, siteConfig);
 
   function render() {
     renderMessages(panel, state);
@@ -408,7 +408,7 @@ function buildPanel(shadow: ShadowRoot, cfg: WidgetConfig, state: any, render: (
           pushAgent(state, res.agent.content, agentId);
         }
       }
-      if (!state.socket) connectAndListen(cfg, state, render);
+      if (!state.socket) connectAndListen(cfg, state, render, siteConfig);
       maybePromptEmail(panel, state);
     } catch (err) {
       hideTyping(panel);
@@ -447,22 +447,39 @@ function buildPanel(shadow: ShadowRoot, cfg: WidgetConfig, state: any, render: (
   return panel;
 }
 
-function connectAndListen(cfg: WidgetConfig, state: any, render: () => void) {
+function connectAndListen(cfg: WidgetConfig, state: any, render: () => void, siteConfig?: SiteConfigResponse) {
   if (!state.sessionId || state.socket) return;
   state.socket = connectVisitorSocket(cfg, state.sessionId, (event: LivechatEvent) => {
     if (event.type === 'typing') {
-      // Operator/agent is typing — show the dots; visitor's own typing is suppressed at the gateway.
       const panel = state.panel as HTMLDivElement | undefined;
       if (!panel) return;
       if (event.on) showTyping(panel);
       else hideTyping(panel);
       return;
     }
+
+    if (event.type === 'session_status' && event.status === 'closed') {
+      state.socket?.disconnect();
+      state.socket = null;
+      state.sessionId = null;
+      state.messages = [];
+      state.askedForEmail = false;
+      state.unread = 0;
+      try { localStorage.removeItem(SESSION_KEY); } catch {}
+      try { localStorage.removeItem(MESSAGES_KEY); } catch {}
+      try { localStorage.removeItem(IDENTIFY_DISMISSED_KEY); } catch {}
+      if (siteConfig?.welcomeMessage) {
+        state.messages.push({ id: 'welcome', role: 'agent', content: siteConfig.welcomeMessage, createdAt: new Date().toISOString() });
+        cacheMessages(state.messages);
+      }
+      render();
+      return;
+    }
+
     if (event.type !== 'message' || !event.messageId) return;
-    if (event.role === 'visitor') return; // visitor's own messages already pushed locally
+    if (event.role === 'visitor') return;
     if (state.messages.some((m: VisitorMessage) => m.id === event.messageId)) return;
     pushAgent(state, event.content ?? '', event.messageId, event.role === 'operator', (event as any).attachments, (event as any).operatorName ?? undefined);
-    // Hide any lingering typing indicator now that the message arrived.
     const panel = state.panel as HTMLDivElement | undefined;
     if (panel) hideTyping(panel);
     if (!state.open) state.unread = (state.unread ?? 0) + 1;
