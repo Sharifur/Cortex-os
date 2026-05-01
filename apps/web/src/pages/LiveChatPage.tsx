@@ -154,6 +154,23 @@ interface SessionDetail {
   messages: MessageRow[];
 }
 
+function playNotificationSound() {
+  try {
+    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(880, ctx.currentTime);
+    osc.frequency.setValueAtTime(1100, ctx.currentTime + 0.08);
+    gain.gain.setValueAtTime(0.12, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.35);
+  } catch {}
+}
+
 type Tab = 'conversations' | 'sites' | 'operators' | 'setup';
 
 export default function LiveChatPage() {
@@ -1018,6 +1035,7 @@ function ConversationsTab() {
       if (event.type === 'session_upserted' || event.type === 'inbox_dirty') {
         qc.invalidateQueries({ queryKey: ['livechat-sessions'] });
         qc.invalidateQueries({ queryKey: pendingCountKey });
+        if (event.type === 'session_upserted') playNotificationSound();
       }
       if (event.type === 'visitor_activity' || event.type === 'visitor_offline') {
         qc.invalidateQueries({ queryKey: liveKey });
@@ -1449,7 +1467,7 @@ function SessionPane({
             pendingApproval: event.pendingApproval ?? false,
           },
         ]);
-        if (event.role === 'visitor') setVisitorTyping(false);
+        if (event.role === 'visitor') { setVisitorTyping(false); playNotificationSound(); }
       } else if (event.type === 'message_removed') {
         setLiveMessages((prev) => prev.filter((m) => m.id !== event.messageId));
       } else if (event.type === 'pageview') {

@@ -1,5 +1,5 @@
 import type { WidgetConfig } from './config';
-import { sendMessage, identify, uploadAttachment, MessageResponse, SiteConfigResponse, AttachmentSummary } from './api';
+import { sendMessage, identify, uploadAttachment, MessageResponse, SiteConfigResponse, AttachmentSummary, OperatorSummary } from './api';
 import { connectVisitorSocket, LivechatEvent } from './socket';
 import { WIDGET_STYLES } from './styles';
 import { EMOJI_CATEGORIES, applyEmojiShortcuts } from './emoji';
@@ -29,6 +29,7 @@ const MESSAGES_KEY = 'livechat_messages_cache';
 const SESSION_KEY = 'livechat_session_id';
 const IDENTIFY_DISMISSED_KEY = 'livechat_identify_dismissed';
 const RATE_LIMIT_KEY = 'livechat_send_log';
+const PROACTIVE_KEY = 'livechat_proactive_seen';
 const RATE_LIMIT_MAX = 30;
 const RATE_LIMIT_WINDOW_MS = 60_000;
 
@@ -75,6 +76,35 @@ export function mountWidget(cfg: WidgetConfig, siteConfig: SiteConfigResponse = 
   unreadBadge.className = 'lc-unread';
   unreadBadge.style.display = 'none';
   bubbleBtn.appendChild(unreadBadge);
+
+  // Proactive welcome bubble — floats above the chat button, auto-shows after 1.5s.
+  const proactiveBubble = document.createElement('div');
+  proactiveBubble.className = 'lc-proactive';
+  proactiveBubble.style.display = 'none';
+  if (siteConfig.welcomeMessage) {
+    proactiveBubble.innerHTML = `
+      <button class="lc-proactive-close" aria-label="Dismiss">&#x2715;</button>
+      <div class="lc-proactive-text">${escapeHtml(siteConfig.welcomeMessage)}</div>
+    `;
+    shadow.appendChild(proactiveBubble);
+    let proactiveSeen = false;
+    try { proactiveSeen = !!sessionStorage.getItem(PROACTIVE_KEY); } catch {}
+    if (!proactiveSeen) {
+      setTimeout(() => {
+        if (!state.open) proactiveBubble.style.display = 'block';
+      }, 1500);
+    }
+    proactiveBubble.querySelector('.lc-proactive-close')!.addEventListener('click', (e) => {
+      e.stopPropagation();
+      proactiveBubble.style.display = 'none';
+      try { sessionStorage.setItem(PROACTIVE_KEY, '1'); } catch {}
+    });
+    proactiveBubble.querySelector('.lc-proactive-text')!.addEventListener('click', () => {
+      proactiveBubble.style.display = 'none';
+      try { sessionStorage.setItem(PROACTIVE_KEY, '1'); } catch {}
+      bubbleBtn.click();
+    });
+  }
 
   // Seed the welcome message as a system-style agent line if no prior conversation exists.
   if (state.messages.length === 0 && siteConfig.welcomeMessage) {
@@ -127,6 +157,8 @@ export function mountWidget(cfg: WidgetConfig, siteConfig: SiteConfigResponse = 
   }
 
   bubbleBtn.addEventListener('click', () => {
+    proactiveBubble.style.display = 'none';
+    try { sessionStorage.setItem(PROACTIVE_KEY, '1'); } catch {}
     state.open = !state.open;
     if (state.open) {
       if (isMobile()) { applyMobileHostStyle(); ensureVvListener(); }
@@ -171,13 +203,14 @@ function buildPanel(shadow: ShadowRoot, cfg: WidgetConfig, state: any, render: (
   panel.innerHTML = `
     <div class="lc-header">
       <div class="lc-header-inner">
-        <div class="lc-header-avatar">${botAvatarIcon()}</div>
+        ${renderHeaderAvatars(siteConfig.operators ?? [])}
         <div class="lc-header-text">
           <div class="lc-header-title">${escapeHtml(siteConfig.operatorName || siteConfig.botName)}</div>
           <div class="lc-header-sub"><span class="lc-online-dot"></span>${escapeHtml(siteConfig.botSubtitle)}</div>
         </div>
       </div>
       <div class="lc-header-actions">
+        <button class="lc-newchat-btn" aria-label="Start new conversation">${composeIcon()}</button>
         <button class="lc-menu-btn" aria-label="Conversation menu" aria-haspopup="true">${menuIcon()}</button>
         <div class="lc-menu" role="menu" style="display:none;">
           <button class="lc-menu-item" data-action="new">${refreshIcon()} Start a new conversation</button>
@@ -224,6 +257,11 @@ function buildPanel(shadow: ShadowRoot, cfg: WidgetConfig, state: any, render: (
   shadow.appendChild(panel);
 
   const DESKTOP_HOST_STYLE_BP = `position: fixed; bottom: 40px; right: 40px; z-index: 2147483646;`;
+  const newChatBtn = panel.querySelector<HTMLButtonElement>('.lc-newchat-btn')!;
+  newChatBtn.addEventListener('click', () => {
+    if (!confirm('Start a new conversation? The current chat will be cleared.')) return;
+    resetSession();
+  });
   const closeBtn = panel.querySelector<HTMLButtonElement>('.lc-close')!;
   closeBtn.addEventListener('click', () => {
     state.open = false;
@@ -730,7 +768,7 @@ function connectAndListen(cfg: WidgetConfig, state: any, render: () => void, sit
         // Final content beats accumulated deltas — self-critique may have rewritten.
         state.messages[idx] = { ...state.messages[idx], id: event.messageId, content: event.content ?? state.messages[idx].content };
         cacheMessages(state.messages);
-        if (!state.open) state.unread = (state.unread ?? 0) + 1;
+        if (!state.open) { state.unread = (state.unread ?? 0) + 1; playNotificationSound(); }
         render();
       }
       return;
@@ -750,7 +788,7 @@ function connectAndListen(cfg: WidgetConfig, state: any, render: () => void, sit
     pushAgent(state, event.content ?? '', event.messageId, event.role === 'operator', (event as any).attachments, (event as any).operatorName ?? undefined);
     const panel = state.panel as HTMLDivElement | undefined;
     if (panel) hideTyping(panel);
-    if (!state.open) state.unread = (state.unread ?? 0) + 1;
+    if (!state.open) { state.unread = (state.unread ?? 0) + 1; playNotificationSound(); }
     render();
   });
 }
@@ -951,6 +989,23 @@ function cacheMessages(messages: VisitorMessage[]) {
   try { localStorage.setItem(MESSAGES_KEY, JSON.stringify(messages.slice(-50))); } catch {}
 }
 
+function playNotificationSound() {
+  try {
+    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(880, ctx.currentTime);
+    osc.frequency.setValueAtTime(1100, ctx.currentTime + 0.08);
+    gain.gain.setValueAtTime(0.12, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.35);
+  } catch {}
+}
+
 function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 }
@@ -1104,4 +1159,24 @@ function xIcon() {
 
 function smileyIcon() {
   return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>`;
+}
+
+function composeIcon() {
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>`;
+}
+
+function renderHeaderAvatars(operators: OperatorSummary[]): string {
+  if (!operators.length) {
+    return `<div class="lc-header-avatar">${botAvatarIcon()}</div>`;
+  }
+  const shown = operators.slice(0, 3);
+  const avatars = shown.map((op, i) => {
+    const ml = i === 0 ? '' : 'margin-left:-10px;';
+    const zi = `z-index:${3 - i};`;
+    if (op.avatarUrl) {
+      return `<img class="lc-op-avatar" src="${escapeAttr(op.avatarUrl)}" alt="${escapeHtml(op.name)}" style="${zi}${ml}">`;
+    }
+    return `<div class="lc-op-avatar lc-op-initials" style="${zi}${ml}">${escapeHtml(getInitials(op.name))}</div>`;
+  }).join('');
+  return `<div class="lc-header-avatars">${avatars}</div>`;
 }
