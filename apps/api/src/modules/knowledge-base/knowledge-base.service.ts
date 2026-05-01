@@ -77,17 +77,33 @@ export class KnowledgeBaseService {
 
   // ─── Knowledge Entries ─────────────────────────────────────────────────────
 
-  async listEntries(agentKey?: string, entryType?: string, siteKey?: string | null) {
-    const rows = await this.db.db
+  async listEntries(
+    agentKey?: string,
+    entryType?: string,
+    siteKey?: string | null,
+    pagination?: { limit?: number; offset?: number },
+  ): Promise<{ rows: KnowledgeEntry[]; total: number }> {
+    const where = entryType
+      ? sql`${this.agentKeyWhere(agentKey)} AND ${this.siteKeyWhere(siteKey)} AND entry_type = ${entryType}`
+      : sql`${this.agentKeyWhere(agentKey)} AND ${this.siteKeyWhere(siteKey)}`;
+
+    let q = this.db.db
       .select()
       .from(knowledgeEntries)
-      .where(
-        entryType
-          ? sql`${this.agentKeyWhere(agentKey)} AND ${this.siteKeyWhere(siteKey)} AND entry_type = ${entryType}`
-          : sql`${this.agentKeyWhere(agentKey)} AND ${this.siteKeyWhere(siteKey)}`,
-      )
-      .orderBy(desc(knowledgeEntries.priority), desc(knowledgeEntries.createdAt));
-    return rows;
+      .where(where)
+      .orderBy(desc(knowledgeEntries.priority), desc(knowledgeEntries.createdAt))
+      .$dynamic();
+    if (pagination?.limit != null) q = q.limit(pagination.limit);
+    if (pagination?.offset != null) q = q.offset(pagination.offset);
+
+    const [rows, totalRows] = await Promise.all([
+      q,
+      this.db.db
+        .select({ count: sql<number>`COUNT(*)::int` })
+        .from(knowledgeEntries)
+        .where(where),
+    ]);
+    return { rows, total: totalRows[0]?.count ?? rows.length };
   }
 
   async searchEntries(query: string, agentKey?: string, limit = 5, siteKey?: string | null): Promise<KnowledgeEntry[]> {
