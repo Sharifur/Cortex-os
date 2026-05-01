@@ -1,10 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { SESClient, GetSendQuotaCommand } from '@aws-sdk/client-ses';
-import { ImapFlow } from 'imapflow';
 import { Client as MinioClient } from 'minio';
 import { SettingsService } from '../settings/settings.service';
 import { CrispService } from '../agents/crisp/crisp.service';
 import { StorageService } from '../storage/storage.service';
+import { GmailService } from '../gmail/gmail.service';
 
 export interface TestResult {
   ok: boolean;
@@ -17,6 +17,7 @@ export class IntegrationsService {
     private readonly settings: SettingsService,
     private readonly crispService: CrispService,
     private readonly storageService: StorageService,
+    private readonly gmailService: GmailService,
   ) {}
 
   async test(key: string): Promise<TestResult> {
@@ -238,27 +239,12 @@ export class IntegrationsService {
   }
 
   private async testGmail(): Promise<TestResult> {
-    const [email, appPassword] = await Promise.all([
-      this.settings.getDecrypted('gmail_email'),
-      this.settings.getDecrypted('gmail_app_password'),
-    ]);
-    if (!email || !appPassword) {
-      return { ok: false, message: 'Email and App Password not configured' };
+    const accounts = await this.gmailService.listAccounts();
+    if (!accounts.length) {
+      return { ok: false, message: 'No Gmail accounts configured' };
     }
-
-    const client = new ImapFlow({
-      host: 'imap.gmail.com',
-      port: 993,
-      secure: true,
-      auth: { user: email, pass: appPassword.replace(/\s+/g, '') },
-      logger: false,
-    });
-    try {
-      await client.connect();
-      await client.logout().catch(() => undefined);
-      return { ok: true, message: `Connected as ${email}` };
-    } catch (err) {
-      return { ok: false, message: err instanceof Error ? err.message : String(err) };
-    }
+    const def = accounts.find((a) => a.isDefault) ?? accounts[0];
+    const r = await this.gmailService.testAccount(def.id);
+    return { ok: r.ok, message: r.ok ? `${r.message} (default: ${def.label})` : r.message };
   }
 }

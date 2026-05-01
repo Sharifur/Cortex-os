@@ -170,25 +170,9 @@ export const SETTING_DEFINITIONS: Record<string, SettingDefinition> = {
     defaultValue: 'ses-monitoring',
   },
 
-  // Gmail — IMAP / SMTP (App Password). Requires 2FA on the Google account.
-  gmail_email: {
-    label: 'Email address',
-    description: 'The Gmail / Workspace address to read and send from',
-    isSecret: false,
-    group: 'gmail',
-  },
-  gmail_app_password: {
-    label: 'App Password',
-    description: 'Generate at myaccount.google.com → Security → App passwords (2FA must be on)',
-    isSecret: true,
-    group: 'gmail',
-  },
-  gmail_from_address: {
-    label: 'From Address (display)',
-    description: 'Optional display name override, e.g. "Sharifur <sharifur@taskip.net>". Defaults to the email above.',
-    isSecret: false,
-    group: 'gmail',
-  },
+  // Gmail — accounts are managed at /gmail/accounts (multi-account, IMAP + SMTP
+  // App Password). No settings keys here; the Integrations → Gmail tab renders
+  // the account list directly.
 
   // WhatsApp Business Cloud API
   whatsapp_api_token: {

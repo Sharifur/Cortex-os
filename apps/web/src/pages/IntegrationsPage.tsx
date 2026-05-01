@@ -1018,47 +1018,505 @@ function SesTab({ rows, token }: { rows: SettingRow[]; token: string }) {
   );
 }
 
-function GmailTab({ rows, token }: { rows: SettingRow[]; token: string }) {
-  return (
-    <IntegrationLayout
-      integrationKey="gmail"
-      rows={rows}
-      token={token}
-      docs={
-        <>
-          <h2 className="text-sm font-semibold mb-4">IMAP Setup (App Password)</h2>
-          <p className="text-xs text-muted-foreground mb-4">
-            Personal-account flow: no Google Cloud project, no OAuth playground. Connects via Gmail's
-            IMAP / SMTP endpoints using a 16-character App Password.
-          </p>
-          <div className="space-y-4">
-            <SetupStep n={1} title="Turn on 2-Step Verification">
-              <p>
-                Go to <a href="https://myaccount.google.com/security" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">myaccount.google.com → Security</a> and
-                enable <strong>2-Step Verification</strong>. App Passwords are only available with 2FA on.
-              </p>
-            </SetupStep>
-            <SetupStep n={2} title="Generate an App Password">
-              <p>
-                Open <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">myaccount.google.com/apppasswords</a> →
-                name it <code className="bg-muted px-1 rounded">Cortex OS</code> → <strong>Create</strong>.
-              </p>
-              <p>Copy the 16-character password (spaces are fine — they're stripped).</p>
-            </SetupStep>
-            <SetupStep n={3} title="Paste credentials in Settings">
-              <p>
-                Set <strong>Email address</strong> to your Gmail / Workspace address and
-                <strong> App Password</strong> to the value from step 2. Optionally set a display name in
-                <strong> From Address</strong>.
-              </p>
-              <p className="text-muted-foreground">
-                Connection: IMAP <code className="bg-muted px-1 rounded">imap.gmail.com:993</code> · SMTP <code className="bg-muted px-1 rounded">smtp.gmail.com:465</code> (TLS).
-              </p>
-            </SetupStep>
-          </div>
-        </>
+interface GmailAccount {
+  id: string;
+  label: string;
+  email: string;
+  displayName: string | null;
+  authType: 'imap' | 'oauth2';
+  isDefault: boolean;
+  createdAt: string;
+}
+
+function GmailOAuthModal({ token, onClose }: { token: string; onClose: () => void }) {
+  const qc = useQueryClient();
+  const [label, setLabel] = useState('');
+  const [displayName, setDisplayName] = useState('');
+  const [clientId, setClientId] = useState('');
+  const [clientSecret, setClientSecret] = useState('');
+  const [setAsDefault, setSetAsDefault] = useState(false);
+  const [redirectUri, setRedirectUri] = useState('');
+  const [phase, setPhase] = useState<'form' | 'awaiting' | 'done'>('form');
+  const [error, setError] = useState<string | null>(null);
+
+  // Show the redirect URI early so the user can register it in Google Cloud
+  // before submitting. We compute it the same way the backend does.
+  useEffect(() => {
+    setRedirectUri(`${window.location.origin}/gmail/oauth/callback`);
+  }, []);
+
+  // Listen for the postMessage from the OAuth callback page so we can refresh
+  // the account list and close this modal as soon as Google redirects back.
+  useEffect(() => {
+    const handler = (e: MessageEvent) => {
+      if (e.data?.type === 'gmail-oauth-success') {
+        qc.invalidateQueries({ queryKey: ['gmail-accounts'] });
+        setPhase('done');
+        setTimeout(onClose, 800);
+      } else if (e.data?.type === 'gmail-oauth-error') {
+        setError(e.data.message ?? 'OAuth failed');
+        setPhase('form');
       }
-    />
+    };
+    window.addEventListener('message', handler);
+    return () => window.removeEventListener('message', handler);
+  }, [qc, onClose]);
+
+  async function startOAuth() {
+    setError(null);
+    if (!label.trim() || !clientId.trim() || !clientSecret.trim()) {
+      setError('Label, client ID and client secret are required');
+      return;
+    }
+    try {
+      const res = await fetch('/gmail/oauth/start', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ label, displayName: displayName || null, clientId, clientSecret, setDefault: setAsDefault }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err?.message ?? `HTTP ${res.status}`);
+      }
+      const { authUrl } = await res.json();
+      setPhase('awaiting');
+      window.open(authUrl, '_blank', 'width=520,height=720');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-card border border-border rounded-xl w-full max-w-xl shadow-xl max-h-[90vh] overflow-auto">
+        <div className="flex items-center justify-between p-4 border-b border-border">
+          <h2 className="font-semibold text-sm">Connect with Google OAuth2</h2>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><XCircle className="w-4 h-4" /></button>
+        </div>
+        <div className="p-4 space-y-4 text-sm">
+          {phase === 'done' ? (
+            <div className="text-center py-8 text-emerald-500">
+              <CheckCircle2 className="w-10 h-10 mx-auto mb-3" />
+              <div className="font-medium">Connected!</div>
+            </div>
+          ) : phase === 'awaiting' ? (
+            <div className="text-center py-8">
+              <Loader2 className="w-10 h-10 mx-auto mb-3 animate-spin text-primary" />
+              <div className="font-medium mb-1">Waiting for Google consent…</div>
+              <p className="text-xs text-muted-foreground">Approve in the popup window. This dialog will close automatically.</p>
+              <button
+                onClick={() => setPhase('form')}
+                className="mt-4 text-xs text-muted-foreground hover:text-foreground underline"
+              >
+                Cancel and edit details
+              </button>
+            </div>
+          ) : (
+            <>
+              <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-3 text-xs text-blue-300 space-y-1">
+                <div className="font-semibold text-blue-200">Before submitting, register this redirect URI in Google Cloud:</div>
+                <div className="font-mono break-all bg-blue-950/40 rounded px-2 py-1 mt-1">{redirectUri}</div>
+                <p className="mt-1">
+                  APIs & Services → Credentials → your OAuth client → <strong>Authorized redirect URIs</strong> → add the URI above. The Client ID + Secret below come from that same OAuth client.
+                </p>
+              </div>
+
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Label</label>
+                <input
+                  className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+                  value={label}
+                  onChange={(e) => setLabel(e.target.value)}
+                  placeholder="e.g. Khairul (Workspace)"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Display name (optional)</label>
+                <input
+                  className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                  placeholder="Khairul"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">OAuth Client ID</label>
+                <input
+                  className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-primary"
+                  value={clientId}
+                  onChange={(e) => setClientId(e.target.value)}
+                  placeholder="xxxxxxxxxx-xxxxxxxx.apps.googleusercontent.com"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">OAuth Client Secret</label>
+                <input
+                  type="password"
+                  className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-primary"
+                  value={clientSecret}
+                  onChange={(e) => setClientSecret(e.target.value)}
+                  placeholder="GOCSPX-..."
+                  autoComplete="new-password"
+                />
+              </div>
+              <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="accent-primary"
+                  checked={setAsDefault}
+                  onChange={(e) => setSetAsDefault(e.target.checked)}
+                />
+                Set as default account
+              </label>
+              {error && <div className="text-xs text-red-500">{error}</div>}
+            </>
+          )}
+        </div>
+        {phase === 'form' && (
+          <div className="flex justify-end gap-2 p-4 border-t border-border">
+            <button onClick={onClose} className="px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground border border-border rounded-lg">Cancel</button>
+            <button
+              onClick={startOAuth}
+              disabled={!label.trim() || !clientId.trim() || !clientSecret.trim()}
+              className="px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded-lg hover:opacity-90 disabled:opacity-50"
+            >
+              Continue with Google
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function GmailAccountModal({
+  token,
+  account,
+  onClose,
+}: {
+  token: string;
+  account: GmailAccount | null; // null = create
+  onClose: () => void;
+}) {
+  const qc = useQueryClient();
+  const [label, setLabel] = useState(account?.label ?? '');
+  const [email, setEmail] = useState(account?.email ?? '');
+  const [displayName, setDisplayName] = useState(account?.displayName ?? '');
+  const [appPassword, setAppPassword] = useState('');
+  const [isDefault, setIsDefault] = useState(account?.isDefault ?? false);
+  const [error, setError] = useState<string | null>(null);
+
+  const saveMut = useMutation({
+    mutationFn: async () => {
+      const url = account ? `/gmail/accounts/${account.id}` : '/gmail/accounts';
+      const method = account ? 'PATCH' : 'POST';
+      const body: Record<string, unknown> = { label, displayName: displayName || null };
+      if (!account) {
+        body.email = email;
+        body.appPassword = appPassword;
+        body.isDefault = isDefault;
+      } else if (appPassword.trim()) {
+        body.appPassword = appPassword;
+      }
+      const res = await fetch(url, {
+        method,
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err?.message ?? `HTTP ${res.status}`);
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['gmail-accounts'] });
+      onClose();
+    },
+    onError: (err: Error) => setError(err.message),
+  });
+
+  const isCreate = !account;
+  const canSubmit = isCreate
+    ? !!label.trim() && !!email.trim() && !!appPassword.trim()
+    : !!label.trim();
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div className="bg-card border border-border rounded-xl w-full max-w-lg mx-4 shadow-xl">
+        <div className="flex items-center justify-between p-4 border-b border-border">
+          <h2 className="font-semibold text-sm">{isCreate ? 'Add Gmail account' : 'Edit account'}</h2>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><XCircle className="w-4 h-4" /></button>
+        </div>
+        <div className="p-4 space-y-3">
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">Label</label>
+            <input
+              className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+              value={label}
+              onChange={(e) => setLabel(e.target.value)}
+              placeholder="e.g. Khairul (workspace)"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">Email address {isCreate ? '' : '(read-only)'}</label>
+            <input
+              type="email"
+              disabled={!isCreate}
+              className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-60"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="khairul@trytaskip.com"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">
+              App Password {isCreate ? '' : '(leave blank to keep current)'}
+            </label>
+            <input
+              type="password"
+              className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-primary"
+              value={appPassword}
+              onChange={(e) => setAppPassword(e.target.value)}
+              placeholder="xxxx xxxx xxxx xxxx"
+              autoComplete="new-password"
+            />
+            <p className="text-[11px] text-muted-foreground mt-1">
+              Generate at <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">myaccount.google.com/apppasswords</a> (2FA must be on). Spaces are stripped.
+            </p>
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">Display name (optional)</label>
+            <input
+              className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+              placeholder="Khairul"
+            />
+            <p className="text-[11px] text-muted-foreground mt-1">Shown in the From header. Defaults to email.</p>
+          </div>
+          {isCreate && (
+            <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer">
+              <input
+                type="checkbox"
+                className="accent-primary"
+                checked={isDefault}
+                onChange={(e) => setIsDefault(e.target.checked)}
+              />
+              Set as default account
+            </label>
+          )}
+          {error && <div className="text-xs text-red-500">{error}</div>}
+        </div>
+        <div className="flex justify-end gap-2 p-4 border-t border-border">
+          <button onClick={onClose} className="px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground border border-border rounded-lg">Cancel</button>
+          <button
+            onClick={() => saveMut.mutate()}
+            disabled={!canSubmit || saveMut.isPending}
+            className="px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded-lg hover:opacity-90 disabled:opacity-50"
+          >
+            {saveMut.isPending ? 'Saving…' : 'Save'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function GmailTab({ token }: { rows: SettingRow[]; token: string }) {
+  const qc = useQueryClient();
+  const [modal, setModal] = useState<null | 'add' | 'oauth' | GmailAccount>(null);
+  const [testResults, setTestResults] = useState<Record<string, { ok: boolean; message: string }>>({});
+
+  const { data: accounts = [], isLoading } = useQuery<GmailAccount[]>({
+    queryKey: ['gmail-accounts'],
+    queryFn: async () => {
+      const res = await fetch('/gmail/accounts', { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) return [];
+      return res.json();
+    },
+  });
+
+  const setDefaultMut = useMutation({
+    mutationFn: (id: string) =>
+      fetch(`/gmail/accounts/${id}/set-default`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      }).then((r) => { if (!r.ok) throw new Error('Failed'); }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['gmail-accounts'] }),
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: (id: string) =>
+      fetch(`/gmail/accounts/${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      }).then((r) => { if (!r.ok) throw new Error('Failed'); }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['gmail-accounts'] }),
+  });
+
+  const testMut = useMutation({
+    mutationFn: async (id: string): Promise<{ id: string; result: { ok: boolean; message: string } }> => {
+      const res = await fetch(`/gmail/accounts/${id}/test`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const result = await res.json();
+      return { id, result };
+    },
+    onSuccess: ({ id, result }) => setTestResults((prev) => ({ ...prev, [id]: result })),
+  });
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-6">
+      <div>
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-sm font-semibold">Gmail accounts</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Used by the Taskip Internal agent for marketing / follow-up emails. Live chat uses AWS SES.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setModal('oauth')}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-primary-foreground text-sm rounded-lg hover:opacity-90"
+              title="Use OAuth2 — required for Workspace accounts where App Passwords are blocked"
+            >
+              <Plus className="w-3.5 h-3.5" /> Connect with OAuth
+            </button>
+            <button
+              onClick={() => setModal('add')}
+              className="flex items-center gap-1.5 px-3 py-1.5 border border-border text-sm rounded-lg hover:bg-accent/50"
+              title="Use IMAP + App Password — simpler for personal Gmail"
+            >
+              <Plus className="w-3.5 h-3.5" /> App Password
+            </button>
+          </div>
+        </div>
+
+        {isLoading ? (
+          <Skeleton className="h-20 w-full" />
+        ) : accounts.length === 0 ? (
+          <div className="bg-card border border-dashed border-border rounded-lg p-8 text-center text-sm text-muted-foreground">
+            No Gmail accounts yet. Click <strong>Add account</strong> to connect your first inbox.
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {accounts.map((acc) => {
+              const test = testResults[acc.id];
+              return (
+                <div key={acc.id} className="bg-card border border-border rounded-lg px-4 py-3">
+                  <div className="flex items-start gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-medium">{acc.label}</span>
+                        {acc.isDefault && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 font-medium">
+                            default
+                          </span>
+                        )}
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${acc.authType === 'oauth2' ? 'bg-blue-500/15 text-blue-400' : 'bg-muted text-muted-foreground'}`}>
+                          {acc.authType === 'oauth2' ? 'OAuth2' : 'IMAP'}
+                        </span>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-0.5 truncate">
+                        {acc.displayName ? `${acc.displayName} <${acc.email}>` : acc.email}
+                      </p>
+                      {test && (
+                        <p className={`text-[11px] mt-1 ${test.ok ? 'text-emerald-500' : 'text-red-500'}`}>
+                          {test.ok ? <CheckCircle2 className="w-3 h-3 inline mr-1" /> : <XCircle className="w-3 h-3 inline mr-1" />}
+                          {test.message}
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => testMut.mutate(acc.id)}
+                        disabled={testMut.isPending}
+                        className="text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded border border-border disabled:opacity-50"
+                      >
+                        {testMut.isPending && testMut.variables === acc.id ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Test'}
+                      </button>
+                      {!acc.isDefault && (
+                        <button
+                          onClick={() => setDefaultMut.mutate(acc.id)}
+                          className="text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded border border-border"
+                          title="Make this the default account"
+                        >
+                          Set default
+                        </button>
+                      )}
+                      {acc.authType === 'imap' && (
+                        <button
+                          onClick={() => setModal(acc)}
+                          className="text-muted-foreground hover:text-foreground p-1.5"
+                          title="Edit"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                      <button
+                        onClick={() => {
+                          if (confirm(`Delete ${acc.email}? This cannot be undone.`)) {
+                            deleteMut.mutate(acc.id);
+                          }
+                        }}
+                        className="text-muted-foreground hover:text-destructive p-1.5"
+                        title="Delete"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      <aside className="bg-muted/30 rounded-lg p-5 text-sm">
+        <h2 className="text-sm font-semibold mb-4">IMAP Setup (App Password)</h2>
+        <p className="text-xs text-muted-foreground mb-4">
+          Connects via Gmail's IMAP / SMTP endpoints using a 16-character App Password — no Google Cloud project needed.
+          Works for Gmail and Workspace accounts (admin must allow IMAP and App Passwords).
+        </p>
+        <div className="space-y-4">
+          <SetupStep n={1} title="Turn on 2-Step Verification">
+            <p>
+              <a href="https://myaccount.google.com/security" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">myaccount.google.com → Security</a> →
+              enable <strong>2-Step Verification</strong>.
+            </p>
+          </SetupStep>
+          <SetupStep n={2} title="Generate an App Password">
+            <p>
+              <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">myaccount.google.com/apppasswords</a> →
+              name it <code className="bg-muted px-1 rounded">Cortex OS</code> → <strong>Create</strong>.
+            </p>
+          </SetupStep>
+          <SetupStep n={3} title="Add the account here">
+            <p>
+              Click <strong>Add account</strong>, paste email + 16-char password. Mark one account as default.
+            </p>
+            <p className="text-muted-foreground">
+              IMAP <code className="bg-muted px-1 rounded">imap.gmail.com:993</code> · SMTP <code className="bg-muted px-1 rounded">smtp.gmail.com:465</code>.
+            </p>
+          </SetupStep>
+        </div>
+      </aside>
+
+      {modal === 'oauth' && (
+        <GmailOAuthModal token={token} onClose={() => setModal(null)} />
+      )}
+      {modal !== null && modal !== 'oauth' && (
+        <GmailAccountModal
+          token={token}
+          account={modal === 'add' ? null : modal}
+          onClose={() => setModal(null)}
+        />
+      )}
+    </div>
   );
 }
 

@@ -253,6 +253,20 @@
       "when": 1777400027000,
       "tag": "0035_kb_site_key",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "6",
+      "when": 1777400028000,
+      "tag": "0036_gmail_accounts",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "6",
+      "when": 1777400029000,
+      "tag": "0037_gmail_oauth",
+      "breakpoints": true
     }
   ]
 }

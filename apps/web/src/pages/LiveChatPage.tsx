@@ -484,6 +484,15 @@ function InstallModal({ site, freshlyCreated, onClose }: { site: Site; freshlyCr
           </div>
         </div>
 
+        <div className="bg-muted/50 border border-border rounded p-3 space-y-1.5">
+          <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Security — automatic, no config needed</div>
+          <ul className="text-sm space-y-1 list-disc pl-4 text-muted-foreground">
+            <li><strong>Origin validation</strong> — every API request is checked against <code className="bg-muted px-1 rounded">{site.origin}</code>. Requests from any other origin are rejected (403).</li>
+            <li><strong>Anti-bot signals</strong> — the widget silently sends a honeypot field, time-to-first-keystroke, and elapsed-typing time with each message. Bot submissions are filtered before reaching the AI.</li>
+            <li><strong>Rate limiting</strong> — messages are capped per visitor per site key to prevent spam bursts.</li>
+          </ul>
+        </div>
+
         <div>
           <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-1.5">Quick test</div>
           <ol className="text-sm space-y-1 list-decimal pl-5 text-muted-foreground">
@@ -2410,43 +2419,39 @@ function PageJourneySection({ visitorPk }: { visitorPk: string }) {
             const favicon = faviconForUrl(p.url);
             return (
               <li key={p.id} className="py-2 px-1 hover:bg-accent/30 rounded transition-colors">
-                <a
-                  href={p.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="block group"
-                  title={p.url}
-                >
-                  <div className="flex items-start gap-2">
-                    {favicon ? (
-                      <img
-                        src={favicon}
-                        alt=""
-                        width={16}
-                        height={16}
-                        loading="lazy"
-                        className="mt-0.5 shrink-0 rounded-sm"
-                        onError={(e) => {
-                          (e.target as HTMLImageElement).style.display = 'none';
-                        }}
-                      />
-                    ) : (
-                      <div className="w-4 h-4 mt-0.5 shrink-0 rounded-sm bg-muted" />
-                    )}
-                    <div className="flex-1 min-w-0">
-                      <div className="text-xs font-medium truncate group-hover:text-foreground">
-                        {p.title ?? p.path ?? p.url}
-                      </div>
-                      <div className="text-[10px] text-muted-foreground flex justify-between gap-2 mt-0.5">
-                        <span className="truncate">{p.path ?? p.url}</span>
-                        <span className="shrink-0">
-                          {new Date(p.arrivedAt).toLocaleTimeString()}
-                          {p.durationMs != null && ` · ${formatDuration(p.durationMs)}`}
-                        </span>
-                      </div>
+                <div className="flex items-center gap-2">
+                  {favicon ? (
+                    <img
+                      src={favicon}
+                      alt=""
+                      width={16}
+                      height={16}
+                      loading="lazy"
+                      className="shrink-0 rounded-sm"
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).style.display = 'none';
+                      }}
+                    />
+                  ) : (
+                    <div className="w-4 h-4 shrink-0 rounded-sm bg-muted" />
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs font-medium truncate">{p.title ?? p.path ?? p.url}</div>
+                    <div className="text-[10px] text-muted-foreground mt-0.5">
+                      {new Date(p.arrivedAt).toLocaleTimeString()}
+                      {p.durationMs != null && ` · ${formatDuration(p.durationMs)}`}
                     </div>
                   </div>
-                </a>
+                  <a
+                    href={p.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    title={p.url}
+                    className="shrink-0 text-muted-foreground hover:text-foreground transition-colors p-1 rounded hover:bg-accent/50"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </a>
+                </div>
               </li>
             );
           })}
@@ -2464,7 +2469,101 @@ interface OperatorDraft {
   name: string;
   avatarUrl: string;
   isDefault: boolean;
-  siteKeys: string;
+  siteKeys: string[];
+}
+
+function OperatorAvatarPicker({
+  token,
+  value,
+  onChange,
+  onError,
+}: {
+  token: string;
+  value: string;
+  onChange: (next: string) => void;
+  onError: (msg: string) => void;
+}) {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+
+  async function handleFile(file: File) {
+    if (!file.type.startsWith('image/')) {
+      onError('Please pick an image file');
+      return;
+    }
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file, file.name);
+      const res = await fetch('/agents/livechat/operators/upload-avatar', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: fd,
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err?.message ?? `Upload failed (HTTP ${res.status})`);
+      }
+      const data = await res.json();
+      onChange(data.url);
+    } catch (e) {
+      onError(e instanceof Error ? e.message : 'Upload failed');
+    } finally {
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-3">
+        {value ? (
+          <img
+            src={value}
+            alt=""
+            className="w-12 h-12 rounded-full object-cover border border-border shrink-0"
+            onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+          />
+        ) : (
+          <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center text-xs text-muted-foreground border border-border shrink-0">
+            none
+          </div>
+        )}
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) handleFile(f);
+          }}
+        />
+        <button
+          type="button"
+          onClick={() => fileRef.current?.click()}
+          disabled={uploading}
+          className="px-3 py-1.5 text-xs bg-background border border-border rounded-md hover:bg-accent/50 disabled:opacity-50"
+        >
+          {uploading ? 'Uploading…' : value ? 'Replace image' : 'Upload image'}
+        </button>
+        {value && (
+          <button
+            type="button"
+            onClick={() => onChange('')}
+            className="px-3 py-1.5 text-xs text-muted-foreground hover:text-destructive"
+          >
+            Remove
+          </button>
+        )}
+      </div>
+      <Input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="…or paste an https:// URL"
+      />
+    </div>
+  );
 }
 
 function OperatorsTab() {
@@ -2476,7 +2575,12 @@ function OperatorsTab() {
     queryFn: () => apiFetch(token, '/agents/livechat/operators'),
   });
 
-  const emptyDraft: OperatorDraft = { name: '', avatarUrl: '', isDefault: false, siteKeys: '' };
+  const { data: sites = [] } = useQuery<Site[]>({
+    queryKey: ['livechat-sites'],
+    queryFn: () => apiFetch(token, '/agents/livechat/sites'),
+  });
+
+  const emptyDraft: OperatorDraft = { name: '', avatarUrl: '', isDefault: false, siteKeys: [] };
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState<OperatorDraft>(emptyDraft);
@@ -2495,7 +2599,7 @@ function OperatorsTab() {
       name: op.name,
       avatarUrl: op.avatarUrl ?? '',
       isDefault: op.isDefault,
-      siteKeys: op.siteKeys ? op.siteKeys.join('\n') : '',
+      siteKeys: op.siteKeys ?? [],
     });
     setFormError(null);
     setModalOpen(true);
@@ -2505,10 +2609,7 @@ function OperatorsTab() {
     name: d.name.trim(),
     avatarUrl: d.avatarUrl.trim() || null,
     isDefault: d.isDefault,
-    siteKeys: d.siteKeys
-      .split(/\r?\n/)
-      .map((s) => s.trim())
-      .filter(Boolean),
+    siteKeys: d.siteKeys,
   });
 
   const saveMut = useMutation({
@@ -2635,11 +2736,12 @@ function OperatorsTab() {
                 placeholder="Sharifur"
               />
             </Field>
-            <Field label="Avatar URL" hint="Optional. Full https:// URL to a square image. Leave blank to use initials.">
-              <Input
+            <Field label="Avatar" hint="Optional. Upload an image or paste a URL. Leave blank to use initials.">
+              <OperatorAvatarPicker
+                token={token}
                 value={draft.avatarUrl}
-                onChange={(e) => setDraft({ ...draft, avatarUrl: e.target.value })}
-                placeholder="https://example.com/avatar.jpg"
+                onChange={(next) => setDraft({ ...draft, avatarUrl: next })}
+                onError={(msg) => setFormError(msg)}
               />
             </Field>
             <div className="space-y-1">
@@ -2655,17 +2757,35 @@ function OperatorsTab() {
                 If checked, this operator appears as the sender in the chat header when no specific operator is selected.
               </p>
             </div>
-            <Field
-              label="Site keys"
-              hint="One site key per line. Leave blank to make this operator available on all sites."
-            >
-              <textarea
-                value={draft.siteKeys}
-                onChange={(e) => setDraft({ ...draft, siteKeys: e.target.value })}
-                className="w-full text-sm bg-background border border-border rounded-md px-3 py-2 min-h-[70px] font-mono"
-                placeholder={'bytesed\ntaskip'}
-              />
-            </Field>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Sites</label>
+              <div className="border border-border rounded-md divide-y divide-border max-h-44 overflow-y-auto">
+                {sites.length === 0 ? (
+                  <p className="text-xs text-muted-foreground px-3 py-2">No sites configured yet.</p>
+                ) : (
+                  sites.map((s) => (
+                    <label key={s.key} className="flex items-center gap-2.5 px-3 py-2 cursor-pointer hover:bg-accent/30">
+                      <input
+                        type="checkbox"
+                        className="shrink-0"
+                        checked={draft.siteKeys.includes(s.key)}
+                        onChange={(e) => {
+                          setDraft({
+                            ...draft,
+                            siteKeys: e.target.checked
+                              ? [...draft.siteKeys, s.key]
+                              : draft.siteKeys.filter((k) => k !== s.key),
+                          });
+                        }}
+                      />
+                      <span className="text-sm">{s.label}</span>
+                      <span className="ml-auto text-xs text-muted-foreground font-mono">{s.key}</span>
+                    </label>
+                  ))
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground">Leave all unchecked to make this operator available on all sites.</p>
+            </div>
 
             <div className="flex justify-end gap-2 pt-2 border-t border-border -mx-5 px-5 pb-0 pt-3">
               <Button
