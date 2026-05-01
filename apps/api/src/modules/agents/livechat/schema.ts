@@ -150,3 +150,12 @@ export const livechatAttachments = pgTable(
     messageIdx: index('livechat_attachments_message_idx').on(t.messageId),
   }),
 );
+
+export const livechatOperators = pgTable('livechat_operators', {
+  id: text('id').primaryKey().$defaultFn(() => createId()),
+  name: text('name').notNull(),
+  avatarUrl: text('avatar_url'),
+  isDefault: boolean('is_default').notNull().default(false),
+  siteKeys: text('site_keys'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+});

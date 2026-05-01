@@ -7,6 +7,7 @@ import {
   livechatPageviews,
   livechatSessions,
   livechatMessages,
+  livechatOperators,
 } from './schema';
 import { EnrichmentService, EnrichedVisitor } from '../../../common/visitor-enrichment/enrichment.service';
 import { LivechatOriginCache } from './livechat-origin.cache';
@@ -88,6 +89,15 @@ export interface UpdateSiteDto {
   transcriptEnabled?: boolean;
   transcriptBcc?: string | null;
   transcriptFrom?: string | null;
+}
+
+export interface LivechatOperatorRow {
+  id: string;
+  name: string;
+  avatarUrl: string | null;
+  isDefault: boolean;
+  siteKeys: string[] | null;
+  createdAt: Date;
 }
 
 export interface VisitorContext {
@@ -770,6 +780,116 @@ export class LivechatService {
       .where(eq(livechatPageviews.visitorPk, visitorPk))
       .orderBy(desc(livechatPageviews.arrivedAt))
       .limit(limit);
+  }
+
+  private parseSiteKeys(raw: string | null): string[] | null {
+    if (!raw) return null;
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed as string[];
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  private toOperatorRow(r: typeof livechatOperators.$inferSelect): LivechatOperatorRow {
+    return {
+      id: r.id,
+      name: r.name,
+      avatarUrl: r.avatarUrl,
+      isDefault: r.isDefault,
+      siteKeys: this.parseSiteKeys(r.siteKeys),
+      createdAt: r.createdAt,
+    };
+  }
+
+  async listOperators(): Promise<LivechatOperatorRow[]> {
+    const rows = await this.db.db.select().from(livechatOperators).orderBy(livechatOperators.createdAt);
+    return rows.map((r) => this.toOperatorRow(r));
+  }
+
+  async getOperatorById(id: string): Promise<LivechatOperatorRow | null> {
+    const [row] = await this.db.db.select().from(livechatOperators).where(eq(livechatOperators.id, id)).limit(1);
+    return row ? this.toOperatorRow(row) : null;
+  }
+
+  async createOperator(dto: {
+    name: string;
+    avatarUrl?: string | null;
+    isDefault?: boolean;
+    siteKeys?: string[] | null;
+  }): Promise<LivechatOperatorRow> {
+    if (dto.isDefault) {
+      await this.db.db.update(livechatOperators).set({ isDefault: false });
+    }
+    const siteKeysRaw =
+      Array.isArray(dto.siteKeys) && dto.siteKeys.length > 0 ? JSON.stringify(dto.siteKeys) : null;
+    const [row] = await this.db.db
+      .insert(livechatOperators)
+      .values({
+        name: dto.name,
+        avatarUrl: dto.avatarUrl ?? null,
+        isDefault: dto.isDefault ?? false,
+        siteKeys: siteKeysRaw,
+      })
+      .returning();
+    return this.toOperatorRow(row);
+  }
+
+  async updateOperator(
+    id: string,
+    dto: {
+      name?: string;
+      avatarUrl?: string | null;
+      isDefault?: boolean;
+      siteKeys?: string[] | null;
+    },
+  ): Promise<LivechatOperatorRow> {
+    const [existing] = await this.db.db
+      .select({ id: livechatOperators.id })
+      .from(livechatOperators)
+      .where(eq(livechatOperators.id, id))
+      .limit(1);
+    if (!existing) throw new NotFoundException(`Operator not found: ${id}`);
+
+    if (dto.isDefault) {
+      await this.db.db.update(livechatOperators).set({ isDefault: false });
+    }
+
+    const set: Record<string, unknown> = {};
+    if (dto.name !== undefined) set.name = dto.name;
+    if (dto.avatarUrl !== undefined) set.avatarUrl = dto.avatarUrl;
+    if (dto.isDefault !== undefined) set.isDefault = dto.isDefault;
+    if (dto.siteKeys !== undefined) {
+      set.siteKeys =
+        Array.isArray(dto.siteKeys) && dto.siteKeys.length > 0 ? JSON.stringify(dto.siteKeys) : null;
+    }
+
+    const [row] = await this.db.db
+      .update(livechatOperators)
+      .set(set)
+      .where(eq(livechatOperators.id, id))
+      .returning();
+    return this.toOperatorRow(row);
+  }
+
+  async deleteOperator(id: string): Promise<void> {
+    const [existing] = await this.db.db
+      .select({ id: livechatOperators.id })
+      .from(livechatOperators)
+      .where(eq(livechatOperators.id, id))
+      .limit(1);
+    if (!existing) throw new NotFoundException(`Operator not found: ${id}`);
+    await this.db.db.delete(livechatOperators).where(eq(livechatOperators.id, id));
+  }
+
+  async getOperatorsForSite(siteKey: string): Promise<LivechatOperatorRow[]> {
+    const all = await this.listOperators();
+    return all.filter((op) => {
+      if (!op.siteKeys || op.siteKeys.length === 0) return true;
+      return op.siteKeys.includes(siteKey);
+    });
   }
 
   async createSite(dto: CreateSiteDto): Promise<LivechatSiteRow> {

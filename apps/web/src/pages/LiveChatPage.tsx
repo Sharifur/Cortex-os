@@ -79,6 +79,15 @@ interface Site {
   createdAt: string;
 }
 
+interface Operator {
+  id: string;
+  name: string;
+  avatarUrl: string | null;
+  isDefault: boolean;
+  siteKeys: string[] | null;
+  createdAt: string;
+}
+
 interface SessionRow {
   id: string;
   siteId: string;
@@ -143,7 +152,7 @@ interface SessionDetail {
   messages: MessageRow[];
 }
 
-type Tab = 'conversations' | 'sites' | 'setup';
+type Tab = 'conversations' | 'sites' | 'operators' | 'setup';
 
 export default function LiveChatPage() {
   const [tab, setTab] = useState<Tab>('conversations');
@@ -165,6 +174,9 @@ export default function LiveChatPage() {
           <TabButton active={tab === 'sites'} onClick={() => setTab('sites')}>
             Sites
           </TabButton>
+          <TabButton active={tab === 'operators'} onClick={() => setTab('operators')}>
+            Operators
+          </TabButton>
           <TabButton active={tab === 'setup'} onClick={() => setTab('setup')}>
             Setup
           </TabButton>
@@ -173,6 +185,7 @@ export default function LiveChatPage() {
       <div className="flex-1 overflow-hidden">
         {tab === 'conversations' && <ConversationsTab />}
         {tab === 'sites' && <SitesTab />}
+        {tab === 'operators' && <OperatorsTab />}
         {tab === 'setup' && <SetupTab />}
       </div>
     </div>
@@ -621,9 +634,9 @@ function SiteFormModal({ site, onClose, onSave, error }: { site: Partial<Site>; 
             <Field label="Bot subtitle" hint="Small line under the bot name.">
               <Input value={draft.botSubtitle ?? ''} onChange={(e) => setDraft({ ...draft, botSubtitle: e.target.value })} placeholder="We typically reply in a few seconds." />
             </Field>
-            <Field label="Operator name" hint="Shown in the chat header and on human operator replies. Leave blank to use the bot name.">
-              <Input value={draft.operatorName ?? ''} onChange={(e) => setDraft({ ...draft, operatorName: e.target.value || null })} placeholder="Sharifur" />
-            </Field>
+            <div className="text-xs text-muted-foreground bg-muted/50 border border-border rounded-md px-3 py-2">
+              The operator shown in the chat header and on human replies is managed in the <strong>Operators</strong> tab.
+            </div>
             <Field label="Welcome message" hint="First message shown when the visitor opens the chat.">
               <textarea
                 value={draft.welcomeMessage ?? ''}
@@ -1288,9 +1301,22 @@ function SessionPane({
     showError(`${label}: ${detail}`);
   };
 
+  const [selectedOperatorId, setSelectedOperatorId] = useState<string>('');
+
   const { data: detail, refetch, isError, isLoading } = useQuery<SessionDetail>({
     queryKey: ['livechat-session', sessionId],
     queryFn: () => apiFetch(token, `/agents/livechat/sessions/${sessionId}`),
+  });
+
+  const { data: allOperators = [] } = useQuery<Operator[]>({
+    queryKey: ['livechat-operators'],
+    queryFn: () => apiFetch(token, '/agents/livechat/operators'),
+  });
+
+  const { data: sites = [] } = useQuery<Site[]>({
+    queryKey: ['livechat-sites'],
+    queryFn: () => apiFetch(token, '/agents/livechat/sites'),
+    staleTime: 60_000,
   });
 
   const [liveMessages, setLiveMessages] = useState<MessageRow[]>([]);
@@ -1450,12 +1476,13 @@ function SessionPane({
   });
 
   const sendMut = useMutation({
-    mutationFn: (payload: { content: string; attachmentIds: string[] }) =>
+    mutationFn: (payload: { content: string; attachmentIds: string[]; operatorId?: string }) =>
       apiFetch(token, `/agents/livechat/sessions/${sessionId}/message`, {
         method: 'POST',
         body: JSON.stringify({
           content: payload.content,
           attachmentIds: payload.attachmentIds.length ? payload.attachmentIds : undefined,
+          operatorId: payload.operatorId || undefined,
         }),
       }),
     onSuccess: () => {
@@ -1488,7 +1515,7 @@ function SessionPane({
   const submitOperator = () => {
     const content = composerRef.current?.value?.trim() ?? '';
     if (!content && pendingAttachments.length === 0) return;
-    sendMut.mutate({ content, attachmentIds: pendingAttachments.map((a) => a.id) });
+    sendMut.mutate({ content, attachmentIds: pendingAttachments.map((a) => a.id), operatorId: selectedOperatorId || undefined });
   };
 
   if (isError) {
@@ -1507,6 +1534,11 @@ function SessionPane({
   const visitorName = detail.session.visitorName || detail.session.visitorEmail || `visitor${detail.session.visitorId.slice(-5)}`;
   const language = detail.visitor?.language ?? null;
   const messagesByDay = groupMessagesByDay(allMessages);
+
+  const sessionSiteKey = sites.find((s) => s.id === detail?.session?.siteId)?.key ?? '';
+  const availableOperators = allOperators.filter(
+    (op) => !op.siteKeys || op.siteKeys.length === 0 || (sessionSiteKey && op.siteKeys.includes(sessionSiteKey))
+  );
 
   return (
     <div className="h-full flex">
@@ -1644,6 +1676,21 @@ function SessionPane({
             <ComposerTab disabled>Shortcuts</ComposerTab>
             <ComposerTab disabled>Knowledge Base</ComposerTab>
           </div>
+          {composerEnabled && availableOperators.length > 0 && (
+            <div className="flex items-center gap-2 px-4 py-1.5 border-b border-border bg-muted/30">
+              <span className="text-xs text-muted-foreground shrink-0">Speaking as:</span>
+              <select
+                value={selectedOperatorId}
+                onChange={(e) => setSelectedOperatorId(e.target.value)}
+                className="text-xs bg-transparent border-0 outline-none text-foreground font-medium flex-1 cursor-pointer"
+              >
+                <option value="">Default</option>
+                {availableOperators.map((op) => (
+                  <option key={op.id} value={op.id}>{op.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
           <textarea
             ref={composerRef}
             disabled={!composerEnabled}
@@ -2406,6 +2453,243 @@ function PageJourneySection({ visitorPk }: { visitorPk: string }) {
         </ol>
       )}
     </Section>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Operators tab
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface OperatorDraft {
+  name: string;
+  avatarUrl: string;
+  isDefault: boolean;
+  siteKeys: string;
+}
+
+function OperatorsTab() {
+  const token = useAuthStore((s) => s.token)!;
+  const qc = useQueryClient();
+
+  const { data: operators = [], isLoading } = useQuery<Operator[]>({
+    queryKey: ['livechat-operators'],
+    queryFn: () => apiFetch(token, '/agents/livechat/operators'),
+  });
+
+  const emptyDraft: OperatorDraft = { name: '', avatarUrl: '', isDefault: false, siteKeys: '' };
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [draft, setDraft] = useState<OperatorDraft>(emptyDraft);
+  const [formError, setFormError] = useState<string | null>(null);
+
+  const openCreate = () => {
+    setEditingId(null);
+    setDraft(emptyDraft);
+    setFormError(null);
+    setModalOpen(true);
+  };
+
+  const openEdit = (op: Operator) => {
+    setEditingId(op.id);
+    setDraft({
+      name: op.name,
+      avatarUrl: op.avatarUrl ?? '',
+      isDefault: op.isDefault,
+      siteKeys: op.siteKeys ? op.siteKeys.join('\n') : '',
+    });
+    setFormError(null);
+    setModalOpen(true);
+  };
+
+  const buildPayload = (d: OperatorDraft) => ({
+    name: d.name.trim(),
+    avatarUrl: d.avatarUrl.trim() || null,
+    isDefault: d.isDefault,
+    siteKeys: d.siteKeys
+      .split(/\r?\n/)
+      .map((s) => s.trim())
+      .filter(Boolean),
+  });
+
+  const saveMut = useMutation({
+    mutationFn: (d: OperatorDraft) => {
+      const payload = buildPayload(d);
+      if (editingId) {
+        return apiFetch(token, `/agents/livechat/operators/${editingId}`, {
+          method: 'PATCH',
+          body: JSON.stringify(payload),
+        });
+      }
+      return apiFetch(token, '/agents/livechat/operators', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['livechat-operators'] });
+      setModalOpen(false);
+    },
+    onError: (err: Error) => setFormError(parseSaveError(err.message) ?? err.message),
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: (id: string) => apiFetch(token, `/agents/livechat/operators/${id}`, { method: 'DELETE' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['livechat-operators'] }),
+  });
+
+  return (
+    <div className="h-full overflow-auto p-6">
+      <div className="max-w-3xl space-y-3">
+        <div className="flex items-center justify-between">
+          <p className="text-sm text-muted-foreground">
+            Operators appear as the sender in human-takeover replies. Assign operators to specific sites or leave site keys blank to make them available on all sites.
+          </p>
+          <Button size="sm" onClick={openCreate}>
+            <Plus className="w-4 h-4 mr-1" /> New operator
+          </Button>
+        </div>
+
+        {isLoading ? (
+          <p className="text-sm text-muted-foreground">Loading…</p>
+        ) : operators.length === 0 ? (
+          <div className="border border-dashed border-border rounded-lg p-8 text-center text-sm text-muted-foreground">
+            No operators yet. Add one to assign a sender identity to human replies.
+          </div>
+        ) : (
+          operators.map((op) => {
+            const initials = op.name
+              .split(/\s+/)
+              .filter(Boolean)
+              .slice(0, 2)
+              .map((p) => p[0]?.toUpperCase() ?? '')
+              .join('') || 'OP';
+            return (
+              <div key={op.id} className="border border-border rounded-lg p-4 flex items-center gap-4">
+                <div className="shrink-0">
+                  {op.avatarUrl ? (
+                    <img
+                      src={op.avatarUrl}
+                      alt={op.name}
+                      className="w-10 h-10 rounded-full object-cover border border-border"
+                    />
+                  ) : (
+                    <div className="w-10 h-10 rounded-full bg-primary/15 text-primary flex items-center justify-center text-sm font-semibold">
+                      {initials}
+                    </div>
+                  )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-medium text-sm">{op.name}</span>
+                    {op.isDefault && (
+                      <span className="text-xs bg-blue-500/10 text-blue-500 px-1.5 py-0.5 rounded">default</span>
+                    )}
+                  </div>
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {!op.siteKeys || op.siteKeys.length === 0 ? (
+                      <span className="text-xs bg-muted text-muted-foreground px-1.5 py-0.5 rounded">All sites</span>
+                    ) : (
+                      op.siteKeys.map((k) => (
+                        <span key={k} className="text-xs bg-muted text-muted-foreground px-1.5 py-0.5 rounded font-mono">
+                          {k}
+                        </span>
+                      ))
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  <Button size="sm" variant="ghost" onClick={() => openEdit(op)}>
+                    <PencilLine className="w-4 h-4" />
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => {
+                      if (confirm(`Delete operator "${op.name}"?`)) deleteMut.mutate(op.id);
+                    }}
+                  >
+                    <Trash2 className="w-4 h-4 text-red-500" />
+                  </Button>
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      {modalOpen && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-card border border-border rounded-lg w-full max-w-md max-h-[90vh] overflow-auto p-5 space-y-3">
+            <h3 className="font-semibold">{editingId ? 'Edit operator' : 'New operator'}</h3>
+
+            {formError && (
+              <div className="text-xs bg-red-500/10 text-red-500 border border-red-500/30 rounded-md px-3 py-2">
+                {formError}
+              </div>
+            )}
+
+            <Field label="Name" hint="Required. Shown as the sender name on human-operator messages.">
+              <Input
+                value={draft.name}
+                onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+                placeholder="Sharifur"
+              />
+            </Field>
+            <Field label="Avatar URL" hint="Optional. Full https:// URL to a square image. Leave blank to use initials.">
+              <Input
+                value={draft.avatarUrl}
+                onChange={(e) => setDraft({ ...draft, avatarUrl: e.target.value })}
+                placeholder="https://example.com/avatar.jpg"
+              />
+            </Field>
+            <div className="space-y-1">
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={draft.isDefault}
+                  onChange={(e) => setDraft({ ...draft, isDefault: e.target.checked })}
+                />
+                Default operator
+              </label>
+              <p className="text-xs text-muted-foreground pl-5">
+                If checked, this operator appears as the sender in the chat header when no specific operator is selected.
+              </p>
+            </div>
+            <Field
+              label="Site keys"
+              hint="One site key per line. Leave blank to make this operator available on all sites."
+            >
+              <textarea
+                value={draft.siteKeys}
+                onChange={(e) => setDraft({ ...draft, siteKeys: e.target.value })}
+                className="w-full text-sm bg-background border border-border rounded-md px-3 py-2 min-h-[70px] font-mono"
+                placeholder={'bytesed\ntaskip'}
+              />
+            </Field>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-border -mx-5 px-5 pb-0 pt-3">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  saveMut.reset();
+                  setModalOpen(false);
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                disabled={!draft.name.trim() || saveMut.isPending}
+                onClick={() => saveMut.mutate(draft)}
+              >
+                Save
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
