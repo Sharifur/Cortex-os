@@ -213,23 +213,35 @@ export function mountWidget(cfg: WidgetConfig, siteConfig: SiteConfigResponse = 
 function buildPanel(shadow: ShadowRoot, cfg: WidgetConfig, state: any, render: () => void, siteConfig: SiteConfigResponse): HTMLDivElement {
   const panel = document.createElement('div');
   panel.className = 'lc-panel';
+  // Header title: when multiple operators are configured, naming a single
+  // one ("Aysha") is misleading because the avatar stack shows several
+  // people. Use the brand/bot label instead. Single-operator case keeps the
+  // operator's name so it still feels personal.
+  const opCount = (siteConfig.operators ?? []).length;
+  const headerTitle = opCount > 1
+    ? (siteConfig.botName?.trim() || siteConfig.operatorName || 'Chat with us')
+    : (siteConfig.operatorName?.trim() || siteConfig.botName);
   panel.innerHTML = `
     <div class="lc-header">
-      <div class="lc-header-inner">
-        ${renderHeaderAvatars(siteConfig.operators ?? [], siteConfig.operatorName)}
-        <div class="lc-header-text">
-          <div class="lc-header-title">${escapeHtml(siteConfig.operatorName || siteConfig.botName)}</div>
-          <div class="lc-header-sub"><span class="lc-online-dot"></span>${escapeHtml(siteConfig.botSubtitle)}</div>
+      <div class="lc-header-top">
+        <div class="lc-header-inner">
+          ${renderHeaderAvatars(siteConfig.operators ?? [], siteConfig.operatorName)}
+          <div class="lc-header-text">
+            <div class="lc-header-title">${escapeHtml(headerTitle)}</div>
+          </div>
+        </div>
+        <div class="lc-header-actions">
+          <button class="lc-newchat-btn" aria-label="Start new conversation">${composeIcon()}</button>
+          <button class="lc-menu-btn" aria-label="Conversation menu" aria-haspopup="true">${menuIcon()}</button>
+          <div class="lc-menu" role="menu" style="display:none;">
+            <button class="lc-menu-item" data-action="new">${refreshIcon()} Start a new conversation</button>
+            <button class="lc-menu-item" data-action="close">${xIcon()} End this chat</button>
+          </div>
+          <button class="lc-close" aria-label="Close">${chevronDownIcon()}</button>
         </div>
       </div>
-      <div class="lc-header-actions">
-        <button class="lc-newchat-btn" aria-label="Start new conversation">${composeIcon()}</button>
-        <button class="lc-menu-btn" aria-label="Conversation menu" aria-haspopup="true">${menuIcon()}</button>
-        <div class="lc-menu" role="menu" style="display:none;">
-          <button class="lc-menu-item" data-action="new">${refreshIcon()} Start a new conversation</button>
-          <button class="lc-menu-item" data-action="close">${xIcon()} End this chat</button>
-        </div>
-        <button class="lc-close" aria-label="Close">${chevronDownIcon()}</button>
+      <div class="lc-header-sub-row">
+        <span class="lc-online-dot"></span>${escapeHtml(siteConfig.botSubtitle)}
       </div>
     </div>
     <div class="lc-messages-wrap">

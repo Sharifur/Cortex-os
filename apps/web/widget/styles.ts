@@ -88,11 +88,20 @@ export const WIDGET_STYLES = `
   background-size: 18px 18px;
   color: #fff;
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
   flex-shrink: 0;
 }
-.lc-header-inner { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.lc-header-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; width: 100%; }
+.lc-header-inner { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1; }
+.lc-header-sub-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 12px;
+  opacity: 0.9;
+  color: #fff;
+}
 .lc-header-avatar {
   width: 40px;
   height: 40px;
