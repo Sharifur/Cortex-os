@@ -407,6 +407,22 @@ export const SETTING_DEFINITIONS: Record<string, SettingDefinition> = {
     group: 'general',
   },
 
+  // Live Chat — abuse / cost caps
+  livechat_per_session_msg_cap: {
+    label: 'Live Chat — Visitor messages per session',
+    description: 'Silently capped at this many visitor messages per session. Real conversations top out around 30; anything higher is abuse. Default 100.',
+    isSecret: false,
+    group: 'general',
+    defaultValue: '100',
+  },
+  livechat_daily_agent_reply_cap: {
+    label: 'Live Chat — Agent replies per site per day',
+    description: 'Once a site\'s AI replies hit this number in a day, the agent pauses and visitors get the human-handoff fallback. Bounds LLM cost from a runaway attack. Default 500.',
+    isSecret: false,
+    group: 'general',
+    defaultValue: '500',
+  },
+
   // Taskip Insight API
   insight_base_url: {
     label: 'Base URL',

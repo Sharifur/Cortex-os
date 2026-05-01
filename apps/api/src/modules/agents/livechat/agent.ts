@@ -6,7 +6,7 @@ import { AgentRegistryService } from '../runtime/agent-registry.service';
 import { LlmRouterService } from '../../llm/llm-router.service';
 import { KnowledgeBaseService } from '../../knowledge-base/knowledge-base.service';
 import { agentLlmOpts } from '../runtime/llm-config.util';
-import { LivechatService, DEFAULT_DAILY_AGENT_REPLY_CAP } from './livechat.service';
+import { LivechatService } from './livechat.service';
 import { LivechatStreamService } from './livechat-stream.service';
 import { LivechatRateLimitService } from './livechat-rate-limit.service';
 import type {
@@ -110,11 +110,12 @@ export class LivechatAgent implements IAgent, OnModuleInit {
 
     // Per-site daily reply cap. When exceeded, post the human-handoff
     // fallback and pause AI for this site for the rest of the day. Caps
-    // LLM cost from a runaway spam attack.
+    // LLM cost from a runaway spam attack. Cap is settings-driven.
     if (site) {
+      const limits = await this.livechat.getLimits();
       const todayCount = await this.rateLimit.readDailyCounter('agent_replies', site.key);
-      if (todayCount >= DEFAULT_DAILY_AGENT_REPLY_CAP) {
-        this.logger.warn(`site ${site.key} hit daily agent reply cap (${todayCount})`);
+      if (todayCount >= limits.dailyReply) {
+        this.logger.warn(`site ${site.key} hit daily agent reply cap (${todayCount}/${limits.dailyReply})`);
         return this.postFallback(input.sessionId);
       }
     }

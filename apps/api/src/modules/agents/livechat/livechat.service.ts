@@ -12,6 +12,7 @@ import { EnrichmentService, EnrichedVisitor } from '../../../common/visitor-enri
 import { LivechatOriginCache } from './livechat-origin.cache';
 import { ContactsService } from '../../contacts/contacts.service';
 import { KnowledgeBaseService } from '../../knowledge-base/knowledge-base.service';
+import { SettingsService } from '../../settings/settings.service';
 
 export type WidgetPosition = 'bottom-right' | 'bottom-left';
 
@@ -101,13 +102,45 @@ export interface SessionContext {
 export class LivechatService {
   private readonly logger = new Logger(LivechatService.name);
 
+  private limitsCache: { perSession: number; dailyReply: number; expiresAt: number } | null = null;
+  private readonly limitsCacheMs = 60_000;
+
   constructor(
     private db: DbService,
     private enrichment: EnrichmentService,
     private originCache: LivechatOriginCache,
     private contactsSvc: ContactsService,
     private kb: KnowledgeBaseService,
+    private settings: SettingsService,
   ) {}
+
+  /** Settings-backed limits with 60s cache. Falls back to constants on error. */
+  async getLimits(): Promise<{ perSession: number; dailyReply: number }> {
+    if (this.limitsCache && this.limitsCache.expiresAt > Date.now()) return this.limitsCache;
+    try {
+      const [perSessionRaw, dailyRaw] = await Promise.all([
+        this.settings.getDecrypted('livechat_per_session_msg_cap'),
+        this.settings.getDecrypted('livechat_daily_agent_reply_cap'),
+      ]);
+      const parseInt10 = (v: string | null, fallback: number) => {
+        if (!v) return fallback;
+        const n = parseInt(v, 10);
+        return Number.isFinite(n) && n > 0 ? n : fallback;
+      };
+      this.limitsCache = {
+        perSession: parseInt10(perSessionRaw, MAX_VISITOR_MSGS_PER_SESSION),
+        dailyReply: parseInt10(dailyRaw, DEFAULT_DAILY_AGENT_REPLY_CAP),
+        expiresAt: Date.now() + this.limitsCacheMs,
+      };
+    } catch {
+      this.limitsCache = {
+        perSession: MAX_VISITOR_MSGS_PER_SESSION,
+        dailyReply: DEFAULT_DAILY_AGENT_REPLY_CAP,
+        expiresAt: Date.now() + this.limitsCacheMs,
+      };
+    }
+    return this.limitsCache;
+  }
 
   /**
    * Upsert a Contact for a live-chat visitor and link the session row.
@@ -395,13 +428,14 @@ export class LivechatService {
       // Per-session cap. Real conversations never approach this; a spammer
       // hammering one session does. Returns the duplicate-shape so the
       // public controller silently no-ops without leaking the cap to the
-      // attacker.
+      // attacker. Cap is settings-driven (Settings → General).
+      const limits = await this.getLimits();
       const [{ count }] = await this.db.db
         .select({ count: sql<number>`count(*)::int` })
         .from(livechatMessages)
         .where(and(eq(livechatMessages.sessionId, input.sessionId), eq(livechatMessages.role, 'visitor')));
-      if ((count ?? 0) >= MAX_VISITOR_MSGS_PER_SESSION) {
-        this.logger.warn(`session ${input.sessionId.slice(-8)} hit visitor message cap (${count})`);
+      if ((count ?? 0) >= limits.perSession) {
+        this.logger.warn(`session ${input.sessionId.slice(-8)} hit visitor message cap (${count}/${limits.perSession})`);
         return {
           id: 'capped',
           createdAt: new Date(),
