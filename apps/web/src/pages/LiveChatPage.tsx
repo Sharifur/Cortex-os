@@ -836,25 +836,48 @@ function ConversationsTab() {
   const qc = useQueryClient();
   const [filterKey, setFilterKey] = useState('all');
   const [filterOpen, setFilterOpen] = useState(false);
+  const [filterSite, setFilterSite] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
+  const [advFilterOpen, setAdvFilterOpen] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showVisitors, setShowVisitors] = useState(true);
 
   const filter = STATUS_FILTERS.find((f) => f.key === filterKey)!;
-  const sessionsKey = ['livechat-sessions', filter.status ?? 'all', filter.hasPendingDrafts ? 'pending' : 'any'] as const;
+
+  // Sites for the filter dropdown.
+  const { data: sites = [] } = useQuery<Site[]>({
+    queryKey: ['livechat-sites'],
+    queryFn: () => apiFetch(token, '/agents/livechat/sites'),
+    staleTime: 60_000,
+  });
+
+  const sessionsKey = ['livechat-sessions', filter.status ?? 'all', filter.hasPendingDrafts ? 'pending' : 'any', filterSite ?? 'all'] as const;
   const { data: sessions = [], refetch: refetchList } = useQuery<SessionRow[]>({
     queryKey: sessionsKey,
     queryFn: () => {
       const qs = new URLSearchParams();
       if (filter.status) qs.set('status', filter.status);
       if (filter.hasPendingDrafts) qs.set('hasPendingDrafts', 'true');
+      if (filterSite) qs.set('siteKey', filterSite);
       const suffix = qs.toString() ? `?${qs.toString()}` : '';
       return apiFetch(token, `/agents/livechat/sessions${suffix}`);
     },
-    // No more 10s poll — operator socket pushes session_upserted events.
-    // Fallback safety net only: refetch every 60s in case a socket event was missed.
     refetchInterval: 60_000,
     staleTime: 5_000,
   });
+
+  // Client-side text search across visitor name / email / last message.
+  const searchedSessions = search.trim()
+    ? sessions.filter((s) => {
+        const q = search.trim().toLowerCase();
+        return (
+          (s.visitorName ?? '').toLowerCase().includes(q) ||
+          (s.visitorEmail ?? '').toLowerCase().includes(q) ||
+          (s.lastMessage?.content ?? '').toLowerCase().includes(q) ||
+          (s.currentPageTitle ?? '').toLowerCase().includes(q)
+        );
+      })
+    : sessions;
 
   // Pending review count for the filter chip badge.
   const pendingCountKey = ['livechat-pending-count'] as const;
@@ -922,13 +945,60 @@ function ConversationsTab() {
             )}
             <ChevronDown className="w-3.5 h-3.5" />
           </button>
-          <button className="ml-auto flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded">
+          <button
+            onClick={() => setAdvFilterOpen((v) => !v)}
+            className={`ml-auto flex items-center gap-1 text-xs px-2 py-1 rounded ${
+              filterSite || search ? 'text-primary bg-primary/10' : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
             <Filter className="w-3.5 h-3.5" />
-            Filters
+            Filters{filterSite || search ? ' · on' : ''}
           </button>
-          <button className="text-muted-foreground hover:text-foreground p-1 rounded">
-            <Plus className="w-4 h-4" />
-          </button>
+
+          {advFilterOpen && (
+            <div className="absolute right-3 top-full mt-1 bg-card border border-border rounded-lg shadow-lg z-30 p-3 w-[300px] space-y-3">
+              <div>
+                <label className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold">Search</label>
+                <Input
+                  placeholder="Name, email, message…"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="mt-1 text-sm"
+                  autoFocus
+                />
+              </div>
+              <div>
+                <label className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold">Site</label>
+                <select
+                  value={filterSite ?? ''}
+                  onChange={(e) => setFilterSite(e.target.value || null)}
+                  className="mt-1 w-full text-sm bg-background border border-border rounded-md px-2 py-1.5"
+                >
+                  <option value="">All sites</option>
+                  {sites.map((s) => (
+                    <option key={s.id} value={s.key}>
+                      {s.label} ({s.key})
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex justify-between items-center pt-1 border-t border-border">
+                <button
+                  onClick={() => {
+                    setSearch('');
+                    setFilterSite(null);
+                  }}
+                  className="text-xs text-muted-foreground hover:text-foreground"
+                  disabled={!search && !filterSite}
+                >
+                  Clear all
+                </button>
+                <button onClick={() => setAdvFilterOpen(false)} className="text-xs text-primary hover:underline">
+                  Done
+                </button>
+              </div>
+            </div>
+          )}
 
           {filterOpen && (
             <div
@@ -967,10 +1037,12 @@ function ConversationsTab() {
         />
 
         <div className="flex-1 overflow-auto">
-          {sessions.length === 0 ? (
-            <div className="text-center text-sm text-muted-foreground p-6">No sessions.</div>
+          {searchedSessions.length === 0 ? (
+            <div className="text-center text-sm text-muted-foreground p-6">
+              {search || filterSite ? 'No matches.' : 'No sessions.'}
+            </div>
           ) : (
-            sessions.map((s) => (
+            searchedSessions.map((s) => (
               <InboxRow
                 key={s.id}
                 session={s}
@@ -1083,9 +1155,30 @@ function pathFromUrlMaybe(u: string | null): string | null {
   }
 }
 
+function shortVisitorName(session: { visitorName?: string | null; visitorEmail?: string | null; visitorId: string }): string {
+  if (session.visitorName?.trim()) return session.visitorName.trim();
+  const email = session.visitorEmail?.trim();
+  if (email) {
+    const local = email.split('@')[0];
+    // Replace dots / underscores / hyphens with spaces, title-case the words.
+    return local
+      .split(/[._-]+/)
+      .filter(Boolean)
+      .map((p) => p[0]?.toUpperCase() + p.slice(1))
+      .join(' ') || local;
+  }
+  return `Visitor ${session.visitorId.slice(-5)}`;
+}
+
+function isVisitorOnline(lastSeenAt: string | undefined, status: string | undefined): boolean {
+  if (!lastSeenAt || status === 'closed') return false;
+  return Date.now() - new Date(lastSeenAt).getTime() < 90_000;
+}
+
 function InboxRow({ session, selected, onClick }: { session: SessionRow; selected: boolean; onClick: () => void }) {
-  const name = session.visitorName || session.visitorEmail || `visitor${session.visitorId.slice(-5)}`;
+  const name = shortVisitorName(session);
   const lastTime = session.lastMessage?.createdAt ?? session.lastSeenAt;
+  const online = isVisitorOnline(session.lastSeenAt, session.status);
   return (
     <button
       onClick={onClick}
@@ -1094,10 +1187,10 @@ function InboxRow({ session, selected, onClick }: { session: SessionRow; selecte
       }`}
     >
       <div className="flex items-start gap-2.5">
-        <Avatar name={name} country={session.ipCountry} online={session.status !== 'closed'} />
+        <Avatar name={name} country={session.ipCountry} online={online} />
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between gap-2">
-            <span className={`text-sm truncate ${selected ? 'font-semibold' : 'font-medium'}`}>{name}</span>
+            <span className={`text-sm truncate ${selected ? 'font-semibold' : 'font-medium'}`} title={session.visitorEmail ?? undefined}>{name}</span>
             <span className="text-[10px] text-muted-foreground shrink-0">{relativeTime(lastTime)}</span>
           </div>
           <div className="flex items-center gap-1.5 mt-0.5 text-xs text-muted-foreground">
@@ -1122,10 +1215,14 @@ function Avatar({ name, country, online, size = 'md' }: { name: string; country?
   const dotSizeMap = { sm: 'w-2 h-2', md: 'w-2.5 h-2.5', lg: 'w-3 h-3' };
   const flagSizeMap = { sm: 'text-[10px]', md: 'text-xs', lg: 'text-sm' };
   const bg = colorForName(name);
+  // Initials from short visitor name (already without the "visitor" prefix
+  // for email-derived names). Take first letters of up to two words.
   const initials = name
-    .replace(/^visitor/i, 'V')
+    .split(/\s+/)
+    .filter(Boolean)
     .slice(0, 2)
-    .toUpperCase();
+    .map((p) => p[0]?.toUpperCase() ?? '')
+    .join('') || 'V';
   return (
     <div className={`relative shrink-0 ${sizeMap[size]} rounded-full ${bg} flex items-center justify-center font-semibold text-white`}>
       <span>{initials}</span>
@@ -1137,9 +1234,13 @@ function Avatar({ name, country, online, size = 'md' }: { name: string; country?
           {flagFor(country)}
         </span>
       )}
-      {online && (
-        <span className={`absolute top-0 right-0 ${dotSizeMap[size]} rounded-full bg-green-500 border-2 border-card`} />
-      )}
+      {/* Status dot — green when online, gray when not. Always shown so
+          the operator gets a clear active/inactive signal at a glance. */}
+      <span
+        className={`absolute top-0 right-0 ${dotSizeMap[size]} rounded-full border-2 border-card ${
+          online ? 'bg-emerald-500' : 'bg-gray-400'
+        }`}
+      />
     </div>
   );
 }
@@ -1160,6 +1261,14 @@ function SessionPane({
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [visitorSidebarOpen, setVisitorSidebarOpen] = useState(false);
+  // Operator can collapse the right-hand visitor sidebar to a thin strip on
+  // desktop. Preference persists in localStorage so it survives reloads.
+  const [sidebarCollapsedDesktop, setSidebarCollapsedDesktop] = useState<boolean>(() => {
+    try { return localStorage.getItem('lc-visitor-sidebar-collapsed') === '1'; } catch { return false; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem('lc-visitor-sidebar-collapsed', sidebarCollapsedDesktop ? '1' : '0'); } catch { /* ignore */ }
+  }, [sidebarCollapsedDesktop]);
 
   // Ephemeral error banner — surfaces failed mutations + auto-dismisses
   // after 6s. Better than alert() for a flow operators do dozens of times.
@@ -1223,6 +1332,10 @@ function SessionPane({
         setLiveMessages((prev) => prev.filter((m) => m.id !== event.messageId));
       } else if (event.type === 'pageview') {
         setLiveCurrentPage({ url: event.url, title: event.title });
+        // Refresh the "Last browsed pages" list so it updates in real time.
+        if (detail?.session?.visitorPk) {
+          qc.invalidateQueries({ queryKey: ['livechat-pageviews', detail.session.visitorPk] });
+        }
       } else if (event.type === 'session_status') {
         setLiveStatus(event.status);
       } else if (event.type === 'typing' && event.from === 'visitor') {
@@ -1405,21 +1518,6 @@ function SessionPane({
               <ArrowLeft className="w-4 h-4" />
             </button>
           )}
-          <ToolbarButton title="Call (not implemented)">
-            <Phone className="w-4 h-4" />
-          </ToolbarButton>
-          <div className="hidden sm:flex items-center gap-1">
-            <ToolbarButton title="Video (not implemented)">
-              <Video className="w-4 h-4" />
-            </ToolbarButton>
-            <ToolbarButton title="Block (not implemented)">
-              <Ban className="w-4 h-4" />
-            </ToolbarButton>
-            <ToolbarButton title="More">
-              <MoreHorizontal className="w-4 h-4" />
-            </ToolbarButton>
-          </div>
-
           <div className="ml-auto flex items-center gap-1 sm:gap-2">
             <button
               onClick={() => setVisitorSidebarOpen(true)}
@@ -1454,9 +1552,18 @@ function SessionPane({
               <Mail className="w-4 h-4" />
             </ToolbarButton>
             {status !== 'closed' && (
-              <ToolbarButton title="Close" onClick={() => closeMut.mutate()}>
-                <Lock className="w-4 h-4" />
-              </ToolbarButton>
+              <button
+                onClick={() => {
+                  if (confirm('Mark this conversation as resolved? You can reopen by sending a new message.')) {
+                    closeMut.mutate();
+                  }
+                }}
+                className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground hover:bg-accent px-2.5 py-1.5 rounded-md transition-colors"
+                title="Mark as resolved"
+              >
+                <CheckIcon className="w-4 h-4" />
+                <span className="hidden md:inline">Resolve</span>
+              </button>
             )}
           </div>
         </div>
@@ -1545,27 +1652,44 @@ function SessionPane({
               sockRef.current?.emit('livechat:typing', { sessionId, on: false });
             }}
             onKeyDown={(e) => {
-              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+              // Enter sends, Shift+Enter inserts a newline. Cmd/Ctrl+Enter
+              // also sends as a power-user shortcut.
+              if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
                 submitOperator();
               }
             }}
             onPaste={(e) => {
+              // Two paths because browsers vary: most populate `items` for
+              // pasted screenshots; some populate `files` directly.
+              const files: File[] = [];
               const items = e.clipboardData?.items;
-              if (!items) return;
-              for (const item of items) {
-                if (item.kind === 'file' && item.type.startsWith('image/')) {
-                  const f = item.getAsFile();
-                  if (!f) continue;
-                  if (f.size > 10 * 1024 * 1024) {
-                    alert('Pasted image too large (max 10 MB)');
-                    continue;
+              if (items) {
+                for (const item of items) {
+                  if (item.kind === 'file' && item.type.startsWith('image/')) {
+                    const f = item.getAsFile();
+                    if (f) files.push(f);
                   }
-                  if (pendingAttachments.length >= 5) break;
-                  e.preventDefault();
-                  const named = f.name ? f : new File([f], `pasted-${Date.now()}.png`, { type: f.type });
-                  uploadMut.mutate(named);
                 }
+              }
+              if (!files.length && e.clipboardData?.files) {
+                for (const f of e.clipboardData.files) {
+                  if (f.type.startsWith('image/')) files.push(f);
+                }
+              }
+              if (!files.length) return;
+              e.preventDefault();
+              for (const f of files) {
+                if (f.size > 10 * 1024 * 1024) {
+                  showError('Pasted image too large (max 10 MB)');
+                  continue;
+                }
+                if (pendingAttachments.length >= 5) {
+                  showError('Up to 5 attachments per message');
+                  break;
+                }
+                const named = f.name ? f : new File([f], `pasted-${Date.now()}.png`, { type: f.type });
+                uploadMut.mutate(named);
               }
             }}
           />
@@ -1629,7 +1753,7 @@ function SessionPane({
               disabled={!composerEnabled || sendMut.isPending}
               onClick={submitOperator}
               className="w-10 h-10 rounded-full bg-blue-500 hover:bg-blue-600 disabled:opacity-50 text-white flex items-center justify-center"
-              title="Cmd/Ctrl + Enter"
+              title="Enter to send (Shift+Enter for newline)"
             >
               <Send className="w-4 h-4" />
             </button>
@@ -1637,8 +1761,28 @@ function SessionPane({
         </div>
       </div>
 
+      {/* Collapsed state — thin strip with expand button */}
+      {sidebarCollapsedDesktop && (
+        <aside className="hidden lg:flex w-7 shrink-0 border-l border-border items-start justify-center pt-3">
+          <button
+            onClick={() => setSidebarCollapsedDesktop(false)}
+            className="text-muted-foreground hover:text-foreground p-1 rounded"
+            title="Expand visitor info"
+          >
+            <ArrowLeft className="w-4 h-4" />
+          </button>
+        </aside>
+      )}
+
       {/* RIGHT — Visitor sidebar (pinned on lg+, drawer on smaller screens) */}
-      <aside className="hidden lg:block w-[320px] shrink-0 border-l border-border overflow-auto">
+      <aside className={`${sidebarCollapsedDesktop ? 'hidden' : 'hidden lg:block'} w-[320px] shrink-0 border-l border-border overflow-auto relative`}>
+        <button
+          onClick={() => setSidebarCollapsedDesktop(true)}
+          className="absolute top-2 right-2 z-10 text-muted-foreground hover:text-foreground p-1 rounded hidden lg:inline-flex"
+          title="Collapse visitor info"
+        >
+          <ArrowRight className="w-4 h-4" />
+        </button>
         <VisitorSidebar
           visitor={detail.visitor}
           session={detail.session}
@@ -1954,7 +2098,7 @@ function VisitorSidebar({
     setEmailDraft(session.visitorEmail ?? '');
     setEditingEmail(false);
   }, [session.id, session.visitorEmail]);
-  const visitorName = session.visitorName || session.visitorEmail || `visitor${session.visitorId.slice(-5)}`;
+  const visitorName = shortVisitorName(session);
   const submitEmail = () => {
     const trimmed = emailDraft.trim();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) return;
@@ -1966,7 +2110,7 @@ function VisitorSidebar({
     <div>
       {/* Header */}
       <div className="px-4 py-5 border-b border-border flex flex-col items-center text-center">
-        <Avatar name={visitorName} country={visitor?.ipCountry ?? null} online={session.status !== 'closed'} size="lg" />
+        <Avatar name={visitorName} country={visitor?.ipCountry ?? null} online={isVisitorOnline(session.lastSeenAt, session.status)} size="lg" />
         <div className="mt-3 font-semibold">{visitorName}</div>
         {editingEmail ? (
           <div className="mt-1 flex items-center gap-1">
@@ -2188,12 +2332,23 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   );
 }
 
+function faviconForUrl(url: string | null): string | null {
+  if (!url) return null;
+  try {
+    const u = new URL(url);
+    return `https://www.google.com/s2/favicons?domain=${u.hostname}&sz=32`;
+  } catch {
+    return null;
+  }
+}
+
 function PageJourneySection({ visitorPk }: { visitorPk: string }) {
   const token = useAuthStore((s) => s.token)!;
   const { data: pageviews = [] } = useQuery<{ id: string; url: string; path: string | null; title: string | null; arrivedAt: string; durationMs: number | null }[]>({
     queryKey: ['livechat-pageviews', visitorPk],
     queryFn: () => apiFetch(token, `/agents/livechat/visitors/${visitorPk}/pageviews?limit=20`),
-    refetchInterval: 30_000,
+    refetchInterval: 10_000,
+    staleTime: 3_000,
   });
 
   return (
@@ -2201,19 +2356,51 @@ function PageJourneySection({ visitorPk }: { visitorPk: string }) {
       {pageviews.length === 0 ? (
         <p className="text-xs text-muted-foreground">No pageviews recorded.</p>
       ) : (
-        <ol className="space-y-2">
-          {pageviews.map((p) => (
-            <li key={p.id} className="text-xs">
-              <div className="truncate font-medium">{p.title ?? p.path ?? p.url}</div>
-              <div className="text-muted-foreground flex justify-between gap-2 mt-0.5">
-                <span className="truncate">{p.path ?? p.url}</span>
-                <span className="shrink-0">
-                  {new Date(p.arrivedAt).toLocaleTimeString()}
-                  {p.durationMs != null && ` · ${formatDuration(p.durationMs)}`}
-                </span>
-              </div>
-            </li>
-          ))}
+        <ol className="divide-y divide-border -mx-1">
+          {pageviews.map((p) => {
+            const favicon = faviconForUrl(p.url);
+            return (
+              <li key={p.id} className="py-2 px-1 hover:bg-accent/30 rounded transition-colors">
+                <a
+                  href={p.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="block group"
+                  title={p.url}
+                >
+                  <div className="flex items-start gap-2">
+                    {favicon ? (
+                      <img
+                        src={favicon}
+                        alt=""
+                        width={16}
+                        height={16}
+                        loading="lazy"
+                        className="mt-0.5 shrink-0 rounded-sm"
+                        onError={(e) => {
+                          (e.target as HTMLImageElement).style.display = 'none';
+                        }}
+                      />
+                    ) : (
+                      <div className="w-4 h-4 mt-0.5 shrink-0 rounded-sm bg-muted" />
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs font-medium truncate group-hover:text-foreground">
+                        {p.title ?? p.path ?? p.url}
+                      </div>
+                      <div className="text-[10px] text-muted-foreground flex justify-between gap-2 mt-0.5">
+                        <span className="truncate">{p.path ?? p.url}</span>
+                        <span className="shrink-0">
+                          {new Date(p.arrivedAt).toLocaleTimeString()}
+                          {p.durationMs != null && ` · ${formatDuration(p.durationMs)}`}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </a>
+              </li>
+            );
+          })}
         </ol>
       )}
     </Section>

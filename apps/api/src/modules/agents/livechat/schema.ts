@@ -18,6 +18,7 @@ export const livechatSites = pgTable(
     welcomeMessage: text('welcome_message'),
     welcomeQuickReplies: text('welcome_quick_replies'),
     brandColor: text('brand_color'),
+    operatorName: text('operator_name'),
     position: text('position').notNull().default('bottom-right'),
     llmProvider: text('llm_provider'),
     llmModel: text('llm_model'),

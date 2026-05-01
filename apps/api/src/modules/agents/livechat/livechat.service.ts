@@ -31,6 +31,7 @@ export interface LivechatSiteRow {
   replyTone: string | null;
   trackBots: boolean;
   autoApprove: boolean;
+  operatorName: string | null;
   botName: string | null;
   botSubtitle: string | null;
   welcomeMessage: string | null;
