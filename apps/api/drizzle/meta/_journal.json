@@ -288,6 +288,13 @@
       "when": 1777400032000,
       "tag": "0040_livechat_feedback",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "6",
+      "when": 1777400033000,
+      "tag": "0041_livechat_operators",
+      "breakpoints": true
     }
   ]
 }
