@@ -428,23 +428,63 @@ export const WIDGET_STYLES = `
 .lc-quick-replies button:hover { background: var(--lc-brand); color: #fff; }
 .lc-quick-replies button:disabled { opacity: 0.5; cursor: not-allowed; }
 
-/* ── Email + name identify ── */
-.lc-identify {
-  padding: 12px 14px;
-  border-top: 1px solid #e5e7eb;
-  background: #fff;
-  font-size: 13px;
-  flex-shrink: 0;
+/* ── Inline identify (rendered as an agent bubble) ── */
+.lc-inline-identify {
+  padding: 10px 12px !important;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
+  min-width: 220px;
 }
-.lc-identify-label { font-size: 12px; color: #6b7280; }
-.lc-identify-row { display: flex; gap: 6px; }
-.lc-identify input { flex: 1; padding: 8px 10px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 13px; outline: none; font: inherit; }
-.lc-identify input:focus { border-color: var(--lc-brand); }
-.lc-identify button { background: var(--lc-brand); color: #fff; border: 0; border-radius: 6px; padding: 0 12px; font-size: 13px; cursor: pointer; white-space: nowrap; }
-.lc-identify-skip { background: transparent !important; color: #9ca3af !important; font-size: 12px !important; padding: 2px 0 0 0 !important; cursor: pointer; border: 0; }
+.lc-inline-prompt { font-size: 13px; line-height: 1.4; color: #1f2937; }
+.lc-inline-greet { color: var(--lc-brand, #2563eb); font-weight: 600; }
+.lc-inline-row { display: flex; gap: 6px; align-items: stretch; }
+.lc-inline-input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  font-size: 13px;
+  font: inherit;
+  background: #fff;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.lc-inline-input:focus { border-color: var(--lc-brand, #2563eb); }
+.lc-inline-input--invalid { border-color: #ef4444 !important; background: #fef2f2 !important; }
+.lc-inline-save {
+  background: var(--lc-brand, #2563eb);
+  border: 0;
+  color: #fff;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  flex-shrink: 0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.15s;
+}
+.lc-inline-save:hover { opacity: 0.9; }
+.lc-inline-save svg { width: 14px; height: 14px; }
+.lc-inline-skip {
+  align-self: flex-start;
+  background: transparent;
+  border: 0;
+  color: #9ca3af;
+  font-size: 11px;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+}
+.lc-inline-skip:hover { color: #6b7280; }
+.lc-inline-error {
+  font-size: 11px;
+  color: #ef4444;
+  margin-top: -4px;
+}
 
 /* ── Pending attachments ── */
 .lc-pending { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px 12px 0 12px; background: #fff; flex-shrink: 0; }
