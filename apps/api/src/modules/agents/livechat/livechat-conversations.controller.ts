@@ -216,6 +216,8 @@ export class LivechatConversationsController {
       attachments = await Promise.all(body.attachmentIds!.map((aid) => this.attachments.getById(aid)));
     }
 
+    const site = await this.livechat.getSiteById(session.siteId).catch(() => null);
+
     this.stream.publish(id, {
       type: 'message',
       sessionId: id,
@@ -223,6 +225,7 @@ export class LivechatConversationsController {
       content,
       messageId: msg.id,
       createdAt: msg.createdAt.toISOString(),
+      operatorName: site?.operatorName ?? null,
       attachments: attachments.map((a) => ({
         id: a.id,
         mimeType: a.mimeType,

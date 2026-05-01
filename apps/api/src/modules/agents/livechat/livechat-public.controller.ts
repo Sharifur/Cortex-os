@@ -64,6 +64,7 @@ function detectBot(meta: MessageBody['meta'], isFirstMessage: boolean): string |
 
 interface WidgetConfigResponse {
   siteKey: string;
+  operatorName: string | null;
   botName: string;
   botSubtitle: string;
   welcomeMessage: string | null;
@@ -91,6 +92,7 @@ export class LivechatPublicController {
     const site = await this.livechat.resolveSiteForRequest(siteKey, origin ?? null);
     return {
       siteKey: site.key,
+      operatorName: site.operatorName ?? null,
       botName: site.botName?.trim() || site.label,
       botSubtitle: site.botSubtitle?.trim() || 'We typically reply in a few seconds.',
       welcomeMessage: site.welcomeMessage,

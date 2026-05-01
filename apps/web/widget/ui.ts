@@ -19,6 +19,7 @@ interface VisitorMessage {
   content: string;
   createdAt: string;
   attachments?: AttachmentSummary[];
+  operatorName?: string;
 }
 
 const MESSAGES_KEY = 'livechat_messages_cache';
@@ -56,6 +57,7 @@ export function mountWidget(cfg: WidgetConfig, siteConfig: SiteConfigResponse = 
     panel: null as HTMLDivElement | null,
     askedForEmail: false,
     unread: 0,
+    host,
   };
 
   const bubbleBtn = document.createElement('button');
@@ -83,9 +85,14 @@ export function mountWidget(cfg: WidgetConfig, siteConfig: SiteConfigResponse = 
   panel.style.display = 'none';
   state.panel = panel;
 
+  const isMobile = () => window.innerWidth <= 480;
+  const DESKTOP_HOST_STYLE = `position: fixed; bottom: 40px; right: 40px; z-index: 2147483646;`;
+  const MOBILE_HOST_OPEN  = `position: fixed; inset: 0; z-index: 2147483646;`;
+
   bubbleBtn.addEventListener('click', () => {
     state.open = !state.open;
     if (state.open) {
+      if (isMobile()) host.style.cssText = MOBILE_HOST_OPEN;
       panel.classList.remove('lc-panel--closing');
       panel.style.display = 'flex';
       state.unread = 0;
@@ -96,7 +103,10 @@ export function mountWidget(cfg: WidgetConfig, siteConfig: SiteConfigResponse = 
     } else {
       panel.classList.add('lc-panel--closing');
       setTimeout(() => {
-        if (!state.open) panel.style.display = 'none';
+        if (!state.open) {
+          panel.style.display = 'none';
+          if (isMobile()) host.style.cssText = DESKTOP_HOST_STYLE;
+        }
         panel.classList.remove('lc-panel--closing');
       }, 180);
     }
@@ -126,7 +136,7 @@ function buildPanel(shadow: ShadowRoot, cfg: WidgetConfig, state: any, render: (
       <div class="lc-header-inner">
         <div class="lc-header-avatar">${botAvatarIcon()}</div>
         <div class="lc-header-text">
-          <div class="lc-header-title">${escapeHtml(siteConfig.botName)}</div>
+          <div class="lc-header-title">${escapeHtml(siteConfig.operatorName || siteConfig.botName)}</div>
           <div class="lc-header-sub"><span class="lc-online-dot"></span>${escapeHtml(siteConfig.botSubtitle)}</div>
         </div>
       </div>
@@ -137,10 +147,14 @@ function buildPanel(shadow: ShadowRoot, cfg: WidgetConfig, state: any, render: (
       <button class="lc-scroll-btn" type="button" style="display:none;" aria-label="Scroll to latest">${chevronDownIcon()} New messages</button>
     </div>
     <div class="lc-quick-replies" style="display:none;"></div>
+    <div class="lc-toast" role="alert" style="display:none;"></div>
     <div class="lc-identify" style="display:none;">
-      <div>What's your email? We'll only use it to follow up if needed.</div>
+      <div class="lc-identify-label">Share your details so we can follow up if needed.</div>
       <div class="lc-identify-row">
-        <input type="email" placeholder="you@example.com" />
+        <input class="lc-identify-name" type="text" placeholder="Your name" />
+      </div>
+      <div class="lc-identify-row">
+        <input type="email" placeholder="your@email.com" />
         <button>Save</button>
       </div>
       <button class="lc-identify-skip">Skip</button>
@@ -156,12 +170,16 @@ function buildPanel(shadow: ShadowRoot, cfg: WidgetConfig, state: any, render: (
   `;
   shadow.appendChild(panel);
 
+  const DESKTOP_HOST_STYLE_BP = `position: fixed; bottom: 40px; right: 40px; z-index: 2147483646;`;
   const closeBtn = panel.querySelector<HTMLButtonElement>('.lc-close')!;
   closeBtn.addEventListener('click', () => {
     state.open = false;
     panel.classList.add('lc-panel--closing');
     setTimeout(() => {
-      if (!state.open) panel.style.display = 'none';
+      if (!state.open) {
+        panel.style.display = 'none';
+        if (window.innerWidth <= 480) state.host.style.cssText = DESKTOP_HOST_STYLE_BP;
+      }
       panel.classList.remove('lc-panel--closing');
     }, 180);
   });
@@ -225,20 +243,15 @@ function buildPanel(shadow: ShadowRoot, cfg: WidgetConfig, state: any, render: (
     fileInput.value = '';
     if (!file) return;
     if (file.size > 10 * 1024 * 1024) {
-      pushSystem(state, `File too large: ${file.name} (max 10 MB)`);
-      render();
+      showToast(panel, `File too large: ${file.name} (max 10 MB)`);
       return;
     }
     if (pendingAttachments.length >= 5) {
-      pushSystem(state, 'You can attach up to 5 files per message.');
-      render();
+      showToast(panel, 'You can attach up to 5 files per message.');
       return;
     }
     if (!state.sessionId) {
-      // We need a session before uploading; create one with an empty placeholder message.
-      // Easier: stash the file and only upload after the first message creates a session.
-      pushSystem(state, 'Send a message first, then attach files.');
-      render();
+      showToast(panel, 'Send a message first, then attach files.');
       return;
     }
     const placeholder: AttachmentSummary = {
@@ -258,9 +271,8 @@ function buildPanel(shadow: ShadowRoot, cfg: WidgetConfig, state: any, render: (
     } catch (err) {
       const idx = pendingAttachments.indexOf(placeholder);
       if (idx >= 0) pendingAttachments.splice(idx, 1);
-      pushSystem(state, `Upload failed: ${(err as Error).message}`);
+      showToast(panel, `Upload failed: ${(err as Error).message}`);
       renderPending();
-      render();
     }
   });
 
@@ -322,14 +334,12 @@ function buildPanel(shadow: ShadowRoot, cfg: WidgetConfig, state: any, render: (
     if (!files.length) return;
     e.preventDefault();
     if (!state.sessionId) {
-      pushSystem(state, 'Send a message first, then paste images.');
-      render();
+      showToast(panel, 'Send a message first, then paste images.');
       return;
     }
     for (const file of files) {
       if (file.size > 10 * 1024 * 1024) {
-        pushSystem(state, `Pasted image too large: ${file.name || 'image'} (max 10 MB)`);
-        render();
+        showToast(panel, `Pasted image too large: ${file.name || 'image'} (max 10 MB)`);
         continue;
       }
       if (pendingAttachments.length >= 5) break;
@@ -351,9 +361,8 @@ function buildPanel(shadow: ShadowRoot, cfg: WidgetConfig, state: any, render: (
       } catch (err) {
         const idx = pendingAttachments.indexOf(placeholder);
         if (idx >= 0) pendingAttachments.splice(idx, 1);
-        pushSystem(state, `Upload failed: ${(err as Error).message}`);
+        showToast(panel, `Upload failed: ${(err as Error).message}`);
         renderPending();
-        render();
       }
     }
   });
@@ -364,8 +373,7 @@ function buildPanel(shadow: ShadowRoot, cfg: WidgetConfig, state: any, render: (
     const readyAttachments = pendingAttachments.filter((a) => a.url && !a.id.startsWith('pending-'));
     if (!content && !readyAttachments.length) return;
     if (!checkRateLimit()) {
-      pushSystem(state, 'Slow down — too many messages in the last minute.');
-      render();
+      showToast(panel, 'Slow down — too many messages in the last minute.');
       return;
     }
     sendBtn.disabled = true;
@@ -402,22 +410,24 @@ function buildPanel(shadow: ShadowRoot, cfg: WidgetConfig, state: any, render: (
       maybePromptEmail(panel, state);
     } catch (err) {
       hideTyping(panel);
-      pushSystem(state, 'Could not send. Please try again.');
+      showToast(panel, 'Could not send — please try again.');
     }
     sendBtn.disabled = false;
     render();
   });
 
-  // Email capture handlers
+  // Email + name capture handlers
   const ident = panel.querySelector<HTMLDivElement>('.lc-identify')!;
-  const identInput = ident.querySelector<HTMLInputElement>('input')!;
+  const identNameInput = ident.querySelector<HTMLInputElement>('.lc-identify-name')!;
+  const identEmailInput = ident.querySelector<HTMLInputElement>('input[type="email"]')!;
   const identSave = ident.querySelectorAll<HTMLButtonElement>('button')[0];
   const identSkip = ident.querySelectorAll<HTMLButtonElement>('button')[1];
   identSave.addEventListener('click', async () => {
-    const email = identInput.value.trim();
+    const email = identEmailInput.value.trim();
+    const name = identNameInput.value.trim() || undefined;
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return;
     try {
-      await identify(cfg, { email });
+      await identify(cfg, { email, name });
       ident.style.display = 'none';
       try { localStorage.setItem(IDENTIFY_DISMISSED_KEY, 'saved'); } catch {}
     } catch {
@@ -449,7 +459,7 @@ function connectAndListen(cfg: WidgetConfig, state: any, render: () => void) {
     if (event.type !== 'message' || !event.messageId) return;
     if (event.role === 'visitor') return; // visitor's own messages already pushed locally
     if (state.messages.some((m: VisitorMessage) => m.id === event.messageId)) return;
-    pushAgent(state, event.content ?? '', event.messageId, event.role === 'operator', (event as any).attachments);
+    pushAgent(state, event.content ?? '', event.messageId, event.role === 'operator', (event as any).attachments, (event as any).operatorName ?? undefined);
     // Hide any lingering typing indicator now that the message arrived.
     const panel = state.panel as HTMLDivElement | undefined;
     if (panel) hideTyping(panel);
@@ -480,6 +490,17 @@ function renderMessages(panel: HTMLDivElement, state: any) {
         return `<div class="lc-msg-row lc-msg-row-visitor">
           <div class="lc-msg-body">
             <div class="lc-msg lc-msg-visitor">${text}${attWrapper}</div>
+            ${timeEl}
+          </div>
+        </div>`;
+      }
+      if (m.role === 'operator' && m.operatorName) {
+        const initials = getInitials(m.operatorName);
+        return `<div class="lc-msg-row lc-msg-row-agent">
+          <div class="lc-msg-avatar lc-msg-avatar-op" title="${escapeHtml(m.operatorName)}">${escapeHtml(initials)}</div>
+          <div class="lc-msg-body">
+            <div class="lc-msg-sender">${escapeHtml(m.operatorName)}</div>
+            <div class="lc-msg lc-msg-agent">${text}${attWrapper}</div>
             ${timeEl}
           </div>
         </div>`;
@@ -536,13 +557,14 @@ function pushVisitor(state: any, content: string, attachments?: AttachmentSummar
   });
   cacheMessages(state.messages);
 }
-function pushAgent(state: any, content: string, id: string, asOperator = false, attachments?: AttachmentSummary[]) {
+function pushAgent(state: any, content: string, id: string, asOperator = false, attachments?: AttachmentSummary[], operatorName?: string) {
   state.messages.push({
     id: id || 'srv-' + Date.now(),
     role: asOperator ? 'operator' : 'agent',
     content,
     createdAt: new Date().toISOString(),
     attachments,
+    operatorName,
   });
   cacheMessages(state.messages);
 }
@@ -633,6 +655,19 @@ function formatBytes(b: number): string {
   if (b < 1024) return `${b} B`;
   if (b < 1024 * 1024) return `${(b / 1024).toFixed(0)} KB`;
   return `${(b / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function showToast(panel: HTMLDivElement, message: string, duration = 3500) {
+  const toast = panel.querySelector<HTMLDivElement>('.lc-toast');
+  if (!toast) return;
+  toast.textContent = message;
+  toast.style.display = 'block';
+  clearTimeout((toast as any)._timer);
+  (toast as any)._timer = setTimeout(() => { toast.style.display = 'none'; }, duration);
+}
+
+function getInitials(name: string): string {
+  return name.trim().split(/\s+/).map((p) => p[0] ?? '').join('').slice(0, 2).toUpperCase();
 }
 
 function formatTime(iso: string): string {

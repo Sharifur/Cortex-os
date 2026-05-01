@@ -64,6 +64,7 @@ interface Site {
   replyTone: string | null;
   trackBots: boolean;
   autoApprove: boolean;
+  operatorName: string | null;
   botName: string | null;
   botSubtitle: string | null;
   welcomeMessage: string | null;
@@ -619,6 +620,9 @@ function SiteFormModal({ site, onClose, onSave, error }: { site: Partial<Site>; 
             </Field>
             <Field label="Bot subtitle" hint="Small line under the bot name.">
               <Input value={draft.botSubtitle ?? ''} onChange={(e) => setDraft({ ...draft, botSubtitle: e.target.value })} placeholder="We typically reply in a few seconds." />
+            </Field>
+            <Field label="Operator name" hint="Shown in the chat header and on human operator replies. Leave blank to use the bot name.">
+              <Input value={draft.operatorName ?? ''} onChange={(e) => setDraft({ ...draft, operatorName: e.target.value || null })} placeholder="Sharifur" />
             </Field>
             <Field label="Welcome message" hint="First message shown when the visitor opens the chat.">
               <textarea

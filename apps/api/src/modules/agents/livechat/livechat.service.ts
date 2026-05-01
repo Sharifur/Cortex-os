@@ -1032,6 +1032,7 @@ export class LivechatService {
       replyTone: r.replyTone,
       trackBots: r.trackBots,
       autoApprove: r.autoApprove,
+      operatorName: r.operatorName,
       botName: r.botName,
       botSubtitle: r.botSubtitle,
       welcomeMessage: r.welcomeMessage,

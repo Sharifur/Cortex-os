@@ -160,10 +160,12 @@ export const WIDGET_STYLES = `
   margin-bottom: 2px;
 }
 .lc-msg-avatar svg { width: 13px; height: 13px; }
+.lc-msg-avatar-op { background: #374151; font-size: 10px; font-weight: 700; letter-spacing: 0.02em; }
 
 .lc-msg-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .lc-msg-row-visitor .lc-msg-body { align-items: flex-end; }
 
+.lc-msg-sender { font-size: 11px; color: #6b7280; font-weight: 500; padding: 0 3px; }
 .lc-msg-time { font-size: 10px; color: #9ca3af; padding: 0 3px; }
 
 .lc-msg { padding: 9px 13px; border-radius: 16px; font-size: 14px; line-height: 1.45; word-wrap: break-word; }
@@ -216,6 +218,16 @@ export const WIDGET_STYLES = `
 .lc-scroll-btn:hover { background: #f9fafb; }
 .lc-scroll-btn svg { width: 13px; height: 13px; color: #6b7280; }
 
+/* ── Toast notification ── */
+.lc-toast {
+  padding: 8px 14px;
+  background: #1f2937;
+  color: #f9fafb;
+  font-size: 12px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
 /* ── Quick replies ── */
 .lc-quick-replies {
   display: flex;
@@ -240,19 +252,23 @@ export const WIDGET_STYLES = `
 .lc-quick-replies button:hover { background: var(--lc-brand); color: #fff; }
 .lc-quick-replies button:disabled { opacity: 0.5; cursor: not-allowed; }
 
-/* ── Email identify ── */
+/* ── Email + name identify ── */
 .lc-identify {
   padding: 12px 14px;
   border-top: 1px solid #e5e7eb;
   background: #fff;
   font-size: 13px;
   flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
-.lc-identify-row { display: flex; gap: 6px; margin-top: 6px; }
-.lc-identify input { flex: 1; padding: 8px 10px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 13px; outline: none; }
+.lc-identify-label { font-size: 12px; color: #6b7280; }
+.lc-identify-row { display: flex; gap: 6px; }
+.lc-identify input { flex: 1; padding: 8px 10px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 13px; outline: none; font: inherit; }
 .lc-identify input:focus { border-color: var(--lc-brand); }
-.lc-identify button { background: var(--lc-brand); color: #fff; border: 0; border-radius: 6px; padding: 0 12px; font-size: 13px; cursor: pointer; }
-.lc-identify-skip { background: transparent !important; color: #9ca3af !important; font-size: 12px !important; padding: 4px 0 0 0 !important; cursor: pointer; border: 0; margin-top: 6px; }
+.lc-identify button { background: var(--lc-brand); color: #fff; border: 0; border-radius: 6px; padding: 0 12px; font-size: 13px; cursor: pointer; white-space: nowrap; }
+.lc-identify-skip { background: transparent !important; color: #9ca3af !important; font-size: 12px !important; padding: 2px 0 0 0 !important; cursor: pointer; border: 0; }
 
 /* ── Pending attachments ── */
 .lc-pending { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px 12px 0 12px; background: #fff; flex-shrink: 0; }
@@ -320,20 +336,17 @@ export const WIDGET_STYLES = `
 .lc-attach-file .lc-attach-size { color: #6b7280; flex-shrink: 0; }
 
 /* ── Mobile ── */
+/* On mobile the host is expanded to inset:0 via JS when the panel opens.
+   The panel fills 100% of the host so it becomes full-screen. */
 @media (max-width: 480px) {
-  :host, :host(.lc-position-left) {
-    bottom: 16px;
-    right: 16px;
-    left: auto;
-  }
   .lc-panel {
-    position: fixed;
-    width: 100vw;
-    height: 100dvh;
-    height: 100vh;
-    bottom: 0;
-    right: 0;
+    position: absolute;
+    top: 0;
     left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    height: 100%;
     border-radius: 0;
   }
 }

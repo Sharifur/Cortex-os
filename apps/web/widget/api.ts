@@ -2,6 +2,7 @@ import type { WidgetConfig } from './config';
 
 export interface SiteConfigResponse {
   siteKey: string;
+  operatorName?: string | null;
   botName: string;
   botSubtitle: string;
   welcomeMessage: string | null;
