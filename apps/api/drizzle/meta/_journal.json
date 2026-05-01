@@ -232,6 +232,13 @@
       "when": 1777400024000,
       "tag": "0032_push_subscriptions",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "6",
+      "when": 1777400025000,
+      "tag": "0033_livechat_welcome_quick_replies",
+      "breakpoints": true
     }
   ]
 }

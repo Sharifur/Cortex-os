@@ -251,6 +251,31 @@ export const WIDGET_STYLES = `
   gap: 4px;
   margin-top: 6px;
 }
+.lc-quick-replies {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: -2px;
+  padding: 0 14px;
+}
+.lc-quick-replies button {
+  background: #fff;
+  border: 1px solid var(--lc-brand);
+  color: var(--lc-brand);
+  padding: 6px 12px;
+  font-size: 13px;
+  border-radius: 999px;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 500;
+  transition: background 0.15s, color 0.15s;
+}
+.lc-quick-replies button:hover {
+  background: var(--lc-brand);
+  color: #fff;
+}
+.lc-quick-replies button:disabled { opacity: 0.5; cursor: not-allowed; }
+
 .lc-attach-img {
   display: block;
   max-width: 220px;

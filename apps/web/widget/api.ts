@@ -5,6 +5,7 @@ export interface SiteConfigResponse {
   botName: string;
   botSubtitle: string;
   welcomeMessage: string | null;
+  welcomeQuickReplies?: string[];
   brandColor: string;
   position: 'bottom-right' | 'bottom-left';
 }

@@ -67,6 +67,7 @@ interface Site {
   botName: string | null;
   botSubtitle: string | null;
   welcomeMessage: string | null;
+  welcomeQuickReplies: string[];
   brandColor: string | null;
   position: 'bottom-right' | 'bottom-left';
   llmProvider: string | null;
@@ -303,6 +304,7 @@ function SitesTab() {
         botName: s.botName ?? null,
         botSubtitle: s.botSubtitle ?? null,
         welcomeMessage: s.welcomeMessage ?? null,
+        welcomeQuickReplies: s.welcomeQuickReplies ?? [],
         brandColor: s.brandColor ?? null,
         position: s.position ?? 'bottom-right',
         llmProvider: s.llmProvider ?? null,
@@ -624,6 +626,25 @@ function SiteFormModal({ site, onClose, onSave, error }: { site: Partial<Site>; 
                 onChange={(e) => setDraft({ ...draft, welcomeMessage: e.target.value })}
                 className="w-full text-sm bg-background border border-border rounded-md px-3 py-2 min-h-[60px]"
                 placeholder="Hi! I'm here to help — ask me anything about Bytesed."
+              />
+            </Field>
+            <Field
+              label="Quick reply suggestions"
+              hint="Tappable chips shown under the welcome message. One per line, max 6, max 60 chars each. Tapping a chip sends that text as the visitor's first message."
+            >
+              <textarea
+                value={(draft.welcomeQuickReplies ?? []).join('\n')}
+                onChange={(e) =>
+                  setDraft({
+                    ...draft,
+                    welcomeQuickReplies: e.target.value
+                      .split(/\r?\n/)
+                      .map((s) => s.trim())
+                      .filter(Boolean),
+                  })
+                }
+                className="w-full text-sm bg-background border border-border rounded-md px-3 py-2 min-h-[80px] font-mono"
+                placeholder={'Pricing\nHow does it work?\nTalk to a human'}
               />
             </Field>
             <Field label="Product context" hint="Short description used in the AI's system prompt">

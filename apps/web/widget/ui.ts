@@ -123,6 +123,7 @@ function buildPanel(shadow: ShadowRoot, cfg: WidgetConfig, state: any, render: (
       <button class="lc-close" aria-label="Close">${closeIcon()}</button>
     </div>
     <div class="lc-messages"></div>
+    <div class="lc-quick-replies" style="display:none;"></div>
     <div class="lc-identify" style="display:none;">
       <div>What's your email? We'll only use it to follow up if needed.</div>
       <div class="lc-identify-row">
@@ -155,7 +156,33 @@ function buildPanel(shadow: ShadowRoot, cfg: WidgetConfig, state: any, render: (
   const attachBtn = panel.querySelector<HTMLButtonElement>('.lc-attach-btn')!;
   const fileInput = panel.querySelector<HTMLInputElement>('.lc-file-input')!;
   const pendingEl = panel.querySelector<HTMLDivElement>('.lc-pending')!;
+  const quickRepliesEl = panel.querySelector<HTMLDivElement>('.lc-quick-replies')!;
   const pendingAttachments: AttachmentSummary[] = [];
+
+  // Show quick reply chips below the welcome bubble while no visitor message has
+  // been sent yet. Tap = send that label as the visitor's first message.
+  const renderQuickReplies = () => {
+    const visitorHasSpoken = state.messages.some((m: VisitorMessage) => m.role === 'visitor');
+    const chips = (siteConfig.welcomeQuickReplies ?? []).filter(Boolean);
+    if (visitorHasSpoken || chips.length === 0) {
+      quickRepliesEl.style.display = 'none';
+      quickRepliesEl.innerHTML = '';
+      return;
+    }
+    quickRepliesEl.style.display = 'flex';
+    quickRepliesEl.innerHTML = chips
+      .map((label, i) => `<button data-i="${i}" type="button">${escapeHtml(label)}</button>`)
+      .join('');
+    quickRepliesEl.querySelectorAll<HTMLButtonElement>('button').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const i = Number(btn.dataset.i);
+        const label = chips[i];
+        if (!label) return;
+        textarea.value = label;
+        form.requestSubmit();
+      });
+    });
+  };
 
   attachBtn.addEventListener('click', () => fileInput.click());
   fileInput.addEventListener('change', async () => {
@@ -314,6 +341,7 @@ function buildPanel(shadow: ShadowRoot, cfg: WidgetConfig, state: any, render: (
     pushVisitor(state, content, readyAttachments);
     pendingAttachments.length = 0;
     renderPending();
+    renderQuickReplies();
     render();
     showTyping(panel);
 
@@ -355,6 +383,9 @@ function buildPanel(shadow: ShadowRoot, cfg: WidgetConfig, state: any, render: (
     ident.style.display = 'none';
     try { localStorage.setItem(IDENTIFY_DISMISSED_KEY, 'skipped'); } catch {}
   });
+
+  // Initial quick-reply render — runs before the user has typed anything.
+  renderQuickReplies();
 
   return panel;
 }

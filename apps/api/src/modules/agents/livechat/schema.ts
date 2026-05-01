@@ -16,6 +16,7 @@ export const livechatSites = pgTable(
     botName: text('bot_name'),
     botSubtitle: text('bot_subtitle'),
     welcomeMessage: text('welcome_message'),
+    welcomeQuickReplies: text('welcome_quick_replies'),
     brandColor: text('brand_color'),
     position: text('position').notNull().default('bottom-right'),
     llmProvider: text('llm_provider'),

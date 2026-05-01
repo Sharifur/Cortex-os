@@ -28,6 +28,7 @@ export interface LivechatSiteRow {
   botName: string | null;
   botSubtitle: string | null;
   welcomeMessage: string | null;
+  welcomeQuickReplies: string[];
   brandColor: string | null;
   position: WidgetPosition;
   llmProvider: string | null;
@@ -49,6 +50,7 @@ export interface CreateSiteDto {
   botName?: string | null;
   botSubtitle?: string | null;
   welcomeMessage?: string | null;
+  welcomeQuickReplies?: string[] | string | null;
   brandColor?: string | null;
   position?: WidgetPosition;
   llmProvider?: string | null;
@@ -69,6 +71,7 @@ export interface UpdateSiteDto {
   botName?: string | null;
   botSubtitle?: string | null;
   welcomeMessage?: string | null;
+  welcomeQuickReplies?: string[] | string | null;
   brandColor?: string | null;
   position?: WidgetPosition;
   llmProvider?: string | null;
@@ -745,6 +748,7 @@ export class LivechatService {
         botName: (dto.botName?.trim()) || defaults.botName,
         botSubtitle: (dto.botSubtitle?.trim()) || defaults.botSubtitle,
         welcomeMessage: (dto.welcomeMessage?.trim()) || defaults.welcomeMessage,
+        welcomeQuickReplies: this.normalizeQuickReplies(dto.welcomeQuickReplies) || defaults.welcomeQuickReplies,
         brandColor: this.normalizeColor(dto.brandColor),
         position: this.normalizePosition(dto.position),
         llmProvider: dto.llmProvider?.trim() || null,
@@ -774,12 +778,14 @@ export class LivechatService {
     botName: string;
     botSubtitle: string;
     welcomeMessage: string;
+    welcomeQuickReplies: string;
     replyTone: string;
   } {
     return {
       botName: label,
       botSubtitle: 'We typically reply in a few seconds.',
       welcomeMessage: `Hi! I'm here to help — ask me anything about ${label}.`,
+      welcomeQuickReplies: ['Pricing', 'How does it work?', 'Talk to a human'].join('\n'),
       replyTone: 'friendly, concise, and helpful — like a knowledgeable founder replying to a customer',
     };
   }
@@ -875,6 +881,7 @@ export class LivechatService {
     if (dto.botName !== undefined) set.botName = dto.botName?.trim() || null;
     if (dto.botSubtitle !== undefined) set.botSubtitle = dto.botSubtitle?.trim() || null;
     if (dto.welcomeMessage !== undefined) set.welcomeMessage = dto.welcomeMessage?.trim() || null;
+    if (dto.welcomeQuickReplies !== undefined) set.welcomeQuickReplies = this.normalizeQuickReplies(dto.welcomeQuickReplies);
     if (dto.brandColor !== undefined) set.brandColor = this.normalizeColor(dto.brandColor);
     if (dto.position !== undefined) set.position = this.normalizePosition(dto.position);
     if (dto.llmProvider !== undefined) set.llmProvider = dto.llmProvider?.trim() || null;
@@ -920,6 +927,39 @@ export class LivechatService {
     return p === 'bottom-left' ? 'bottom-left' : 'bottom-right';
   }
 
+  /**
+   * Quick replies are stored as a newline-separated string (compact, easy to
+   * read in DB), but accept either a string or array from the DTO. Each
+   * label is trimmed, deduped, and capped at 6 items × 60 chars to keep the
+   * widget chip row manageable.
+   */
+  private normalizeQuickReplies(value: string[] | string | null | undefined): string | null {
+    if (value === null || value === undefined) return null;
+    const list = Array.isArray(value) ? value : value.split(/[\n,]/);
+    const cleaned: string[] = [];
+    const seen = new Set<string>();
+    for (const raw of list) {
+      const trimmed = raw.trim().slice(0, 60);
+      if (!trimmed) continue;
+      const key = trimmed.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      cleaned.push(trimmed);
+      if (cleaned.length >= 6) break;
+    }
+    return cleaned.length ? cleaned.join('\n') : null;
+  }
+
+  /** Parse the stored newline-string back into an array for API responses. */
+  private parseQuickReplies(stored: string | null): string[] {
+    if (!stored) return [];
+    return stored
+      .split(/\r?\n/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .slice(0, 6);
+  }
+
   private toSiteRow(r: typeof livechatSites.$inferSelect): LivechatSiteRow {
     return {
       id: r.id,
@@ -934,6 +974,7 @@ export class LivechatService {
       botName: r.botName,
       botSubtitle: r.botSubtitle,
       welcomeMessage: r.welcomeMessage,
+      welcomeQuickReplies: this.parseQuickReplies(r.welcomeQuickReplies),
       brandColor: r.brandColor,
       position: (r.position === 'bottom-left' ? 'bottom-left' : 'bottom-right') as WidgetPosition,
       llmProvider: r.llmProvider,

@@ -50,6 +50,7 @@ interface WidgetConfigResponse {
   botName: string;
   botSubtitle: string;
   welcomeMessage: string | null;
+  welcomeQuickReplies: string[];
   brandColor: string;
   position: 'bottom-right' | 'bottom-left';
 }
@@ -76,6 +77,7 @@ export class LivechatPublicController {
       botName: site.botName?.trim() || site.label,
       botSubtitle: site.botSubtitle?.trim() || 'We typically reply in a few seconds.',
       welcomeMessage: site.welcomeMessage,
+      welcomeQuickReplies: site.welcomeQuickReplies,
       brandColor: site.brandColor || '#2563eb',
       position: site.position,
     };
