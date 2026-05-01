@@ -54,6 +54,7 @@ export interface CreateSiteDto {
   replyTone?: string | null;
   trackBots?: boolean;
   autoApprove?: boolean;
+  operatorName?: string | null;
   botName?: string | null;
   botSubtitle?: string | null;
   welcomeMessage?: string | null;
@@ -75,6 +76,7 @@ export interface UpdateSiteDto {
   replyTone?: string | null;
   trackBots?: boolean;
   autoApprove?: boolean;
+  operatorName?: string | null;
   botName?: string | null;
   botSubtitle?: string | null;
   welcomeMessage?: string | null;
@@ -936,6 +938,7 @@ export class LivechatService {
     if (dto.replyTone !== undefined) set.replyTone = dto.replyTone?.toString().trim() || null;
     if (dto.trackBots !== undefined) set.trackBots = dto.trackBots;
     if (dto.autoApprove !== undefined) set.autoApprove = dto.autoApprove;
+    if (dto.operatorName !== undefined) set.operatorName = dto.operatorName?.trim() || null;
     if (dto.botName !== undefined) set.botName = dto.botName?.trim() || null;
     if (dto.botSubtitle !== undefined) set.botSubtitle = dto.botSubtitle?.trim() || null;
     if (dto.welcomeMessage !== undefined) set.welcomeMessage = dto.welcomeMessage?.trim() || null;
