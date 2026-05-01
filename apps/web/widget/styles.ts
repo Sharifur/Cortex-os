@@ -337,8 +337,9 @@ export const WIDGET_STYLES = `
 .lc-attach-file .lc-attach-size { color: #6b7280; flex-shrink: 0; }
 
 /* ── Mobile ── */
-/* On mobile the host is expanded to inset:0 via JS when the panel opens.
-   The panel fills 100% of the host so it becomes full-screen. */
+/* On mobile the host is sized via the Visual Viewport API so it tracks
+   exactly the visible area — URL bar, keyboard, and safe-area are all
+   accounted for in JS. The panel fills 100% of that host element. */
 @media (max-width: 480px) {
   .lc-panel {
     position: absolute;
@@ -349,6 +350,44 @@ export const WIDGET_STYLES = `
     width: 100%;
     height: 100%;
     border-radius: 0;
+    /* Block touch events from reaching the page behind the panel. */
+    touch-action: none;
   }
+  /* Safe-area insets: notch / status bar (top) and home indicator (bottom). */
+  .lc-header {
+    padding-top: calc(14px + env(safe-area-inset-top, 0px));
+  }
+  .lc-composer {
+    padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+  }
+  /* Allow vertical scroll in the messages area only. */
+  .lc-messages {
+    touch-action: pan-y;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+  }
+  /* Prevent iOS Safari from zooming in when an input is focused.
+     Any font-size below 16px triggers the auto-zoom. */
+  .lc-composer textarea,
+  .lc-identify input {
+    font-size: 16px;
+  }
+  /* Expand tap targets to the 44px minimum recommended for touch. */
+  .lc-close {
+    width: 44px;
+    height: 44px;
+  }
+  .lc-attach-btn {
+    width: 44px;
+    height: 44px;
+  }
+}
+
+/* Landscape + soft keyboard: very short viewport — tighten spacing so the
+   composer stays visible without sacrificing the message area. */
+@media (max-width: 480px) and (max-height: 400px) {
+  .lc-header { padding-top: calc(8px + env(safe-area-inset-top, 0px)); padding-bottom: 8px; }
+  .lc-messages { padding: 6px 12px; }
+  .lc-composer { padding-top: 6px; padding-bottom: calc(6px + env(safe-area-inset-bottom, 0px)); }
 }
 `;

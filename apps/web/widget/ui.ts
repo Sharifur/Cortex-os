@@ -105,7 +105,17 @@ export function mountWidget(cfg: WidgetConfig, siteConfig: SiteConfigResponse = 
   function ensureVvListener() {
     if (vvListenerInstalled || !window.visualViewport) return;
     vvListenerInstalled = true;
-    const onChange = () => { if (state.open && isMobile()) applyMobileHostStyle(); };
+    const onChange = () => {
+      if (!state.open) return;
+      if (isMobile()) {
+        applyMobileHostStyle();
+      } else {
+        // Device rotated to landscape (width > 480px) — revert the host
+        // back to the desktop floating style so the panel is no longer
+        // pinned full-screen.
+        host.style.cssText = DESKTOP_HOST_STYLE;
+      }
+    };
     window.visualViewport!.addEventListener('resize', onChange);
     window.visualViewport!.addEventListener('scroll', onChange);
   }
