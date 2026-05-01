@@ -2469,7 +2469,7 @@ interface OperatorDraft {
   name: string;
   avatarUrl: string;
   isDefault: boolean;
-  siteKeys: string;
+  siteKeys: string[];
 }
 
 function OperatorsTab() {
@@ -2481,7 +2481,12 @@ function OperatorsTab() {
     queryFn: () => apiFetch(token, '/agents/livechat/operators'),
   });
 
-  const emptyDraft: OperatorDraft = { name: '', avatarUrl: '', isDefault: false, siteKeys: '' };
+  const { data: sites = [] } = useQuery<Site[]>({
+    queryKey: ['livechat-sites'],
+    queryFn: () => apiFetch(token, '/agents/livechat/sites'),
+  });
+
+  const emptyDraft: OperatorDraft = { name: '', avatarUrl: '', isDefault: false, siteKeys: [] };
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState<OperatorDraft>(emptyDraft);
@@ -2500,7 +2505,7 @@ function OperatorsTab() {
       name: op.name,
       avatarUrl: op.avatarUrl ?? '',
       isDefault: op.isDefault,
-      siteKeys: op.siteKeys ? op.siteKeys.join('\n') : '',
+      siteKeys: op.siteKeys ?? [],
     });
     setFormError(null);
     setModalOpen(true);
@@ -2510,10 +2515,7 @@ function OperatorsTab() {
     name: d.name.trim(),
     avatarUrl: d.avatarUrl.trim() || null,
     isDefault: d.isDefault,
-    siteKeys: d.siteKeys
-      .split(/\r?\n/)
-      .map((s) => s.trim())
-      .filter(Boolean),
+    siteKeys: d.siteKeys,
   });
 
   const saveMut = useMutation({
@@ -2640,11 +2642,12 @@ function OperatorsTab() {
                 placeholder="Sharifur"
               />
             </Field>
-            <Field label="Avatar URL" hint="Optional. Full https:// URL to a square image. Leave blank to use initials.">
-              <Input
+            <Field label="Avatar" hint="Optional. Upload an image or paste a URL. Leave blank to use initials.">
+              <OperatorAvatarPicker
+                token={token}
                 value={draft.avatarUrl}
-                onChange={(e) => setDraft({ ...draft, avatarUrl: e.target.value })}
-                placeholder="https://example.com/avatar.jpg"
+                onChange={(next) => setDraft({ ...draft, avatarUrl: next })}
+                onError={(msg) => setFormError(msg)}
               />
             </Field>
             <div className="space-y-1">
@@ -2660,17 +2663,35 @@ function OperatorsTab() {
                 If checked, this operator appears as the sender in the chat header when no specific operator is selected.
               </p>
             </div>
-            <Field
-              label="Site keys"
-              hint="One site key per line. Leave blank to make this operator available on all sites."
-            >
-              <textarea
-                value={draft.siteKeys}
-                onChange={(e) => setDraft({ ...draft, siteKeys: e.target.value })}
-                className="w-full text-sm bg-background border border-border rounded-md px-3 py-2 min-h-[70px] font-mono"
-                placeholder={'bytesed\ntaskip'}
-              />
-            </Field>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Sites</label>
+              <div className="border border-border rounded-md divide-y divide-border max-h-44 overflow-y-auto">
+                {sites.length === 0 ? (
+                  <p className="text-xs text-muted-foreground px-3 py-2">No sites configured yet.</p>
+                ) : (
+                  sites.map((s) => (
+                    <label key={s.key} className="flex items-center gap-2.5 px-3 py-2 cursor-pointer hover:bg-accent/30">
+                      <input
+                        type="checkbox"
+                        className="shrink-0"
+                        checked={draft.siteKeys.includes(s.key)}
+                        onChange={(e) => {
+                          setDraft({
+                            ...draft,
+                            siteKeys: e.target.checked
+                              ? [...draft.siteKeys, s.key]
+                              : draft.siteKeys.filter((k) => k !== s.key),
+                          });
+                        }}
+                      />
+                      <span className="text-sm">{s.label}</span>
+                      <span className="ml-auto text-xs text-muted-foreground font-mono">{s.key}</span>
+                    </label>
+                  ))
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground">Leave all unchecked to make this operator available on all sites.</p>
+            </div>
 
             <div className="flex justify-end gap-2 pt-2 border-t border-border -mx-5 px-5 pb-0 pt-3">
               <Button
