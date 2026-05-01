@@ -31,6 +31,7 @@ export const WIDGET_STYLES = `
   align-items: center;
   justify-content: center;
   transition: transform 0.18s ease, box-shadow 0.18s ease;
+  touch-action: manipulation;
 }
 .lc-bubble:hover { transform: translateY(-2px); box-shadow: 0 10px 24px var(--lc-brand-shadow-hover); }
 .lc-bubble svg { width: 24px; height: 24px; }
@@ -334,6 +335,8 @@ export const WIDGET_STYLES = `
 }
 .lc-msg-avatar svg { width: 13px; height: 13px; }
 .lc-msg-avatar-op { background: #374151; font-size: 10px; font-weight: 700; letter-spacing: 0.02em; }
+.lc-msg-avatar-ai { background: var(--lc-brand); }
+.lc-msg-avatar-img { object-fit: cover; padding: 0; }
 
 .lc-msg-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .lc-msg-row-visitor .lc-msg-body { align-items: flex-end; }
@@ -644,6 +647,31 @@ export const WIDGET_STYLES = `
   .lc-attach-btn {
     width: 44px;
     height: 44px;
+  }
+  /* Prevent double-tap zoom on all interactive elements. */
+  .lc-close, .lc-menu-btn, .lc-newchat-btn,
+  .lc-attach-btn, .lc-emoji-btn,
+  .lc-rate-btn, .lc-chip, .lc-fb-btn,
+  .lc-quick-replies button, .lc-session-end-btn {
+    touch-action: manipulation;
+  }
+  /* Rating buttons: always visible on touch (no hover state). */
+  .lc-msg-rating {
+    opacity: 1;
+  }
+  /* Proactive bubble: keep it within the viewport on narrow screens. */
+  .lc-proactive {
+    max-width: calc(100vw - 60px);
+    right: 0;
+  }
+  /* Emoji picker: clamp width so it never overflows the panel edge. */
+  .lc-emoji-pop {
+    left: 0;
+    right: 0;
+    width: auto;
+    max-width: 100%;
+    border-radius: 12px 12px 0 0;
+    bottom: calc(100% + 4px);
   }
 }
 

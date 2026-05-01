@@ -21,6 +21,7 @@ interface VisitorMessage {
   createdAt: string;
   attachments?: AttachmentSummary[];
   operatorName?: string;
+  operatorAvatarUrl?: string;
   /** Quick-reply chips, attached server-side after a streamed reply ends. */
   suggestions?: string[];
 }
@@ -63,6 +64,7 @@ export function mountWidget(cfg: WidgetConfig, siteConfig: SiteConfigResponse = 
     unread: 0,
     sessionClosed: false,
     feedbackAsked: false,
+    operators: siteConfig.operators ?? [],
     host,
     cfg,
   };
@@ -787,7 +789,9 @@ function connectAndListen(cfg: WidgetConfig, state: any, render: () => void, sit
     if (event.type !== 'message' || !event.messageId) return;
     if (event.role === 'visitor') return;
     if (state.messages.some((m: VisitorMessage) => m.id === event.messageId)) return;
-    pushAgent(state, event.content ?? '', event.messageId, event.role === 'operator', (event as any).attachments, (event as any).operatorName ?? undefined);
+    const opName: string | undefined = (event as any).operatorName ?? undefined;
+    const opAvatar = opName ? (siteConfig?.operators?.find((op) => op.name === opName)?.avatarUrl ?? undefined) : undefined;
+    pushAgent(state, event.content ?? '', event.messageId, event.role === 'operator', (event as any).attachments, opName, opAvatar);
     const panel = state.panel as HTMLDivElement | undefined;
     if (panel) hideTyping(panel);
     if (!state.open) { state.unread = (state.unread ?? 0) + 1; playNotificationSound(); }
@@ -851,12 +855,15 @@ function renderMessages(panel: HTMLDivElement, state: any) {
             <button class="lc-rate-btn" data-rating="down" aria-label="Not helpful">&#128078;</button>
            </div>`
         : '';
-      if (m.role === 'operator' && m.operatorName) {
-        const initials = getInitials(m.operatorName);
+      if (m.role === 'operator') {
+        const name = m.operatorName ?? 'Operator';
+        const avatarEl = m.operatorAvatarUrl
+          ? `<img class="lc-msg-avatar lc-msg-avatar-img" src="${escapeAttr(m.operatorAvatarUrl)}" alt="${escapeHtml(name)}">`
+          : `<div class="lc-msg-avatar lc-msg-avatar-op" title="${escapeHtml(name)}">${escapeHtml(getInitials(name))}</div>`;
         return `<div class="lc-msg-row lc-msg-row-agent">
-          <div class="lc-msg-avatar lc-msg-avatar-op" title="${escapeHtml(m.operatorName)}">${escapeHtml(initials)}</div>
+          ${avatarEl}
           <div class="lc-msg-body">
-            <div class="lc-msg-sender">${escapeHtml(m.operatorName)}</div>
+            <div class="lc-msg-sender">${escapeHtml(name)}</div>
             <div class="lc-msg lc-msg-agent">${text}${attWrapper}</div>
             ${timeEl}
             ${chips}
@@ -865,7 +872,7 @@ function renderMessages(panel: HTMLDivElement, state: any) {
         </div>`;
       }
       return `<div class="lc-msg-row lc-msg-row-agent">
-        <div class="lc-msg-avatar">${msgBotIcon()}</div>
+        <div class="lc-msg-avatar lc-msg-avatar-ai">${aiSparkleIcon()}</div>
         <div class="lc-msg-body">
           <div class="lc-msg lc-msg-agent">${text}${attWrapper}</div>
           ${timeEl}
@@ -973,7 +980,7 @@ function pushVisitor(state: any, content: string, attachments?: AttachmentSummar
   });
   cacheMessages(state.messages);
 }
-function pushAgent(state: any, content: string, id: string, asOperator = false, attachments?: AttachmentSummary[], operatorName?: string) {
+function pushAgent(state: any, content: string, id: string, asOperator = false, attachments?: AttachmentSummary[], operatorName?: string, operatorAvatarUrl?: string) {
   state.messages.push({
     id: id || 'srv-' + Date.now(),
     role: asOperator ? 'operator' : 'agent',
@@ -981,6 +988,7 @@ function pushAgent(state: any, content: string, id: string, asOperator = false, 
     createdAt: new Date().toISOString(),
     attachments,
     operatorName,
+    operatorAvatarUrl,
   });
   cacheMessages(state.messages);
 }
@@ -1191,6 +1199,10 @@ function xIcon() {
 
 function smileyIcon() {
   return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>`;
+}
+
+function aiSparkleIcon() {
+  return `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/><path d="M20 3v4M22 5h-4M4 17v2M5 18H3"/></svg>`;
 }
 
 function composeIcon() {
