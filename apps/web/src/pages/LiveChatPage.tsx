@@ -2342,13 +2342,28 @@ function VisitorSidebar({
               Save
             </button>
           </div>
+        ) : session.visitorEmail ? (
+          <div className="inline-flex items-center gap-1.5 mt-0.5">
+            <CopyButton value={session.visitorEmail} className="text-xs text-muted-foreground hover:text-foreground" copyOnClick>
+              {session.visitorEmail}
+            </CopyButton>
+            {onSetEmail && (
+              <button
+                onClick={() => setEditingEmail(true)}
+                className="text-xs text-muted-foreground hover:text-foreground"
+                title="Edit email"
+              >
+                <Pencil className="w-3 h-3" />
+              </button>
+            )}
+          </div>
         ) : (
           <button
             onClick={() => onSetEmail && setEditingEmail(true)}
             className="text-xs text-muted-foreground hover:text-foreground mt-0.5"
             disabled={!onSetEmail}
           >
-            {session.visitorEmail ?? 'set email'}
+            set email
           </button>
         )}
         {visitor?.ipCity || visitor?.ipCountryName ? (
@@ -2402,10 +2417,13 @@ function VisitorSidebar({
           <Row label="Local time">{visitor?.ipTimezone ? localTimeIn(visitor.ipTimezone) : '—'}</Row>
           <Row label="IP">
             {visitor?.ip ? (
-              <button onClick={() => setRevealIp(!revealIp)} className="inline-flex items-center gap-1 hover:text-foreground transition-colors">
-                <span className="font-mono text-xs">{revealIp ? visitor.ip : maskIp(visitor.ip)}</span>
-                {revealIp ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-              </button>
+              <span className="inline-flex items-center gap-1.5">
+                <button onClick={() => setRevealIp(!revealIp)} className="inline-flex items-center gap-1 hover:text-foreground transition-colors">
+                  <span className="font-mono text-xs">{revealIp ? visitor.ip : maskIp(visitor.ip)}</span>
+                  {revealIp ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                </button>
+                <CopyButton value={visitor.ip} />
+              </span>
             ) : (
               '—'
             )}
@@ -2533,6 +2551,55 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
       <span className="text-muted-foreground shrink-0">{label}</span>
       <span className="text-right truncate text-foreground">{children}</span>
     </div>
+  );
+}
+
+/**
+ * Copy a string to the clipboard with a tiny check-mark confirmation. Two modes:
+ *   - icon-only (no children): renders a Copy/Check icon button.
+ *   - with children + copyOnClick: wraps the text and copies on click.
+ */
+function CopyButton({
+  value,
+  className,
+  copyOnClick,
+  children,
+}: {
+  value: string;
+  className?: string;
+  copyOnClick?: boolean;
+  children?: React.ReactNode;
+}) {
+  const [copied, setCopied] = useState(false);
+  const copy = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    } catch { /* ignore — older browsers */ }
+  };
+  if (children && copyOnClick) {
+    return (
+      <button
+        onClick={copy}
+        className={`inline-flex items-center gap-1 ${className ?? ''}`}
+        title={copied ? 'Copied!' : 'Click to copy'}
+      >
+        <span className="truncate">{children}</span>
+        {copied ? <Check className="w-3 h-3 text-emerald-500 shrink-0" /> : <Copy className="w-3 h-3 opacity-60 shrink-0" />}
+      </button>
+    );
+  }
+  return (
+    <button
+      onClick={copy}
+      className={`text-muted-foreground hover:text-foreground p-0.5 ${className ?? ''}`}
+      title={copied ? 'Copied!' : 'Copy'}
+      aria-label={copied ? 'Copied' : 'Copy'}
+    >
+      {copied ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}
+    </button>
   );
 }
 

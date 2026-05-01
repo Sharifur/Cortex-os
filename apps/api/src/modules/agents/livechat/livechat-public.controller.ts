@@ -63,6 +63,26 @@ function detectBot(meta: MessageBody['meta'], isFirstMessage: boolean): string |
   return null;
 }
 
+/**
+ * Resolve the visitor's true IP. Fastify's trustProxy=true gives us req.ip
+ * from X-Forwarded-For, but some hosts (Cloudflare, fronting CDNs) put the
+ * original IP in their own header instead — those are checked first so
+ * GeoLite2 reads the visitor's IP, not the proxy's.
+ */
+function extractClientIp(req: FastifyRequest): string | null {
+  const cf = req.headers['cf-connecting-ip'];
+  if (typeof cf === 'string' && cf.trim()) return cf.trim();
+  const real = req.headers['x-real-ip'];
+  if (typeof real === 'string' && real.trim()) return real.trim();
+  // X-Forwarded-For is `client, proxy1, proxy2, ...` — leftmost is the visitor.
+  const xff = req.headers['x-forwarded-for'];
+  if (typeof xff === 'string' && xff.trim()) {
+    const first = xff.split(',')[0]?.trim();
+    if (first) return first;
+  }
+  return req.ip ?? null;
+}
+
 interface WidgetConfigResponse {
   siteKey: string;
   operatorName: string | null;
@@ -118,7 +138,7 @@ export class LivechatPublicController {
     await this.rateLimit.check('pageview', `${site.key}:${body.visitorId}`, 60);
 
     const enriched = this.enrichment.enrich(
-      req.ip,
+      extractClientIp(req),
       req.headers['user-agent'] as string | undefined,
       body.language ?? (req.headers['accept-language'] as string | undefined),
     );
@@ -284,7 +304,7 @@ export class LivechatPublicController {
     await this.rateLimit.check('message', `${site.key}:${body.visitorId}`, 30);
 
     const enriched = this.enrichment.enrich(
-      req.ip,
+      extractClientIp(req),
       req.headers['user-agent'] as string | undefined,
       req.headers['accept-language'] as string | undefined,
     );
