@@ -400,7 +400,17 @@ function SitesTab() {
           ))
         )}
 
-        {editing && <SiteFormModal site={editing} onClose={() => setEditing(null)} onSave={(s) => saveMut.mutate(s)} />}
+        {editing && (
+          <SiteFormModal
+            site={editing}
+            onClose={() => {
+              saveMut.reset();
+              setEditing(null);
+            }}
+            onSave={(s) => saveMut.mutate(s)}
+            error={saveMut.isError ? parseSaveError((saveMut.error as Error)?.message) : null}
+          />
+        )}
         {installing && <InstallModal site={installing} freshlyCreated={!editing} onClose={() => setInstalling(null)} />}
       </div>
     </div>
@@ -481,9 +491,62 @@ function InstallModal({ site, freshlyCreated, onClose }: { site: Site; freshlyCr
   );
 }
 
-function SiteFormModal({ site, onClose, onSave }: { site: Partial<Site>; onClose: () => void; onSave: (s: Partial<Site>) => void }) {
+/** Pull the human-readable `message` out of a NestJS BadRequest payload. */
+function parseSaveError(raw: string | undefined): string | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed?.message) return Array.isArray(parsed.message) ? parsed.message.join(', ') : String(parsed.message);
+  } catch {
+    // not JSON — return as-is
+  }
+  return raw;
+}
+
+/**
+ * Sanitize a user-typed key to match the backend regex `^[a-z0-9_-]+$`.
+ * Lowercases, replaces every other character with `-`, collapses runs.
+ */
+function sanitizeKey(input: string): string {
+  return input
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, '-')
+    .replace(/-{2,}/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+/**
+ * Add `https://` to a bare domain so the backend's URL parser accepts it.
+ * Leaves anything that already has a protocol untouched.
+ */
+function normalizeOriginInput(input: string): string {
+  const trimmed = input.trim();
+  if (!trimmed) return '';
+  if (/^https?:\/\//i.test(trimmed)) return trimmed.replace(/\/+$/, '');
+  return `https://${trimmed.replace(/\/+$/, '')}`;
+}
+
+function SiteFormModal({ site, onClose, onSave, error }: { site: Partial<Site>; onClose: () => void; onSave: (s: Partial<Site>) => void; error?: string | null }) {
   const [draft, setDraft] = useState<Partial<Site>>(site);
   const [section, setSection] = useState<'identity' | 'persona' | 'transcript' | 'advanced'>('identity');
+
+  const isCreate = !site.id;
+  // Live-derived key from the label, until the user explicitly types in the
+  // key field — makes "type label, hit save" the happy path.
+  const [keyTouched, setKeyTouched] = useState(!!site.key);
+  useEffect(() => {
+    if (isCreate && !keyTouched && draft.label) {
+      setDraft((d) => ({ ...d, key: sanitizeKey(d.label ?? '') }));
+    }
+  }, [draft.label, keyTouched, isCreate]);
+
+  const handleSave = () => {
+    onSave({
+      ...draft,
+      key: draft.key ? sanitizeKey(draft.key) : draft.key,
+      origin: draft.origin ? normalizeOriginInput(draft.origin) : draft.origin,
+    });
+  };
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
@@ -503,16 +566,36 @@ function SiteFormModal({ site, onClose, onSave }: { site: Partial<Site>; onClose
           ))}
         </div>
 
+        {error && (
+          <div className="text-xs bg-red-500/10 text-red-500 border border-red-500/30 rounded-md px-3 py-2">
+            {error}
+          </div>
+        )}
+
         {section === 'identity' && (
           <div className="space-y-2.5">
-            <Field label="Key" hint="lowercase, no spaces, e.g. bytesed">
-              <Input value={draft.key ?? ''} disabled={!!site.id} onChange={(e) => setDraft({ ...draft, key: e.target.value })} placeholder="bytesed" />
-            </Field>
-            <Field label="Label">
+            <Field label="Label" hint="Display name used in the chat header.">
               <Input value={draft.label ?? ''} onChange={(e) => setDraft({ ...draft, label: e.target.value })} placeholder="Bytesed" />
             </Field>
-            <Field label="Origin" hint="exact URL the widget runs on; trailing slash stripped">
-              <Input value={draft.origin ?? ''} onChange={(e) => setDraft({ ...draft, origin: e.target.value })} placeholder="https://bytesed.com" />
+            <Field label="Key" hint="Internal identifier. Auto-derived from label. Lowercase letters, digits, - or _ only — no dots or dashes-in-domains.">
+              <Input
+                value={draft.key ?? ''}
+                disabled={!!site.id}
+                onChange={(e) => {
+                  setKeyTouched(true);
+                  setDraft({ ...draft, key: e.target.value });
+                }}
+                onBlur={(e) => setDraft({ ...draft, key: sanitizeKey(e.target.value) })}
+                placeholder="bytesed"
+              />
+            </Field>
+            <Field label="Origin" hint="Exact URL the widget runs on. https:// prefix added automatically.">
+              <Input
+                value={draft.origin ?? ''}
+                onChange={(e) => setDraft({ ...draft, origin: e.target.value })}
+                onBlur={(e) => setDraft({ ...draft, origin: normalizeOriginInput(e.target.value) })}
+                placeholder="https://bytesed.com"
+              />
             </Field>
             <div className="flex items-center gap-4 pt-1">
               <label className="flex items-center gap-2 text-sm">
@@ -653,7 +736,7 @@ function SiteFormModal({ site, onClose, onSave }: { site: Partial<Site>; onClose
           <Button variant="ghost" size="sm" onClick={onClose}>
             Cancel
           </Button>
-          <Button size="sm" onClick={() => onSave(draft)}>
+          <Button size="sm" onClick={handleSave}>
             Save
           </Button>
         </div>

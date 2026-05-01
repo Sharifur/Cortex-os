@@ -130,7 +130,7 @@ function Sidebar({ approvalCount, onNavigate }: { approvalCount: number; onNavig
       <div className="px-4 py-4 border-b border-border flex items-center gap-2 shrink-0">
         <Bot className="w-5 h-5 text-primary" />
         <span className="font-semibold text-sm">Cortex OS</span>
-        <span className="text-muted-foreground text-xs">v1.9</span>
+        <span className="text-muted-foreground text-xs">v1.10</span>
       </div>
       <nav className="flex-1 p-3 space-y-0.5 overflow-y-auto">
         {NAV.map((item) => (
@@ -201,7 +201,7 @@ export default function AppLayout() {
           <div className="flex items-center gap-2">
             <Bot className="w-5 h-5 text-primary" />
             <span className="font-semibold text-sm">Cortex OS</span>
-            <span className="text-muted-foreground text-xs">v1.9</span>
+            <span className="text-muted-foreground text-xs">v1.10</span>
           </div>
           <button
             onClick={() => setDrawerOpen(false)}
