@@ -484,6 +484,15 @@ function InstallModal({ site, freshlyCreated, onClose }: { site: Site; freshlyCr
           </div>
         </div>
 
+        <div className="bg-muted/50 border border-border rounded p-3 space-y-1.5">
+          <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Security — automatic, no config needed</div>
+          <ul className="text-sm space-y-1 list-disc pl-4 text-muted-foreground">
+            <li><strong>Origin validation</strong> — every API request is checked against <code className="bg-muted px-1 rounded">{site.origin}</code>. Requests from any other origin are rejected (403).</li>
+            <li><strong>Anti-bot signals</strong> — the widget silently sends a honeypot field, time-to-first-keystroke, and elapsed-typing time with each message. Bot submissions are filtered before reaching the AI.</li>
+            <li><strong>Rate limiting</strong> — messages are capped per visitor per site key to prevent spam bursts.</li>
+          </ul>
+        </div>
+
         <div>
           <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-1.5">Quick test</div>
           <ol className="text-sm space-y-1 list-decimal pl-5 text-muted-foreground">
