@@ -12,6 +12,7 @@ import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { LivechatService } from './livechat.service';
 import { LivechatAttachmentsService } from './livechat-attachments.service';
 import { LivechatRateLimitService } from './livechat-rate-limit.service';
+import { StorageService } from '../../storage/storage.service';
 
 interface CollectedUpload {
   buffer: Buffer;
@@ -62,6 +63,7 @@ export class LivechatUploadsController {
     private livechat: LivechatService,
     private attachments: LivechatAttachmentsService,
     private rateLimit: LivechatRateLimitService,
+    private storage: StorageService,
   ) {}
 
   /** Visitor upload — origin-gated, rate-limited, must reference an existing session. */
@@ -110,5 +112,26 @@ export class LivechatUploadsController {
       mimeType: upload.mimetype,
       originalFilename: upload.filename,
     });
+  }
+
+  /**
+   * Operator avatar upload — JWT-gated. Uploads to R2 under livechat-operators/
+   * and returns the public URL the caller can paste into the avatar URL field.
+   * Image-only is enforced by StorageService's MIME allowlist.
+   */
+  @Post('agents/livechat/operators/upload-avatar')
+  @UseGuards(JwtAuthGuard)
+  async uploadAvatar(@Req() req: FastifyRequest) {
+    const upload = await collectUpload(req);
+    if (!upload.mimetype.startsWith('image/')) {
+      throw new BadRequestException('Avatar must be an image');
+    }
+    const stored = await this.storage.upload({
+      module: 'livechat-operators',
+      body: upload.buffer,
+      declaredMime: upload.mimetype,
+      originalFilename: upload.filename,
+    });
+    return { url: stored.url, sizeBytes: stored.sizeBytes, mimeType: stored.mimeType };
   }
 }

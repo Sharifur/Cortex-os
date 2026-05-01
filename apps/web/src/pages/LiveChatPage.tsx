@@ -2472,6 +2472,100 @@ interface OperatorDraft {
   siteKeys: string[];
 }
 
+function OperatorAvatarPicker({
+  token,
+  value,
+  onChange,
+  onError,
+}: {
+  token: string;
+  value: string;
+  onChange: (next: string) => void;
+  onError: (msg: string) => void;
+}) {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+
+  async function handleFile(file: File) {
+    if (!file.type.startsWith('image/')) {
+      onError('Please pick an image file');
+      return;
+    }
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file, file.name);
+      const res = await fetch('/agents/livechat/operators/upload-avatar', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: fd,
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err?.message ?? `Upload failed (HTTP ${res.status})`);
+      }
+      const data = await res.json();
+      onChange(data.url);
+    } catch (e) {
+      onError(e instanceof Error ? e.message : 'Upload failed');
+    } finally {
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-3">
+        {value ? (
+          <img
+            src={value}
+            alt=""
+            className="w-12 h-12 rounded-full object-cover border border-border shrink-0"
+            onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+          />
+        ) : (
+          <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center text-xs text-muted-foreground border border-border shrink-0">
+            none
+          </div>
+        )}
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) handleFile(f);
+          }}
+        />
+        <button
+          type="button"
+          onClick={() => fileRef.current?.click()}
+          disabled={uploading}
+          className="px-3 py-1.5 text-xs bg-background border border-border rounded-md hover:bg-accent/50 disabled:opacity-50"
+        >
+          {uploading ? 'Uploading…' : value ? 'Replace image' : 'Upload image'}
+        </button>
+        {value && (
+          <button
+            type="button"
+            onClick={() => onChange('')}
+            className="px-3 py-1.5 text-xs text-muted-foreground hover:text-destructive"
+          >
+            Remove
+          </button>
+        )}
+      </div>
+      <Input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="…or paste an https:// URL"
+      />
+    </div>
+  );
+}
+
 function OperatorsTab() {
   const token = useAuthStore((s) => s.token)!;
   const qc = useQueryClient();
