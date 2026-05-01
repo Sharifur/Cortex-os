@@ -1026,24 +1026,34 @@ function GmailTab({ rows, token }: { rows: SettingRow[]; token: string }) {
       token={token}
       docs={
         <>
-          <h2 className="text-sm font-semibold mb-4">OAuth2 Setup Guide</h2>
+          <h2 className="text-sm font-semibold mb-4">IMAP Setup (App Password)</h2>
+          <p className="text-xs text-muted-foreground mb-4">
+            Personal-account flow: no Google Cloud project, no OAuth playground. Connects via Gmail's
+            IMAP / SMTP endpoints using a 16-character App Password.
+          </p>
           <div className="space-y-4">
-            <SetupStep n={1} title="Create a Google Cloud project">
-              <p>Go to <strong>console.cloud.google.com</strong> → New Project.</p>
+            <SetupStep n={1} title="Turn on 2-Step Verification">
+              <p>
+                Go to <a href="https://myaccount.google.com/security" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">myaccount.google.com → Security</a> and
+                enable <strong>2-Step Verification</strong>. App Passwords are only available with 2FA on.
+              </p>
             </SetupStep>
-            <SetupStep n={2} title="Enable Gmail API">
-              <p>APIs & Services → Enable APIs → search <strong>Gmail API</strong> → Enable.</p>
+            <SetupStep n={2} title="Generate an App Password">
+              <p>
+                Open <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">myaccount.google.com/apppasswords</a> →
+                name it <code className="bg-muted px-1 rounded">Cortex OS</code> → <strong>Create</strong>.
+              </p>
+              <p>Copy the 16-character password (spaces are fine — they're stripped).</p>
             </SetupStep>
-            <SetupStep n={3} title="Create OAuth2 credentials">
-              <p>APIs & Services → Credentials → Create Credentials → OAuth client ID.</p>
-              <p>Application type: <strong>Web application</strong>.</p>
-              <p>Authorized redirect URI: <code className="bg-muted px-1 rounded">https://developers.google.com/oauthplayground</code></p>
-            </SetupStep>
-            <SetupStep n={4} title="Get a refresh token via OAuth Playground">
-              <p>Open <a href="https://developers.google.com/oauthplayground" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">OAuth 2.0 Playground</a></p>
-              <p>Gear icon → check <strong>"Use your own OAuth credentials"</strong>, paste Client ID and Secret.</p>
-              <p>Scope: <code className="bg-muted px-1 rounded">https://mail.google.com/</code></p>
-              <p>Authorize → Exchange auth code → copy the <strong>Refresh Token</strong>.</p>
+            <SetupStep n={3} title="Paste credentials in Settings">
+              <p>
+                Set <strong>Email address</strong> to your Gmail / Workspace address and
+                <strong> App Password</strong> to the value from step 2. Optionally set a display name in
+                <strong> From Address</strong>.
+              </p>
+              <p className="text-muted-foreground">
+                Connection: IMAP <code className="bg-muted px-1 rounded">imap.gmail.com:993</code> · SMTP <code className="bg-muted px-1 rounded">smtp.gmail.com:465</code> (TLS).
+              </p>
             </SetupStep>
           </div>
         </>

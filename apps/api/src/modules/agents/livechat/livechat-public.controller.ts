@@ -90,9 +90,11 @@ export class LivechatPublicController {
     if (!siteKey) throw new BadRequestException('siteKey query param is required');
     const origin = req.headers.origin as string | undefined;
     const site = await this.livechat.resolveSiteForRequest(siteKey, origin ?? null);
+    const operators = await this.livechat.getOperatorsForSite(site.key);
+    const defaultOperator = operators.find((op) => op.isDefault) ?? null;
     return {
       siteKey: site.key,
-      operatorName: site.operatorName ?? null,
+      operatorName: defaultOperator?.name ?? site.operatorName ?? null,
       botName: site.botName?.trim() || site.label,
       botSubtitle: site.botSubtitle?.trim() || 'We typically reply in a few seconds.',
       welcomeMessage: site.welcomeMessage,

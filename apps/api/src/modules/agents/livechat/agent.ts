@@ -122,12 +122,13 @@ export class LivechatAgent implements IAgent, OnModuleInit {
     const productContext = (site?.productContext?.trim()) || config.productContext;
     const replyTone = (site?.replyTone?.trim()) || config.replyTone;
 
+    const siteKey = site?.key ?? null;
     const [alwaysOn, samples, blocklist, rejections, references, recentMessages, recentPageviews, visitor] = await Promise.all([
-      this.kb.getAlwaysOnContext(this.key),
-      this.kb.getWritingSamples(this.key),
-      this.kb.getBlocklistRules(this.key),
+      this.kb.getAlwaysOnContext(this.key, siteKey),
+      this.kb.getWritingSamples(this.key, siteKey),
+      this.kb.getBlocklistRules(this.key, siteKey),
       this.kb.getRecentRejections(this.key, 3),
-      this.kb.searchEntries(input.visitorMessage, this.key, 5).catch((e: Error) => {
+      this.kb.searchEntries(input.visitorMessage, this.key, 5, siteKey).catch((e: Error) => {
         this.logger.warn(`KB search failed: ${e.message}`);
         return [];
       }),

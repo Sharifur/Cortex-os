@@ -79,6 +79,51 @@ function AgentMultiSelect({ value, onChange, placeholder }: {
   );
 }
 
+// Livechat sites — used to scope KB entries / samples to a specific website
+// when the `livechat` agent tag is set. Cached for 60s; rarely changes.
+function useLivechatSites(token: string) {
+  return useQuery<{ id: string; key: string; label: string }[]>({
+    queryKey: ['livechat-sites'],
+    queryFn: async () => {
+      const res = await fetch('/agents/livechat/sites', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    staleTime: 60_000,
+  });
+}
+
+function LivechatSitePicker({
+  token,
+  value,
+  onChange,
+  disabled,
+}: {
+  token: string;
+  value: string;
+  onChange: (next: string) => void;
+  disabled?: boolean;
+}) {
+  const { data: sites = [] } = useLivechatSites(token);
+  return (
+    <select
+      disabled={disabled}
+      className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none disabled:opacity-50"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+    >
+      <option value="">All sites (shared across livechat)</option>
+      {sites.map((s) => (
+        <option key={s.key} value={s.key}>
+          {s.label} ({s.key})
+        </option>
+      ))}
+    </select>
+  );
+}
+
 async function apiFetch(token: string, path: string, opts?: RequestInit) {
   const res = await fetch(path, {
     ...opts,
@@ -114,10 +159,11 @@ function sourceBadge(type: string) {
 
 // ─── Entry Modal ───────────────────────────────────────────────────────────
 
-function EntryModal({ entry, onClose, onSave }: {
+function EntryModal({ entry, onClose, onSave, token }: {
   entry?: any;
   onClose: () => void;
   onSave: (data: any) => void;
+  token: string;
 }) {
   const [form, setForm] = useState({
     title: entry?.title ?? '',
@@ -126,7 +172,9 @@ function EntryModal({ entry, onClose, onSave }: {
     entryType: entry?.entryType ?? 'reference',
     priority: entry?.priority ?? 50,
     agentKeys: entry?.agentKeys ?? '',
+    siteKey: entry?.siteKey ?? '',
   });
+  const livechatTagged = parseAgentKeys(form.agentKeys).includes('livechat');
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
@@ -194,15 +242,25 @@ function EntryModal({ entry, onClose, onSave }: {
               <label className="text-xs text-muted-foreground mb-1 block">Agents (blank = all)</label>
               <AgentMultiSelect
                 value={form.agentKeys}
-                onChange={(next) => setForm((f) => ({ ...f, agentKeys: next }))}
+                onChange={(next) => setForm((f) => ({ ...f, agentKeys: next, siteKey: parseAgentKeys(next).includes('livechat') ? f.siteKey : '' }))}
               />
             </div>
           </div>
+          {livechatTagged && (
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">Live Chat website (blank = all sites)</label>
+              <LivechatSitePicker
+                token={token}
+                value={form.siteKey}
+                onChange={(next) => setForm((f) => ({ ...f, siteKey: next }))}
+              />
+            </div>
+          )}
         </div>
         <div className="flex justify-end gap-2 p-4 border-t border-border">
           <button onClick={onClose} className="px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground border border-border rounded-lg">Cancel</button>
           <button
-            onClick={() => onSave({ ...form, agentKeys: form.agentKeys || null })}
+            onClick={() => onSave({ ...form, agentKeys: form.agentKeys || null, siteKey: form.siteKey || null })}
             disabled={!form.title.trim() || !form.content.trim()}
             className="px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded-lg hover:opacity-90 disabled:opacity-50"
           >
@@ -216,17 +274,20 @@ function EntryModal({ entry, onClose, onSave }: {
 
 // ─── Sample Modal ─────────────────────────────────────────────────────────
 
-function SampleModal({ sample, onClose, onSave }: {
+function SampleModal({ sample, onClose, onSave, token }: {
   sample?: any;
   onClose: () => void;
   onSave: (data: any) => void;
+  token: string;
 }) {
   const [form, setForm] = useState({
     context: sample?.context ?? '',
     sampleText: sample?.sampleText ?? '',
     polarity: sample?.polarity ?? 'positive',
     agentKeys: sample?.agentKeys ?? '',
+    siteKey: sample?.siteKey ?? '',
   });
+  const livechatTagged = parseAgentKeys(form.agentKeys).includes('livechat');
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
@@ -271,15 +332,25 @@ function SampleModal({ sample, onClose, onSave }: {
               <label className="text-xs text-muted-foreground mb-1 block">Agents (blank = all)</label>
               <AgentMultiSelect
                 value={form.agentKeys}
-                onChange={(next) => setForm((f) => ({ ...f, agentKeys: next }))}
+                onChange={(next) => setForm((f) => ({ ...f, agentKeys: next, siteKey: parseAgentKeys(next).includes('livechat') ? f.siteKey : '' }))}
               />
             </div>
           </div>
+          {livechatTagged && (
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">Live Chat website (blank = all sites)</label>
+              <LivechatSitePicker
+                token={token}
+                value={form.siteKey}
+                onChange={(next) => setForm((f) => ({ ...f, siteKey: next }))}
+              />
+            </div>
+          )}
         </div>
         <div className="flex justify-end gap-2 p-4 border-t border-border">
           <button onClick={onClose} className="px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground border border-border rounded-lg">Cancel</button>
           <button
-            onClick={() => onSave({ ...form, agentKeys: form.agentKeys || null })}
+            onClick={() => onSave({ ...form, agentKeys: form.agentKeys || null, siteKey: form.siteKey || null })}
             disabled={!form.context.trim() || !form.sampleText.trim()}
             className="px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded-lg hover:opacity-90 disabled:opacity-50"
           >
@@ -297,9 +368,12 @@ function EntriesTab({ token }: { token: string }) {
   const qc = useQueryClient();
   const [agentFilter, setAgentFilter] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
+  const [siteFilter, setSiteFilter] = useState('');
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [modal, setModal] = useState<null | 'add' | any>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const { data: sites = [] } = useLivechatSites(token);
 
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
 
@@ -312,10 +386,11 @@ function EntriesTab({ token }: { token: string }) {
   const params = new URLSearchParams();
   if (agentFilter) params.set('agentKey', agentFilter);
   if (typeFilter) params.set('type', typeFilter);
+  if (siteFilter) params.set('siteKey', siteFilter);
   if (debouncedSearch) params.set('q', debouncedSearch);
 
   const { data: entries = [], isLoading } = useQuery<any[]>({
-    queryKey: ['kb-entries', agentFilter, typeFilter, debouncedSearch],
+    queryKey: ['kb-entries', agentFilter, typeFilter, siteFilter, debouncedSearch],
     queryFn: () => apiFetch(token, `/knowledge-base/entries?${params}`),
   });
 
@@ -333,6 +408,35 @@ function EntriesTab({ token }: { token: string }) {
     mutationFn: (id: string) => apiFetch(token, `/knowledge-base/entries/${id}`, { method: 'DELETE' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['kb-entries'] }),
   });
+
+  const bulkDeleteMut = useMutation({
+    mutationFn: (ids: string[]) =>
+      apiFetch(token, '/knowledge-base/entries/bulk-delete', { method: 'POST', body: JSON.stringify({ ids }) }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['kb-entries'] });
+      setSelected(new Set());
+    },
+  });
+
+  const toggleSelected = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+  const visibleSelectableIds = entries.filter((e: any) => !e.parentDocId).map((e: any) => e.id);
+  const allSelected = visibleSelectableIds.length > 0 && visibleSelectableIds.every((id: string) => selected.has(id));
+  const someSelected = visibleSelectableIds.some((id: string) => selected.has(id));
+  const toggleSelectAll = () => {
+    if (allSelected) setSelected(new Set());
+    else setSelected(new Set(visibleSelectableIds));
+  };
+  const siteLabel = (key: string | null | undefined) => {
+    if (!key) return null;
+    const m = sites.find((s) => s.key === key);
+    return m ? m.label : key;
+  };
 
   return (
     <div>
@@ -360,6 +464,16 @@ function EntriesTab({ token }: { token: string }) {
           <option value="">All types</option>
           {ENTRY_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
         </select>
+        {agentFilter === 'livechat' && sites.length > 0 && (
+          <select
+            className="bg-background border border-border rounded-lg px-3 py-1.5 text-sm focus:outline-none"
+            value={siteFilter}
+            onChange={e => setSiteFilter(e.target.value)}
+          >
+            <option value="">All sites</option>
+            {sites.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
+          </select>
+        )}
         <button
           onClick={() => setModal('add')}
           className="ml-auto flex items-center gap-1.5 px-3 py-1.5 bg-primary text-primary-foreground text-sm rounded-lg hover:opacity-90"
@@ -368,14 +482,58 @@ function EntriesTab({ token }: { token: string }) {
         </button>
       </div>
 
+      {someSelected && (
+        <div className="mb-3 flex items-center gap-3 bg-card border border-border rounded-lg px-3 py-2">
+          <span className="text-xs text-muted-foreground">{selected.size} selected</span>
+          <button
+            onClick={() => setSelected(new Set())}
+            className="text-xs text-muted-foreground hover:text-foreground"
+          >
+            Clear
+          </button>
+          <button
+            onClick={() => {
+              if (confirm(`Delete ${selected.size} entries? This cannot be undone.`)) {
+                bulkDeleteMut.mutate(Array.from(selected));
+              }
+            }}
+            disabled={bulkDeleteMut.isPending}
+            className="ml-auto flex items-center gap-1.5 px-3 py-1 text-xs bg-red-500/15 text-red-500 rounded-md hover:bg-red-500/25 disabled:opacity-50"
+          >
+            <Trash2 className="w-3 h-3" /> Delete selected
+          </button>
+        </div>
+      )}
+
       {isLoading ? (
         <div className="space-y-2">{[1,2,3].map(i => <div key={i} className="h-14 bg-muted/50 rounded-lg animate-pulse" />)}</div>
       ) : entries.length === 0 ? (
         <div className="text-center py-12 text-muted-foreground text-sm">No entries yet. Add your first knowledge entry.</div>
       ) : (
         <div className="space-y-2">
+          {visibleSelectableIds.length > 0 && (
+            <label className="flex items-center gap-2 px-2 text-xs text-muted-foreground cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={allSelected}
+                onChange={toggleSelectAll}
+                className="accent-primary"
+              />
+              Select all on this page
+            </label>
+          )}
           {entries.map((entry: any) => (
             <div key={entry.id} className="bg-card border border-border rounded-lg px-4 py-3 flex items-start gap-3">
+              {!entry.parentDocId ? (
+                <input
+                  type="checkbox"
+                  checked={selected.has(entry.id)}
+                  onChange={() => toggleSelected(entry.id)}
+                  className="accent-primary mt-1 shrink-0"
+                />
+              ) : (
+                <span className="w-4" />
+              )}
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-sm font-medium">{entry.title}</span>
@@ -385,6 +543,11 @@ function EntriesTab({ token }: { token: string }) {
                   <span className="text-xs text-muted-foreground">{entry.category}</span>
                   {entry.priority !== 50 && <span className="text-xs text-muted-foreground">p:{entry.priority}</span>}
                   <AgentPills csv={entry.agentKeys} fallback="all agents" />
+                  {entry.siteKey && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-cyan-500/15 text-cyan-400 font-medium">
+                      site: {siteLabel(entry.siteKey)}
+                    </span>
+                  )}
                 </div>
                 <p className="text-xs text-muted-foreground mt-0.5 truncate">{entry.content}</p>
               </div>
@@ -411,6 +574,7 @@ function EntriesTab({ token }: { token: string }) {
         <EntryModal
           entry={modal === 'add' ? undefined : modal}
           onClose={() => setModal(null)}
+          token={token}
           onSave={(data) => {
             if (modal === 'add') createMut.mutate(data);
             else updateMut.mutate({ id: modal.id, ...data });
@@ -427,13 +591,17 @@ function SamplesTab({ token }: { token: string }) {
   const qc = useQueryClient();
   const [agentFilter, setAgentFilter] = useState('');
   const [polarityFilter, setPolarityFilter] = useState('');
+  const [siteFilter, setSiteFilter] = useState('');
   const [modal, setModal] = useState<null | 'add' | any>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const { data: sites = [] } = useLivechatSites(token);
 
   const params = new URLSearchParams();
   if (agentFilter) params.set('agentKey', agentFilter);
+  if (siteFilter) params.set('siteKey', siteFilter);
 
   const { data: samples = [], isLoading } = useQuery<any[]>({
-    queryKey: ['kb-samples', agentFilter],
+    queryKey: ['kb-samples', agentFilter, siteFilter],
     queryFn: () => apiFetch(token, `/knowledge-base/samples?${params}`),
   });
 
@@ -453,6 +621,35 @@ function SamplesTab({ token }: { token: string }) {
     mutationFn: (id: string) => apiFetch(token, `/knowledge-base/samples/${id}`, { method: 'DELETE' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['kb-samples'] }),
   });
+
+  const bulkDeleteMut = useMutation({
+    mutationFn: (ids: string[]) =>
+      apiFetch(token, '/knowledge-base/samples/bulk-delete', { method: 'POST', body: JSON.stringify({ ids }) }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['kb-samples'] });
+      setSelected(new Set());
+    },
+  });
+
+  const toggleSelected = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+  const visibleIds = filtered.map((s: any) => s.id);
+  const allSelected = visibleIds.length > 0 && visibleIds.every((id: string) => selected.has(id));
+  const someSelected = visibleIds.some((id: string) => selected.has(id));
+  const toggleSelectAll = () => {
+    if (allSelected) setSelected(new Set());
+    else setSelected(new Set(visibleIds));
+  };
+  const siteLabel = (key: string | null | undefined) => {
+    if (!key) return null;
+    const m = sites.find((s) => s.key === key);
+    return m ? m.label : key;
+  };
 
   return (
     <div>
@@ -474,6 +671,16 @@ function SamplesTab({ token }: { token: string }) {
           <option value="positive">✓ Positive</option>
           <option value="negative">✗ Negative</option>
         </select>
+        {agentFilter === 'livechat' && sites.length > 0 && (
+          <select
+            className="bg-background border border-border rounded-lg px-3 py-1.5 text-sm focus:outline-none"
+            value={siteFilter}
+            onChange={e => setSiteFilter(e.target.value)}
+          >
+            <option value="">All sites</option>
+            {sites.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
+          </select>
+        )}
         <button
           onClick={() => setModal('add')}
           className="ml-auto flex items-center gap-1.5 px-3 py-1.5 bg-primary text-primary-foreground text-sm rounded-lg hover:opacity-90"
@@ -482,14 +689,49 @@ function SamplesTab({ token }: { token: string }) {
         </button>
       </div>
 
+      {someSelected && (
+        <div className="mb-3 flex items-center gap-3 bg-card border border-border rounded-lg px-3 py-2">
+          <span className="text-xs text-muted-foreground">{selected.size} selected</span>
+          <button onClick={() => setSelected(new Set())} className="text-xs text-muted-foreground hover:text-foreground">Clear</button>
+          <button
+            onClick={() => {
+              if (confirm(`Delete ${selected.size} samples? This cannot be undone.`)) {
+                bulkDeleteMut.mutate(Array.from(selected));
+              }
+            }}
+            disabled={bulkDeleteMut.isPending}
+            className="ml-auto flex items-center gap-1.5 px-3 py-1 text-xs bg-red-500/15 text-red-500 rounded-md hover:bg-red-500/25 disabled:opacity-50"
+          >
+            <Trash2 className="w-3 h-3" /> Delete selected
+          </button>
+        </div>
+      )}
+
       {isLoading ? (
         <div className="space-y-2">{[1,2,3].map(i => <div key={i} className="h-14 bg-muted/50 rounded-lg animate-pulse" />)}</div>
       ) : filtered.length === 0 ? (
         <div className="text-center py-12 text-muted-foreground text-sm">No writing samples yet.</div>
       ) : (
         <div className="space-y-2">
+          {visibleIds.length > 0 && (
+            <label className="flex items-center gap-2 px-2 text-xs text-muted-foreground cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={allSelected}
+                onChange={toggleSelectAll}
+                className="accent-primary"
+              />
+              Select all on this page
+            </label>
+          )}
           {filtered.map((s: any) => (
             <div key={s.id} className="bg-card border border-border rounded-lg px-4 py-3 flex items-start gap-3">
+              <input
+                type="checkbox"
+                checked={selected.has(s.id)}
+                onChange={() => toggleSelected(s.id)}
+                className="accent-primary mt-1 shrink-0"
+              />
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-sm font-medium">{s.context}</span>
@@ -497,6 +739,11 @@ function SamplesTab({ token }: { token: string }) {
                     {s.polarity === 'positive' ? '✓' : '✗'} {s.polarity}
                   </span>
                   <AgentPills csv={s.agentKeys} fallback="all agents" />
+                  {s.siteKey && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-cyan-500/15 text-cyan-400 font-medium">
+                      site: {siteLabel(s.siteKey)}
+                    </span>
+                  )}
                 </div>
                 <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{s.sampleText}</p>
               </div>
@@ -515,6 +762,7 @@ function SamplesTab({ token }: { token: string }) {
         <SampleModal
           sample={modal === 'add' ? undefined : modal}
           onClose={() => setModal(null)}
+          token={token}
           onSave={(data) => {
             if (modal === 'add') createMut.mutate(data);
             else updateMut.mutate({ id: modal.id, ...data });

@@ -13,6 +13,7 @@ export const knowledgeEntries = pgTable('knowledge_entries', {
   // 'blocklist'    — pattern to avoid in LLM output; one rule per entry
   priority:    integer('priority').notNull().default(50), // 1=low … 100=critical
   agentKeys:   text('agent_keys'),     // null = all agents; "crisp,support" = specific
+  siteKey:     text('site_key'),       // livechat-only: null = applies to all sites; otherwise scoped
   sourceType:  text('source_type').notNull().default('manual'), // manual|pdf|docx|md|link
   sourceUrl:   text('source_url'),     // MinIO path or original URL
   parentDocId: text('parent_doc_id'), // set on chunk entries; FK to parent entry id
@@ -39,5 +40,6 @@ export const writingSamples = pgTable('writing_samples', {
   sampleText: text('sample_text').notNull(),
   polarity:   text('polarity').notNull().default('positive'), // 'positive' | 'negative'
   agentKeys:  text('agent_keys'),           // null = usable by all agents
+  siteKey:    text('site_key'),             // livechat-only: null = applies to all sites; otherwise scoped
   createdAt:  timestamp('created_at').notNull().defaultNow(),
 });

@@ -2,6 +2,8 @@ import {
   Controller,
   Get,
   Post,
+  Patch,
+  Delete,
   Body,
   Param,
   Query,
@@ -26,6 +28,31 @@ export class LivechatConversationsController {
     private attachments: LivechatAttachmentsService,
     private transcript: LivechatTranscriptService,
   ) {}
+
+  @Get('operators')
+  listOperators() {
+    return this.livechat.listOperators();
+  }
+
+  @Post('operators')
+  createOperator(@Body() body: { name: string; avatarUrl?: string | null; isDefault?: boolean; siteKeys?: string[] | null }) {
+    if (!body?.name?.trim()) throw new BadRequestException('name is required');
+    return this.livechat.createOperator(body);
+  }
+
+  @Patch('operators/:id')
+  updateOperator(
+    @Param('id') id: string,
+    @Body() body: { name?: string; avatarUrl?: string | null; isDefault?: boolean; siteKeys?: string[] | null },
+  ) {
+    return this.livechat.updateOperator(id, body);
+  }
+
+  @Delete('operators/:id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  deleteOperator(@Param('id') id: string) {
+    return this.livechat.deleteOperator(id);
+  }
 
   @Get('sessions')
   listSessions(
@@ -201,7 +228,7 @@ export class LivechatConversationsController {
 
   @Post('sessions/:id/message')
   @HttpCode(HttpStatus.CREATED)
-  async operatorReply(@Param('id') id: string, @Body() body: { content: string; attachmentIds?: string[] }) {
+  async operatorReply(@Param('id') id: string, @Body() body: { content: string; attachmentIds?: string[]; operatorId?: string }) {
     const hasAttachments = Array.isArray(body?.attachmentIds) && body.attachmentIds.length > 0;
     if (!body?.content?.trim() && !hasAttachments) throw new BadRequestException('content or attachments required');
     const session = await this.livechat.getSession(id);
@@ -218,6 +245,12 @@ export class LivechatConversationsController {
 
     const site = await this.livechat.getSiteById(session.siteId).catch(() => null);
 
+    let operatorName: string | null = site?.operatorName ?? null;
+    if (body.operatorId) {
+      const operator = await this.livechat.getOperatorById(body.operatorId);
+      if (operator) operatorName = operator.name;
+    }
+
     this.stream.publish(id, {
       type: 'message',
       sessionId: id,
@@ -225,7 +258,7 @@ export class LivechatConversationsController {
       content,
       messageId: msg.id,
       createdAt: msg.createdAt.toISOString(),
-      operatorName: site?.operatorName ?? null,
+      operatorName,
       attachments: attachments.map((a) => ({
         id: a.id,
         mimeType: a.mimeType,

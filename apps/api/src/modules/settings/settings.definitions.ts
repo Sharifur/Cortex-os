@@ -170,27 +170,22 @@ export const SETTING_DEFINITIONS: Record<string, SettingDefinition> = {
     defaultValue: 'ses-monitoring',
   },
 
-  // Gmail — OAuth2
-  gmail_client_id: {
-    label: 'OAuth2 Client ID',
-    description: 'From Google Cloud Console → Credentials',
+  // Gmail — IMAP / SMTP (App Password). Requires 2FA on the Google account.
+  gmail_email: {
+    label: 'Email address',
+    description: 'The Gmail / Workspace address to read and send from',
     isSecret: false,
     group: 'gmail',
   },
-  gmail_client_secret: {
-    label: 'OAuth2 Client Secret',
-    isSecret: true,
-    group: 'gmail',
-  },
-  gmail_refresh_token: {
-    label: 'Refresh Token',
-    description: 'Obtained via OAuth2 consent (scope: https://mail.google.com/)',
+  gmail_app_password: {
+    label: 'App Password',
+    description: 'Generate at myaccount.google.com → Security → App passwords (2FA must be on)',
     isSecret: true,
     group: 'gmail',
   },
   gmail_from_address: {
-    label: 'From Address',
-    description: 'e.g. Sharifur <sharifur@taskip.net>',
+    label: 'From Address (display)',
+    description: 'Optional display name override, e.g. "Sharifur <sharifur@taskip.net>". Defaults to the email above.',
     isSecret: false,
     group: 'gmail',
   },

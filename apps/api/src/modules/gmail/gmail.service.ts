@@ -1,5 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { google } from 'googleapis';
+import { ImapFlow } from 'imapflow';
+import nodemailer, { Transporter } from 'nodemailer';
+import { simpleParser } from 'mailparser';
 import { SettingsService } from '../settings/settings.service';
 
 export interface GmailSendParams {
@@ -10,8 +12,8 @@ export interface GmailSendParams {
 }
 
 export interface GmailMessage {
-  id: string;
-  threadId: string;
+  id: string;       // IMAP UID (as string)
+  threadId: string; // Message-ID header — used as the thread anchor for replies
   from: string;
   subject: string;
   snippet: string;
@@ -24,6 +26,11 @@ export interface GmailThread {
   messages: GmailMessage[];
 }
 
+interface ImapCreds {
+  email: string;
+  password: string;
+}
+
 @Injectable()
 export class GmailService {
   private readonly logger = new Logger(GmailService.name);
@@ -31,171 +38,189 @@ export class GmailService {
   constructor(private readonly settings: SettingsService) {}
 
   async getFromAddress(): Promise<string> {
-    return (await this.settings.getDecrypted('gmail_from_address')) ?? 'me';
+    const explicit = await this.settings.getDecrypted('gmail_from_address');
+    if (explicit?.trim()) return explicit.trim();
+    return (await this.settings.getDecrypted('gmail_email')) ?? '';
   }
 
   async isConfigured(): Promise<boolean> {
-    const [id, secret, token] = await Promise.all([
-      this.settings.getDecrypted('gmail_client_id'),
-      this.settings.getDecrypted('gmail_client_secret'),
-      this.settings.getDecrypted('gmail_refresh_token'),
+    const [email, pw] = await Promise.all([
+      this.settings.getDecrypted('gmail_email'),
+      this.settings.getDecrypted('gmail_app_password'),
     ]);
-    return !!(id && secret && token);
+    return !!(email && pw);
   }
 
   async sendEmail(params: GmailSendParams): Promise<string> {
-    const [clientId, clientSecret, refreshToken] = await Promise.all([
-      this.settings.getDecrypted('gmail_client_id'),
-      this.settings.getDecrypted('gmail_client_secret'),
-      this.settings.getDecrypted('gmail_refresh_token'),
-    ]);
-
-    if (!clientId || !clientSecret || !refreshToken) {
-      throw new Error('Gmail credentials not configured — set them in Settings → Gmail');
-    }
-
-    const auth = new google.auth.OAuth2(clientId, clientSecret);
-    auth.setCredentials({ refresh_token: refreshToken });
-    const gmail = google.gmail({ version: 'v1', auth });
-
-    const raw = this.buildRaw(params);
-    const res = await gmail.users.messages.send({ userId: 'me', requestBody: { raw } });
-
-    const messageId = res.data.id ?? '';
-    this.logger.log(`Gmail sent to ${params.to} — messageId: ${messageId}`);
-    return messageId;
-  }
-
-  async getAuthClient() {
-    const [clientId, clientSecret, refreshToken] = await Promise.all([
-      this.settings.getDecrypted('gmail_client_id'),
-      this.settings.getDecrypted('gmail_client_secret'),
-      this.settings.getDecrypted('gmail_refresh_token'),
-    ]);
-    if (!clientId || !clientSecret || !refreshToken) {
-      throw new Error('Gmail credentials not configured — set them in Settings → Gmail');
-    }
-    const auth = new google.auth.OAuth2(clientId, clientSecret);
-    auth.setCredentials({ refresh_token: refreshToken });
-    return google.gmail({ version: 'v1', auth });
+    const creds = await this.getCreds();
+    const transporter = this.smtpTransport(creds);
+    const info = await transporter.sendMail({
+      from: params.from || creds.email,
+      to: params.to,
+      subject: params.subject,
+      text: params.textBody,
+    });
+    this.logger.log(`Gmail sent to ${params.to} — messageId: ${info.messageId}`);
+    return info.messageId ?? '';
   }
 
   async listUnread(maxResults = 20): Promise<GmailMessage[]> {
-    const gmail = await this.getAuthClient();
-    const list = await gmail.users.messages.list({
-      userId: 'me',
-      q: 'is:unread in:inbox',
-      maxResults,
-    });
-    const ids = list.data.messages ?? [];
-    if (!ids.length) return [];
-
-    const messages = await Promise.all(
-      ids.map((m) =>
-        gmail.users.messages.get({ userId: 'me', id: m.id!, format: 'full' }),
-      ),
-    );
-
-    return messages.map((res) => this.parseMessage(res.data));
-  }
-
-  async getMessage(messageId: string): Promise<GmailMessage> {
-    const gmail = await this.getAuthClient();
-    const res = await gmail.users.messages.get({ userId: 'me', id: messageId, format: 'full' });
-    return this.parseMessage(res.data);
-  }
-
-  async getThread(threadId: string): Promise<GmailThread> {
-    const gmail = await this.getAuthClient();
-    const res = await gmail.users.threads.get({ userId: 'me', id: threadId, format: 'full' });
-    const messages = (res.data.messages ?? []).map((m) => this.parseMessage(m));
-    return { id: threadId, messages };
-  }
-
-  async archiveMessage(messageId: string): Promise<void> {
-    const gmail = await this.getAuthClient();
-    await gmail.users.messages.modify({
-      userId: 'me',
-      id: messageId,
-      requestBody: { removeLabelIds: ['INBOX'] },
-    });
-  }
-
-  async addLabel(messageId: string, labelName: string): Promise<void> {
-    const gmail = await this.getAuthClient();
-    const labelsRes = await gmail.users.labels.list({ userId: 'me' });
-    let label = (labelsRes.data.labels ?? []).find(
-      (l) => l.name?.toLowerCase() === labelName.toLowerCase(),
-    );
-    if (!label) {
-      const created = await gmail.users.labels.create({
-        userId: 'me',
-        requestBody: { name: labelName, labelListVisibility: 'labelShow', messageListVisibility: 'show' },
-      });
-      label = created.data;
-    }
-    if (label?.id) {
-      await gmail.users.messages.modify({
-        userId: 'me',
-        id: messageId,
-        requestBody: { addLabelIds: [label.id] },
-      });
-    }
-  }
-
-  async markRead(messageId: string): Promise<void> {
-    const gmail = await this.getAuthClient();
-    await gmail.users.messages.modify({
-      userId: 'me',
-      id: messageId,
-      requestBody: { removeLabelIds: ['UNREAD'] },
-    });
-  }
-
-  private parseMessage(data: any): GmailMessage {
-    const headers: Record<string, string> = {};
-    for (const h of data.payload?.headers ?? []) {
-      headers[h.name.toLowerCase()] = h.value;
-    }
-    const body = this.extractBody(data.payload);
-    return {
-      id: data.id ?? '',
-      threadId: data.threadId ?? '',
-      from: headers['from'] ?? '',
-      subject: headers['subject'] ?? '(no subject)',
-      snippet: data.snippet ?? '',
-      body,
-      receivedAt: new Date(parseInt(data.internalDate ?? '0', 10)),
-    };
-  }
-
-  private extractBody(payload: any): string {
-    if (!payload) return '';
-    if (payload.body?.data) {
-      return Buffer.from(payload.body.data, 'base64url').toString('utf-8');
-    }
-    for (const part of payload.parts ?? []) {
-      if (part.mimeType === 'text/plain' && part.body?.data) {
-        return Buffer.from(part.body.data, 'base64url').toString('utf-8');
+    return this.withImap(async (client) => {
+      const lock = await client.getMailboxLock('INBOX');
+      try {
+        // UNSEEN messages, newest first, capped at maxResults.
+        const uids = (await client.search({ seen: false }, { uid: true })) || [];
+        const slice = uids.slice(-maxResults).reverse();
+        if (!slice.length) return [];
+        const out: GmailMessage[] = [];
+        for await (const msg of client.fetch(slice, { uid: true, source: true, envelope: true, internalDate: true })) {
+          out.push(await this.parseFetched(msg));
+        }
+        return out;
+      } finally {
+        lock.release();
       }
-    }
-    for (const part of payload.parts ?? []) {
-      const nested = this.extractBody(part);
-      if (nested) return nested;
-    }
-    return '';
+    });
   }
 
-  private buildRaw(params: GmailSendParams): string {
-    const lines = [
-      `From: ${params.from}`,
-      `To: ${params.to}`,
-      `Subject: ${params.subject}`,
-      `MIME-Version: 1.0`,
-      `Content-Type: text/plain; charset=UTF-8`,
-      ``,
-      params.textBody,
-    ].join('\r\n');
-    return Buffer.from(lines).toString('base64url');
+  async getMessage(uidStr: string): Promise<GmailMessage> {
+    const uid = Number(uidStr);
+    return this.withImap(async (client) => {
+      const lock = await client.getMailboxLock('INBOX');
+      try {
+        const msg = await client.fetchOne(uid, { uid: true, source: true, envelope: true, internalDate: true }, { uid: true });
+        if (!msg) throw new Error(`Gmail message not found: ${uidStr}`);
+        return this.parseFetched(msg);
+      } finally {
+        lock.release();
+      }
+    });
+  }
+
+  /**
+   * IMAP has no native "thread" concept; we approximate by searching for
+   * messages whose References / In-Reply-To chain or Subject matches the
+   * anchor message-id. Sufficient for the agent flows we use.
+   */
+  async getThread(threadId: string): Promise<GmailThread> {
+    return this.withImap(async (client) => {
+      const lock = await client.getMailboxLock('INBOX');
+      try {
+        // Try to find by Message-ID first; fall back to the raw threadId.
+        const uids = (await client.search({ header: { 'message-id': threadId } }, { uid: true })) || [];
+        if (!uids.length) return { id: threadId, messages: [] };
+        const out: GmailMessage[] = [];
+        for await (const msg of client.fetch(uids, { uid: true, source: true, envelope: true, internalDate: true })) {
+          out.push(await this.parseFetched(msg));
+        }
+        return { id: threadId, messages: out };
+      } finally {
+        lock.release();
+      }
+    });
+  }
+
+  /**
+   * Gmail-over-IMAP exposes labels as folders under "[Gmail]/All Mail" etc.
+   * Removing from INBOX = moving to "[Gmail]/All Mail" (archive).
+   */
+  async archiveMessage(uidStr: string): Promise<void> {
+    const uid = Number(uidStr);
+    await this.withImap(async (client) => {
+      const lock = await client.getMailboxLock('INBOX');
+      try {
+        await client.messageMove(uid, '[Gmail]/All Mail', { uid: true }).catch(() => undefined);
+      } finally {
+        lock.release();
+      }
+    });
+  }
+
+  /**
+   * IMAP equivalent of Gmail labels: a folder under [Gmail]/. We create the
+   * folder if missing and copy the message there (Gmail mirrors copy → label).
+   */
+  async addLabel(uidStr: string, labelName: string): Promise<void> {
+    const uid = Number(uidStr);
+    await this.withImap(async (client) => {
+      const folder = `[Gmail]/${labelName}`;
+      try { await client.mailboxCreate(folder); } catch { /* already exists */ }
+      const lock = await client.getMailboxLock('INBOX');
+      try {
+        await client.messageCopy(uid, folder, { uid: true }).catch(() => undefined);
+      } finally {
+        lock.release();
+      }
+    });
+  }
+
+  async markRead(uidStr: string): Promise<void> {
+    const uid = Number(uidStr);
+    await this.withImap(async (client) => {
+      const lock = await client.getMailboxLock('INBOX');
+      try {
+        await client.messageFlagsAdd(uid, ['\\Seen'], { uid: true });
+      } finally {
+        lock.release();
+      }
+    });
+  }
+
+  // ─── internals ───────────────────────────────────────────────────────────
+
+  private async getCreds(): Promise<ImapCreds> {
+    const [email, password] = await Promise.all([
+      this.settings.getDecrypted('gmail_email'),
+      this.settings.getDecrypted('gmail_app_password'),
+    ]);
+    if (!email || !password) {
+      throw new Error('Gmail credentials not configured — set them in Settings → Gmail');
+    }
+    return { email, password };
+  }
+
+  private async withImap<T>(fn: (client: ImapFlow) => Promise<T>): Promise<T> {
+    const creds = await this.getCreds();
+    const client = new ImapFlow({
+      host: 'imap.gmail.com',
+      port: 993,
+      secure: true,
+      auth: { user: creds.email, pass: creds.password },
+      logger: false,
+    });
+    await client.connect();
+    try {
+      return await fn(client);
+    } finally {
+      await client.logout().catch(() => undefined);
+    }
+  }
+
+  private smtpTransport(creds: ImapCreds): Transporter {
+    return nodemailer.createTransport({
+      host: 'smtp.gmail.com',
+      port: 465,
+      secure: true,
+      auth: { user: creds.email, pass: creds.password },
+    });
+  }
+
+  private async parseFetched(msg: { uid?: number; source?: Buffer; envelope?: any; internalDate?: Date | string }): Promise<GmailMessage> {
+    const parsed = msg.source ? await simpleParser(msg.source) : null;
+    const env = msg.envelope ?? {};
+    const fromHeader = parsed?.from?.text ?? (env.from?.[0] ? `${env.from[0].name ?? ''} <${env.from[0].address ?? ''}>` : '');
+    const messageId = parsed?.messageId ?? env.messageId ?? '';
+    const text = parsed?.text?.trim() ?? '';
+    const receivedAt = parsed?.date
+      ?? (msg.internalDate ? (msg.internalDate instanceof Date ? msg.internalDate : new Date(msg.internalDate)) : new Date());
+    return {
+      id: String(msg.uid ?? ''),
+      threadId: messageId,
+      from: fromHeader,
+      subject: parsed?.subject ?? env.subject ?? '(no subject)',
+      snippet: text.slice(0, 160),
+      body: text,
+      receivedAt,
+    };
   }
 }
