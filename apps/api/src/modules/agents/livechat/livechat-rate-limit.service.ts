@@ -10,6 +10,36 @@ export class LivechatRateLimitService {
   constructor(@Inject('LIVECHAT_REDIS') private readonly redis: IORedis) {}
 
   /**
+   * Per-day counter — bumps + reads. Used to cap LLM cost per site.
+   * Returns the *new* count after increment. Fails open (returns 0) on
+   * Redis errors.
+   */
+  async incrDailyCounter(bucket: string, key: string): Promise<number> {
+    const day = new Date().toISOString().slice(0, 10);
+    const redisKey = `livechat:daily:${bucket}:${key}:${day}`;
+    try {
+      const count = await this.redis.incr(redisKey);
+      if (count === 1) await this.redis.expire(redisKey, 26 * 3600);
+      return count;
+    } catch (err) {
+      this.logger.warn(`daily-counter incr failed: ${(err as Error).message}`);
+      return 0;
+    }
+  }
+
+  /** Read the current day counter without incrementing. Returns 0 on miss / error. */
+  async readDailyCounter(bucket: string, key: string): Promise<number> {
+    const day = new Date().toISOString().slice(0, 10);
+    const redisKey = `livechat:daily:${bucket}:${key}:${day}`;
+    try {
+      const v = await this.redis.get(redisKey);
+      return v ? parseInt(v, 10) : 0;
+    } catch {
+      return 0;
+    }
+  }
+
+  /**
    * Per-minute fixed-window limiter. Throws 429 when the current minute's
    * counter exceeds `max`. Fails open if Redis is unreachable so the chat
    * keeps working — abuse protection degrades to none, never to "down".

@@ -15,6 +15,11 @@ import { KnowledgeBaseService } from '../../knowledge-base/knowledge-base.servic
 
 export type WidgetPosition = 'bottom-right' | 'bottom-left';
 
+/** Real conversations are 5–30 visitor messages. Anything over this is abuse. */
+export const MAX_VISITOR_MSGS_PER_SESSION = 100;
+/** Default per-site agent-reply cap per day. Counter lives in Redis. */
+export const DEFAULT_DAILY_AGENT_REPLY_CAP = 500;
+
 export interface LivechatSiteRow {
   id: string;
   key: string;
@@ -385,6 +390,24 @@ export class LivechatService {
         .limit(1);
       if (recent) {
         return { id: recent.id, createdAt: recent.createdAt, pendingApproval: recent.pendingApproval, duplicate: true };
+      }
+
+      // Per-session cap. Real conversations never approach this; a spammer
+      // hammering one session does. Returns the duplicate-shape so the
+      // public controller silently no-ops without leaking the cap to the
+      // attacker.
+      const [{ count }] = await this.db.db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(livechatMessages)
+        .where(and(eq(livechatMessages.sessionId, input.sessionId), eq(livechatMessages.role, 'visitor')));
+      if ((count ?? 0) >= MAX_VISITOR_MSGS_PER_SESSION) {
+        this.logger.warn(`session ${input.sessionId.slice(-8)} hit visitor message cap (${count})`);
+        return {
+          id: 'capped',
+          createdAt: new Date(),
+          pendingApproval: false,
+          duplicate: true,
+        };
       }
     }
 

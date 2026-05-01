@@ -159,6 +159,13 @@ function buildPanel(shadow: ShadowRoot, cfg: WidgetConfig, state: any, render: (
   const quickRepliesEl = panel.querySelector<HTMLDivElement>('.lc-quick-replies')!;
   const pendingAttachments: AttachmentSummary[] = [];
 
+  // Bot signals — sent with each message. Server uses these to silently
+  // drop traffic without alerting attackers. Real users always pass.
+  const panelMountedAt = Date.now();
+  let hadInteraction = false;
+  textarea.addEventListener('keydown', () => { hadInteraction = true; });
+  textarea.addEventListener('input', () => { hadInteraction = true; });
+
   // Show quick reply chips below the welcome bubble while no visitor message has
   // been sent yet. Tap = send that label as the visitor's first message.
   const renderQuickReplies = () => {
@@ -346,7 +353,16 @@ function buildPanel(shadow: ShadowRoot, cfg: WidgetConfig, state: any, render: (
     showTyping(panel);
 
     try {
-      const res: MessageResponse = await sendMessage(cfg, content, readyAttachments.map((a) => a.id));
+      const res: MessageResponse = await sendMessage(
+        cfg,
+        content,
+        readyAttachments.map((a) => a.id),
+        {
+          hp: honeypot.value || undefined,
+          elapsedMs: Date.now() - panelMountedAt,
+          hadInteraction,
+        },
+      );
       hideTyping(panel);
       state.sessionId = res.sessionId;
       writeSessionId(res.sessionId);

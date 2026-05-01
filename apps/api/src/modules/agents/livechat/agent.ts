@@ -6,8 +6,9 @@ import { AgentRegistryService } from '../runtime/agent-registry.service';
 import { LlmRouterService } from '../../llm/llm-router.service';
 import { KnowledgeBaseService } from '../../knowledge-base/knowledge-base.service';
 import { agentLlmOpts } from '../runtime/llm-config.util';
-import { LivechatService } from './livechat.service';
+import { LivechatService, DEFAULT_DAILY_AGENT_REPLY_CAP } from './livechat.service';
 import { LivechatStreamService } from './livechat-stream.service';
+import { LivechatRateLimitService } from './livechat-rate-limit.service';
 import type {
   IAgent,
   TriggerSpec,
@@ -55,6 +56,7 @@ export class LivechatAgent implements IAgent, OnModuleInit {
     private kb: KnowledgeBaseService,
     private livechat: LivechatService,
     private stream: LivechatStreamService,
+    private rateLimit: LivechatRateLimitService,
   ) {}
 
   onModuleInit() {
@@ -105,6 +107,17 @@ export class LivechatAgent implements IAgent, OnModuleInit {
 
     const config = await this.getConfig();
     const site = await this.livechat.getSiteById(session.siteId).catch(() => null);
+
+    // Per-site daily reply cap. When exceeded, post the human-handoff
+    // fallback and pause AI for this site for the rest of the day. Caps
+    // LLM cost from a runaway spam attack.
+    if (site) {
+      const todayCount = await this.rateLimit.readDailyCounter('agent_replies', site.key);
+      if (todayCount >= DEFAULT_DAILY_AGENT_REPLY_CAP) {
+        this.logger.warn(`site ${site.key} hit daily agent reply cap (${todayCount})`);
+        return this.postFallback(input.sessionId);
+      }
+    }
     const productContext = (site?.productContext?.trim()) || config.productContext;
     const replyTone = (site?.replyTone?.trim()) || config.replyTone;
 
@@ -208,6 +221,11 @@ export class LivechatAgent implements IAgent, OnModuleInit {
       content: draft,
       pendingApproval: !autoApprove,
     });
+
+    // Bump the daily reply counter for this site (post-success only).
+    if (site) {
+      await this.rateLimit.incrDailyCounter('agent_replies', site.key);
+    }
 
     if (autoApprove) {
       this.stream.publish(input.sessionId, {
