@@ -149,7 +149,7 @@ function Sidebar({
           <>
             <Bot className="w-5 h-5 text-primary shrink-0" />
             <span className="font-semibold text-sm">Cortex OS</span>
-            <span className="text-muted-foreground text-xs">v1.51</span>
+            <span className="text-muted-foreground text-xs">v1.52</span>
             {onToggleCollapse && (
               <button
                 onClick={onToggleCollapse}
@@ -191,6 +191,88 @@ function Sidebar({
         ))}
       </nav>
     </>
+  );
+}
+
+/**
+ * iOS-Safari "Add to Home Screen" hint + Android Chrome's beforeinstallprompt.
+ * Shows once per device until dismissed. Hidden when running standalone
+ * (already installed) or on desktop. Banner appears at the bottom of the
+ * viewport so it doesn't fight with the top header.
+ */
+function InstallPwaBanner() {
+  const [deferred, setDeferred] = useState<any>(null);
+  const [visible, setVisible] = useState(false);
+  const [iosHint, setIosHint] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    // Already running as installed PWA — skip everything.
+    const isStandalone =
+      window.matchMedia?.('(display-mode: standalone)').matches ||
+      (navigator as any).standalone === true;
+    if (isStandalone) return;
+    let dismissed = false;
+    try { dismissed = localStorage.getItem('pwa-install-dismissed') === '1'; } catch { /* ignore */ }
+    if (dismissed) return;
+    const isMobile = window.matchMedia('(max-width: 768px)').matches;
+    if (!isMobile) return;
+
+    const onPrompt = (e: Event) => {
+      e.preventDefault();
+      setDeferred(e);
+      setVisible(true);
+    };
+    window.addEventListener('beforeinstallprompt', onPrompt);
+
+    // iOS doesn't fire beforeinstallprompt — show the manual "Share → Add to
+    // Home Screen" hint for iOS Safari instead, after a short delay so it
+    // doesn't appear instantly on every page load.
+    const ua = navigator.userAgent;
+    const isIos = /iPhone|iPad|iPod/i.test(ua) && !/CriOS|FxiOS|EdgiOS/i.test(ua);
+    if (isIos) {
+      const t = setTimeout(() => { setIosHint(true); setVisible(true); }, 4000);
+      return () => {
+        window.removeEventListener('beforeinstallprompt', onPrompt);
+        clearTimeout(t);
+      };
+    }
+    return () => window.removeEventListener('beforeinstallprompt', onPrompt);
+  }, []);
+
+  function dismiss() {
+    setVisible(false);
+    try { localStorage.setItem('pwa-install-dismissed', '1'); } catch { /* ignore */ }
+  }
+
+  async function install() {
+    if (!deferred) return;
+    deferred.prompt();
+    try { await deferred.userChoice; } catch { /* ignore */ }
+    dismiss();
+  }
+
+  if (!visible) return null;
+  return (
+    <div className="md:hidden fixed bottom-4 left-3 right-3 z-50 bg-card border border-border rounded-xl shadow-2xl p-3 flex items-center gap-3 animate-in slide-in-from-bottom-2">
+      <div className="w-9 h-9 rounded-lg bg-primary/15 text-primary flex items-center justify-center shrink-0">
+        <Bot className="w-5 h-5" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="text-sm font-medium">Install Cortex OS</div>
+        <div className="text-[11px] text-muted-foreground">
+          {iosHint ? 'Tap Share, then "Add to Home Screen".' : 'Use it like an app — instant launch, no browser bar.'}
+        </div>
+      </div>
+      <div className="flex items-center gap-1 shrink-0">
+        {!iosHint && (
+          <button onClick={install} className="px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium">Install</button>
+        )}
+        <button onClick={dismiss} className="text-muted-foreground hover:text-foreground p-1.5">
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -257,7 +339,7 @@ export default function AppLayout() {
           <div className="flex items-center gap-2">
             <Bot className="w-5 h-5 text-primary" />
             <span className="font-semibold text-sm">Cortex OS</span>
-            <span className="text-muted-foreground text-xs">v1.51</span>
+            <span className="text-muted-foreground text-xs">v1.52</span>
           </div>
           <button
             onClick={() => setDrawerOpen(false)}
@@ -312,6 +394,7 @@ export default function AppLayout() {
           <Outlet />
         </main>
       </div>
+      <InstallPwaBanner />
     </div>
   );
 }

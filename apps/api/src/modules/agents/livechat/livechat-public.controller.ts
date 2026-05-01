@@ -177,7 +177,7 @@ export class LivechatPublicController {
     const origin = req.headers.origin as string | undefined;
     const site = await this.livechat.resolveSiteForRequest(body.siteKey, origin ?? null);
     await this.rateLimit.check('heartbeat', `${site.key}:${body.visitorId}`, 120);
-    await this.livechat.heartbeatVisitor({
+    const { sessionId, previousUrl, previousTitle } = await this.livechat.heartbeatVisitor({
       siteId: site.id,
       visitorId: body.visitorId,
       currentUrl: body.url ?? null,
@@ -189,6 +189,20 @@ export class LivechatPublicController {
     );
     if (visitor) {
       this.stream.publishToOperators({ type: 'visitor_activity', visitorPk: visitor.visitorPk, siteKey: site.key });
+    }
+    // When the visitor's current URL or title changed since the previous
+    // heartbeat, push a pageview event into the session room so an operator
+    // currently viewing the conversation sees "Currently on" update in
+    // realtime — without waiting for a full pageview navigation event.
+    if (sessionId && body.url && (body.url !== previousUrl || (body.title ?? null) !== previousTitle)) {
+      this.stream.publish(sessionId, {
+        type: 'pageview',
+        sessionId,
+        visitorPk: visitor?.visitorPk ?? '',
+        url: body.url,
+        title: body.title ?? null,
+        at: new Date().toISOString(),
+      });
     }
     return { ok: true };
   }

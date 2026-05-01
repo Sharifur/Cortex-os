@@ -617,26 +617,35 @@ export const WIDGET_STYLES = `
 .lc-rate-btn:disabled { cursor: default; opacity: 0.5; }
 .lc-rate-btn--active { background: #f0fdf4; border-color: #86efac; }
 
-/* ── Proactive bubble ── */
+/* ── Proactive welcome bubble ── */
+/* Styled as a chat bubble pointing down at the chat-launcher button.
+   Width is fixed (not max-width) because the host has no intrinsic width;
+   without an explicit width the bubble shrinks to longest-word size. */
 .lc-proactive {
   position: absolute;
-  bottom: 70px;
+  bottom: 76px;
   right: 0;
-  max-width: 280px;
+  width: 280px;
+  max-width: calc(100vw - 80px);
   background: #fff;
-  border-radius: 12px 12px 4px 12px;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.16);
-  padding: 12px 36px 12px 14px;
+  border-radius: 18px 18px 4px 18px;
+  box-shadow: 0 10px 32px rgba(15, 23, 42, 0.18), 0 2px 8px rgba(15, 23, 42, 0.08);
+  padding: 14px 18px 14px 16px;
   font-size: 14px;
   color: #1f2937;
-  line-height: 1.45;
+  line-height: 1.5;
   animation: lc-slide-in 0.3s ease;
 }
-.lc-proactive-text { cursor: pointer; }
-.lc-proactive-text:hover { text-decoration: underline; }
+:host(.lc-position-left) .lc-proactive {
+  right: auto;
+  left: 0;
+  border-radius: 18px 18px 18px 4px;
+}
+.lc-proactive-text { cursor: pointer; padding-right: 18px; }
+.lc-proactive-text:hover { text-decoration: none; }
 .lc-proactive-close {
   position: absolute;
-  top: 6px;
+  top: 8px;
   right: 8px;
   background: transparent;
   border: 0;
@@ -646,11 +655,12 @@ export const WIDGET_STYLES = `
   padding: 0;
   line-height: 1;
   border-radius: 50%;
-  width: 20px;
-  height: 20px;
+  width: 22px;
+  height: 22px;
   display: flex;
   align-items: center;
   justify-content: center;
+  transition: background 0.15s, color 0.15s;
 }
 .lc-proactive-close:hover { color: #374151; background: #f3f4f6; }
 

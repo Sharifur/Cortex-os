@@ -450,7 +450,14 @@ function buildPanel(shadow: ShadowRoot, cfg: WidgetConfig, state: any, render: (
   // been sent yet. Tap = send that label as the visitor's first message.
   const renderQuickReplies = () => {
     const visitorHasSpoken = state.messages.some((m: VisitorMessage) => m.role === 'visitor');
-    const chips = (siteConfig.welcomeQuickReplies ?? []).filter(Boolean);
+    // Drop "talk to human" / "speak to a human" style pills — visitors don't
+    // need a button for that; the AI escalates to human automatically when
+    // the visitor asks. Surfacing the option on first paint signals the bot
+    // can't actually help, which kills engagement.
+    const HUMAN_RE = /\b(talk|speak|connect|chat)\b.*\b(human|agent|person|representative|support team)\b|\b(human|live agent|real person)\b/i;
+    const chips = (siteConfig.welcomeQuickReplies ?? [])
+      .filter(Boolean)
+      .filter((label) => !HUMAN_RE.test(label));
     if (visitorHasSpoken || chips.length === 0) {
       quickRepliesEl.style.display = 'none';
       quickRepliesEl.innerHTML = '';

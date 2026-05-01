@@ -32,4 +32,22 @@
     @apply bg-background text-foreground antialiased;
     font-feature-settings: "rlig" 1, "calt" 1;
   }
+
+  /* iOS Safari auto-zooms when an input/textarea has font-size < 16px and
+     never zooms back. Force 16px on touch viewports for inputs operators
+     interact with on mobile (composer + filters). Visual scale is preserved
+     because the surrounding layout remains text-sm at the container level. */
+  @media (max-width: 768px) {
+    input[type="text"],
+    input[type="email"],
+    input[type="password"],
+    input[type="search"],
+    input[type="tel"],
+    input[type="url"],
+    input[type="number"],
+    textarea,
+    select {
+      font-size: 16px !important;
+    }
+  }
 }

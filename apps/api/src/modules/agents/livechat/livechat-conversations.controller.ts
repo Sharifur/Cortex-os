@@ -228,14 +228,22 @@ export class LivechatConversationsController {
 
   @Post('sessions/:id/message')
   @HttpCode(HttpStatus.CREATED)
-  async operatorReply(@Param('id') id: string, @Body() body: { content: string; attachmentIds?: string[]; operatorId?: string }) {
+  async operatorReply(@Param('id') id: string, @Body() body: { content: string; attachmentIds?: string[]; operatorId?: string; internal?: boolean }) {
     const hasAttachments = Array.isArray(body?.attachmentIds) && body.attachmentIds.length > 0;
     if (!body?.content?.trim() && !hasAttachments) throw new BadRequestException('content or attachments required');
     const session = await this.livechat.getSession(id);
     if (!session) throw new NotFoundException(`Session not found: ${id}`);
 
     const content = (body.content ?? '').trim();
-    const msg = await this.livechat.appendMessage({ sessionId: id, role: 'operator', content });
+    // Internal notes use role='note' and skip the visitor-facing socket
+    // broadcast — only operators viewing this session ever see them via
+    // the session detail re-fetch + the operator-room session_upserted ping.
+    const isInternal = body.internal === true;
+    const msg = await this.livechat.appendMessage({ sessionId: id, role: isInternal ? 'note' : 'operator', content });
+    if (isInternal) {
+      this.stream.publishToOperators({ type: 'session_upserted', sessionId: id });
+      return { ok: true, message: { id: msg.id, content, createdAt: msg.createdAt, attachments: [], role: 'note' } };
+    }
 
     let attachments: Awaited<ReturnType<LivechatAttachmentsService['getById']>>[] = [];
     if (hasAttachments) {
