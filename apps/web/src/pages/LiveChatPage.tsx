@@ -42,6 +42,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Skeleton } from '@/components/ui/skeleton';
 import { useAuthStore } from '@/stores/authStore';
 import { getPushStatus, subscribePush, unsubscribePush, type PushStatus } from '@/lib/push';
 
@@ -103,6 +104,7 @@ interface SessionRow {
   ipCity: string | null;
   browserName: string | null;
   osName: string | null;
+  language: string | null;
   lastMessage: { role: string; content: string; createdAt: string } | null;
   pendingDrafts?: number;
 }
@@ -1205,6 +1207,9 @@ function InboxRow({ session, selected, onClick }: { session: SessionRow; selecte
   const name = shortVisitorName(session);
   const lastTime = session.lastMessage?.createdAt ?? session.lastSeenAt;
   const online = isVisitorOnline(session.lastSeenAt, session.status);
+  // Fall back to the country half of the Accept-Language header (en-GB → GB)
+  // so the flag still renders when MaxMind couldn't geolocate the IP.
+  const country = session.ipCountry || (session.language?.split('-')[1] ?? null);
   return (
     <button
       onClick={onClick}
@@ -1213,7 +1218,7 @@ function InboxRow({ session, selected, onClick }: { session: SessionRow; selecte
       }`}
     >
       <div className="flex items-start gap-2.5">
-        <Avatar name={name} country={session.ipCountry} online={online} />
+        <Avatar name={name} country={country} online={online} />
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between gap-2">
             <span className={`text-sm truncate ${selected ? 'font-semibold' : 'font-medium'}`} title={session.visitorEmail ?? undefined}>{name}</span>
@@ -2651,7 +2656,18 @@ function OperatorsTab() {
         </div>
 
         {isLoading ? (
-          <p className="text-sm text-muted-foreground">Loading…</p>
+          <div className="space-y-2">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="flex items-center gap-3 border border-border rounded-lg p-3">
+                <Skeleton className="w-10 h-10 rounded-full shrink-0" />
+                <div className="flex-1 space-y-2">
+                  <Skeleton className="h-4 w-32" />
+                  <Skeleton className="h-3 w-48" />
+                </div>
+                <Skeleton className="h-7 w-16 rounded-md" />
+              </div>
+            ))}
+          </div>
         ) : operators.length === 0 ? (
           <div className="border border-dashed border-border rounded-lg p-8 text-center text-sm text-muted-foreground">
             No operators yet. Add one to assign a sender identity to human replies.

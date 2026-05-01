@@ -623,6 +623,7 @@ export class LivechatService {
         ipCity: livechatVisitors.ipCity,
         browserName: livechatVisitors.browserName,
         osName: livechatVisitors.osName,
+        language: livechatVisitors.language,
       })
       .from(livechatSessions)
       .leftJoin(livechatVisitors, eq(livechatVisitors.id, livechatSessions.visitorPk))
