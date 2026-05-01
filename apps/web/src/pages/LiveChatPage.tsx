@@ -2419,43 +2419,39 @@ function PageJourneySection({ visitorPk }: { visitorPk: string }) {
             const favicon = faviconForUrl(p.url);
             return (
               <li key={p.id} className="py-2 px-1 hover:bg-accent/30 rounded transition-colors">
-                <a
-                  href={p.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="block group"
-                  title={p.url}
-                >
-                  <div className="flex items-start gap-2">
-                    {favicon ? (
-                      <img
-                        src={favicon}
-                        alt=""
-                        width={16}
-                        height={16}
-                        loading="lazy"
-                        className="mt-0.5 shrink-0 rounded-sm"
-                        onError={(e) => {
-                          (e.target as HTMLImageElement).style.display = 'none';
-                        }}
-                      />
-                    ) : (
-                      <div className="w-4 h-4 mt-0.5 shrink-0 rounded-sm bg-muted" />
-                    )}
-                    <div className="flex-1 min-w-0">
-                      <div className="text-xs font-medium truncate group-hover:text-foreground">
-                        {p.title ?? p.path ?? p.url}
-                      </div>
-                      <div className="text-[10px] text-muted-foreground flex justify-between gap-2 mt-0.5">
-                        <span className="truncate">{p.path ?? p.url}</span>
-                        <span className="shrink-0">
-                          {new Date(p.arrivedAt).toLocaleTimeString()}
-                          {p.durationMs != null && ` · ${formatDuration(p.durationMs)}`}
-                        </span>
-                      </div>
+                <div className="flex items-center gap-2">
+                  {favicon ? (
+                    <img
+                      src={favicon}
+                      alt=""
+                      width={16}
+                      height={16}
+                      loading="lazy"
+                      className="shrink-0 rounded-sm"
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).style.display = 'none';
+                      }}
+                    />
+                  ) : (
+                    <div className="w-4 h-4 shrink-0 rounded-sm bg-muted" />
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs font-medium truncate">{p.title ?? p.path ?? p.url}</div>
+                    <div className="text-[10px] text-muted-foreground mt-0.5">
+                      {new Date(p.arrivedAt).toLocaleTimeString()}
+                      {p.durationMs != null && ` · ${formatDuration(p.durationMs)}`}
                     </div>
                   </div>
-                </a>
+                  <a
+                    href={p.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    title={p.url}
+                    className="shrink-0 text-muted-foreground hover:text-foreground transition-colors p-1 rounded hover:bg-accent/50"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </a>
+                </div>
               </li>
             );
           })}
