@@ -561,6 +561,31 @@ export class LivechatService {
       .limit(limit);
   }
 
+  /** Dashboard-level stats: active sessions, needing human, today's count, pending drafts. */
+  async sessionStats(): Promise<{ open: number; needsHuman: number; today: number; pendingDrafts: number }> {
+    const [counts] = await this.db.db.execute<{
+      open: number;
+      needs_human: number;
+      today: number;
+    }>(sql`
+      SELECT
+        COUNT(*) FILTER (WHERE status IN ('open','needs_human','human_taken_over'))::int AS open,
+        COUNT(*) FILTER (WHERE status = 'needs_human')::int AS needs_human,
+        COUNT(*) FILTER (WHERE created_at >= now() - interval '24 hours')::int AS today
+      FROM livechat_sessions
+    `);
+    const [drafts] = await this.db.db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(livechatMessages)
+      .where(eq(livechatMessages.pendingApproval, true));
+    return {
+      open: counts?.open ?? 0,
+      needsHuman: counts?.needs_human ?? 0,
+      today: counts?.today ?? 0,
+      pendingDrafts: drafts?.count ?? 0,
+    };
+  }
+
   /** Quick counters for the inbox header badge. */
   async pendingCounts(): Promise<{ sessions: number; drafts: number }> {
     const [drafts] = await this.db.db

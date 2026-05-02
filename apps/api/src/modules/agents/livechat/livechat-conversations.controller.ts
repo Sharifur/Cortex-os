@@ -83,6 +83,11 @@ export class LivechatConversationsController {
     return this.livechat.pendingCounts();
   }
 
+  @Get('sessions/stats')
+  sessionStats() {
+    return this.livechat.sessionStats();
+  }
+
   @Get('sessions/:id')
   async getSession(@Param('id') id: string) {
     const detail = await this.livechat.getSessionDetail(id);
