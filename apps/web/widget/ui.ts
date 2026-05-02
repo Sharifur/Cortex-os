@@ -1,5 +1,5 @@
 import type { WidgetConfig } from './config';
-import { sendMessage, identify, uploadAttachment, MessageResponse, SiteConfigResponse, AttachmentSummary, OperatorSummary } from './api';
+import { sendMessage, identify, uploadAttachment, MessageResponse, SiteConfigResponse, AttachmentSummary, OperatorSummary, VisitorPageContext } from './api';
 import { connectVisitorSocket, LivechatEvent } from './socket';
 import { WIDGET_STYLES } from './styles';
 import { EMOJI_CATEGORIES, applyEmojiShortcuts } from './emoji';
@@ -39,6 +39,7 @@ const RATE_LIMIT_WINDOW_MS = 60_000;
 const EMAIL_PROMPT_AFTER_VISITOR_MSGS = 3;
 
 export function mountWidget(cfg: WidgetConfig, siteConfig: SiteConfigResponse = DEFAULT_SITE_CONFIG) {
+  const pageLoadTime = Date.now();
   const host = document.createElement('div');
   host.id = 'livechat-widget-root';
   const isMobileViewport = () => window.innerWidth <= 480;
@@ -89,6 +90,7 @@ export function mountWidget(cfg: WidgetConfig, siteConfig: SiteConfigResponse = 
     reapplyCssVars,
     activeDraftId: null as string | null,
     historyPushed: false,
+    pendingTrigger: undefined as string | undefined,
   };
 
   const bubbleBtn = document.createElement('button');
@@ -196,6 +198,55 @@ export function mountWidget(cfg: WidgetConfig, siteConfig: SiteConfigResponse = 
     if (state.open && state.historyPushed) {
       state.historyPushed = false;
       closePanelAnim();
+    }
+  });
+
+  function collectPageContext(): VisitorPageContext {
+    const ctx: VisitorPageContext = {};
+    try {
+      const scrollable = document.body.scrollHeight - window.innerHeight;
+      ctx.scrollDepth = scrollable > 0 ? Math.round((window.scrollY / scrollable) * 100) : 100;
+    } catch {}
+    ctx.timeOnPageSec = Math.round((Date.now() - pageLoadTime) / 1000);
+    try {
+      const h1 = document.querySelector('h1')?.textContent?.trim().slice(0, 100);
+      if (h1) ctx.pageH1 = h1;
+    } catch {}
+    try {
+      const desc = document.querySelector<HTMLMetaElement>('meta[name="description"]')?.content?.trim().slice(0, 200);
+      if (desc) ctx.metaDescription = desc;
+    } catch {}
+    try {
+      const p = new URLSearchParams(window.location.search);
+      if (p.get('utm_source')) ctx.utmSource = p.get('utm_source')!.slice(0, 80);
+      if (p.get('utm_campaign')) ctx.utmCampaign = p.get('utm_campaign')!.slice(0, 80);
+      if (p.get('utm_medium')) ctx.utmMedium = p.get('utm_medium')!.slice(0, 80);
+      if (p.get('utm_term')) ctx.utmTerm = p.get('utm_term')!.slice(0, 80);
+    } catch {}
+    try {
+      if (document.referrer) ctx.referrerDomain = new URL(document.referrer).hostname.slice(0, 100);
+    } catch {}
+    try {
+      ctx.isReturnVisitor = !!localStorage.getItem('livechat_session_id');
+    } catch {}
+    if (state.pendingTrigger) {
+      ctx.triggeredBy = state.pendingTrigger.slice(0, 100);
+      state.pendingTrigger = undefined;
+    }
+    if (cfg.context && Object.keys(cfg.context).length) ctx.custom = cfg.context;
+    return ctx;
+  }
+
+  // Layer 2: any element with [data-lc-open="label"] opens the chat and
+  // records the trigger label so the agent knows why the visitor opened chat.
+  document.addEventListener('click', (e) => {
+    const el = (e.target as HTMLElement).closest<HTMLElement>('[data-lc-open]');
+    if (!el) return;
+    e.preventDefault();
+    state.pendingTrigger = el.getAttribute('data-lc-open') ?? undefined;
+    if (!state.open) {
+      state.open = true;
+      openPanel();
     }
   });
 
@@ -734,6 +785,7 @@ function buildPanel(shadow: ShadowRoot, cfg: WidgetConfig, state: any, render: (
           elapsedMs: Date.now() - panelMountedAt,
           hadInteraction,
         },
+        collectPageContext(),
       );
       hideTyping(panel);
       state.sessionId = res.sessionId;

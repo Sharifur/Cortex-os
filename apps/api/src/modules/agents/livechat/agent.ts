@@ -232,11 +232,18 @@ export class LivechatAgent implements IAgent, OnModuleInit {
       threadHistory,
     });
 
+    const pageCtx = (session.pageContext ?? {}) as {
+      scrollDepth?: number; timeOnPageSec?: number; pageH1?: string; metaDescription?: string;
+      utmSource?: string; utmCampaign?: string; utmMedium?: string; utmTerm?: string;
+      referrerDomain?: string; isReturnVisitor?: boolean; triggeredBy?: string;
+      custom?: Record<string, string | number | boolean>;
+    };
     const visitorBlock = this.buildVisitorContextBlock({
       visitor,
       currentPageUrl: session.currentPageUrl,
       currentPageTitle: session.currentPageTitle,
       pageviews: recentPageviews,
+      pageCtx,
     });
 
     // Operator-voice persona: speak AS the website's owner/team, not as a third-party
@@ -467,9 +474,17 @@ export class LivechatAgent implements IAgent, OnModuleInit {
     currentPageUrl: string | null;
     currentPageTitle: string | null;
     pageviews: { url: string; path: string | null; title: string | null }[];
+    pageCtx?: {
+      scrollDepth?: number; timeOnPageSec?: number; pageH1?: string; metaDescription?: string;
+      utmSource?: string; utmCampaign?: string; utmMedium?: string; utmTerm?: string;
+      referrerDomain?: string; isReturnVisitor?: boolean; triggeredBy?: string;
+      custom?: Record<string, string | number | boolean>;
+    };
   }): string {
     const lines: string[] = [];
     const v = input.visitor;
+    const p = input.pageCtx ?? {};
+
     if (v?.ipCountryName || v?.ipCity) {
       const loc = [v.ipCity, v.ipCountryName].filter(Boolean).join(', ');
       lines.push(`Visitor location: ${loc}${v.ipTimezone ? ` (${v.ipTimezone})` : ''}`);
@@ -477,11 +492,36 @@ export class LivechatAgent implements IAgent, OnModuleInit {
     if (v?.browserName || v?.osName) {
       const browser = [v.browserName, v.browserVersion].filter(Boolean).join(' ');
       const os = v.osName ?? '';
-      lines.push(`Visitor browser: ${[browser, os].filter(Boolean).join(' on ')}`);
+      lines.push(`Visitor device: ${[browser, os].filter(Boolean).join(' on ')}`);
     }
     if (input.currentPageUrl) {
       const title = input.currentPageTitle ? ` ("${input.currentPageTitle}")` : '';
       lines.push(`Currently on: ${input.currentPageUrl}${title}`);
+    }
+    if (p.pageH1) lines.push(`Page heading: ${p.pageH1}`);
+    if (p.metaDescription) lines.push(`Page summary: ${p.metaDescription}`);
+    if (p.scrollDepth !== undefined) {
+      const timeStr = p.timeOnPageSec !== undefined
+        ? `  |  Time on page: ${p.timeOnPageSec >= 60 ? `${Math.floor(p.timeOnPageSec / 60)}m ${p.timeOnPageSec % 60}s` : `${p.timeOnPageSec}s`}`
+        : '';
+      lines.push(`Scroll depth: ${p.scrollDepth}%${timeStr}`);
+    }
+    if (p.triggeredBy) lines.push(`Opened via: "${p.triggeredBy}" button`);
+    if (p.referrerDomain) lines.push(`Arrived from: ${p.referrerDomain}`);
+    if (p.isReturnVisitor) lines.push(`Return visitor: yes`);
+    const utmParts = [
+      p.utmSource && `source=${p.utmSource}`,
+      p.utmCampaign && `campaign=${p.utmCampaign}`,
+      p.utmMedium && `medium=${p.utmMedium}`,
+      p.utmTerm && `term=${p.utmTerm}`,
+    ].filter(Boolean);
+    if (utmParts.length) lines.push(`Campaign: ${utmParts.join(', ')}`);
+    if (p.custom && Object.keys(p.custom).length) {
+      const customLines = Object.entries(p.custom)
+        .slice(0, 10)
+        .map(([k, v]) => `  ${k}: ${v}`)
+        .join('\n');
+      lines.push(`Operator context:\n${customLines}`);
     }
     if (input.pageviews.length > 1) {
       const recent = input.pageviews

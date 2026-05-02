@@ -39,11 +39,27 @@ interface IdentifyBody {
   name?: string | null;
 }
 
+interface VisitorPageContext {
+  scrollDepth?: number;
+  timeOnPageSec?: number;
+  pageH1?: string;
+  metaDescription?: string;
+  utmSource?: string;
+  utmCampaign?: string;
+  utmMedium?: string;
+  utmTerm?: string;
+  referrerDomain?: string;
+  isReturnVisitor?: boolean;
+  triggeredBy?: string;
+  custom?: Record<string, string | number | boolean>;
+}
+
 interface MessageBody {
   siteKey: string;
   visitorId: string;
   content: string;
   attachmentIds?: string[];
+  pageContext?: VisitorPageContext;
   /** Anti-bot signals — silently fail the request when triggered. */
   meta?: {
     /** Honeypot field. Real widget keeps this empty; bots auto-fill. */
@@ -344,6 +360,10 @@ export class LivechatPublicController {
       visitorPk,
       visitorId: body.visitorId,
     });
+
+    if (body.pageContext && typeof body.pageContext === 'object') {
+      void this.livechat.setPageContext(sessionId, body.pageContext as Record<string, unknown>);
+    }
 
     const visitorContent = (body.content ?? '').trim();
 

@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, boolean, integer, numeric, uniqueIndex, index } from 'drizzle-orm/pg-core';
+import { pgTable, text, timestamp, boolean, integer, numeric, uniqueIndex, index, jsonb } from 'drizzle-orm/pg-core';
 import { createId } from '@paralleldrive/cuid2';
 
 export const livechatSites = pgTable(
@@ -107,6 +107,7 @@ export const livechatSessions = pgTable(
     currentPageTitle: text('current_page_title'),
     lastSeenAt: timestamp('last_seen_at').notNull().defaultNow(),
     transcriptSentAt: timestamp('transcript_sent_at'),
+    pageContext: jsonb('page_context'),
     createdAt: timestamp('created_at').notNull().defaultNow(),
   },
   (t) => ({
