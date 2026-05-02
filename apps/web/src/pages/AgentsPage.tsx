@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, Link } from 'react-router-dom';
-import { Bot, Play, ToggleLeft, ToggleRight, MessageSquare, Pin, PinOff } from 'lucide-react';
+import { Bot, Play, ToggleLeft, ToggleRight, MessageSquare, Pin, PinOff, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAuthStore } from '@/stores/authStore';
@@ -77,6 +77,12 @@ function AgentRow({ agent, token }: { agent: Agent; token: string }) {
     onSuccess: (run: { id: string }) => navigate(`/runs/${run.id}`),
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: () =>
+      apiFetch(token, `/agents/${agent.key}`, { method: 'DELETE' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['agents'] }),
+  });
+
   const color = agentColor(agent.key);
 
   return (
@@ -144,6 +150,18 @@ function AgentRow({ agent, token }: { agent: Agent; token: string }) {
           {agent.enabled
             ? <ToggleRight className={`w-6 h-6 ${color.iconText}`} />
             : <ToggleLeft className="w-6 h-6" />}
+        </button>
+
+        <button
+          onClick={() => {
+            if (!confirm(`Delete agent "${agent.name}"? This cannot be undone.`)) return;
+            deleteMutation.mutate();
+          }}
+          disabled={deleteMutation.isPending}
+          className="text-muted-foreground hover:text-destructive transition-colors"
+          title="Delete agent"
+        >
+          <Trash2 className="w-4 h-4" />
         </button>
       </div>
     </div>

@@ -1,13 +1,14 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
+  HttpCode,
   Param,
   Patch,
   Post,
   Query,
   UseGuards,
-  HttpCode,
 } from '@nestjs/common';
 import { AgentsService } from './agents.service';
 import { UpdateAgentDto } from './dto/update-agent.dto';
@@ -52,6 +53,11 @@ export class AgentsController {
   @Get(':key/conversations/:convId')
   getConversation(@Param('key') key: string, @Param('convId') convId: string) {
     return this.agents.getConversation(key, convId);
+  }
+
+  @Delete(':key')
+  deleteAgent(@Param('key') key: string) {
+    return this.agents.delete(key);
   }
 
   @Post(':key/conversations/message')

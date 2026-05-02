@@ -115,7 +115,7 @@ export class LivechatAgent implements IAgent, OnModuleInit {
     if (!session) return { ok: false, status: 'error' };
 
     if (session.status === 'human_taken_over') return { ok: true, status: 'skipped_taken_over' };
-    if (session.status === 'needs_human') return { ok: true, status: 'skipped_needs_human' };
+    if (session.status === 'needs_human') return this.handleNeedsHuman(input.sessionId);
 
     const config = await this.getConfig();
     const site = await this.livechat.getSiteById(session.siteId).catch(() => null);
@@ -376,6 +376,33 @@ export class LivechatAgent implements IAgent, OnModuleInit {
       agentMessageId: agentMsg.id,
       reply: draft,
     };
+  }
+
+  /**
+   * Called when session.status === 'needs_human'. Instead of silently dropping
+   * the visitor's message, we send a throttled reminder so they know their
+   * message was received. Fires at most once every 5 minutes per session.
+   */
+  private async handleNeedsHuman(sessionId: string): Promise<HandleVisitorMessageResult> {
+    const recent = await this.livechat.getRecentMessages(sessionId, 20);
+    const lastAgentMsg = recent.find((m) => m.role === 'agent');
+    if (lastAgentMsg) {
+      const ageMs = Date.now() - new Date(lastAgentMsg.createdAt).getTime();
+      if (ageMs < 5 * 60_000) {
+        return { ok: true, status: 'skipped_needs_human' };
+      }
+    }
+    const content = 'Your message was received. Our team will reply here shortly — please hang tight.';
+    const msg = await this.livechat.appendMessage({ sessionId, role: 'agent', content });
+    this.stream.publish(sessionId, {
+      type: 'message',
+      sessionId,
+      role: 'agent',
+      content,
+      messageId: msg.id,
+      createdAt: msg.createdAt.toISOString(),
+    });
+    return { ok: true, status: 'skipped_needs_human', agentMessageId: msg.id, reply: content };
   }
 
   private async postApology(sessionId: string): Promise<HandleVisitorMessageResult> {

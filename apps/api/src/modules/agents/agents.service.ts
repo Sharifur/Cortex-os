@@ -144,4 +144,16 @@ export class AgentsService {
       .orderBy(desc(agentRuns.startedAt))
       .limit(limit);
   }
+
+  async delete(key: string) {
+    const [agent] = await this.db.db
+      .select()
+      .from(agents)
+      .where(eq(agents.key, key));
+
+    if (!agent) throw new NotFoundException(`Agent not found: ${key}`);
+
+    await this.db.db.delete(agents).where(eq(agents.key, key));
+    return { deleted: true, key };
+  }
 }
