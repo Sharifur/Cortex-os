@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v2.9.1',
+    date: '2026-05-02',
+    entries: [
+      { tag: 'fix', scope: 'integrations', description: 'Gmail tab Connect with OAuth and App Password buttons no longer wrap text — added whitespace-nowrap and shrink-0' },
+    ],
+  },
+  {
     version: 'v2.9.0',
     date: '2026-05-02',
     entries: [
