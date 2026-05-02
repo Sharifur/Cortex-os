@@ -1325,7 +1325,12 @@ function LiveVisitorsPanel({
                   <span className="relative w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
                   {v.ipCountry && <span>{flagFor(v.ipCountry)}</span>}
                   <span className="truncate font-medium">{name}</span>
-                  {v.sessionId && <span className="text-[10px] bg-blue-500/15 text-blue-500 px-1 rounded">in chat</span>}
+                  {(v.siteLabel ?? v.siteKey) && (
+                    <span className="shrink-0 text-[10px] bg-muted text-muted-foreground px-1.5 py-0.5 rounded truncate max-w-[80px]">
+                      {v.siteLabel ?? v.siteKey}
+                    </span>
+                  )}
+                  {v.sessionId && <span className="text-[10px] bg-blue-500/15 text-blue-500 px-1 rounded shrink-0">in chat</span>}
                   <span className="ml-auto truncate text-muted-foreground">
                     {v.currentPageTitle ?? pathFromUrlMaybe(v.currentPageUrl) ?? '—'}
                   </span>
