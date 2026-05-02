@@ -20,7 +20,7 @@ export class NotificationsService {
     `);
 
     const [approvals] = await this.db.db.execute(sql`
-      SELECT COUNT(*)::int AS count FROM pending_approvals WHERE status = 'pending'
+      SELECT COUNT(*)::int AS count FROM pending_approvals WHERE status = 'PENDING'
     `);
 
     const [failures] = await this.db.db.execute(sql`

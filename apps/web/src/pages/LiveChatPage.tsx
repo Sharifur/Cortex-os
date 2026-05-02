@@ -192,7 +192,7 @@ export default function LiveChatPage() {
             <PushNotificationsToggle />
           </div>
         </div>
-        <nav className="flex gap-1 -mb-2 sm:-mb-3 overflow-x-auto">
+        <nav className="flex gap-1 -mb-2 sm:-mb-3 overflow-x-auto scrollbar-none" style={{ WebkitOverflowScrolling: 'touch' }}>
           <TabButton active={tab === 'conversations'} onClick={() => setTab('conversations')}>
             Conversations
           </TabButton>
@@ -335,7 +335,7 @@ function TabButton({ active, children, onClick }: { active: boolean; children: R
   return (
     <button
       onClick={onClick}
-      className={`px-3 py-2 text-sm border-b-2 transition-colors ${
+      className={`shrink-0 whitespace-nowrap px-3 py-2 text-sm border-b-2 transition-colors ${
         active ? 'border-primary text-foreground font-medium' : 'border-transparent text-muted-foreground hover:text-foreground'
       }`}
     >

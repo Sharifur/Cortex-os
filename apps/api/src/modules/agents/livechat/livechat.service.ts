@@ -222,61 +222,32 @@ export class LivechatService {
     enrichment: EnrichedVisitor;
   }): Promise<VisitorContext['visitorPk']> {
     const enriched = input.enrichment;
-    const [existing] = await this.db.db
-      .select({ id: livechatVisitors.id })
-      .from(livechatVisitors)
-      .where(and(eq(livechatVisitors.siteId, input.siteId), eq(livechatVisitors.visitorId, input.visitorId)))
-      .limit(1);
-
-    if (existing) {
-      await this.db.db
-        .update(livechatVisitors)
-        .set({
-          lastSeenAt: new Date(),
-          ip: enriched.ip,
-          ipCountry: enriched.country,
-          ipCountryName: enriched.countryName,
-          ipRegion: enriched.region,
-          ipCity: enriched.city,
-          ipLat: enriched.lat,
-          ipLon: enriched.lon,
-          ipTimezone: enriched.timezone,
-          uaRaw: enriched.uaRaw,
-          browserName: enriched.browserName,
-          browserVersion: enriched.browserVersion,
-          osName: enriched.osName,
-          osVersion: enriched.osVersion,
-          deviceType: enriched.deviceType,
-          deviceBrand: enriched.deviceBrand,
-          deviceModel: enriched.deviceModel,
-          language: enriched.language,
-        })
-        .where(eq(livechatVisitors.id, existing.id));
-      return existing.id;
-    }
-
+    const enrichedFields = {
+      lastSeenAt: new Date(),
+      ip: enriched.ip,
+      ipCountry: enriched.country,
+      ipCountryName: enriched.countryName,
+      ipRegion: enriched.region,
+      ipCity: enriched.city,
+      ipLat: enriched.lat,
+      ipLon: enriched.lon,
+      ipTimezone: enriched.timezone,
+      uaRaw: enriched.uaRaw,
+      browserName: enriched.browserName,
+      browserVersion: enriched.browserVersion,
+      osName: enriched.osName,
+      osVersion: enriched.osVersion,
+      deviceType: enriched.deviceType,
+      deviceBrand: enriched.deviceBrand,
+      deviceModel: enriched.deviceModel,
+      language: enriched.language,
+    };
     const [row] = await this.db.db
       .insert(livechatVisitors)
-      .values({
-        siteId: input.siteId,
-        visitorId: input.visitorId,
-        ip: enriched.ip,
-        ipCountry: enriched.country,
-        ipCountryName: enriched.countryName,
-        ipRegion: enriched.region,
-        ipCity: enriched.city,
-        ipLat: enriched.lat,
-        ipLon: enriched.lon,
-        ipTimezone: enriched.timezone,
-        uaRaw: enriched.uaRaw,
-        browserName: enriched.browserName,
-        browserVersion: enriched.browserVersion,
-        osName: enriched.osName,
-        osVersion: enriched.osVersion,
-        deviceType: enriched.deviceType,
-        deviceBrand: enriched.deviceBrand,
-        deviceModel: enriched.deviceModel,
-        language: enriched.language,
+      .values({ siteId: input.siteId, visitorId: input.visitorId, ...enrichedFields })
+      .onConflictDoUpdate({
+        target: [livechatVisitors.siteId, livechatVisitors.visitorId],
+        set: enrichedFields,
       })
       .returning({ id: livechatVisitors.id });
     return row.id;

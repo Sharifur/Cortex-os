@@ -2342,6 +2342,9 @@ function HrSetupSubTab({ agent, token }: { agent: AgentDetail; token: string }) 
             onSave={saveSetting}
             stored={getSetting('hrm_api_base_url')?.stored}
           />
+          <p className="text-[11px] text-muted-foreground">
+            Test connection calls: <code className="font-mono">{(getSetting('hrm_api_base_url')?.value as string | null)?.replace(/\/$/, '') ?? 'https://xghrm.yourdomain.com/api/ai-agent'}/employees?active=true</code>
+          </p>
           <HrmSettingField
             label="API Secret"
             settingKey="hrm_api_secret"

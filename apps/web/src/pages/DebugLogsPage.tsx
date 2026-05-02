@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '@/stores/authStore';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Bug, Trash2, Loader2, ChevronDown } from 'lucide-react';
+import { Bug, Trash2, Loader2, ChevronDown, Copy, Check } from 'lucide-react';
 
 interface RequestLogRow {
   id: string;
@@ -43,6 +43,43 @@ async function deleteLogs(token: string, scope: 'all' | 'errors' | 'olderThanDay
 function dayKey(iso: string): string {
   const d = new Date(iso);
   return d.toLocaleDateString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+function CopyErrorButton({ row, detail }: { row: RequestLogRow; detail?: RequestLogRow | null }) {
+  const [copied, setCopied] = useState(false);
+  function buildText() {
+    const lines: string[] = [
+      `${row.method} ${row.path}${row.queryString ? '?' + row.queryString : ''} — ${row.statusCode}`,
+      `Time: ${new Date(row.createdAt).toLocaleString()}`,
+      row.ip ? `IP: ${row.ip}` : '',
+      '',
+    ];
+    if (row.requestBody) lines.push(`REQUEST BODY\n${row.requestBody}`, '');
+    const responseBody = detail?.responseBody ?? row.responseBody;
+    if (responseBody) lines.push(`RESPONSE BODY\n${responseBody}`, '');
+    const errorMessage = row.errorMessage;
+    if (errorMessage) lines.push(`ERROR MESSAGE\n${errorMessage}`, '');
+    const stack = detail?.errorStack ?? row.errorStack;
+    if (stack) lines.push(`STACK TRACE\n${stack}`, '');
+    return lines.filter((l) => l !== undefined).join('\n');
+  }
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(buildText());
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {}
+  }
+  return (
+    <button
+      onClick={copy}
+      className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] border border-border hover:bg-muted/50 transition-colors text-muted-foreground"
+      title="Copy full error as text"
+    >
+      {copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+      {copied ? 'Copied' : 'Copy error'}
+    </button>
+  );
 }
 
 export default function DebugLogsPage() {
@@ -240,7 +277,10 @@ export default function DebugLogsPage() {
                       {openId === r.id && (
                         <div className="px-4 pb-4">
                           <div className="rounded-lg border border-border bg-muted/10 p-4 space-y-3">
-                            <Section label="Request URL" value={`${r.method} ${r.path}${r.queryString ? '?' + r.queryString : ''}`} mono />
+                            <div className="flex items-center justify-between">
+                              <Section label="Request URL" value={`${r.method} ${r.path}${r.queryString ? '?' + r.queryString : ''}`} mono />
+                              <CopyErrorButton row={r} detail={detail.data} />
+                            </div>
                             {r.requestBody && <Section label="Request payload" value={r.requestBody} mono pre />}
                             {(detail.data?.responseBody ?? r.responseBody) && (
                               <Section label="Response body" value={(detail.data?.responseBody ?? r.responseBody) ?? ''} mono pre />
