@@ -18,6 +18,7 @@ import { LivechatService } from './livechat.service';
 import { LivechatStreamService } from './livechat-stream.service';
 import { LivechatAttachmentsService } from './livechat-attachments.service';
 import { LivechatTranscriptService } from './livechat-transcript.service';
+import { EnrichmentService } from '../../../common/visitor-enrichment/enrichment.service';
 
 @Controller('agents/livechat')
 @UseGuards(JwtAuthGuard)
@@ -27,6 +28,7 @@ export class LivechatConversationsController {
     private stream: LivechatStreamService,
     private attachments: LivechatAttachmentsService,
     private transcript: LivechatTranscriptService,
+    private enrichment: EnrichmentService,
   ) {}
 
   @Get('operators')
@@ -300,6 +302,11 @@ export class LivechatConversationsController {
     this.stream.publishToOperators({ type: 'session_upserted', sessionId: id });
 
     return { ok: true, message: { id: msg.id, content, createdAt: msg.createdAt, attachments } };
+  }
+
+  @Get('debug/ip-lookup')
+  debugIpLookup(@Query('ip') ip?: string) {
+    return this.enrichment.debugLookup(ip?.trim() || null);
   }
 
   @Get('visitors/live')

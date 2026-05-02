@@ -22,6 +22,14 @@ export class EnrichmentService {
     };
   }
 
+  debugLookup(ip: string | null | undefined): { dbLoaded: boolean; ip: string | null } & GeoLookup {
+    return {
+      dbLoaded: this.geo.isLoaded(),
+      ip: ip ?? null,
+      ...this.geo.lookup(ip),
+    };
+  }
+
   private firstLocale(header: string | null | undefined): string | null {
     if (!header) return null;
     const first = header.split(',')[0]?.split(';')[0]?.trim();

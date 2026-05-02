@@ -41,6 +41,10 @@ export class GeoIpService implements OnModuleInit {
     );
   }
 
+  isLoaded(): boolean {
+    return this.reader !== null;
+  }
+
   lookup(ip: string | null | undefined): GeoLookup {
     const empty: GeoLookup = {
       country: null,

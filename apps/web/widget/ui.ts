@@ -997,7 +997,6 @@ function renderMessages(panel: HTMLDivElement, state: any) {
             <div class="lc-msg lc-msg-agent">${text}${attWrapper}</div>
             ${timeEl}
             ${chips}
-            ${ratingHtml}
           </div>
         </div>`;
       }
