@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { Bot, InlineKeyboard } from 'grammy';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, not, inArray } from 'drizzle-orm';
 import { SettingsService } from '../settings/settings.service';
 import { ApprovalService } from '../agents/runtime/approval.service';
 import { AgentRuntimeService } from '../agents/runtime/agent-runtime.service';
@@ -791,7 +791,6 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     const [run] = await this.db.db.select().from(hrPayslipRuns).where(eq(hrPayslipRuns.id, runId)).limit(1);
     if (!run) return;
 
-    const { not, inArray } = await import('drizzle-orm');
     const remaining = await this.db.db
       .select()
       .from(hrPayslipRuns)
