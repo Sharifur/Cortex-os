@@ -127,6 +127,7 @@ export const livechatMessages = pgTable(
     content: text('content').notNull(),
     pendingApproval: boolean('pending_approval').notNull().default(false),
     visitorRating: text('visitor_rating'),
+    seenAt: timestamp('seen_at'),
     createdAt: timestamp('created_at').notNull().defaultNow(),
   },
   (t) => ({

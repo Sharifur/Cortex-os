@@ -85,7 +85,7 @@ export class GeoIpService implements OnModuleInit {
 
     try {
       // GNU tar: strip the dated directory, extract only the .mmdb file.
-      await execAsync(`tar -xzf "${tmpPath}" --strip-components=1 -C "${dataDir}" --wildcards "*.mmdb"`);
+      await execAsync(`tar -xzf "${tmpPath}" --strip-components=1 -C "${dataDir}"`);
     } finally {
       try { fs.unlinkSync(tmpPath); } catch { /* ignore */ }
     }

@@ -21,7 +21,9 @@ export type LivechatStreamEvent =
   // End frame with the final messageId once the message is persisted.
   | { type: 'agent_stream_end'; sessionId: string; draftId: string; messageId: string; content: string }
   // 0-3 quick-reply chips suggested for the agent's most recent message.
-  | { type: 'agent_suggestions'; sessionId: string; messageId: string; suggestions: string[] };
+  | { type: 'agent_suggestions'; sessionId: string; messageId: string; suggestions: string[] }
+  // Visitor has seen operator/agent messages.
+  | { type: 'messages_seen'; sessionId: string; messageIds: string[]; seenAt: string };
 
 export type OperatorEvent =
   | { type: 'session_upserted'; sessionId: string }

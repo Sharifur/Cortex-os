@@ -124,6 +124,20 @@ export class LivechatGateway implements OnModuleInit, OnGatewayConnection, OnGat
    * Visitors carry sessionId on the socket; operators must pass it in the body
    * because their socket isn't tied to a single session.
    */
+  @SubscribeMessage('livechat:messages_seen')
+  async onMessagesSeen(@ConnectedSocket() client: LivechatSocket, @MessageBody() data: { messageIds?: string[] }) {
+    if (client.data.role !== 'visitor') return { ok: false };
+    const sessionId = client.data.sessionId;
+    if (!sessionId || !Array.isArray(data?.messageIds) || !data.messageIds.length) return { ok: false };
+
+    const seenIds = await this.livechat.markMessagesSeen(data.messageIds, sessionId);
+    if (seenIds.length) {
+      const seenAt = new Date().toISOString();
+      this.stream.publish(sessionId, { type: 'messages_seen', sessionId, messageIds: seenIds, seenAt });
+    }
+    return { ok: true };
+  }
+
   @SubscribeMessage('livechat:typing')
   async onTyping(@ConnectedSocket() client: LivechatSocket, @MessageBody() data: { sessionId?: string; on?: boolean }) {
     const role = client.data.role;

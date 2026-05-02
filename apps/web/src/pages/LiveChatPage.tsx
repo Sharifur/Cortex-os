@@ -40,6 +40,7 @@ import {
   Bell,
   BellOff,
   ThumbsDown,
+  CheckCheck,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -148,6 +149,7 @@ interface MessageRow {
   role: 'visitor' | 'agent' | 'operator' | 'system' | 'note';
   content: string;
   createdAt: string;
+  seenAt?: string | null;
   attachments?: AttachmentSummary[];
   pendingApproval?: boolean;
 }
@@ -190,7 +192,7 @@ export default function LiveChatPage() {
             <PushNotificationsToggle />
           </div>
         </div>
-        <nav className="flex gap-1 -mb-2 sm:-mb-3 overflow-x-auto">
+        <nav className="flex gap-1 -mb-2 sm:-mb-3 overflow-x-auto scrollbar-none" style={{ WebkitOverflowScrolling: 'touch' }}>
           <TabButton active={tab === 'conversations'} onClick={() => setTab('conversations')}>
             Conversations
           </TabButton>
@@ -333,7 +335,7 @@ function TabButton({ active, children, onClick }: { active: boolean; children: R
   return (
     <button
       onClick={onClick}
-      className={`px-3 py-2 text-sm border-b-2 transition-colors ${
+      className={`shrink-0 whitespace-nowrap px-3 py-2 text-sm border-b-2 transition-colors ${
         active ? 'border-primary text-foreground font-medium' : 'border-transparent text-muted-foreground hover:text-foreground'
       }`}
     >
@@ -1625,6 +1627,9 @@ function SessionPane({
         setLiveMessages((prev) => prev.map((m) => m.id === event.draftId ? { ...m, content: m.content + event.delta } : m));
       } else if (event.type === 'agent_stream_end' && event.draftId && event.messageId) {
         setLiveMessages((prev) => prev.map((m) => m.id === event.draftId ? { ...m, id: event.messageId, content: event.content ?? m.content } : m));
+      } else if (event.type === 'messages_seen' && Array.isArray(event.messageIds) && event.seenAt) {
+        const ids = new Set<string>(event.messageIds);
+        setLiveMessages((prev) => prev.map((m) => ids.has(m.id) ? { ...m, seenAt: event.seenAt } : m));
       }
     });
     return () => {
@@ -2428,6 +2433,10 @@ function MessageBubble({
         {!isPending && (
           <div className="flex items-center justify-end gap-1 mt-0.5 pr-1">
             <span className="text-[10px] text-muted-foreground">{formatMessageTime(message.createdAt)}</span>
+            {message.seenAt
+              ? <CheckCheck className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+              : <Check className="w-3.5 h-3.5 text-muted-foreground/50 shrink-0" />
+            }
             {isAi && !flagSubmitted && (
               <button
                 onClick={() => { setFlagging((v) => !v); setCorrectionDraft(''); }}
@@ -2438,7 +2447,7 @@ function MessageBubble({
               </button>
             )}
             {isAi && flagSubmitted && (
-              <span className="text-[10px] text-emerald-500 opacity-0 group-hover:opacity-100 transition-opacity">Correction sent</span>
+              <span className="text-[10px] text-emerald-500">Correction sent</span>
             )}
           </div>
         )}

@@ -316,6 +316,13 @@
       "when": 1777400036000,
       "tag": "0044_hr_payslip_runs",
       "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "6",
+      "when": 1777400037000,
+      "tag": "0045_livechat_seen_at",
+      "breakpoints": true
     }
   ]
 }

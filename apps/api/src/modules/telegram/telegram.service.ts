@@ -376,23 +376,20 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
 
         const [, proposalId, action] = ctx.match!;
         await ctx.answerCallbackQuery();
-        const originalText = ctx.msg?.text ?? '';
 
         try {
           if (action === 'approve') {
             await this.selfImproveSvc.approveProposal(proposalId);
-            await ctx.editMessageText(`${originalText}\n\n*Added to Knowledge Base*`, {
-              parse_mode: 'Markdown',
-            });
+            await ctx.editMessageReplyMarkup({ reply_markup: { inline_keyboard: [] } });
+            await ctx.reply('KB proposal accepted and added to Knowledge Base.');
           } else {
             await this.selfImproveSvc.rejectProposal(proposalId);
-            await ctx.editMessageText(`${originalText}\n\n*Skipped*`, {
-              parse_mode: 'Markdown',
-            });
+            await ctx.editMessageReplyMarkup({ reply_markup: { inline_keyboard: [] } });
+            await ctx.reply('KB proposal skipped.');
           }
         } catch (err) {
           this.logger.error(`KB proposal ${action} failed: ${err}`);
-          await ctx.editMessageText(`${originalText}\n\nAction failed`, { parse_mode: 'Markdown' });
+          await ctx.reply(`KB proposal action failed: ${(err as Error).message}`);
         }
       },
     );

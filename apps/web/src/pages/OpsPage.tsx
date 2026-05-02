@@ -504,15 +504,15 @@ export default function OpsPage() {
     <div className="h-full flex flex-col overflow-hidden">
 
       {/* Header */}
-      <div className="shrink-0 px-6 pt-5 pb-3 border-b border-border flex items-center justify-between gap-4">
+      <div className="shrink-0 px-4 sm:px-6 pt-4 sm:pt-5 pb-3 border-b border-border flex items-center justify-between gap-3 flex-wrap">
         <div>
-          <h1 className="text-xl font-semibold flex items-center gap-2">
+          <h1 className="text-lg sm:text-xl font-semibold flex items-center gap-2">
             <Activity className="w-5 h-5 text-primary" />
             Operations
           </h1>
           <p className="text-xs text-muted-foreground mt-0.5">Live view of all agent activity</p>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2 sm:gap-4 flex-wrap">
           {activeRuns.filter((r) => !r.doneAt).length > 0 && (
             <span className="text-xs bg-blue-500/10 text-blue-400 px-2 py-1 rounded-full font-medium">
               {activeRuns.filter((r) => !r.doneAt).length} active
@@ -534,7 +534,7 @@ export default function OpsPage() {
       </div>
 
       {/* Active lanes */}
-      <div className="shrink-0 px-6 py-3 border-b border-border">
+      <div className="shrink-0 px-4 sm:px-6 py-3 border-b border-border">
         <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2.5">Active runs</p>
         {activeRuns.length === 0 ? (
           <div className="h-16 flex items-center justify-center rounded-lg border border-dashed border-border">
@@ -550,10 +550,10 @@ export default function OpsPage() {
       </div>
 
       {/* Main split: logs + approvals */}
-      <div className="flex-1 min-h-0 flex">
+      <div className="flex-1 min-h-0 flex flex-col lg:flex-row">
 
         {/* Log feed */}
-        <div className="flex-1 min-w-0 flex flex-col border-r border-border">
+        <div className="flex-1 min-w-0 min-h-0 flex flex-col border-b lg:border-b-0 lg:border-r border-border">
           <div className="shrink-0 px-4 py-2.5 border-b border-border flex items-center gap-3">
             <Filter className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
             <select
@@ -652,7 +652,7 @@ export default function OpsPage() {
         </div>
 
         {/* Approvals panel */}
-        <div className="w-80 shrink-0 flex flex-col">
+        <div className="w-full lg:w-80 shrink-0 flex flex-col max-h-80 lg:max-h-none">
           <div className="shrink-0 px-4 py-2.5 border-b border-border flex items-center justify-between">
             <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Pending Approvals</span>
             {approvals.length > 0 && (
