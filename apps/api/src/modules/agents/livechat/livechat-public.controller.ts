@@ -398,30 +398,31 @@ export class LivechatPublicController {
       : { ok: true, status: 'skipped_taken_over' as const };
 
     // Push notification: fire to subscribed operators when the session needs
-    // human attention — moderation queue, fallback, or a session that's
-    // already taken over by a human.
+    // human attention. For needs_human sessions, only push when the throttled
+    // reminder actually fires (result.reply set) — not on every silent drop.
+    const isNeedsHumanReminder = result.status === 'skipped_needs_human' && !!result.reply;
     const pushable =
       result.status === 'pending_approval' ||
       result.status === 'fallback_needs_human' ||
       result.status === 'skipped_taken_over' ||
-      result.status === 'skipped_needs_human';
+      isNeedsHumanReminder;
     if (pushable) {
-      const visitorLabel = visitorMsg.id; // placeholder; we send a friendlier label below
       const session = await this.livechat.getSession(sessionId).catch(() => null);
       const name = session?.visitorName?.trim() || session?.visitorEmail || `visitor${body.visitorId.slice(-5)}`;
-      const reasonLabel =
-        result.status === 'pending_approval' ? 'needs your review' :
-        result.status === 'fallback_needs_human' ? 'needs a human' :
-        result.status === 'skipped_taken_over' ? 'replied to your conversation' :
-        'is waiting for a human';
+      const isUrgent = result.status === 'fallback_needs_human' || isNeedsHumanReminder;
+      const title =
+        result.status === 'pending_approval' ? `Review needed — ${name}` :
+        result.status === 'fallback_needs_human' ? `Live chat needs you — ${name}` :
+        result.status === 'skipped_taken_over' ? `${name} replied` :
+        `Still waiting — ${name}`;
       void this.push.sendToAll({
-        title: `${name} ${reasonLabel}`,
+        title,
         body: visitorContent.slice(0, 140) || '(attachment)',
         tag: `lc-${sessionId}`,
         url: `/livechat?session=${sessionId}`,
         renotify: true,
+        requireInteraction: isUrgent,
       }).catch(() => undefined);
-      void visitorLabel; // unused
     }
 
     return {

@@ -60,12 +60,11 @@ self.addEventListener('fetch', (event) => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 self.addEventListener('push', (event) => {
-  let payload = { title: 'Cortex OS', body: 'New activity', tag: undefined, url: '/livechat', renotify: false, icon: '/icon-192.png' };
+  let payload = { title: 'Cortex OS', body: 'New activity', tag: undefined, url: '/livechat', renotify: false, icon: '/icon-192.png', requireInteraction: false };
   if (event.data) {
     try {
       payload = { ...payload, ...event.data.json() };
     } catch {
-      // Treat plain text as the body.
       payload.body = event.data.text();
     }
   }
@@ -78,8 +77,8 @@ self.addEventListener('push', (event) => {
       icon: payload.icon || '/icon-192.png',
       badge: '/icon-192.png',
       data: { url: payload.url || '/livechat' },
-      vibrate: [200, 100, 200],
-      requireInteraction: false,
+      vibrate: [300, 100, 300, 100, 300],
+      requireInteraction: payload.requireInteraction ?? false,
     }),
   );
 });

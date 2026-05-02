@@ -16,6 +16,8 @@ export interface PushPayload {
   icon?: string;
   /** Optional renotify flag — re-buzz even if a notification with same tag exists. */
   renotify?: boolean;
+  /** Keep notification visible until user taps it (useful for urgent livechat alerts). */
+  requireInteraction?: boolean;
 }
 
 @Injectable()
