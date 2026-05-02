@@ -91,6 +91,8 @@ export function mountWidget(cfg: WidgetConfig, siteConfig: SiteConfigResponse = 
     activeDraftId: null as string | null,
     historyPushed: false,
     pendingTrigger: undefined as string | undefined,
+    closePanelAnim: undefined as (() => void) | undefined,
+    collectPageContext: undefined as (() => VisitorPageContext) | undefined,
   };
 
   const bubbleBtn = document.createElement('button');
@@ -236,6 +238,7 @@ export function mountWidget(cfg: WidgetConfig, siteConfig: SiteConfigResponse = 
     if (cfg.context && Object.keys(cfg.context).length) ctx.custom = cfg.context;
     return ctx;
   }
+  state.collectPageContext = collectPageContext;
 
   // Layer 2: any element with [data-lc-open="label"] opens the chat and
   // records the trigger label so the agent knows why the visitor opened chat.
@@ -785,7 +788,7 @@ function buildPanel(shadow: ShadowRoot, cfg: WidgetConfig, state: any, render: (
           elapsedMs: Date.now() - panelMountedAt,
           hadInteraction,
         },
-        collectPageContext(),
+        state.collectPageContext?.() ?? {},
       );
       hideTyping(panel);
       state.sessionId = res.sessionId;
