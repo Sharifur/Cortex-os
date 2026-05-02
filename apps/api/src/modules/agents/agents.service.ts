@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { eq, desc, and, sql } from 'drizzle-orm';
+import { eq, desc, and, sql, inArray } from 'drizzle-orm';
 import { DbService } from '../../db/db.service';
-import { agents, agentRuns, agentConversations } from '../../db/schema';
+import { agents, agentRuns, agentConversations, pendingApprovals, agentLogs } from '../../db/schema';
 import { AgentRuntimeService } from './runtime/agent-runtime.service';
 import { AgentRegistryService } from './runtime/agent-registry.service';
 import type { UpdateAgentDto } from './dto/update-agent.dto';
@@ -153,6 +153,19 @@ export class AgentsService {
 
     if (!agent) throw new NotFoundException(`Agent not found: ${key}`);
 
+    const runs = await this.db.db
+      .select({ id: agentRuns.id })
+      .from(agentRuns)
+      .where(eq(agentRuns.agentId, agent.id));
+
+    if (runs.length > 0) {
+      const runIds = runs.map((r) => r.id);
+      await this.db.db.delete(pendingApprovals).where(inArray(pendingApprovals.runId, runIds));
+      await this.db.db.delete(agentLogs).where(inArray(agentLogs.runId, runIds));
+      await this.db.db.delete(agentRuns).where(eq(agentRuns.agentId, agent.id));
+    }
+
+    await this.db.db.delete(agentConversations).where(eq(agentConversations.agentKey, key));
     await this.db.db.delete(agents).where(eq(agents.key, key));
     return { deleted: true, key };
   }

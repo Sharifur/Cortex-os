@@ -7,6 +7,7 @@ import {
   Body,
   Param,
   Query,
+  Req,
   UseGuards,
   HttpCode,
   HttpStatus,
@@ -14,6 +15,7 @@ import {
   BadRequestException,
   InternalServerErrorException,
 } from '@nestjs/common';
+import type { FastifyRequest } from 'fastify';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { LivechatService, LivechatOperatorRow } from './livechat.service';
 import { LivechatStreamService } from './livechat-stream.service';
@@ -339,6 +341,37 @@ export class LivechatConversationsController {
     }
     try {
       await this.geoIp.downloadAndReload(accountId, licenseKey);
+      return { ok: true, loaded: this.geoIp.isLoaded() };
+    } catch (err) {
+      throw new InternalServerErrorException((err as Error).message);
+    }
+  }
+
+  @Post('geo/upload-db')
+  @HttpCode(HttpStatus.OK)
+  async uploadGeoDb(@Req() req: FastifyRequest) {
+    const r = req as unknown as {
+      isMultipart?: () => boolean;
+      parts: () => AsyncIterableIterator<Record<string, unknown>>;
+    };
+    if (!r.isMultipart || !r.isMultipart()) throw new BadRequestException('multipart/form-data required');
+
+    let buffer: Buffer | null = null;
+    let filename = '';
+
+    for await (const partRaw of r.parts()) {
+      const part = partRaw as { type?: string; filename?: string; toBuffer?: () => Promise<Buffer> };
+      if (part.type === 'file' && typeof part.toBuffer === 'function') {
+        buffer = await part.toBuffer();
+        filename = part.filename ?? '';
+      }
+    }
+
+    if (!buffer) throw new BadRequestException('file is required');
+    if (!filename.endsWith('.mmdb')) throw new BadRequestException('file must have a .mmdb extension');
+
+    try {
+      await this.geoIp.saveAndReload(buffer);
       return { ok: true, loaded: this.geoIp.isLoaded() };
     } catch (err) {
       throw new InternalServerErrorException((err as Error).message);

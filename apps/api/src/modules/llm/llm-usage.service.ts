@@ -184,9 +184,10 @@ export class LlmUsageService {
     if (!opts.sinceHours) return sql``;
     const offsetMs = (opts.offsetHours ?? 0) * 3_600_000;
     const now = Date.now();
-    const start = new Date(now - opts.sinceHours * 3_600_000 - offsetMs);
+    const start = new Date(now - opts.sinceHours * 3_600_000 - offsetMs).toISOString();
     if (opts.offsetHours) {
-      return sql`WHERE created_at >= ${start} AND created_at < ${new Date(now - offsetMs)}`;
+      const end = new Date(now - offsetMs).toISOString();
+      return sql`WHERE created_at >= ${start} AND created_at < ${end}`;
     }
     return sql`WHERE created_at >= ${start}`;
   }

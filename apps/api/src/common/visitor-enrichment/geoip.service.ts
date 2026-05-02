@@ -95,6 +95,15 @@ export class GeoIpService implements OnModuleInit {
     this.logger.log('GeoLite2-City.mmdb downloaded and reloaded successfully');
   }
 
+  async saveAndReload(buffer: Buffer): Promise<void> {
+    const dataDir = path.resolve(process.cwd(), 'data');
+    if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
+    fs.writeFileSync(path.join(dataDir, 'GeoLite2-City.mmdb'), buffer);
+    this.reader = null;
+    await this.onModuleInit();
+    this.logger.log('GeoLite2-City.mmdb saved from upload and reloaded');
+  }
+
   lookup(ip: string | null | undefined): GeoLookup {
     const empty: GeoLookup = {
       country: null,
