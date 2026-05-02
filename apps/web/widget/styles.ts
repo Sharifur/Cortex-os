@@ -368,7 +368,7 @@ export const WIDGET_STYLES = `
 .lc-msg-sender { font-size: 11px; color: #6b7280; font-weight: 500; padding: 0 3px; }
 .lc-msg-time { font-size: 10px; color: #9ca3af; padding: 0 3px; }
 
-.lc-msg { padding: 9px 13px; border-radius: 16px; font-size: 14px; line-height: 1.45; word-wrap: break-word; }
+.lc-msg { padding: 9px 13px; border-radius: 16px; font-size: 14px; line-height: 1.45; word-wrap: break-word; overflow-wrap: anywhere; }
 .lc-msg.lc-msg-visitor { background: var(--lc-brand); color: #fff; border-bottom-right-radius: 4px; }
 .lc-msg.lc-msg-agent { background: #fff; color: #1f2937; border: 1px solid #e5e7eb; border-bottom-left-radius: 4px; }
 .lc-msg.lc-msg-system { align-self: center; font-size: 11px; color: #9ca3af; background: transparent; padding: 4px 0; }
@@ -785,5 +785,12 @@ export const WIDGET_STYLES = `
   .lc-header { padding-top: calc(8px + env(safe-area-inset-top, 0px)); padding-bottom: 8px; }
   .lc-messages { padding: 6px 12px; }
   .lc-composer { padding-top: 6px; padding-bottom: calc(6px + env(safe-area-inset-bottom, 0px)); }
+  /* Emoji picker: shrink grid so it doesn't overflow the compressed panel. */
+  .lc-emoji-grid { max-height: 110px; }
+}
+/* Portrait + soft keyboard: medium-height viewport (keyboard visible but not landscape).
+   Reduce picker height so it fits between the header and composer. */
+@media (max-width: 480px) and (min-height: 401px) and (max-height: 600px) {
+  .lc-emoji-grid { max-height: 150px; }
 }
 `;

@@ -88,6 +88,7 @@ export function mountWidget(cfg: WidgetConfig, siteConfig: SiteConfigResponse = 
     cfg,
     reapplyCssVars,
     activeDraftId: null as string | null,
+    historyPushed: false,
   };
 
   const bubbleBtn = document.createElement('button');
@@ -160,48 +161,83 @@ export function mountWidget(cfg: WidgetConfig, siteConfig: SiteConfigResponse = 
     reapplyCssVars();
   }
 
+  // Apply host layout for whichever state we're in. Debounced through RAF so
+  // rapid VV events (iOS Safari URL-bar slide) don't cause visible jank.
+  let vvRafId: number | null = null;
+  function scheduleHostUpdate() {
+    if (vvRafId !== null) cancelAnimationFrame(vvRafId);
+    vvRafId = requestAnimationFrame(() => {
+      vvRafId = null;
+      if (!state.open) return;
+      if (isMobileViewport()) applyMobileHostStyle();
+      else { host.style.cssText = desktopHostCss; reapplyCssVars(); }
+    });
+  }
+
   let vvListenerInstalled = false;
   function ensureVvListener() {
     if (vvListenerInstalled || !window.visualViewport) return;
     vvListenerInstalled = true;
-    const onChange = () => {
-      if (!state.open) return;
-      if (isMobileViewport()) {
-        applyMobileHostStyle();
-      } else {
-        // Device rotated to landscape (width > 480px) — revert the host
-        // back to the desktop floating style so the panel is no longer
-        // pinned full-screen.
-        host.style.cssText = desktopHostCss;
-        reapplyCssVars();
-      }
-    };
-    window.visualViewport!.addEventListener('resize', onChange);
-    window.visualViewport!.addEventListener('scroll', onChange);
+    window.visualViewport!.addEventListener('resize', scheduleHostUpdate);
+    window.visualViewport!.addEventListener('scroll', scheduleHostUpdate);
+    // orientationchange fires before VV dimensions settle — wait 150 ms for
+    // the browser to finish the rotation before we read the new dimensions.
+    window.addEventListener('orientationchange', () => {
+      setTimeout(scheduleHostUpdate, 150);
+    });
   }
+
+  // Android back-button / browser back gesture: intercept by pushing a
+  // history entry when the panel opens and listening for popstate.
+  // When the user goes back, we close the panel instead of navigating away.
+  // When the panel closes normally we call history.back() to pop our entry so
+  // the browser's history stack stays clean. Guard prevents double-close.
+  window.addEventListener('popstate', () => {
+    if (state.open && state.historyPushed) {
+      state.historyPushed = false;
+      closePanelAnim();
+    }
+  });
+
+  function openPanel() {
+    if (isMobileViewport()) {
+      applyMobileHostStyle();
+      ensureVvListener();
+      try { history.pushState({ lcPanel: true }, ''); state.historyPushed = true; } catch {}
+    }
+    panel.classList.remove('lc-panel--closing');
+    panel.style.display = 'flex';
+    state.unread = 0;
+    unreadBadge.style.display = 'none';
+    panel.querySelector<HTMLTextAreaElement>('textarea')?.focus();
+    scrollMessagesToEnd(panel);
+  }
+
+  function closePanelAnim() {
+    state.open = false;
+    panel.classList.add('lc-panel--closing');
+    setTimeout(() => {
+      if (!state.open) {
+        panel.style.display = 'none';
+        if (isMobileViewport()) { host.style.cssText = mobileClosedCss; reapplyCssVars(); }
+      }
+      panel.classList.remove('lc-panel--closing');
+    }, 180);
+  }
+  state.closePanelAnim = closePanelAnim;
 
   bubbleBtn.addEventListener('click', () => {
     proactiveBubble.style.display = 'none';
     try { sessionStorage.setItem(PROACTIVE_KEY, '1'); } catch {}
     state.open = !state.open;
     if (state.open) {
-      if (isMobileViewport()) { applyMobileHostStyle(); ensureVvListener(); }
-      panel.classList.remove('lc-panel--closing');
-      panel.style.display = 'flex';
-      state.unread = 0;
-      unreadBadge.style.display = 'none';
-      const composer = panel.querySelector<HTMLTextAreaElement>('textarea');
-      composer?.focus();
-      scrollMessagesToEnd(panel);
+      openPanel();
     } else {
-      panel.classList.add('lc-panel--closing');
-      setTimeout(() => {
-        if (!state.open) {
-          panel.style.display = 'none';
-          if (isMobileViewport()) { host.style.cssText = mobileClosedCss; reapplyCssVars(); }
-        }
-        panel.classList.remove('lc-panel--closing');
-      }, 180);
+      if (state.historyPushed) {
+        state.historyPushed = false;
+        try { history.back(); } catch {} // pops our entry; popstate guard won't re-close (state.open=false)
+      }
+      closePanelAnim();
     }
   });
 
@@ -295,13 +331,17 @@ function buildPanel(shadow: ShadowRoot, cfg: WidgetConfig, state: any, render: (
   });
   const closeBtn = panel.querySelector<HTMLButtonElement>('.lc-close')!;
   closeBtn.addEventListener('click', () => {
+    if (state.historyPushed) {
+      state.historyPushed = false;
+      try { history.back(); } catch {}
+    }
+    if (state.closePanelAnim) { state.closePanelAnim(); return; }
+    // Fallback (closePanelAnim not yet registered)
     state.open = false;
     panel.classList.add('lc-panel--closing');
     setTimeout(() => {
-      if (!state.open) {
-        panel.style.display = 'none';
-        if (window.innerWidth <= 480) { state.host.style.cssText = MOBILE_CLOSED_CSS_BP; state.reapplyCssVars?.(); }
-      }
+      panel.style.display = 'none';
+      if (window.innerWidth <= 480) { state.host.style.cssText = MOBILE_CLOSED_CSS_BP; state.reapplyCssVars?.(); }
       panel.classList.remove('lc-panel--closing');
     }, 180);
   });
