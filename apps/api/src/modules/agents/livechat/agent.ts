@@ -1,8 +1,9 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
 import { DbService } from '../../../db/db.service';
-import { agents } from '../../../db/schema';
+import { agents, agentRuns } from '../../../db/schema';
 import { AgentRegistryService } from '../runtime/agent-registry.service';
+import { AgentLogService } from '../runtime/agent-log.service';
 import { LlmRouterService } from '../../llm/llm-router.service';
 import { KnowledgeBaseService } from '../../knowledge-base/knowledge-base.service';
 import { agentLlmOpts } from '../runtime/llm-config.util';
@@ -80,10 +81,12 @@ export class LivechatAgent implements IAgent, OnModuleInit {
   readonly key = 'livechat';
   readonly name = 'Live Chat Agent';
   private readonly logger = new Logger(LivechatAgent.name);
+  private agentDbIdCache: string | null = null;
 
   constructor(
     private db: DbService,
     private registry: AgentRegistryService,
+    private agentLog: AgentLogService,
     private llm: LlmRouterService,
     private kb: KnowledgeBaseService,
     private livechat: LivechatService,
@@ -133,11 +136,50 @@ export class LivechatAgent implements IAgent, OnModuleInit {
     sessionId: string;
     visitorMessage: string;
   }): Promise<HandleVisitorMessageResult> {
-    const session = await this.livechat.getSession(input.sessionId);
-    if (!session) return { ok: false, status: 'error' };
+    let runId: string | null = null;
+    try {
+      const agentDbId = await this.getAgentDbId();
+      if (agentDbId) {
+        const [runRow] = await this.db.db
+          .insert(agentRuns)
+          .values({
+            agentId: agentDbId,
+            triggerType: 'WEBHOOK',
+            triggerPayload: { sessionId: input.sessionId, preview: input.visitorMessage.slice(0, 100) },
+            status: 'RUNNING',
+          })
+          .returning({ id: agentRuns.id });
+        runId = runRow?.id ?? null;
+      }
+    } catch { /* fail-open: run recording is non-critical */ }
 
-    if (session.status === 'human_taken_over') return { ok: true, status: 'skipped_taken_over' };
-    if (session.status === 'needs_human') return this.handleNeedsHuman(input.sessionId);
+    const finalizeRun = async (result: HandleVisitorMessageResult) => {
+      if (!runId) return;
+      try {
+        await this.db.db.update(agentRuns).set({
+          status: result.ok ? 'EXECUTED' : 'FAILED',
+          finishedAt: new Date(),
+          result: { status: result.status, agentMessageId: result.agentMessageId ?? null },
+        }).where(eq(agentRuns.id, runId));
+      } catch { /* ignore */ }
+    };
+
+    const session = await this.livechat.getSession(input.sessionId);
+    if (!session) {
+      await finalizeRun({ ok: false, status: 'error' });
+      return { ok: false, status: 'error' };
+    }
+
+    if (session.status === 'human_taken_over') {
+      const r = { ok: true, status: 'skipped_taken_over' as const };
+      void finalizeRun(r);
+      return r;
+    }
+    if (session.status === 'needs_human') {
+      const r = await this.handleNeedsHuman(input.sessionId);
+      void finalizeRun(r);
+      return r;
+    }
 
     const config = await this.getConfig();
     const site = await this.livechat.getSiteById(session.siteId).catch(() => null);
@@ -150,14 +192,18 @@ export class LivechatAgent implements IAgent, OnModuleInit {
       if (newCount > limits.dailyReply) {
         this.logger.warn(`site ${site.key} hit daily reply cap (${newCount}/${limits.dailyReply})`);
         await this.rateLimit.decrDailyCounter('agent_replies', site.key);
-        return this.postFallback(input.sessionId);
+        const r = await this.postFallback(input.sessionId);
+        void finalizeRun(r);
+        return r;
       }
     }
 
     const operatorActive = await this.rateLimit.isOperatorActive(input.sessionId).catch(() => false);
     if (operatorActive) {
       this.logger.log(`session ${input.sessionId}: operator active, skipping bot reply`);
-      return { ok: true, status: 'skipped_taken_over' };
+      const r = { ok: true, status: 'skipped_taken_over' as const };
+      void finalizeRun(r);
+      return r;
     }
 
     const productContext = sanitizeOperatorField((site?.productContext?.trim()) || config.productContext);
@@ -206,7 +252,9 @@ export class LivechatAgent implements IAgent, OnModuleInit {
     }).catch(() => null);
     if (escalation) {
       this.logger.log(`Escalating session ${input.sessionId}: ${escalation.reason}`);
-      return this.postFallback(input.sessionId);
+      const r = await this.postFallback(input.sessionId);
+      void finalizeRun(r);
+      return r;
     }
 
     const template = await this.kb.getPromptTemplate(this.key);
@@ -346,10 +394,16 @@ export class LivechatAgent implements IAgent, OnModuleInit {
       draft = response.content.trim();
     } catch (err) {
       this.logger.warn(`Live chat LLM call failed: ${(err as Error).message}`);
-      return this.postApology(input.sessionId);
+      const r = await this.postApology(input.sessionId);
+      void finalizeRun(r);
+      return r;
     }
 
-    if (!draft) return this.postApology(input.sessionId);
+    if (!draft) {
+      const r = await this.postApology(input.sessionId);
+      void finalizeRun(r);
+      return r;
+    }
 
     const voiceProfile = alwaysOn.find((e) => e.entryType === 'voice_profile')?.content;
     // Skip the critique round-trip on trivial intents — saves ~300ms and a
@@ -367,7 +421,9 @@ export class LivechatAgent implements IAgent, OnModuleInit {
     const violation = blocklist.find((p) => draft.toLowerCase().includes(p.toLowerCase()));
     if (violation) {
       this.logger.warn(`Live chat blocklist hit: "${violation}" — escalating to needs_human`);
-      return this.postFallback(input.sessionId);
+      const r = await this.postFallback(input.sessionId);
+      void finalizeRun(r);
+      return r;
     }
 
     const agentMsg = await this.livechat.appendMessage({
@@ -409,12 +465,19 @@ export class LivechatAgent implements IAgent, OnModuleInit {
       this.stream.publishToOperators({ type: 'session_upserted', sessionId: input.sessionId });
     }
 
-    return {
+    const finalResult = {
       ok: true,
-      status: autoApprove ? 'replied' : 'pending_approval',
+      status: autoApprove ? 'replied' as const : 'pending_approval' as const,
       agentMessageId: agentMsg.id,
       reply: draft,
     };
+    void finalizeRun(finalResult);
+
+    if (runId) {
+      void this.agentLog.info(runId, `${finalResult.status}: session=${input.sessionId} intent=${intentResult.intent}`).catch(() => undefined);
+    }
+
+    return finalResult;
   }
 
   /**
@@ -588,6 +651,17 @@ If not, rewrite and return: {"ok":false,"revised":"improved reply here"}`,
     } catch {
       return [];
     }
+  }
+
+  private async getAgentDbId(): Promise<string | null> {
+    if (this.agentDbIdCache) return this.agentDbIdCache;
+    try {
+      const [row] = await this.db.db.select({ id: agents.id }).from(agents).where(eq(agents.key, this.key)).limit(1);
+      this.agentDbIdCache = row?.id ?? null;
+    } catch {
+      this.agentDbIdCache = null;
+    }
+    return this.agentDbIdCache;
   }
 
   private async getConfig(): Promise<LivechatConfig> {
