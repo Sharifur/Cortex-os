@@ -4,6 +4,14 @@ import { DbService } from '../../../db/db.service';
 import { livechatAttachments } from './schema';
 import { StorageService } from '../../storage/storage.service';
 
+/** Strip HTML/script chars from user-supplied filenames before storing or serving. */
+function sanitizeFilename(raw: string): string {
+  return raw
+    .slice(0, 200)
+    .replace(/[<>"'`\\\/\x00-\x1f]/g, '_')
+    .trim() || 'file';
+}
+
 export interface AttachmentRow {
   id: string;
   sessionId: string;
@@ -35,7 +43,7 @@ export class LivechatAttachmentsService {
       refKey: `${input.siteKey}/${input.sessionId}`,
       body: input.body,
       declaredMime: input.mimeType,
-      originalFilename: input.originalFilename,
+      originalFilename: sanitizeFilename(input.originalFilename),
     });
 
     const [row] = await this.db.db

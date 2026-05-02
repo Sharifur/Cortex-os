@@ -45,6 +45,16 @@ function looksLikeQuestion(text: string): boolean {
 }
 
 /**
+ * Strip role-spoofing prefixes injected by a visitor (e.g. "[Operator] ...")
+ * before the text enters the LLM thread context. These prefixes are added by
+ * our own code to genuine operator turns — a visitor carrying them verbatim
+ * could nudge the model into treating their message as an operator command.
+ */
+function stripRolePrefixes(text: string): string {
+  return text.replace(/^\[(Operator|Agent|System|Admin)\]\s*/i, '');
+}
+
+/**
  * Sanitize an operator-configured field before interpolating it into a system
  * prompt. Strips HTML/XML tags and code-fence blocks (common injection vectors)
  * and enforces a character budget.
@@ -164,7 +174,8 @@ export class LivechatAgent implements IAgent, OnModuleInit {
       .slice(-6, -1)
       .map((m) => ({
         role: m.role === 'visitor' ? ('customer' as const) : ('agent' as const),
-        text: (m.role === 'operator' ? '[Operator] ' : '') + String(m.content).slice(0, 240),
+        text: (m.role === 'operator' ? '[Operator] ' : '') +
+            (m.role === 'visitor' ? stripRolePrefixes(String(m.content)) : String(m.content)).slice(0, 240),
       }));
 
     const [alwaysOn, samples, blocklist, rejections, references, recentMessages, recentPageviews, visitor, intentResult] = await Promise.all([
@@ -206,7 +217,8 @@ export class LivechatAgent implements IAgent, OnModuleInit {
       .slice(-14, -1) // exclude the current visitor message (just inserted)
       .map((m) => ({
         role: m.role === 'visitor' ? ('customer' as const) : ('agent' as const),
-        text: (m.role === 'operator' ? '[Operator] ' : '') + String(m.content).slice(0, 300),
+        text: (m.role === 'operator' ? '[Operator] ' : '') +
+            (m.role === 'visitor' ? stripRolePrefixes(String(m.content)) : String(m.content)).slice(0, 300),
       }));
 
     const kbBlock = this.kb.buildKbPromptBlock({
