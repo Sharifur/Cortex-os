@@ -1,7 +1,12 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, BadRequestException } from '@nestjs/common';
 import { Reader, ReaderModel } from '@maxmind/geoip2-node';
 import path from 'path';
 import fs from 'fs';
+import https from 'https';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+
+const execAsync = promisify(exec);
 
 export interface GeoLookup {
   country: string | null;
@@ -43,6 +48,51 @@ export class GeoIpService implements OnModuleInit {
 
   isLoaded(): boolean {
     return this.reader !== null;
+  }
+
+  async downloadAndReload(accountId: string, licenseKey: string): Promise<void> {
+    if (!accountId || !licenseKey) {
+      throw new BadRequestException('maxmind_account_id and maxmind_license_key must be set in Settings');
+    }
+    const dataDir = path.resolve(process.cwd(), 'data');
+    if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
+    const tmpPath = path.join(dataDir, '_geo_download.tar.gz');
+
+    const downloadUrl = 'https://download.maxmind.com/geoip/databases/GeoLite2-City/download?suffix=tar.gz';
+    const auth = `Basic ${Buffer.from(`${accountId}:${licenseKey}`).toString('base64')}`;
+
+    await new Promise<void>((resolve, reject) => {
+      const doDownload = (url: string, redirects = 0) => {
+        if (redirects > 5) { reject(new Error('Too many redirects')); return; }
+        const fileStream = fs.createWriteStream(tmpPath);
+        https.get(url, { headers: { Authorization: auth } }, (res) => {
+          if (res.statusCode === 301 || res.statusCode === 302) {
+            fileStream.destroy();
+            doDownload(res.headers.location!, redirects + 1);
+            return;
+          }
+          if (!res.statusCode || res.statusCode >= 400) {
+            reject(new Error(`MaxMind returned HTTP ${res.statusCode ?? 'unknown'} — check account ID and license key`));
+            return;
+          }
+          res.pipe(fileStream);
+          fileStream.on('finish', () => { fileStream.close(); resolve(); });
+          fileStream.on('error', reject);
+        }).on('error', reject);
+      };
+      doDownload(downloadUrl);
+    });
+
+    try {
+      // GNU tar: strip the dated directory, extract only the .mmdb file.
+      await execAsync(`tar -xzf "${tmpPath}" --strip-components=1 -C "${dataDir}" --wildcards "*.mmdb"`);
+    } finally {
+      try { fs.unlinkSync(tmpPath); } catch { /* ignore */ }
+    }
+
+    this.reader = null;
+    await this.onModuleInit();
+    this.logger.log('GeoLite2-City.mmdb downloaded and reloaded successfully');
   }
 
   lookup(ip: string | null | undefined): GeoLookup {

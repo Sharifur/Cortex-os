@@ -12,6 +12,7 @@ import {
   HttpStatus,
   NotFoundException,
   BadRequestException,
+  InternalServerErrorException,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { LivechatService, LivechatOperatorRow } from './livechat.service';
@@ -19,7 +20,9 @@ import { LivechatStreamService } from './livechat-stream.service';
 import { LivechatAttachmentsService } from './livechat-attachments.service';
 import { LivechatTranscriptService } from './livechat-transcript.service';
 import { EnrichmentService } from '../../../common/visitor-enrichment/enrichment.service';
+import { GeoIpService } from '../../../common/visitor-enrichment/geoip.service';
 import { LivechatRateLimitService } from './livechat-rate-limit.service';
+import { SettingsService } from '../../settings/settings.service';
 
 @Controller('agents/livechat')
 @UseGuards(JwtAuthGuard)
@@ -30,6 +33,8 @@ export class LivechatConversationsController {
     private attachments: LivechatAttachmentsService,
     private transcript: LivechatTranscriptService,
     private enrichment: EnrichmentService,
+    private geoIp: GeoIpService,
+    private settings: SettingsService,
     private rateLimit: LivechatRateLimitService,
   ) {}
 
@@ -312,6 +317,27 @@ export class LivechatConversationsController {
   @Get('debug/ip-lookup')
   debugIpLookup(@Query('ip') ip?: string) {
     return this.enrichment.debugLookup(ip?.trim() || null);
+  }
+
+  @Get('geo/status')
+  geoStatus() {
+    return { loaded: this.geoIp.isLoaded() };
+  }
+
+  @Post('geo/download-db')
+  @HttpCode(HttpStatus.OK)
+  async downloadGeoDb() {
+    const accountId = await this.settings.getDecrypted('maxmind_account_id');
+    const licenseKey = await this.settings.getDecrypted('maxmind_license_key');
+    if (!accountId || !licenseKey) {
+      throw new BadRequestException('Set maxmind_account_id and maxmind_license_key in Settings before downloading');
+    }
+    try {
+      await this.geoIp.downloadAndReload(accountId, licenseKey);
+      return { ok: true, loaded: this.geoIp.isLoaded() };
+    } catch (err) {
+      throw new InternalServerErrorException((err as Error).message);
+    }
   }
 
   @Get('visitors/live')

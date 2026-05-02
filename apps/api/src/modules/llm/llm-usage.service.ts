@@ -39,7 +39,7 @@ export class LlmUsageService {
     }
   }
 
-  async totals(opts: { sinceHours?: number } = {}): Promise<{
+  async totals(opts: { sinceHours?: number; offsetHours?: number } = {}): Promise<{
     calls: number;
     inputTokens: number;
     outputTokens: number;
@@ -180,10 +180,15 @@ export class LlmUsageService {
       .limit(safeLimit);
   }
 
-  private timeWhere(opts: { sinceHours?: number }) {
+  private timeWhere(opts: { sinceHours?: number; offsetHours?: number }) {
     if (!opts.sinceHours) return sql``;
-    const cutoff = new Date(Date.now() - opts.sinceHours * 60 * 60 * 1000);
-    return sql`WHERE created_at >= ${cutoff}`;
+    const offsetMs = (opts.offsetHours ?? 0) * 3_600_000;
+    const now = Date.now();
+    const start = new Date(now - opts.sinceHours * 3_600_000 - offsetMs);
+    if (opts.offsetHours) {
+      return sql`WHERE created_at >= ${start} AND created_at < ${new Date(now - offsetMs)}`;
+    }
+    return sql`WHERE created_at >= ${start}`;
   }
 }
 

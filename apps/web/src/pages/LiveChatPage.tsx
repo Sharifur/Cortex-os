@@ -963,12 +963,31 @@ interface InboxFilter {
 
 const STATUS_FILTERS: InboxFilter[] = [
   { key: 'all', label: 'All' },
+  { key: 'needs_reply', label: 'Needs reply' },
   { key: 'needs_review', label: 'Needs review', hasPendingDrafts: true },
   { key: 'open', label: 'Open', status: 'open' },
   { key: 'needs_human', label: 'Needs human', status: 'needs_human' },
   { key: 'human_taken_over', label: 'Taken over', status: 'human_taken_over' },
   { key: 'closed', label: 'Closed', status: 'closed' },
 ];
+
+// T4 chip set — shown inline; 'needs_reply' is client-side only.
+const CHIP_FILTERS: InboxFilter[] = [
+  { key: 'all', label: 'All' },
+  { key: 'needs_reply', label: 'Needs reply' },
+  { key: 'needs_review', label: 'Review', hasPendingDrafts: true },
+  { key: 'open', label: 'Open', status: 'open' },
+  { key: 'closed', label: 'Closed', status: 'closed' },
+];
+
+function needsReply(s: SessionRow): boolean {
+  return s.lastMessage?.role === 'visitor' && s.status !== 'closed';
+}
+
+function waitMinutes(s: SessionRow): number | null {
+  if (!needsReply(s) || !s.lastMessage?.createdAt) return null;
+  return Math.floor((Date.now() - new Date(s.lastMessage.createdAt).getTime()) / 60_000);
+}
 
 interface LiveVisitor {
   visitorPk: string;
@@ -994,7 +1013,6 @@ function ConversationsTab() {
   const token = useAuthStore((s) => s.token)!;
   const qc = useQueryClient();
   const [filterKey, setFilterKey] = useState('all');
-  const [filterOpen, setFilterOpen] = useState(false);
   const [filterSite, setFilterSite] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [advFilterOpen, setAdvFilterOpen] = useState(false);
@@ -1025,9 +1043,17 @@ function ConversationsTab() {
     staleTime: 5_000,
   });
 
+  // T2/T3: stats derived from the loaded sessions array.
+  const statsActive = useMemo(() => sessions.filter((s) => s.status !== 'closed').length, [sessions]);
+  const statsNeedsReply = useMemo(() => sessions.filter(needsReply).length, [sessions]);
+  const statsPendingReview = useMemo(() => sessions.filter((s) => (s.pendingDrafts ?? 0) > 0).length, [sessions]);
+
+  // T4: client-side 'needs_reply' layer on top of server results.
+  const baseFiltered = filterKey === 'needs_reply' ? sessions.filter(needsReply) : sessions;
+
   // Client-side text search across visitor name / email / last message.
   const searchedSessions = search.trim()
-    ? sessions.filter((s) => {
+    ? baseFiltered.filter((s) => {
         const q = search.trim().toLowerCase();
         return (
           (s.visitorName ?? '').toLowerCase().includes(q) ||
@@ -1036,7 +1062,7 @@ function ConversationsTab() {
           (s.currentPageTitle ?? '').toLowerCase().includes(q)
         );
       })
-    : sessions;
+    : baseFiltered;
 
   // Pending review count for the filter chip badge.
   const pendingCountKey = ['livechat-pending-count'] as const;
@@ -1092,28 +1118,43 @@ function ConversationsTab() {
       <aside
         className={`${showInboxOnMobile ? 'flex' : 'hidden'} md:flex w-full md:w-[340px] shrink-0 border-r border-border flex-col`}
       >
-        <div className="px-3 py-2.5 border-b border-border flex items-center gap-2 relative">
-          <button
-            onClick={() => setFilterOpen((v) => !v)}
-            className="flex items-center gap-1.5 text-sm font-medium hover:bg-accent rounded px-2 py-1"
-          >
-            {filter.label}
-            {filter.hasPendingDrafts && (pendingCount?.drafts ?? 0) > 0 && (
-              <span className="bg-amber-500/15 text-amber-600 text-[10px] px-1.5 py-0.5 rounded-full font-semibold">
-                {pendingCount?.drafts}
-              </span>
-            )}
-            <ChevronDown className="w-3.5 h-3.5" />
-          </button>
-          <button
-            onClick={() => setAdvFilterOpen((v) => !v)}
-            className={`ml-auto flex items-center gap-1 text-xs px-2 py-1 rounded ${
-              filterSite || search ? 'text-primary bg-primary/10' : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            <Filter className="w-3.5 h-3.5" />
-            Filters{filterSite || search ? ' · on' : ''}
-          </button>
+        {/* T4: Quick filter chips */}
+        <div className="px-3 py-2 border-b border-border relative">
+          <div className="flex items-center gap-1 overflow-x-auto" style={{ scrollbarWidth: 'none' }}>
+            {CHIP_FILTERS.map((f) => (
+              <button
+                key={f.key}
+                onClick={() => setFilterKey(f.key)}
+                className={`shrink-0 text-xs px-2.5 py-1 rounded-full border transition-colors ${
+                  filterKey === f.key
+                    ? 'bg-primary text-primary-foreground border-primary'
+                    : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground/30'
+                }`}
+              >
+                {f.label}
+                {f.key === 'needs_review' && (pendingCount?.drafts ?? 0) > 0 && (
+                  <span className="ml-1 inline-flex items-center justify-center bg-amber-500 text-white text-[9px] w-4 h-4 rounded-full font-semibold">
+                    {pendingCount?.drafts}
+                  </span>
+                )}
+                {f.key === 'needs_reply' && statsNeedsReply > 0 && (
+                  <span className="ml-1 inline-flex items-center justify-center bg-amber-500 text-white text-[9px] w-4 h-4 rounded-full font-semibold">
+                    {statsNeedsReply}
+                  </span>
+                )}
+              </button>
+            ))}
+            <button
+              onClick={() => setAdvFilterOpen((v) => !v)}
+              className={`ml-auto shrink-0 flex items-center gap-1 text-xs px-2 py-1 rounded ${
+                filterSite || search ? 'text-primary bg-primary/10' : 'text-muted-foreground hover:text-foreground'
+              }`}
+              title="Search &amp; site filter"
+            >
+              <Filter className="w-3.5 h-3.5" />
+              {(filterSite || search) && <span className="w-1.5 h-1.5 rounded-full bg-primary" />}
+            </button>
+          </div>
 
           {advFilterOpen && (
             <div className="absolute right-3 top-full mt-1 bg-card border border-border rounded-lg shadow-lg z-30 p-3 w-[300px] space-y-3">
@@ -1159,34 +1200,20 @@ function ConversationsTab() {
               </div>
             </div>
           )}
-
-          {filterOpen && (
-            <div
-              className="absolute left-3 top-full mt-1 bg-card border border-border rounded-lg shadow-lg z-30 py-1 min-w-[160px]"
-              onMouseLeave={() => setFilterOpen(false)}
-            >
-              {STATUS_FILTERS.map((f) => (
-                <button
-                  key={f.key}
-                  onClick={() => {
-                    setFilterKey(f.key);
-                    setFilterOpen(false);
-                  }}
-                  className={`w-full text-left px-3 py-1.5 text-sm hover:bg-accent transition-colors flex items-center justify-between gap-2 ${
-                    filterKey === f.key ? 'font-medium text-foreground' : 'text-muted-foreground'
-                  }`}
-                >
-                  <span>{f.label}</span>
-                  {f.hasPendingDrafts && (pendingCount?.drafts ?? 0) > 0 && (
-                    <span className="bg-amber-500/15 text-amber-600 text-[10px] px-1.5 py-0.5 rounded-full font-semibold">
-                      {pendingCount?.drafts}
-                    </span>
-                  )}
-                </button>
-              ))}
-            </div>
-          )}
         </div>
+
+        {/* T1: Header stats bar */}
+        {sessions.length > 0 && (
+          <div className="px-3 py-1.5 border-b border-border flex items-center gap-3 text-xs text-muted-foreground bg-muted/20">
+            <span>{statsActive} active</span>
+            {statsNeedsReply > 0 && (
+              <span className="text-amber-600 font-medium">{statsNeedsReply} need reply</span>
+            )}
+            {statsPendingReview > 0 && (
+              <span className="text-amber-600 font-medium">{statsPendingReview} pending review</span>
+            )}
+          </div>
+        )}
 
         <LiveVisitorsPanel
           visitors={liveVisitors}
@@ -1344,6 +1371,9 @@ function InboxRow({ session, selected, onClick }: { session: SessionRow; selecte
   // (en-US, en-GB) which is misleading for travellers / VPN users; better
   // to show no flag than the wrong flag.
   const country = session.ipCountry ?? null;
+  // T2/T3: needs-reply signal and wait time.
+  const isNeedsReply = needsReply(session);
+  const waitMins = waitMinutes(session);
   return (
     <button
       onClick={onClick}
@@ -1356,14 +1386,25 @@ function InboxRow({ session, selected, onClick }: { session: SessionRow; selecte
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between gap-2">
             <span className={`text-sm truncate ${selected ? 'font-semibold' : 'font-medium'}`} title={session.visitorEmail ?? undefined}>{name}</span>
-            <span className="text-[10px] text-muted-foreground shrink-0">{relativeTime(lastTime)}</span>
+            <div className="flex items-center gap-1.5 shrink-0">
+              {/* T2: amber dot when visitor is waiting for reply */}
+              {isNeedsReply && (
+                <span className="w-2 h-2 rounded-full bg-amber-500" title="Visitor waiting for reply" />
+              )}
+              <span className="text-[10px] text-muted-foreground">{relativeTime(lastTime)}</span>
+            </div>
           </div>
           <div className="flex items-center gap-1.5 mt-0.5 text-xs text-muted-foreground">
             <CornerDownRight className="w-3 h-3 shrink-0" />
             <span className="truncate">{session.lastMessage?.content ?? 'New conversation'}</span>
-            <ArrowRight className="w-3 h-3 text-red-500 shrink-0 ml-auto" />
           </div>
           <div className="mt-1 flex items-center gap-1.5 flex-wrap">
+            {/* T3: wait time badge */}
+            {waitMins !== null && waitMins >= 2 && (
+              <div className="inline-flex items-center text-[10px] text-amber-600 bg-amber-500/10 px-1.5 py-0.5 rounded font-medium">
+                waiting {waitMins < 60 ? `${waitMins}m` : `${Math.floor(waitMins / 60)}h ${waitMins % 60}m`}
+              </div>
+            )}
             {(session.pendingDrafts ?? 0) > 0 && (
               <div className="inline-flex items-center gap-1 text-[10px] text-amber-600 bg-amber-500/10 px-1.5 py-0.5 rounded">
                 <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
@@ -1759,6 +1800,12 @@ function SessionPane({
             >
               <ArrowLeft className="w-4 h-4" />
             </button>
+          )}
+          {/* T9: site tag in conversation header for quick context */}
+          {detail && (detail.session.siteLabel || detail.session.siteKey) && (
+            <span className="ml-2 text-xs bg-primary/10 text-primary px-2.5 py-1 rounded-full font-medium hidden sm:inline">
+              {detail.session.siteLabel || detail.session.siteKey}
+            </span>
           )}
           <div className="ml-auto flex items-center gap-1 sm:gap-2">
             <button
@@ -2583,6 +2630,12 @@ function VisitorSidebar({
             {[visitor?.ipCity, visitor?.ipCountryName].filter(Boolean).join(', ')}
           </div>
         ) : null}
+        {/* T9: site tag below visitor location */}
+        {(session.siteLabel || session.siteKey) && (
+          <span className="mt-2 text-xs bg-primary/10 text-primary px-2.5 py-0.5 rounded-full font-medium">
+            {session.siteLabel || session.siteKey}
+          </span>
+        )}
       </div>
 
       {/* Currently on */}
@@ -3361,6 +3414,57 @@ function DebugTab() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // T11: GeoLite2 setup state
+  const [geoLoaded, setGeoLoaded] = useState<boolean | null>(null);
+  const [mmAccountId, setMmAccountId] = useState('');
+  const [mmLicenseKey, setMmLicenseKey] = useState('');
+  const [downloading, setDownloading] = useState(false);
+  const [downloadMsg, setDownloadMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  useEffect(() => {
+    fetch('/agents/livechat/geo/status', { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => r.json())
+      .then((d) => setGeoLoaded(d.loaded))
+      .catch(() => {});
+  }, [token]);
+
+  async function downloadDb() {
+    setDownloading(true);
+    setDownloadMsg(null);
+    try {
+      // Save credentials first if provided
+      if (mmAccountId.trim()) {
+        await fetch('/settings/maxmind_account_id', {
+          method: 'PUT',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ value: mmAccountId.trim() }),
+        });
+      }
+      if (mmLicenseKey.trim()) {
+        await fetch('/settings/maxmind_license_key', {
+          method: 'PUT',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ value: mmLicenseKey.trim() }),
+        });
+      }
+      const res = await fetch('/agents/livechat/geo/download-db', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setDownloadMsg({ ok: false, text: data?.message ?? `HTTP ${res.status}` });
+      } else {
+        setDownloadMsg({ ok: true, text: 'GeoLite2-City.mmdb downloaded and loaded successfully.' });
+        setGeoLoaded(true);
+      }
+    } catch (e) {
+      setDownloadMsg({ ok: false, text: (e as Error).message });
+    } finally {
+      setDownloading(false);
+    }
+  }
+
   async function lookup() {
     setLoading(true);
     setError(null);
@@ -3370,7 +3474,9 @@ function DebugTab() {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      setResult(await res.json());
+      const data = await res.json();
+      setResult(data);
+      setGeoLoaded(data.dbLoaded);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -3380,6 +3486,65 @@ function DebugTab() {
 
   return (
     <div className="p-6 max-w-xl mx-auto space-y-6 overflow-auto h-full">
+      {/* T11: GeoLite2 Setup card */}
+      <div className="rounded-xl border border-border bg-card p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold">GeoLite2 Country Detection</h2>
+          {geoLoaded === null ? null : geoLoaded ? (
+            <span className="text-xs text-emerald-500 bg-emerald-500/10 px-2 py-0.5 rounded-full font-medium">Enabled</span>
+          ) : (
+            <span className="text-xs text-destructive bg-destructive/10 px-2 py-0.5 rounded-full font-medium">Not loaded</span>
+          )}
+        </div>
+        {!geoLoaded && (
+          <>
+            <p className="text-xs text-muted-foreground">
+              Register a free account at <strong>maxmind.com</strong>, then go to <strong>Manage License Keys</strong> to create a key. Enter your Account ID and License Key below to download the GeoLite2-City database directly to the server.
+            </p>
+            <div className="space-y-2">
+              <div>
+                <label className="text-xs font-medium text-muted-foreground block mb-1">Account ID</label>
+                <input
+                  type="text"
+                  value={mmAccountId}
+                  onChange={(e) => setMmAccountId(e.target.value)}
+                  placeholder="123456"
+                  className="w-full text-xs bg-background border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-muted-foreground block mb-1">License Key</label>
+                <input
+                  type="password"
+                  value={mmLicenseKey}
+                  onChange={(e) => setMmLicenseKey(e.target.value)}
+                  placeholder="Your MaxMind license key"
+                  className="w-full text-xs bg-background border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+              </div>
+              <button
+                onClick={downloadDb}
+                disabled={downloading}
+                className="w-full text-xs px-3 py-2 rounded-md bg-primary text-primary-foreground font-medium disabled:opacity-50"
+              >
+                {downloading ? 'Downloading… (this may take 30–60 seconds)' : 'Download & Enable GeoLite2-City'}
+              </button>
+              {downloadMsg && (
+                <div className={`text-xs px-3 py-2 rounded-md ${downloadMsg.ok ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : 'bg-red-500/10 text-red-600 dark:text-red-400'}`}>
+                  {downloadMsg.text}
+                </div>
+              )}
+            </div>
+            <p className="text-[10px] text-muted-foreground">
+              Credentials are saved to Settings. The .mmdb file is placed at <code>apps/api/data/GeoLite2-City.mmdb</code> on the server and loaded immediately without a restart. Set <code>MAXMIND_DB_PATH</code> env var to override the path.
+            </p>
+          </>
+        )}
+        {geoLoaded && (
+          <p className="text-xs text-muted-foreground">Country and city data is being detected from visitor IPs. Use the tester below to verify a specific IP.</p>
+        )}
+      </div>
+
       <div>
         <h2 className="text-base font-semibold mb-1">IP Geolocation Tester</h2>
         <p className="text-xs text-muted-foreground">Enter an IP address to verify the MaxMind GeoLite2 database is installed and returning correct country data.</p>
@@ -3443,13 +3608,6 @@ function DebugTab() {
             <span className="text-muted-foreground">Coordinates</span>
             <span>{result.lat && result.lon ? `${result.lat}, ${result.lon}` : '—'}</span>
           </div>
-        </div>
-      )}
-
-      {!result && !error && (
-        <div className="text-xs text-muted-foreground space-y-1">
-          <p>If DB is not loaded, download <code>GeoLite2-City.mmdb</code> from MaxMind and place it at <code>apps/api/data/GeoLite2-City.mmdb</code> on the server, then restart the API.</p>
-          <p>Set <code>MAXMIND_DB_PATH</code> env var to override the path.</p>
         </div>
       )}
     </div>

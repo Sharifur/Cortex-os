@@ -1,11 +1,12 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
-  Bot, ArrowLeft, ChevronRight, Save, Play,
+  Bot, ArrowLeft, ChevronRight, ChevronDown, Save, Play,
   ToggleLeft, ToggleRight, Settings, List,
   Mail, Cpu, Layers, Info, BookOpen,
   CheckCircle2, Circle, MessageSquare,
+  Bug, AlertTriangle, AlertCircle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -157,7 +158,77 @@ function SaveRow({ isPending, isSuccess, onClick }: { isPending: boolean; isSucc
 
 // ─── Runs tab ────────────────────────────────────────────────────────────────
 
+const LOG_LEVEL_CFG = {
+  DEBUG: { icon: <Bug className="w-3.5 h-3.5" />, cls: 'text-muted-foreground bg-muted/50' },
+  INFO: { icon: <Info className="w-3.5 h-3.5" />, cls: 'text-blue-400 bg-blue-500/10' },
+  WARN: { icon: <AlertTriangle className="w-3.5 h-3.5" />, cls: 'text-yellow-400 bg-yellow-500/10' },
+  ERROR: { icon: <AlertCircle className="w-3.5 h-3.5" />, cls: 'text-red-400 bg-red-500/10' },
+} as const;
+
+interface RunLog {
+  id: string;
+  level: 'DEBUG' | 'INFO' | 'WARN' | 'ERROR';
+  message: string;
+  meta: Record<string, unknown> | null;
+  createdAt: string;
+}
+
+function RunRowExpanded({ runId, token }: { runId: string; token: string }) {
+  const { data } = useQuery<{ logs: RunLog[]; finished: boolean }>({
+    queryKey: ['run-logs', runId],
+    queryFn: async () => {
+      const res = await fetch(`/runs/${runId}/logs`, { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) throw new Error('Failed');
+      return res.json();
+    },
+    refetchInterval: (q) => (q.state.data?.finished ? false : 2000),
+  });
+
+  const logs = data?.logs ?? [];
+
+  if (logs.length === 0) {
+    return (
+      <div className="px-5 pb-3 pt-1 text-xs text-muted-foreground">
+        {data ? 'No log entries for this run.' : 'Loading logs…'}
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-muted/20 border-t border-border divide-y divide-border/50 max-h-72 overflow-auto">
+      {logs.map((entry) => {
+        const lvl = LOG_LEVEL_CFG[entry.level] ?? LOG_LEVEL_CFG.INFO;
+        return (
+          <div key={entry.id} className="flex items-start gap-2.5 px-5 py-2">
+            <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-mono font-medium shrink-0 mt-0.5 ${lvl.cls}`}>
+              {lvl.icon}
+              {entry.level}
+            </span>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs text-foreground/90 break-words">{entry.message}</p>
+              {entry.meta && Object.keys(entry.meta).length > 0 && (
+                <pre className="mt-1 text-[10px] text-muted-foreground bg-muted/40 rounded px-2 py-1 overflow-x-auto">
+                  {JSON.stringify(entry.meta, null, 2)}
+                </pre>
+              )}
+            </div>
+            <span className="text-[10px] text-muted-foreground font-mono shrink-0 mt-0.5">
+              {new Date(entry.createdAt).toLocaleTimeString()}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function RunsTab({ agentKey, token }: { agentKey: string; token: string }) {
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  const toggleExpand = useCallback((id: string) => {
+    setExpandedId((prev) => (prev === id ? null : id));
+  }, []);
+
   const { data: runs, isLoading, isError } = useQuery<Run[]>({
     queryKey: ['agent-runs', agentKey],
     queryFn: async () => {
@@ -193,29 +264,49 @@ function RunsTab({ agentKey, token }: { agentKey: string; token: string }) {
   return (
     <div className="rounded-xl border border-border bg-card overflow-hidden">
       <div className="divide-y divide-border">
-        {runs.map((run) => (
-          <Link
-            key={run.id}
-            to={`/runs/${run.id}`}
-            className="flex items-center gap-4 px-5 py-3.5 hover:bg-accent/30 transition-colors"
-          >
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 mb-0.5">
-                <code className="text-xs font-mono text-muted-foreground">{run.id.slice(0, 12)}</code>
-                <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${STATUS_CLS[run.status] ?? 'text-muted-foreground'}`}>
-                  {run.status}
-                </span>
-                <span className="text-xs text-muted-foreground">{run.triggerType}</span>
+        {runs.map((run) => {
+          const isExpanded = expandedId === run.id;
+          return (
+            <div key={run.id}>
+              <div className="flex items-center gap-4 px-5 py-3.5 hover:bg-accent/30 transition-colors">
+                {/* Expand toggle */}
+                <button
+                  onClick={() => toggleExpand(run.id)}
+                  className="flex items-center gap-3 flex-1 min-w-0 text-left"
+                >
+                  {isExpanded ? (
+                    <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0" />
+                  ) : (
+                    <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                      <code className="text-xs font-mono text-muted-foreground">{run.id.slice(0, 12)}</code>
+                      <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${STATUS_CLS[run.status] ?? 'text-muted-foreground'}`}>
+                        {run.status}
+                      </span>
+                      <span className="text-xs text-muted-foreground">{run.triggerType}</span>
+                    </div>
+                    {run.error && <p className="text-xs text-destructive truncate">{run.error}</p>}
+                  </div>
+                </button>
+                <div className="text-right shrink-0">
+                  <p className="text-xs text-muted-foreground">{relTime(run.startedAt)}</p>
+                  <p className="text-xs text-muted-foreground">{duration(run.startedAt, run.finishedAt)}</p>
+                </div>
+                <Link
+                  to={`/runs/${run.id}`}
+                  className="text-xs text-muted-foreground hover:text-foreground shrink-0 px-1.5 py-1 rounded hover:bg-accent"
+                  title="Open full run page"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  Full log
+                </Link>
               </div>
-              {run.error && <p className="text-xs text-destructive truncate">{run.error}</p>}
+              {isExpanded && <RunRowExpanded runId={run.id} token={token} />}
             </div>
-            <div className="text-right shrink-0">
-              <p className="text-xs text-muted-foreground">{relTime(run.startedAt)}</p>
-              <p className="text-xs text-muted-foreground">{duration(run.startedAt, run.finishedAt)}</p>
-            </div>
-            <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
-          </Link>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
@@ -2137,8 +2228,33 @@ function Phase4SetupSubTab({ agent, title, description, steps }: {
 }
 
 function HrSetupSubTab({ agent, token }: { agent: AgentDetail; token: string }) {
+  const qc = useQueryClient();
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; employeeCount?: number; error?: string } | null>(null);
+
+  // Fetch current HR settings so we can pre-fill and show current state.
+  const { data: settings = [] } = useQuery<{ key: string; value: string | null; stored: boolean }[]>({
+    queryKey: ['settings'],
+    queryFn: async () => {
+      const res = await fetch('/settings', { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) throw new Error('Failed');
+      const all: { key: string; value: string | null; stored: boolean }[] = await res.json();
+      return all.filter((s) => s.key.startsWith('hrm_'));
+    },
+    staleTime: 30_000,
+    select: (all) => all.filter((s) => s.key.startsWith('hrm_')),
+  });
+
+  const getSetting = (key: string) => settings.find((s) => s.key === key);
+
+  const saveSetting = async (key: string, value: string) => {
+    await fetch(`/settings/${key}`, {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ value }),
+    });
+    qc.invalidateQueries({ queryKey: ['settings'] });
+  };
 
   async function testConnection() {
     setTesting(true);
@@ -2163,27 +2279,52 @@ function HrSetupSubTab({ agent, token }: { agent: AgentDetail; token: string }) 
         <p className="text-xs text-muted-foreground">Connects to XGHRM via its AI Agent API. Sends daily leave/WFH approval requests and runs the monthly payslip flow on a configurable day.</p>
       </div>
 
-      <div className="rounded-lg bg-muted/40 border border-border px-4 py-3 text-xs text-muted-foreground space-y-1">
-        <p className="font-medium text-foreground">Prerequisites</p>
-        <p>Telegram bot and owner chat ID must be configured in Settings (platform-wide).</p>
-        <p>The XGHRM secret is issued from <span className="font-mono">XGHRM Admin &rarr; AI Applications &rarr; Create Application</span>. Copy it from the one-time reveal modal — it is a 64-character hex string.</p>
+      <div className="rounded-lg bg-muted/40 border border-border px-4 py-3 text-xs text-muted-foreground">
+        <p className="font-medium text-foreground mb-1">Prerequisites</p>
+        <p>Telegram bot and owner chat ID must be configured in Settings (platform-wide). The XGHRM secret is issued from <span className="font-mono">XGHRM Admin → AI Applications → Create Application</span> — copy it from the one-time reveal modal (64-character hex string).</p>
       </div>
 
-      <SetupStep n={1} title="Set HRM API URL and secret in Settings" done={false}>
-        <p>Go to <a href="/settings" className="underline underline-offset-2">Settings</a> and fill in the <span className="font-mono bg-muted px-1 rounded">HR</span> section:</p>
-        <ul className="mt-1.5 space-y-1 list-disc list-inside">
-          <li><span className="font-mono bg-muted px-1 rounded">hrm_api_base_url</span> — e.g. <span className="font-mono bg-muted px-1 rounded">https://xghrm.yourdomain.com/api/ai-agent</span></li>
-          <li><span className="font-mono bg-muted px-1 rounded">hrm_api_secret</span> — the 64-char hex secret from XGHRM</li>
-        </ul>
+      {/* T12: Inline API URL + secret fields */}
+      <SetupStep n={1} title="Configure XGHRM API credentials" done={getSetting('hrm_api_base_url')?.stored === true && getSetting('hrm_api_secret')?.stored === true}>
+        <div className="space-y-3">
+          <HrmSettingField
+            label="API Base URL"
+            settingKey="hrm_api_base_url"
+            placeholder="https://xghrm.yourdomain.com/api/ai-agent"
+            token={token}
+            onSave={saveSetting}
+            stored={getSetting('hrm_api_base_url')?.stored}
+          />
+          <HrmSettingField
+            label="API Secret"
+            settingKey="hrm_api_secret"
+            placeholder="64-character hex secret"
+            token={token}
+            onSave={saveSetting}
+            stored={getSetting('hrm_api_secret')?.stored}
+            isSecret
+          />
+        </div>
       </SetupStep>
 
-      <SetupStep n={2} title="Set monthly payslip day" done={false}>
-        <p>In Settings, set <span className="font-mono bg-muted px-1 rounded">hrm_payslip_day</span> to the day of month payslips should be generated and sent for approval (1–28). Default is 25.</p>
-        <p className="mt-1 text-muted-foreground">The daily CRON at 9 AM checks if today matches this day and triggers the payslip run automatically.</p>
+      <SetupStep n={2} title="Set monthly payslip day (1–28)" done={getSetting('hrm_payslip_day')?.stored === true}>
+        <div className="space-y-2">
+          <p className="text-xs text-muted-foreground">The daily CRON at 9 AM checks if today matches this day and triggers the payslip run automatically. Default: 25.</p>
+          <HrmSettingField
+            label="Payslip day"
+            settingKey="hrm_payslip_day"
+            placeholder="25"
+            token={token}
+            onSave={saveSetting}
+            stored={getSetting('hrm_payslip_day')?.stored}
+            inputType="number"
+            inputWidth="w-24"
+          />
+        </div>
       </SetupStep>
 
       <SetupStep n={3} title="Test the connection" done={testResult?.ok === true}>
-        <p className="mb-2">Verify the API credentials before enabling the agent.</p>
+        <p className="mb-2 text-xs text-muted-foreground">Verify the API credentials are correct before enabling the agent.</p>
         <button
           onClick={testConnection}
           disabled={testing}
@@ -2201,9 +2342,73 @@ function HrSetupSubTab({ agent, token }: { agent: AgentDetail; token: string }) 
       </SetupStep>
 
       <SetupStep n={4} title="Enable and run manually" done={agent.enabled}>
-        <p>Enable the agent from the General tab, then trigger it manually to confirm the daily digest arrives on Telegram.</p>
-        <p className="mt-1 text-muted-foreground">On a real payslip day, trigger manually to test the full approval flow without waiting for the CRON.</p>
+        <p className="text-xs text-muted-foreground">Enable the agent from the General tab, then trigger it manually to confirm the daily digest arrives on Telegram. On a real payslip day, trigger manually to test the full approval flow.</p>
       </SetupStep>
+    </div>
+  );
+}
+
+function HrmSettingField({
+  label,
+  settingKey,
+  placeholder,
+  token,
+  onSave,
+  stored,
+  isSecret,
+  inputType = 'text',
+  inputWidth = 'w-full',
+}: {
+  label: string;
+  settingKey: string;
+  placeholder: string;
+  token: string;
+  onSave: (key: string, value: string) => Promise<void>;
+  stored?: boolean;
+  isSecret?: boolean;
+  inputType?: string;
+  inputWidth?: string;
+}) {
+  const [value, setValue] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  async function handleSave() {
+    if (!value.trim()) return;
+    setSaving(true);
+    try {
+      await onSave(settingKey, value.trim());
+      setValue('');
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div>
+      <label className="text-xs font-medium text-muted-foreground block mb-1">
+        {label}
+        {stored && <span className="ml-2 text-[10px] text-emerald-500 bg-emerald-500/10 px-1.5 py-0.5 rounded">saved</span>}
+      </label>
+      <div className="flex items-center gap-2">
+        <input
+          type={isSecret ? 'password' : inputType}
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder={stored ? '(already set — paste to update)' : placeholder}
+          className={`${inputWidth} text-xs bg-background border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary`}
+          onKeyDown={(e) => { if (e.key === 'Enter') handleSave(); }}
+        />
+        <button
+          onClick={handleSave}
+          disabled={saving || !value.trim()}
+          className="shrink-0 text-xs px-3 py-2 rounded-md bg-primary text-primary-foreground disabled:opacity-50"
+        >
+          {saved ? 'Saved' : saving ? 'Saving...' : 'Save'}
+        </button>
+      </div>
     </div>
   );
 }

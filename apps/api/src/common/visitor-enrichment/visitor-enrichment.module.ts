@@ -6,6 +6,6 @@ import { EnrichmentService } from './enrichment.service';
 @Global()
 @Module({
   providers: [GeoIpService, UaParserService, EnrichmentService],
-  exports: [EnrichmentService],
+  exports: [EnrichmentService, GeoIpService],
 })
 export class VisitorEnrichmentModule {}

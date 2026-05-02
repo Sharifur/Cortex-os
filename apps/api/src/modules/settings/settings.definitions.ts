@@ -2,12 +2,26 @@ export interface SettingDefinition {
   label: string;
   description?: string;
   isSecret: boolean;
-  group: 'general' | 'llm' | 'telegram' | 'ses' | 'gmail' | 'whatsapp' | 'linkedin' | 'reddit' | 'license' | 'storage' | 'insight' | 'safety' | 'hr';
+  group: 'general' | 'llm' | 'telegram' | 'ses' | 'gmail' | 'whatsapp' | 'linkedin' | 'reddit' | 'license' | 'storage' | 'insight' | 'safety' | 'hr' | 'geoip';
   defaultValue?: string;
   provider?: 'openai' | 'gemini' | 'deepseek' | 'general';
 }
 
 export const SETTING_DEFINITIONS: Record<string, SettingDefinition> = {
+  // GeoIP — MaxMind GeoLite2
+  maxmind_account_id: {
+    label: 'MaxMind Account ID',
+    description: 'Numeric account ID from maxmind.com. Required to download the GeoLite2-City database for visitor country/city detection.',
+    isSecret: false,
+    group: 'geoip',
+  },
+  maxmind_license_key: {
+    label: 'MaxMind License Key',
+    description: 'License key from maxmind.com → My License Key. Required to download GeoLite2-City.',
+    isSecret: true,
+    group: 'geoip',
+  },
+
   // General — platform-wide
   timezone: {
     label: 'Timezone',
