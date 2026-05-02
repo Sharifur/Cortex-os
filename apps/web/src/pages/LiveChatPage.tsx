@@ -93,6 +93,8 @@ interface Operator {
 interface SessionRow {
   id: string;
   siteId: string;
+  siteKey: string | null;
+  siteLabel: string | null;
   visitorPk: string;
   visitorId: string;
   visitorEmail: string | null;
@@ -1361,12 +1363,19 @@ function InboxRow({ session, selected, onClick }: { session: SessionRow; selecte
             <span className="truncate">{session.lastMessage?.content ?? 'New conversation'}</span>
             <ArrowRight className="w-3 h-3 text-red-500 shrink-0 ml-auto" />
           </div>
-          {(session.pendingDrafts ?? 0) > 0 && (
-            <div className="mt-1 inline-flex items-center gap-1 text-[10px] text-amber-600 bg-amber-500/10 px-1.5 py-0.5 rounded">
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-              {session.pendingDrafts} pending review
-            </div>
-          )}
+          <div className="mt-1 flex items-center gap-1.5 flex-wrap">
+            {(session.pendingDrafts ?? 0) > 0 && (
+              <div className="inline-flex items-center gap-1 text-[10px] text-amber-600 bg-amber-500/10 px-1.5 py-0.5 rounded">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                {session.pendingDrafts} pending review
+              </div>
+            )}
+            {(session.siteLabel || session.siteKey) && (
+              <div className="inline-flex items-center text-[10px] text-muted-foreground bg-muted/70 px-1.5 py-0.5 rounded font-medium">
+                {session.siteLabel || session.siteKey}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </button>
@@ -2309,6 +2318,7 @@ function MessageBubble({
             </div>
           )}
           {attachmentBlock}
+          <div className="text-[10px] text-muted-foreground mt-0.5 pl-1">{formatMessageTime(message.createdAt)}</div>
         </div>
       </div>
     );
@@ -2341,6 +2351,9 @@ function MessageBubble({
           />
         )}
         {attachmentBlock}
+        {!isPending && (
+          <div className="text-[10px] text-muted-foreground mt-0.5 text-right pr-1">{formatMessageTime(message.createdAt)}</div>
+        )}
         {isPending && (
           <div className="flex items-center justify-end gap-1.5 mt-1.5 text-xs">
             {!editing ? (
@@ -3466,6 +3479,15 @@ function formatDuration(ms: number): string {
   if (s < 60) return `${s}s`;
   const m = Math.floor(s / 60);
   return `${m}m ${s % 60}s`;
+}
+
+function formatMessageTime(iso: string): string {
+  const d = new Date(iso);
+  const now = new Date();
+  const sameDay = d.toDateString() === now.toDateString();
+  const time = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  if (sameDay) return time;
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' ' + time;
 }
 
 function relativeTime(iso: string): string {

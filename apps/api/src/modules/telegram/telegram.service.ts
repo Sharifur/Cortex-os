@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { Bot, InlineKeyboard } from 'grammy';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, not, inArray } from 'drizzle-orm';
 import { SettingsService } from '../settings/settings.service';
 import { ApprovalService } from '../agents/runtime/approval.service';
 import { AgentRuntimeService } from '../agents/runtime/agent-runtime.service';
@@ -16,10 +16,17 @@ import { LlmRouterService } from '../llm/llm-router.service';
 import { DbService } from '../../db/db.service';
 import { pendingApprovals } from '../../db/schema';
 import { SelfImprovementService, KbProposalNotifyEvent } from '../knowledge-base/self-improvement.service';
+import { HrmApiService } from '../agents/hr/hrm-api.service';
+import { hrPayslipRuns } from '../../db/schema';
 import type { ApprovalCreatedEvent } from './telegram.types';
 import { TELEGRAM_EVENTS } from './telegram.types';
 import type { ProposedAction } from '../agents/runtime/types';
 import { TelegramBotAgent } from '../agents/telegram-bot/agent';
+
+type HrPendingReply =
+  | { type: 'leave_reject'; xghrmId: string; originalMsgId: number; originalText: string }
+  | { type: 'wfh_reject'; xghrmId: string; originalMsgId: number; originalText: string }
+  | { type: 'slip_edit'; runId: string; xghrmId: string; originalMsgId: number };
 
 const RISK_LABEL: Record<string, string> = {
   low: '[low]',
@@ -51,6 +58,9 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
   private pendingRoutes = new Map<string, { text: string; expiresAt: number }>();
   private pendingRouteCounter = 0;
 
+  // Keyed by the message_id of the force_reply prompt sent to the operator
+  private hrPendingReplies = new Map<number, HrPendingReply>();
+
   constructor(
     private readonly settings: SettingsService,
     private readonly approvalSvc: ApprovalService,
@@ -58,6 +68,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     private readonly llm: LlmRouterService,
     private readonly db: DbService,
     private readonly selfImproveSvc: SelfImprovementService,
+    private readonly hrm: HrmApiService,
     @Inject(forwardRef(() => TelegramBotAgent))
     private readonly botAgent: TelegramBotAgent,
   ) {}
@@ -386,6 +397,139 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       },
     );
 
+    // HR: leave approve
+    this.bot.callbackQuery(/^hr_leave_approve:(.+)$/, async (ctx) => {
+      if (!this.isOwner(ctx.from?.id ? String(ctx.from.id) : null)) {
+        await ctx.answerCallbackQuery({ text: 'Unauthorized' });
+        return;
+      }
+      const [, leaveId] = ctx.match!;
+      await ctx.answerCallbackQuery();
+      const original = ctx.msg?.text ?? '';
+      try {
+        await this.hrm.approveLeave(leaveId);
+        await ctx.editMessageText(`${original}\n\nApproved`, { parse_mode: 'Markdown' });
+      } catch (err) {
+        await ctx.editMessageText(`${original}\n\nFailed: ${(err as Error).message}`);
+      }
+    });
+
+    // HR: leave reject — ask for reason
+    this.bot.callbackQuery(/^hr_leave_reject:(.+)$/, async (ctx) => {
+      if (!this.isOwner(ctx.from?.id ? String(ctx.from.id) : null)) {
+        await ctx.answerCallbackQuery({ text: 'Unauthorized' });
+        return;
+      }
+      const [, leaveId] = ctx.match!;
+      await ctx.answerCallbackQuery();
+      const original = ctx.msg?.text ?? '';
+      await ctx.editMessageText(`${original}\n\n_Awaiting rejection reason..._`, { parse_mode: 'Markdown' });
+      const prompt = await ctx.api.sendMessage(this.ownerChatId!, 'Reason for rejecting this leave:', {
+        reply_markup: { force_reply: true, selective: true },
+      });
+      this.hrPendingReplies.set(prompt.message_id, {
+        type: 'leave_reject',
+        xghrmId: leaveId,
+        originalMsgId: ctx.msg!.message_id,
+        originalText: original,
+      });
+    });
+
+    // HR: WFH approve
+    this.bot.callbackQuery(/^hr_wfh_approve:(.+)$/, async (ctx) => {
+      if (!this.isOwner(ctx.from?.id ? String(ctx.from.id) : null)) {
+        await ctx.answerCallbackQuery({ text: 'Unauthorized' });
+        return;
+      }
+      const [, wfhId] = ctx.match!;
+      await ctx.answerCallbackQuery();
+      const original = ctx.msg?.text ?? '';
+      try {
+        await this.hrm.approveWfh(wfhId);
+        await ctx.editMessageText(`${original}\n\nApproved`, { parse_mode: 'Markdown' });
+      } catch (err) {
+        await ctx.editMessageText(`${original}\n\nFailed: ${(err as Error).message}`);
+      }
+    });
+
+    // HR: WFH reject — ask for reason
+    this.bot.callbackQuery(/^hr_wfh_reject:(.+)$/, async (ctx) => {
+      if (!this.isOwner(ctx.from?.id ? String(ctx.from.id) : null)) {
+        await ctx.answerCallbackQuery({ text: 'Unauthorized' });
+        return;
+      }
+      const [, wfhId] = ctx.match!;
+      await ctx.answerCallbackQuery();
+      const original = ctx.msg?.text ?? '';
+      await ctx.editMessageText(`${original}\n\n_Awaiting rejection reason..._`, { parse_mode: 'Markdown' });
+      const prompt = await ctx.api.sendMessage(this.ownerChatId!, 'Reason for rejecting this WFH:', {
+        reply_markup: { force_reply: true, selective: true },
+      });
+      this.hrPendingReplies.set(prompt.message_id, {
+        type: 'wfh_reject',
+        xghrmId: wfhId,
+        originalMsgId: ctx.msg!.message_id,
+        originalText: original,
+      });
+    });
+
+    // HR: payslip approve
+    this.bot.callbackQuery(/^hr_slip_approve:([^:]+):(.+)$/, async (ctx) => {
+      if (!this.isOwner(ctx.from?.id ? String(ctx.from.id) : null)) {
+        await ctx.answerCallbackQuery({ text: 'Unauthorized' });
+        return;
+      }
+      const [, runId, xghrmId] = ctx.match!;
+      await ctx.answerCallbackQuery();
+      const original = ctx.msg?.text ?? '';
+      try {
+        await this.hrm.approvePayslip(xghrmId);
+        await this.db.db.update(hrPayslipRuns).set({ status: 'approved' }).where(eq(hrPayslipRuns.id, runId));
+        await ctx.editMessageText(`${original}\n\nApproved`, { parse_mode: 'Markdown' });
+        await this.checkPayslipRunComplete(runId);
+      } catch (err) {
+        await ctx.editMessageText(`${original}\n\nFailed: ${(err as Error).message}`);
+      }
+    });
+
+    // HR: payslip edit — ask for bonus/deductions
+    this.bot.callbackQuery(/^hr_slip_edit:([^:]+):(.+)$/, async (ctx) => {
+      if (!this.isOwner(ctx.from?.id ? String(ctx.from.id) : null)) {
+        await ctx.answerCallbackQuery({ text: 'Unauthorized' });
+        return;
+      }
+      const [, runId, xghrmId] = ctx.match!;
+      await ctx.answerCallbackQuery();
+      const original = ctx.msg?.text ?? '';
+      await ctx.editMessageText(`${original}\n\n_Awaiting edited values..._`, { parse_mode: 'Markdown' });
+      const prompt = await ctx.api.sendMessage(
+        this.ownerChatId!,
+        'Enter new values (e.g. bonus=5000 deductions=2000):',
+        { reply_markup: { force_reply: true, selective: true } },
+      );
+      this.hrPendingReplies.set(prompt.message_id, {
+        type: 'slip_edit',
+        runId,
+        xghrmId,
+        originalMsgId: ctx.msg!.message_id,
+      });
+      await this.db.db.update(hrPayslipRuns).set({ status: 'edit_requested' }).where(eq(hrPayslipRuns.id, runId));
+    });
+
+    // HR: payslip skip
+    this.bot.callbackQuery(/^hr_slip_skip:(.+)$/, async (ctx) => {
+      if (!this.isOwner(ctx.from?.id ? String(ctx.from.id) : null)) {
+        await ctx.answerCallbackQuery({ text: 'Unauthorized' });
+        return;
+      }
+      const [, runId] = ctx.match!;
+      await ctx.answerCallbackQuery();
+      const original = ctx.msg?.text ?? '';
+      await this.db.db.update(hrPayslipRuns).set({ status: 'skipped' }).where(eq(hrPayslipRuns.id, runId));
+      await ctx.editMessageText(`${original}\n\nSkipped`, { parse_mode: 'Markdown' });
+      await this.checkPayslipRunComplete(runId);
+    });
+
     // Agent picker callback: route:<pendingId>:<agentKey>
     this.bot.callbackQuery(/^route:(\d+):(.+)$/, async (ctx) => {
       const fromId = ctx.from?.id ? String(ctx.from.id) : null;
@@ -456,6 +600,14 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
         if (rejectApproval) {
           await this.approvalSvc.rejectWithReason(rejectApproval.id, text);
           await ctx.reply('Rejected with reason recorded\\.', { parse_mode: 'MarkdownV2' });
+          return;
+        }
+
+        // HR pending reply (leave reject, WFH reject, payslip edit)
+        const hrPending = this.hrPendingReplies.get(replyTo.message_id);
+        if (hrPending) {
+          this.hrPendingReplies.delete(replyTo.message_id);
+          await this.handleHrPendingReply(ctx, hrPending, text);
           return;
         }
 
@@ -577,5 +729,81 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       `Action: \`${action.type}\``,
       `Risk: ${risk} ${action.riskLevel}`,
     ].join('\n');
+  }
+
+  private async handleHrPendingReply(
+    ctx: { reply: (t: string, o?: object) => Promise<unknown>; api: { editMessageText: (chatId: string, msgId: number, text: string, opts?: object) => Promise<unknown> } },
+    pending: HrPendingReply,
+    text: string,
+  ) {
+    if (pending.type === 'leave_reject') {
+      try {
+        await this.hrm.rejectLeave(pending.xghrmId, text);
+        await ctx.api.editMessageText(this.ownerChatId!, pending.originalMsgId, `${pending.originalText}\n\nRejected — ${text}`, { parse_mode: 'Markdown' });
+      } catch (err) {
+        await ctx.reply(`Failed to reject leave: ${(err as Error).message}`);
+      }
+      return;
+    }
+
+    if (pending.type === 'wfh_reject') {
+      try {
+        await this.hrm.rejectWfh(pending.xghrmId, text);
+        await ctx.api.editMessageText(this.ownerChatId!, pending.originalMsgId, `${pending.originalText}\n\nRejected — ${text}`, { parse_mode: 'Markdown' });
+      } catch (err) {
+        await ctx.reply(`Failed to reject WFH: ${(err as Error).message}`);
+      }
+      return;
+    }
+
+    if (pending.type === 'slip_edit') {
+      // Parse "bonus=5000 deductions=2000" — fields are optional
+      const bonusMatch = text.match(/bonus\s*=\s*(\d+)/i);
+      const deductMatch = text.match(/deductions?\s*=\s*(\d+)/i);
+      if (!bonusMatch && !deductMatch) {
+        await ctx.reply('Could not parse values. Use format: bonus=5000 deductions=2000');
+        return;
+      }
+      const data: { bonus?: number; deductions?: number } = {};
+      if (bonusMatch) data.bonus = parseInt(bonusMatch[1], 10);
+      if (deductMatch) data.deductions = parseInt(deductMatch[1], 10);
+      try {
+        const updated = await this.hrm.updatePayslip(pending.xghrmId, data);
+        await this.db.db.update(hrPayslipRuns)
+          .set({ netSalary: Math.round(updated.netSalary), status: 'tg_sent' })
+          .where(eq(hrPayslipRuns.id, pending.runId));
+        const kb = new InlineKeyboard()
+          .text('Approve', `hr_slip_approve:${pending.runId}:${pending.xghrmId}`)
+          .text('Edit again', `hr_slip_edit:${pending.runId}:${pending.xghrmId}`)
+          .text('Skip', `hr_slip_skip:${pending.runId}`);
+        const updatedText = `Payslip — ${updated.employeeName}\nMonth: ${updated.month}\nBase: ${updated.currency} ${Number(updated.baseSalary).toLocaleString()}\nBonus: ${updated.currency} ${Number(updated.bonus).toLocaleString()}\nDeductions: ${updated.currency} ${Number(updated.deductions).toLocaleString()}\nNet: ${updated.currency} ${Number(updated.netSalary).toLocaleString()}`;
+        await ctx.api.editMessageText(this.ownerChatId!, pending.originalMsgId, updatedText, {
+          parse_mode: 'Markdown',
+          reply_markup: kb,
+        });
+      } catch (err) {
+        await ctx.reply(`Failed to update payslip: ${(err as Error).message}`);
+      }
+    }
+  }
+
+  private async checkPayslipRunComplete(runId: string) {
+    const [run] = await this.db.db.select().from(hrPayslipRuns).where(eq(hrPayslipRuns.id, runId)).limit(1);
+    if (!run) return;
+
+    const remaining = await this.db.db
+      .select()
+      .from(hrPayslipRuns)
+      .where(
+        and(
+          eq(hrPayslipRuns.month, run.month),
+          not(inArray(hrPayslipRuns.status, ['approved', 'skipped'])),
+        ),
+      );
+
+    if (remaining.length === 0) {
+      const csvUrl = await this.hrm.exportPayslipsCsvUrl(run.month);
+      await this.sendMessage(`Payslip run complete for ${run.month}.\nDownload CSV: ${csvUrl}`);
+    }
   }
 }

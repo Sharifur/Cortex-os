@@ -6,6 +6,7 @@ import { SettingsModule } from '../settings/settings.module';
 import { KnowledgeBaseModule } from '../knowledge-base/knowledge-base.module';
 import { LlmModule } from '../llm/llm.module';
 import { TelegramBotAgentModule } from '../agents/telegram-bot/telegram-bot.module';
+import { HrmApiModule } from '../agents/hr/hrm-api.module';
 
 @Module({
   imports: [
@@ -13,6 +14,7 @@ import { TelegramBotAgentModule } from '../agents/telegram-bot/telegram-bot.modu
     AgentRuntimeModule,
     KnowledgeBaseModule,
     LlmModule,
+    HrmApiModule,
     forwardRef(() => TelegramBotAgentModule),
   ],
   controllers: [TelegramWebhookController],
