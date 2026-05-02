@@ -382,14 +382,14 @@ export class LivechatAgent implements IAgent, OnModuleInit {
   /**
    * Called when session.status === 'needs_human'. Instead of silently dropping
    * the visitor's message, we send a throttled reminder so they know their
-   * message was received. Fires at most once every 5 minutes per session.
+   * message was received. Fires at most once every 3 minutes per session.
    */
   private async handleNeedsHuman(sessionId: string): Promise<HandleVisitorMessageResult> {
     const recent = await this.livechat.getRecentMessages(sessionId, 20);
     const lastAgentMsg = recent.find((m) => m.role === 'agent');
     if (lastAgentMsg) {
       const ageMs = Date.now() - new Date(lastAgentMsg.createdAt).getTime();
-      if (ageMs < 5 * 60_000) {
+      if (ageMs < 3 * 60_000) {
         return { ok: true, status: 'skipped_needs_human' };
       }
     }

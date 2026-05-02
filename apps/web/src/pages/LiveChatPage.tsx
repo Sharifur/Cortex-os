@@ -220,6 +220,7 @@ function PushNotificationsToggle() {
   const token = useAuthStore((s) => s.token)!;
   const [status, setStatus] = useState<PushStatus | null>(null);
   const [busy, setBusy] = useState(false);
+  const [testSent, setTestSent] = useState(false);
 
   useEffect(() => {
     getPushStatus(token).then(setStatus);
@@ -277,15 +278,34 @@ function PushNotificationsToggle() {
 
   if (status.subscribed) {
     return (
-      <button
-        onClick={disable}
-        disabled={busy}
-        title="Disable push notifications on this device"
-        className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-md text-emerald-500 hover:bg-emerald-500/10 disabled:opacity-50"
-      >
-        <Bell className="w-3.5 h-3.5" />
-        <span className="hidden sm:inline">On</span>
-      </button>
+      <div className="inline-flex items-center gap-1">
+        <button
+          onClick={async () => {
+            setBusy(true);
+            try {
+              await fetch('/push/test', { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
+              setTestSent(true);
+              setTimeout(() => setTestSent(false), 2000);
+            } finally {
+              setBusy(false);
+            }
+          }}
+          disabled={busy}
+          title="Send a test push notification to this device"
+          className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent disabled:opacity-50"
+        >
+          <span className="hidden sm:inline">{testSent ? 'Sent!' : 'Test'}</span>
+        </button>
+        <button
+          onClick={disable}
+          disabled={busy}
+          title="Disable push notifications on this device"
+          className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-md text-emerald-500 hover:bg-emerald-500/10 disabled:opacity-50"
+        >
+          <Bell className="w-3.5 h-3.5" />
+          <span className="hidden sm:inline">On</span>
+        </button>
+      </div>
     );
   }
   return (
