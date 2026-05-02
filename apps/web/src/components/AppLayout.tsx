@@ -1,8 +1,9 @@
 import { useState, useRef, useEffect } from 'react';
 import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { Bot, LogOut, LayoutDashboard, Settings, Activity, User, KeyRound, ChevronDown, AlertTriangle, Plug, Cable, BookOpen, CheckSquare, HeartPulse, Radio, Mail, Bug, Users, BellRing, DollarSign, MessageSquare, Menu, X, ScrollText } from 'lucide-react';
+import { Bot, LogOut, LayoutDashboard, Settings, Activity, User, KeyRound, ChevronDown, AlertTriangle, Plug, Cable, BookOpen, CheckSquare, HeartPulse, Radio, Mail, Bug, Users, Bell, DollarSign, MessageSquare, Menu, X, ScrollText, MessageCircleQuestion, ShieldAlert, BookMarked } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { getRealtimeSocket } from '@/lib/realtime';
 
 function useApprovalCount(token: string) {
   const { data } = useQuery<{ length: number }>({
@@ -16,6 +17,124 @@ function useApprovalCount(token: string) {
     select: (data) => ({ length: Array.isArray(data) ? data.length : 0 }),
   });
   return data?.length ?? 0;
+}
+
+interface NotifSummary {
+  waitingChats: number;
+  pendingApprovals: number;
+  agentFailures: number;
+  kbProposals: number;
+  total: number;
+}
+
+function NotificationBell({ token }: { token: string }) {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  const { data } = useQuery<NotifSummary>({
+    queryKey: ['notifications-summary'],
+    queryFn: async () => {
+      const res = await fetch('/notifications/summary', { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) return { waitingChats: 0, pendingApprovals: 0, agentFailures: 0, kbProposals: 0, total: 0 };
+      return res.json();
+    },
+    refetchInterval: 30_000,
+  });
+
+  const total = data?.total ?? 0;
+
+  useEffect(() => {
+    const socket = getRealtimeSocket(token);
+    const invalidate = () => queryClient.invalidateQueries({ queryKey: ['notifications-summary'] });
+    socket.on('session_upserted', invalidate);
+    socket.on('approval:new', invalidate);
+    socket.on('run:failed', invalidate);
+    return () => {
+      socket.off('session_upserted', invalidate);
+      socket.off('approval:new', invalidate);
+      socket.off('run:failed', invalidate);
+    };
+  }, [token, queryClient]);
+
+  useEffect(() => {
+    function onClickOutside(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener('mousedown', onClickOutside);
+    return () => document.removeEventListener('mousedown', onClickOutside);
+  }, []);
+
+  function go(to: string) {
+    navigate(to);
+    setOpen(false);
+  }
+
+  const items = [
+    {
+      icon: <MessageCircleQuestion className="w-4 h-4 text-sky-400" />,
+      label: 'Chats waiting for reply',
+      count: data?.waitingChats ?? 0,
+      to: '/livechat',
+    },
+    {
+      icon: <AlertTriangle className="w-4 h-4 text-yellow-400" />,
+      label: 'Pending approvals',
+      count: data?.pendingApprovals ?? 0,
+      to: '/approvals',
+    },
+    {
+      icon: <ShieldAlert className="w-4 h-4 text-red-400" />,
+      label: 'Agent failures (24h)',
+      count: data?.agentFailures ?? 0,
+      to: '/activity',
+    },
+    {
+      icon: <BookMarked className="w-4 h-4 text-violet-400" />,
+      label: 'KB proposals pending',
+      count: data?.kbProposals ?? 0,
+      to: '/knowledge-base',
+    },
+  ];
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="relative flex items-center justify-center w-8 h-8 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
+        aria-label="Notifications"
+      >
+        <Bell className="w-4 h-4" />
+        {total > 0 && (
+          <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-0.5 rounded-full bg-red-500 text-[10px] font-bold text-white flex items-center justify-center leading-none">
+            {total > 99 ? '99+' : total}
+          </span>
+        )}
+      </button>
+
+      {open && (
+        <div className="absolute right-0 top-full mt-1 w-64 rounded-lg border border-border bg-card shadow-lg z-50 py-1">
+          <div className="px-3 py-2 text-xs font-semibold text-muted-foreground border-b border-border mb-1">
+            Needs attention
+          </div>
+          {items.map((item) => (
+            <button
+              key={item.to}
+              onClick={() => go(item.to)}
+              className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-accent/50 transition-colors text-left"
+            >
+              {item.icon}
+              <span className="flex-1 text-sm text-muted-foreground">{item.label}</span>
+              <span className={`text-xs font-semibold tabular-nums min-w-[20px] text-right ${item.count > 0 ? 'text-foreground' : 'text-muted-foreground/40'}`}>
+                {item.count}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 const NAV = [
@@ -35,7 +154,6 @@ const NAV = [
   { to: '/health', icon: <HeartPulse className="w-4 h-4" />, label: 'Health' },
   { to: '/debug-logs', icon: <Bug className="w-4 h-4" />, label: 'Debug Logs' },
   { to: '/settings', icon: <Settings className="w-4 h-4" />, label: 'Settings' },
-  { to: '/changelog', icon: <ScrollText className="w-4 h-4" />, label: 'Changelog' },
 ];
 
 function UserMenu() {
@@ -150,7 +268,7 @@ function Sidebar({
           <>
             <Bot className="w-5 h-5 text-primary shrink-0" />
             <span className="font-semibold text-sm">Cortex OS</span>
-            <span className="text-muted-foreground text-xs">v2.6.0</span>
+            <span className="text-muted-foreground text-xs">v2.7.0</span>
             {onToggleCollapse && (
               <button
                 onClick={onToggleCollapse}
@@ -279,6 +397,7 @@ function InstallPwaBanner() {
 
 export default function AppLayout() {
   const token = useAuthStore((s) => s.token)!;
+  const navigate = useNavigate();
   const approvalCount = useApprovalCount(token);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const location = useLocation();
@@ -340,7 +459,7 @@ export default function AppLayout() {
           <div className="flex items-center gap-2">
             <Bot className="w-5 h-5 text-primary" />
             <span className="font-semibold text-sm">Cortex OS</span>
-            <span className="text-muted-foreground text-xs">v2.6.0</span>
+            <span className="text-muted-foreground text-xs">v2.7.0</span>
           </div>
           <button
             onClick={() => setDrawerOpen(false)}
@@ -389,7 +508,18 @@ export default function AppLayout() {
             <Bot className="w-4 h-4 text-primary" />
             Cortex OS
           </div>
-          <UserMenu />
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => navigate('/changelog')}
+              className="flex items-center justify-center w-8 h-8 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
+              aria-label="Changelog"
+              title="Changelog"
+            >
+              <ScrollText className="w-4 h-4" />
+            </button>
+            <NotificationBell token={token} />
+            <UserMenu />
+          </div>
         </header>
         <main className="flex-1 overflow-auto">
           <Outlet />
