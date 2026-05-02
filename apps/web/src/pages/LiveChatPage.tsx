@@ -1801,6 +1801,12 @@ function SessionPane({
               <ArrowLeft className="w-4 h-4" />
             </button>
           )}
+          {/* T9: site tag in conversation header for quick context */}
+          {detail && (detail.session.siteLabel || detail.session.siteKey) && (
+            <span className="ml-2 text-xs bg-primary/10 text-primary px-2.5 py-1 rounded-full font-medium hidden sm:inline">
+              {detail.session.siteLabel || detail.session.siteKey}
+            </span>
+          )}
           <div className="ml-auto flex items-center gap-1 sm:gap-2">
             <button
               onClick={() => setVisitorSidebarOpen(true)}
@@ -2624,6 +2630,12 @@ function VisitorSidebar({
             {[visitor?.ipCity, visitor?.ipCountryName].filter(Boolean).join(', ')}
           </div>
         ) : null}
+        {/* T9: site tag below visitor location */}
+        {(session.siteLabel || session.siteKey) && (
+          <span className="mt-2 text-xs bg-primary/10 text-primary px-2.5 py-0.5 rounded-full font-medium">
+            {session.siteLabel || session.siteKey}
+          </span>
+        )}
       </div>
 
       {/* Currently on */}
@@ -3402,6 +3414,57 @@ function DebugTab() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // T11: GeoLite2 setup state
+  const [geoLoaded, setGeoLoaded] = useState<boolean | null>(null);
+  const [mmAccountId, setMmAccountId] = useState('');
+  const [mmLicenseKey, setMmLicenseKey] = useState('');
+  const [downloading, setDownloading] = useState(false);
+  const [downloadMsg, setDownloadMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  useEffect(() => {
+    fetch('/agents/livechat/geo/status', { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => r.json())
+      .then((d) => setGeoLoaded(d.loaded))
+      .catch(() => {});
+  }, [token]);
+
+  async function downloadDb() {
+    setDownloading(true);
+    setDownloadMsg(null);
+    try {
+      // Save credentials first if provided
+      if (mmAccountId.trim()) {
+        await fetch('/settings/maxmind_account_id', {
+          method: 'PUT',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ value: mmAccountId.trim() }),
+        });
+      }
+      if (mmLicenseKey.trim()) {
+        await fetch('/settings/maxmind_license_key', {
+          method: 'PUT',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ value: mmLicenseKey.trim() }),
+        });
+      }
+      const res = await fetch('/agents/livechat/geo/download-db', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setDownloadMsg({ ok: false, text: data?.message ?? `HTTP ${res.status}` });
+      } else {
+        setDownloadMsg({ ok: true, text: 'GeoLite2-City.mmdb downloaded and loaded successfully.' });
+        setGeoLoaded(true);
+      }
+    } catch (e) {
+      setDownloadMsg({ ok: false, text: (e as Error).message });
+    } finally {
+      setDownloading(false);
+    }
+  }
+
   async function lookup() {
     setLoading(true);
     setError(null);
@@ -3411,7 +3474,9 @@ function DebugTab() {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      setResult(await res.json());
+      const data = await res.json();
+      setResult(data);
+      setGeoLoaded(data.dbLoaded);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -3421,6 +3486,65 @@ function DebugTab() {
 
   return (
     <div className="p-6 max-w-xl mx-auto space-y-6 overflow-auto h-full">
+      {/* T11: GeoLite2 Setup card */}
+      <div className="rounded-xl border border-border bg-card p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold">GeoLite2 Country Detection</h2>
+          {geoLoaded === null ? null : geoLoaded ? (
+            <span className="text-xs text-emerald-500 bg-emerald-500/10 px-2 py-0.5 rounded-full font-medium">Enabled</span>
+          ) : (
+            <span className="text-xs text-destructive bg-destructive/10 px-2 py-0.5 rounded-full font-medium">Not loaded</span>
+          )}
+        </div>
+        {!geoLoaded && (
+          <>
+            <p className="text-xs text-muted-foreground">
+              Register a free account at <strong>maxmind.com</strong>, then go to <strong>Manage License Keys</strong> to create a key. Enter your Account ID and License Key below to download the GeoLite2-City database directly to the server.
+            </p>
+            <div className="space-y-2">
+              <div>
+                <label className="text-xs font-medium text-muted-foreground block mb-1">Account ID</label>
+                <input
+                  type="text"
+                  value={mmAccountId}
+                  onChange={(e) => setMmAccountId(e.target.value)}
+                  placeholder="123456"
+                  className="w-full text-xs bg-background border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-muted-foreground block mb-1">License Key</label>
+                <input
+                  type="password"
+                  value={mmLicenseKey}
+                  onChange={(e) => setMmLicenseKey(e.target.value)}
+                  placeholder="Your MaxMind license key"
+                  className="w-full text-xs bg-background border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+              </div>
+              <button
+                onClick={downloadDb}
+                disabled={downloading}
+                className="w-full text-xs px-3 py-2 rounded-md bg-primary text-primary-foreground font-medium disabled:opacity-50"
+              >
+                {downloading ? 'Downloading… (this may take 30–60 seconds)' : 'Download & Enable GeoLite2-City'}
+              </button>
+              {downloadMsg && (
+                <div className={`text-xs px-3 py-2 rounded-md ${downloadMsg.ok ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : 'bg-red-500/10 text-red-600 dark:text-red-400'}`}>
+                  {downloadMsg.text}
+                </div>
+              )}
+            </div>
+            <p className="text-[10px] text-muted-foreground">
+              Credentials are saved to Settings. The .mmdb file is placed at <code>apps/api/data/GeoLite2-City.mmdb</code> on the server and loaded immediately without a restart. Set <code>MAXMIND_DB_PATH</code> env var to override the path.
+            </p>
+          </>
+        )}
+        {geoLoaded && (
+          <p className="text-xs text-muted-foreground">Country and city data is being detected from visitor IPs. Use the tester below to verify a specific IP.</p>
+        )}
+      </div>
+
       <div>
         <h2 className="text-base font-semibold mb-1">IP Geolocation Tester</h2>
         <p className="text-xs text-muted-foreground">Enter an IP address to verify the MaxMind GeoLite2 database is installed and returning correct country data.</p>
@@ -3484,13 +3608,6 @@ function DebugTab() {
             <span className="text-muted-foreground">Coordinates</span>
             <span>{result.lat && result.lon ? `${result.lat}, ${result.lon}` : '—'}</span>
           </div>
-        </div>
-      )}
-
-      {!result && !error && (
-        <div className="text-xs text-muted-foreground space-y-1">
-          <p>If DB is not loaded, download <code>GeoLite2-City.mmdb</code> from MaxMind and place it at <code>apps/api/data/GeoLite2-City.mmdb</code> on the server, then restart the API.</p>
-          <p>Set <code>MAXMIND_DB_PATH</code> env var to override the path.</p>
         </div>
       )}
     </div>
