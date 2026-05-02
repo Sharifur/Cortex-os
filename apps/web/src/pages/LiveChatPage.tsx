@@ -286,9 +286,14 @@ function PushNotificationsToggle() {
           onClick={async () => {
             setBusy(true);
             try {
-              await fetch('/push/test', { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
-              setTestSent(true);
-              setTimeout(() => setTestSent(false), 2000);
+              const res = await fetch('/push/test', { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
+              const data = await res.json().catch(() => ({}));
+              if (!res.ok) {
+                alert(data?.message ?? 'Test failed');
+              } else {
+                setTestSent(true);
+                setTimeout(() => setTestSent(false), 3000);
+              }
             } finally {
               setBusy(false);
             }

@@ -172,11 +172,12 @@ export class PushService {
       this.settings.getDecrypted('push_vapid_private_key'),
       this.settings.getDecrypted('push_vapid_subject'),
     ]);
-    if (!publicKey || !privateKey || !subject) {
+    if (!publicKey || !privateKey) {
       this.cached = null;
-      throw new Error('VAPID not configured');
+      throw new Error('VAPID not configured: missing public or private key');
     }
-    this.cached = { publicKey, privateKey, subject, expiresAt: Date.now() + this.cacheMs };
+    const resolvedSubject = subject?.trim() || 'mailto:admin@cortex-os.local';
+    this.cached = { publicKey, privateKey, subject: resolvedSubject, expiresAt: Date.now() + this.cacheMs };
     return this.cached;
   }
 }

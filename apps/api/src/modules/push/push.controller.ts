@@ -65,12 +65,16 @@ export class PushController {
   async test(@Req() req: FastifyRequest & { user?: { sub?: string } }) {
     const userId = req.user?.sub;
     if (!userId) throw new BadRequestException('no user');
-    return this.push.sendToAll({
+    const configured = await this.push.isConfigured();
+    if (!configured) throw new BadRequestException('VAPID keys not configured — go to Live Chat and click "Set up push"');
+    const result = await this.push.sendToAll({
       title: 'Cortex OS push test',
       body: 'Notifications are working — open the app to start.',
       tag: 'cortex-test',
       url: '/livechat',
     });
+    if (result.sent === 0) throw new BadRequestException('No active subscriptions found — try disabling and re-enabling notifications');
+    return result;
   }
 
   /**
