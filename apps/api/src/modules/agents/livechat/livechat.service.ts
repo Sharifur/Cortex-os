@@ -652,7 +652,10 @@ export class LivechatService {
       .leftJoin(livechatVisitors, eq(livechatVisitors.id, livechatSessions.visitorPk))
       .leftJoin(livechatSites, eq(livechatSites.id, livechatSessions.siteId))
       .where(where.length ? and(...where) : undefined)
-      .orderBy(desc(livechatSessions.lastSeenAt))
+      .orderBy(sql`(
+        SELECT MAX(m.created_at) FROM livechat_messages m
+        WHERE m.session_id = livechat_sessions.id AND m.pending_approval = false
+      ) DESC NULLS LAST, livechat_sessions.last_seen_at DESC`)
       .limit(limit);
 
     const sessionIds = rows.map((r) => r.id);

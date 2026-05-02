@@ -14,7 +14,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
-import { LivechatService } from './livechat.service';
+import { LivechatService, LivechatOperatorRow } from './livechat.service';
 import { LivechatStreamService } from './livechat-stream.service';
 import { LivechatAttachmentsService } from './livechat-attachments.service';
 import { LivechatTranscriptService } from './livechat-transcript.service';
@@ -271,7 +271,7 @@ export class LivechatConversationsController {
         operatorAvatarUrl = operator.avatarUrl ?? null;
       }
     } else if (site?.key) {
-      const ops = await this.livechat.getOperatorsForSite(site.key).catch(() => []);
+      const ops = await this.livechat.getOperatorsForSite(site.key).catch(() => [] as LivechatOperatorRow[]);
       const def = ops.find((op) => op.isDefault) ?? ops[0];
       if (def) {
         operatorName = def.name;

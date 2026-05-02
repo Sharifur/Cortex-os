@@ -1855,24 +1855,7 @@ function SettingsTab({ agent, token }: { agent: AgentDetail; token: string }) {
 
   if (agent.key === 'hr') return (
     <Phase4SettingsTab agent={agent} token={token} setupContent={
-      <Phase4SetupSubTab
-        agent={agent}
-        title="HR Manager Agent — Setup Checklist"
-        description="Generates monthly salary sheets on the 25th, processes leave requests, and sends daily alerts for probation endings and contract expirations."
-        steps={<>
-          <SetupStep n={1} title="Add employees" done={agent.registered}>
-            <p>Use the API route <code className="bg-muted px-1 rounded">POST /hr/leave-request</code> to submit leave requests, or add employees directly via the DB.</p>
-            <p className="mt-1">Employee fields: name, email, role, salary, joinedAt, probationUntil, contractEndsAt, leaveBalance.</p>
-          </SetupStep>
-          <SetupStep n={2} title="Configure company settings" done={false}>
-            <p>In Config JSON set <code className="bg-muted px-1 rounded">companyName</code>, <code className="bg-muted px-1 rounded">currency</code> (default: BDT), and <code className="bg-muted px-1 rounded">workingDaysPerMonth</code>.</p>
-          </SetupStep>
-          <SetupStep n={3} title="Enable and test" done={agent.enabled}>
-            <p>Enable and trigger manually. The agent will scan for HR alerts and pending leave requests, then send Telegram approvals.</p>
-            <p className="mt-1">Salary sheet is auto-triggered on the 25th of each month.</p>
-          </SetupStep>
-        </>}
-      />
+      <HrSetupSubTab agent={agent} token={token} />
     } />
   );
 
@@ -2149,6 +2132,78 @@ function Phase4SetupSubTab({ agent, title, description, steps }: {
       <h3 className="text-sm font-semibold mb-1">{title}</h3>
       <p className="text-xs text-muted-foreground mb-5">{description}</p>
       <div className="space-y-5">{steps}</div>
+    </div>
+  );
+}
+
+function HrSetupSubTab({ agent, token }: { agent: AgentDetail; token: string }) {
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ ok: boolean; employeeCount?: number; error?: string } | null>(null);
+
+  async function testConnection() {
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const res = await fetch('/hr/test-connection', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      setTestResult(data);
+    } catch {
+      setTestResult({ ok: false, error: 'Network error — could not reach the server' });
+    } finally {
+      setTesting(false);
+    }
+  }
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-5 space-y-5">
+      <div>
+        <h3 className="text-sm font-semibold mb-1">HR Manager Agent — Setup</h3>
+        <p className="text-xs text-muted-foreground">Connects to XGHRM via its AI Agent API. Sends daily leave/WFH approval requests and runs the monthly payslip flow on a configurable day.</p>
+      </div>
+
+      <div className="rounded-lg bg-muted/40 border border-border px-4 py-3 text-xs text-muted-foreground space-y-1">
+        <p className="font-medium text-foreground">Prerequisites</p>
+        <p>Telegram bot and owner chat ID must be configured in Settings (platform-wide).</p>
+        <p>The XGHRM secret is issued from <span className="font-mono">XGHRM Admin &rarr; AI Applications &rarr; Create Application</span>. Copy it from the one-time reveal modal — it is a 64-character hex string.</p>
+      </div>
+
+      <SetupStep n={1} title="Set HRM API URL and secret in Settings" done={false}>
+        <p>Go to <a href="/settings" className="underline underline-offset-2">Settings</a> and fill in the <span className="font-mono bg-muted px-1 rounded">HR</span> section:</p>
+        <ul className="mt-1.5 space-y-1 list-disc list-inside">
+          <li><span className="font-mono bg-muted px-1 rounded">hrm_api_base_url</span> — e.g. <span className="font-mono bg-muted px-1 rounded">https://xghrm.yourdomain.com/api/ai-agent</span></li>
+          <li><span className="font-mono bg-muted px-1 rounded">hrm_api_secret</span> — the 64-char hex secret from XGHRM</li>
+        </ul>
+      </SetupStep>
+
+      <SetupStep n={2} title="Set monthly payslip day" done={false}>
+        <p>In Settings, set <span className="font-mono bg-muted px-1 rounded">hrm_payslip_day</span> to the day of month payslips should be generated and sent for approval (1–28). Default is 25.</p>
+        <p className="mt-1 text-muted-foreground">The daily CRON at 9 AM checks if today matches this day and triggers the payslip run automatically.</p>
+      </SetupStep>
+
+      <SetupStep n={3} title="Test the connection" done={testResult?.ok === true}>
+        <p className="mb-2">Verify the API credentials before enabling the agent.</p>
+        <button
+          onClick={testConnection}
+          disabled={testing}
+          className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs font-medium disabled:opacity-50"
+        >
+          {testing ? 'Testing...' : 'Test Connection'}
+        </button>
+        {testResult && (
+          <div className={`mt-2 text-xs px-3 py-2 rounded-md ${testResult.ok ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400' : 'bg-red-500/10 text-red-700 dark:text-red-400'}`}>
+            {testResult.ok
+              ? `Connected — ${testResult.employeeCount} active employee${testResult.employeeCount !== 1 ? 's' : ''} found`
+              : `Failed: ${testResult.error}`}
+          </div>
+        )}
+      </SetupStep>
+
+      <SetupStep n={4} title="Enable and run manually" done={agent.enabled}>
+        <p>Enable the agent from the General tab, then trigger it manually to confirm the daily digest arrives on Telegram.</p>
+        <p className="mt-1 text-muted-foreground">On a real payslip day, trigger manually to test the full approval flow without waiting for the CRON.</p>
+      </SetupStep>
     </div>
   );
 }
