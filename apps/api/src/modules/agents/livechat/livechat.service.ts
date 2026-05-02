@@ -379,6 +379,13 @@ export class LivechatService {
     return { sessionId: row.id, isNew: true };
   }
 
+  async setPageContext(sessionId: string, ctx: Record<string, unknown>): Promise<void> {
+    await this.db.db
+      .update(livechatSessions)
+      .set({ pageContext: ctx })
+      .where(eq(livechatSessions.id, sessionId));
+  }
+
   async setVisitorIdentity(input: {
     siteId: string;
     siteKey: string;

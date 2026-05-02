@@ -1,5 +1,5 @@
 import type { WidgetConfig } from './config';
-import { sendMessage, identify, uploadAttachment, MessageResponse, SiteConfigResponse, AttachmentSummary, OperatorSummary } from './api';
+import { sendMessage, identify, uploadAttachment, MessageResponse, SiteConfigResponse, AttachmentSummary, OperatorSummary, VisitorPageContext } from './api';
 import { connectVisitorSocket, LivechatEvent } from './socket';
 import { WIDGET_STYLES } from './styles';
 import { EMOJI_CATEGORIES, applyEmojiShortcuts } from './emoji';
@@ -39,9 +39,15 @@ const RATE_LIMIT_WINDOW_MS = 60_000;
 const EMAIL_PROMPT_AFTER_VISITOR_MSGS = 3;
 
 export function mountWidget(cfg: WidgetConfig, siteConfig: SiteConfigResponse = DEFAULT_SITE_CONFIG) {
+  const pageLoadTime = Date.now();
   const host = document.createElement('div');
   host.id = 'livechat-widget-root';
-  host.style.cssText = 'position: fixed; bottom: 40px; right: 40px; z-index: 2147483646;';
+  const isMobileViewport = () => window.innerWidth <= 480;
+  const MOBILE_HOST_BOTTOM = '10px';
+  const MOBILE_HOST_RIGHT = '10px';
+  const desktopHostCss = 'position: fixed; bottom: 40px; right: 40px; z-index: 2147483646;';
+  const mobileClosedCss = `position: fixed; bottom: ${MOBILE_HOST_BOTTOM}; right: ${MOBILE_HOST_RIGHT}; z-index: 2147483646;`;
+  host.style.cssText = isMobileViewport() ? mobileClosedCss : desktopHostCss;
   document.body.appendChild(host);
 
   const shadow = host.attachShadow({ mode: 'open' });
@@ -58,6 +64,14 @@ export function mountWidget(cfg: WidgetConfig, siteConfig: SiteConfigResponse = 
   styleEl.textContent = WIDGET_STYLES;
   shadow.appendChild(styleEl);
 
+  // host.style.cssText = '...' replaces ALL inline styles, wiping the CSS vars
+  // above. Call this after every cssText assignment to restore them.
+  const reapplyCssVars = () => {
+    host.style.setProperty('--lc-brand', brand);
+    host.style.setProperty('--lc-brand-shadow', rgba);
+    host.style.setProperty('--lc-brand-shadow-hover', rgbaHover);
+  };
+
   const state = {
     open: false,
     sessionId: readSessionId(),
@@ -73,6 +87,10 @@ export function mountWidget(cfg: WidgetConfig, siteConfig: SiteConfigResponse = 
     operators: siteConfig.operators ?? [],
     host,
     cfg,
+    reapplyCssVars,
+    activeDraftId: null as string | null,
+    historyPushed: false,
+    pendingTrigger: undefined as string | undefined,
   };
 
   const bubbleBtn = document.createElement('button');
@@ -131,9 +149,6 @@ export function mountWidget(cfg: WidgetConfig, siteConfig: SiteConfigResponse = 
   (panel as any)._state = state;
   (panel as any)._cfg = cfg;
 
-  const isMobile = () => window.innerWidth <= 480;
-  const DESKTOP_HOST_STYLE = `position: fixed; bottom: 40px; right: 40px; z-index: 2147483646;`;
-
   // On mobile we pin the host to the Visual Viewport so it tracks the
   // visible area exactly — accounting for the browser URL bar (which slides
   // in/out on scroll) and the software keyboard. Without this the header
@@ -145,49 +160,135 @@ export function mountWidget(cfg: WidgetConfig, siteConfig: SiteConfigResponse = 
     } else {
       host.style.cssText = `position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 2147483646;`;
     }
+    reapplyCssVars();
+  }
+
+  // Apply host layout for whichever state we're in. Debounced through RAF so
+  // rapid VV events (iOS Safari URL-bar slide) don't cause visible jank.
+  let vvRafId: number | null = null;
+  function scheduleHostUpdate() {
+    if (vvRafId !== null) cancelAnimationFrame(vvRafId);
+    vvRafId = requestAnimationFrame(() => {
+      vvRafId = null;
+      if (!state.open) return;
+      if (isMobileViewport()) applyMobileHostStyle();
+      else { host.style.cssText = desktopHostCss; reapplyCssVars(); }
+    });
   }
 
   let vvListenerInstalled = false;
   function ensureVvListener() {
     if (vvListenerInstalled || !window.visualViewport) return;
     vvListenerInstalled = true;
-    const onChange = () => {
-      if (!state.open) return;
-      if (isMobile()) {
-        applyMobileHostStyle();
-      } else {
-        // Device rotated to landscape (width > 480px) — revert the host
-        // back to the desktop floating style so the panel is no longer
-        // pinned full-screen.
-        host.style.cssText = DESKTOP_HOST_STYLE;
-      }
-    };
-    window.visualViewport!.addEventListener('resize', onChange);
-    window.visualViewport!.addEventListener('scroll', onChange);
+    window.visualViewport!.addEventListener('resize', scheduleHostUpdate);
+    window.visualViewport!.addEventListener('scroll', scheduleHostUpdate);
+    // orientationchange fires before VV dimensions settle — wait 150 ms for
+    // the browser to finish the rotation before we read the new dimensions.
+    window.addEventListener('orientationchange', () => {
+      setTimeout(scheduleHostUpdate, 150);
+    });
   }
+
+  // Android back-button / browser back gesture: intercept by pushing a
+  // history entry when the panel opens and listening for popstate.
+  // When the user goes back, we close the panel instead of navigating away.
+  // When the panel closes normally we call history.back() to pop our entry so
+  // the browser's history stack stays clean. Guard prevents double-close.
+  window.addEventListener('popstate', () => {
+    if (state.open && state.historyPushed) {
+      state.historyPushed = false;
+      closePanelAnim();
+    }
+  });
+
+  function collectPageContext(): VisitorPageContext {
+    const ctx: VisitorPageContext = {};
+    try {
+      const scrollable = document.body.scrollHeight - window.innerHeight;
+      ctx.scrollDepth = scrollable > 0 ? Math.round((window.scrollY / scrollable) * 100) : 100;
+    } catch {}
+    ctx.timeOnPageSec = Math.round((Date.now() - pageLoadTime) / 1000);
+    try {
+      const h1 = document.querySelector('h1')?.textContent?.trim().slice(0, 100);
+      if (h1) ctx.pageH1 = h1;
+    } catch {}
+    try {
+      const desc = document.querySelector<HTMLMetaElement>('meta[name="description"]')?.content?.trim().slice(0, 200);
+      if (desc) ctx.metaDescription = desc;
+    } catch {}
+    try {
+      const p = new URLSearchParams(window.location.search);
+      if (p.get('utm_source')) ctx.utmSource = p.get('utm_source')!.slice(0, 80);
+      if (p.get('utm_campaign')) ctx.utmCampaign = p.get('utm_campaign')!.slice(0, 80);
+      if (p.get('utm_medium')) ctx.utmMedium = p.get('utm_medium')!.slice(0, 80);
+      if (p.get('utm_term')) ctx.utmTerm = p.get('utm_term')!.slice(0, 80);
+    } catch {}
+    try {
+      if (document.referrer) ctx.referrerDomain = new URL(document.referrer).hostname.slice(0, 100);
+    } catch {}
+    try {
+      ctx.isReturnVisitor = !!localStorage.getItem('livechat_session_id');
+    } catch {}
+    if (state.pendingTrigger) {
+      ctx.triggeredBy = state.pendingTrigger.slice(0, 100);
+      state.pendingTrigger = undefined;
+    }
+    if (cfg.context && Object.keys(cfg.context).length) ctx.custom = cfg.context;
+    return ctx;
+  }
+
+  // Layer 2: any element with [data-lc-open="label"] opens the chat and
+  // records the trigger label so the agent knows why the visitor opened chat.
+  document.addEventListener('click', (e) => {
+    const el = (e.target as HTMLElement).closest<HTMLElement>('[data-lc-open]');
+    if (!el) return;
+    e.preventDefault();
+    state.pendingTrigger = el.getAttribute('data-lc-open') ?? undefined;
+    if (!state.open) {
+      state.open = true;
+      openPanel();
+    }
+  });
+
+  function openPanel() {
+    if (isMobileViewport()) {
+      applyMobileHostStyle();
+      ensureVvListener();
+      try { history.pushState({ lcPanel: true }, ''); state.historyPushed = true; } catch {}
+    }
+    panel.classList.remove('lc-panel--closing');
+    panel.style.display = 'flex';
+    state.unread = 0;
+    unreadBadge.style.display = 'none';
+    panel.querySelector<HTMLTextAreaElement>('textarea')?.focus();
+    scrollMessagesToEnd(panel);
+  }
+
+  function closePanelAnim() {
+    state.open = false;
+    panel.classList.add('lc-panel--closing');
+    setTimeout(() => {
+      if (!state.open) {
+        panel.style.display = 'none';
+        if (isMobileViewport()) { host.style.cssText = mobileClosedCss; reapplyCssVars(); }
+      }
+      panel.classList.remove('lc-panel--closing');
+    }, 180);
+  }
+  state.closePanelAnim = closePanelAnim;
 
   bubbleBtn.addEventListener('click', () => {
     proactiveBubble.style.display = 'none';
     try { sessionStorage.setItem(PROACTIVE_KEY, '1'); } catch {}
     state.open = !state.open;
     if (state.open) {
-      if (isMobile()) { applyMobileHostStyle(); ensureVvListener(); }
-      panel.classList.remove('lc-panel--closing');
-      panel.style.display = 'flex';
-      state.unread = 0;
-      unreadBadge.style.display = 'none';
-      const composer = panel.querySelector<HTMLTextAreaElement>('textarea');
-      composer?.focus();
-      scrollMessagesToEnd(panel);
+      openPanel();
     } else {
-      panel.classList.add('lc-panel--closing');
-      setTimeout(() => {
-        if (!state.open) {
-          panel.style.display = 'none';
-          if (isMobile()) host.style.cssText = DESKTOP_HOST_STYLE;
-        }
-        panel.classList.remove('lc-panel--closing');
-      }, 180);
+      if (state.historyPushed) {
+        state.historyPushed = false;
+        try { history.back(); } catch {} // pops our entry; popstate guard won't re-close (state.open=false)
+      }
+      closePanelAnim();
     }
   });
 
@@ -270,7 +371,10 @@ function buildPanel(shadow: ShadowRoot, cfg: WidgetConfig, state: any, render: (
   `;
   shadow.appendChild(panel);
 
-  const DESKTOP_HOST_STYLE_BP = `position: fixed; bottom: 40px; right: 40px; z-index: 2147483646;`;
+  const isLeftPos = (state.host as HTMLDivElement).classList.contains('lc-position-left');
+  const MOBILE_CLOSED_CSS_BP = isLeftPos
+    ? `position: fixed; bottom: 10px; left: 10px; z-index: 2147483646;`
+    : `position: fixed; bottom: 10px; right: 10px; z-index: 2147483646;`;
   const newChatBtn = panel.querySelector<HTMLButtonElement>('.lc-newchat-btn')!;
   newChatBtn.addEventListener('click', () => {
     if (!confirm('Start a new conversation? The current chat will be cleared.')) return;
@@ -278,13 +382,17 @@ function buildPanel(shadow: ShadowRoot, cfg: WidgetConfig, state: any, render: (
   });
   const closeBtn = panel.querySelector<HTMLButtonElement>('.lc-close')!;
   closeBtn.addEventListener('click', () => {
+    if (state.historyPushed) {
+      state.historyPushed = false;
+      try { history.back(); } catch {}
+    }
+    if (state.closePanelAnim) { state.closePanelAnim(); return; }
+    // Fallback (closePanelAnim not yet registered)
     state.open = false;
     panel.classList.add('lc-panel--closing');
     setTimeout(() => {
-      if (!state.open) {
-        panel.style.display = 'none';
-        if (window.innerWidth <= 480) state.host.style.cssText = DESKTOP_HOST_STYLE_BP;
-      }
+      panel.style.display = 'none';
+      if (window.innerWidth <= 480) { state.host.style.cssText = MOBILE_CLOSED_CSS_BP; state.reapplyCssVars?.(); }
       panel.classList.remove('lc-panel--closing');
     }, 180);
   });
@@ -677,6 +785,7 @@ function buildPanel(shadow: ShadowRoot, cfg: WidgetConfig, state: any, render: (
           elapsedMs: Date.now() - panelMountedAt,
           hadInteraction,
         },
+        collectPageContext(),
       );
       hideTyping(panel);
       state.sessionId = res.sessionId;
@@ -841,17 +950,23 @@ function connectAndListen(cfg: WidgetConfig, state: any, render: () => void, sit
     // Streaming reply: render a placeholder bubble keyed by draftId, append
     // deltas, then on stream_end swap the placeholder's id for the real
     // messageId so future renders dedupe correctly.
+    //
+    // stream_delta patches the streaming bubble's DOM node directly instead of
+    // calling render() — a full render() rebuilds list.innerHTML on every chunk
+    // which the browser can batch into a single repaint, making text appear all
+    // at once. Direct DOM patching lets each chunk paint individually.
     if (event.type === 'agent_stream_start' && event.draftId) {
       const panel = state.panel as HTMLDivElement | undefined;
       if (panel) hideTyping(panel);
       if (!state.messages.some((m: VisitorMessage) => m.id === event.draftId)) {
+        state.activeDraftId = event.draftId;
         state.messages.push({
           id: event.draftId,
           role: 'agent',
           content: '',
           createdAt: event.createdAt ?? new Date().toISOString(),
         });
-        render();
+        render(); // Creates the streaming bubble with lc-msg--streaming class
       }
       return;
     }
@@ -859,18 +974,28 @@ function connectAndListen(cfg: WidgetConfig, state: any, render: () => void, sit
       const idx = state.messages.findIndex((m: VisitorMessage) => m.id === event.draftId);
       if (idx >= 0) {
         state.messages[idx] = { ...state.messages[idx], content: state.messages[idx].content + event.delta };
-        render();
+        const panel = state.panel as HTMLDivElement | undefined;
+        const msgEl = panel?.querySelector<HTMLElement>('.lc-msg--streaming');
+        if (msgEl) {
+          // Show raw text during streaming — mdToHtml runs on stream_end.
+          msgEl.textContent = state.messages[idx].content;
+          const msgs = panel?.querySelector<HTMLDivElement>('.lc-messages');
+          if (msgs) msgs.scrollTop = msgs.scrollHeight;
+        } else {
+          render();
+        }
       }
       return;
     }
     if (event.type === 'agent_stream_end' && event.draftId && event.messageId) {
+      state.activeDraftId = null;
       const idx = state.messages.findIndex((m: VisitorMessage) => m.id === event.draftId);
       if (idx >= 0) {
         // Final content beats accumulated deltas — self-critique may have rewritten.
         state.messages[idx] = { ...state.messages[idx], id: event.messageId, content: event.content ?? state.messages[idx].content };
         cacheMessages(state.messages);
         if (!state.open) { state.unread = (state.unread ?? 0) + 1; playNotificationSound(); }
-        render();
+        render(); // Full render applies markdown, rating buttons, etc.
       }
       return;
     }
@@ -997,14 +1122,15 @@ function renderMessages(panel: HTMLDivElement, state: any) {
             <div class="lc-msg lc-msg-agent">${text}${attWrapper}</div>
             ${timeEl}
             ${chips}
-            ${ratingHtml}
           </div>
         </div>`;
       }
+      const isStreaming = m.id === state.activeDraftId;
+      const streamClass = isStreaming ? ' lc-msg--streaming' : '';
       return `<div class="lc-msg-row lc-msg-row-agent">
         <div class="lc-msg-avatar lc-msg-avatar-ai">${aiSparkleIcon()}</div>
         <div class="lc-msg-body">
-          <div class="lc-msg lc-msg-agent">${text}${attWrapper}</div>
+          <div class="lc-msg lc-msg-agent${streamClass}">${isStreaming ? escapeHtml(m.content) : text}${attWrapper}</div>
           ${timeEl}
           ${chips}
           ${ratingHtml}

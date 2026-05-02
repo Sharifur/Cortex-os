@@ -2,6 +2,8 @@ export interface WidgetConfig {
   siteKey: string;
   visitorId: string;
   apiBase: string;
+  /** Layer 3 — site-owner-defined context injected via data-context attr or window.CortexLivechat.context */
+  context?: Record<string, string | number | boolean>;
 }
 
 const VISITOR_ID_KEY = 'livechat_visitor_id';
@@ -14,7 +16,18 @@ export function resolveConfig(): WidgetConfig | null {
 
   const apiBase = tag.getAttribute('data-api') || originFromScriptSrc(tag) || '';
   const visitorId = readOrCreateVisitorId();
-  return { siteKey, visitorId, apiBase };
+
+  let context: Record<string, string | number | boolean> | undefined;
+  try {
+    const attr = tag.getAttribute('data-context');
+    if (attr) context = JSON.parse(attr) as Record<string, string | number | boolean>;
+  } catch {}
+  try {
+    const wc = (window as Record<string, unknown>)['CortexLivechat'] as { context?: Record<string, string | number | boolean> } | undefined;
+    if (wc?.context && typeof wc.context === 'object') context = { ...context, ...wc.context };
+  } catch {}
+
+  return { siteKey, visitorId, apiBase, context };
 }
 
 function findScriptTag(): HTMLScriptElement | null {

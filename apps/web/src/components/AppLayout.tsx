@@ -149,7 +149,7 @@ function Sidebar({
           <>
             <Bot className="w-5 h-5 text-primary shrink-0" />
             <span className="font-semibold text-sm">Cortex OS</span>
-            <span className="text-muted-foreground text-xs">v1.53</span>
+            <span className="text-muted-foreground text-xs">v2.1.0</span>
             {onToggleCollapse && (
               <button
                 onClick={onToggleCollapse}
@@ -335,11 +335,11 @@ export default function AppLayout() {
           drawerOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
-        <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+        <div className="flex items-center justify-between px-4 pb-3 border-b border-border" style={{ paddingTop: 'calc(0.75rem + env(safe-area-inset-top, 0px))' }}>
           <div className="flex items-center gap-2">
             <Bot className="w-5 h-5 text-primary" />
             <span className="font-semibold text-sm">Cortex OS</span>
-            <span className="text-muted-foreground text-xs">v1.53</span>
+            <span className="text-muted-foreground text-xs">v2.1.0</span>
           </div>
           <button
             onClick={() => setDrawerOpen(false)}
@@ -376,7 +376,7 @@ export default function AppLayout() {
       </aside>
 
       <div className="flex-1 flex flex-col min-w-0 h-full">
-        <header className="h-12 shrink-0 border-b border-border px-3 sm:px-5 flex items-center justify-between md:justify-end gap-2">
+        <header className="shrink-0 border-b border-border px-3 sm:px-5 flex items-center justify-between md:justify-end gap-2" style={{ height: 'calc(3rem + env(safe-area-inset-top, 0px))', paddingTop: 'env(safe-area-inset-top, 0px)' }}>
           <button
             onClick={() => setDrawerOpen(true)}
             className="md:hidden text-muted-foreground hover:text-foreground p-1.5 rounded-lg hover:bg-accent/50"

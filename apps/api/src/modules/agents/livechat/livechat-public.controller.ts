@@ -39,11 +39,27 @@ interface IdentifyBody {
   name?: string | null;
 }
 
+interface VisitorPageContext {
+  scrollDepth?: number;
+  timeOnPageSec?: number;
+  pageH1?: string;
+  metaDescription?: string;
+  utmSource?: string;
+  utmCampaign?: string;
+  utmMedium?: string;
+  utmTerm?: string;
+  referrerDomain?: string;
+  isReturnVisitor?: boolean;
+  triggeredBy?: string;
+  custom?: Record<string, string | number | boolean>;
+}
+
 interface MessageBody {
   siteKey: string;
   visitorId: string;
   content: string;
   attachmentIds?: string[];
+  pageContext?: VisitorPageContext;
   /** Anti-bot signals — silently fail the request when triggered. */
   meta?: {
     /** Honeypot field. Real widget keeps this empty; bots auto-fill. */
@@ -135,7 +151,8 @@ export class LivechatPublicController {
     }
     const origin = req.headers.origin as string | undefined;
     const site = await this.livechat.resolveSiteForRequest(body.siteKey, origin ?? null);
-    await this.rateLimit.check('pageview', `${site.key}:${body.visitorId}`, 60);
+    const safeVisitorId = String(body.visitorId).replace(/:/g, '_').slice(0, 128);
+    await this.rateLimit.check('pageview', `${site.key}:${safeVisitorId}`, 60);
 
     const enriched = this.enrichment.enrich(
       extractClientIp(req),
@@ -158,10 +175,10 @@ export class LivechatPublicController {
       visitorPk,
       visitorId: body.visitorId,
       sessionId: null,
-      url: body.url,
-      path: body.path ?? this.pathFromUrl(body.url),
-      title: body.title ?? null,
-      referrer: body.referrer ?? null,
+      url: body.url.slice(0, 2000),
+      path: (body.path ?? this.pathFromUrl(body.url))?.slice(0, 500) ?? null,
+      title: body.title?.slice(0, 300) ?? null,
+      referrer: body.referrer?.slice(0, 2000) ?? null,
     });
 
     this.stream.publishToOperators({ type: 'visitor_activity', visitorPk, siteKey: site.key });
@@ -176,7 +193,8 @@ export class LivechatPublicController {
     }
     const origin = req.headers.origin as string | undefined;
     const site = await this.livechat.resolveSiteForRequest(body.siteKey, origin ?? null);
-    await this.rateLimit.check('heartbeat', `${site.key}:${body.visitorId}`, 120);
+    const safeVisitorId = String(body.visitorId).replace(/:/g, '_').slice(0, 128);
+    await this.rateLimit.check('heartbeat', `${site.key}:${safeVisitorId}`, 120);
     const { sessionId, previousUrl, previousTitle } = await this.livechat.heartbeatVisitor({
       siteId: site.id,
       visitorId: body.visitorId,
@@ -295,27 +313,34 @@ export class LivechatPublicController {
     if (!body?.siteKey || !body?.visitorId) {
       throw new BadRequestException('siteKey and visitorId are required');
     }
+    const email = body.email?.trim().slice(0, 254) ?? undefined;
+    const name = body.name?.trim().slice(0, 100) ?? undefined;
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      throw new BadRequestException('Invalid email address');
+    }
     const origin = req.headers.origin as string | undefined;
     const site = await this.livechat.resolveSiteForRequest(body.siteKey, origin ?? null);
     await this.livechat.setVisitorIdentity({
       siteId: site.id,
       siteKey: site.key,
       visitorId: body.visitorId,
-      email: body.email ?? undefined,
-      name: body.name ?? undefined,
+      email,
+      name,
     });
     return { ok: true };
   }
 
   @Post('message')
   async message(@Req() req: FastifyRequest, @Body() body: MessageBody) {
-    const hasAttachments = Array.isArray(body?.attachmentIds) && body.attachmentIds.length > 0;
+    const rawAttachmentIds = Array.isArray(body?.attachmentIds) ? body.attachmentIds.slice(0, 5) : [];
+    const hasAttachments = rawAttachmentIds.length > 0;
     if (!body?.siteKey || !body?.visitorId || (!body?.content?.trim() && !hasAttachments)) {
       throw new BadRequestException('siteKey, visitorId and content (or attachments) are required');
     }
     const origin = req.headers.origin as string | undefined;
     const site = await this.livechat.resolveSiteForRequest(body.siteKey, origin ?? null);
-    await this.rateLimit.check('message', `${site.key}:${body.visitorId}`, 30);
+    const safeVisitorId = String(body.visitorId).replace(/:/g, '_').slice(0, 128);
+    await this.rateLimit.check('message', `${site.key}:${safeVisitorId}`, 30);
 
     const enriched = this.enrichment.enrich(
       extractClientIp(req),
@@ -335,6 +360,10 @@ export class LivechatPublicController {
       visitorPk,
       visitorId: body.visitorId,
     });
+
+    if (body.pageContext && typeof body.pageContext === 'object') {
+      void this.livechat.setPageContext(sessionId, body.pageContext as Record<string, unknown>);
+    }
 
     const visitorContent = (body.content ?? '').trim();
 
@@ -377,8 +406,8 @@ export class LivechatPublicController {
 
     let attachments: Awaited<ReturnType<LivechatAttachmentsService['getById']>>[] = [];
     if (hasAttachments) {
-      await this.attachments.linkToMessage(body.attachmentIds!, visitorMsg.id, sessionId);
-      attachments = await Promise.all(body.attachmentIds!.map((id) => this.attachments.getById(id)));
+      await this.attachments.linkToMessage(rawAttachmentIds, visitorMsg.id, sessionId);
+      attachments = await Promise.all(rawAttachmentIds.map((id) => this.attachments.getById(id)));
     }
 
     this.stream.publish(sessionId, {
@@ -398,30 +427,31 @@ export class LivechatPublicController {
       : { ok: true, status: 'skipped_taken_over' as const };
 
     // Push notification: fire to subscribed operators when the session needs
-    // human attention — moderation queue, fallback, or a session that's
-    // already taken over by a human.
+    // human attention. For needs_human sessions, only push when the throttled
+    // reminder actually fires (result.reply set) — not on every silent drop.
+    const isNeedsHumanReminder = result.status === 'skipped_needs_human' && !!result.reply;
     const pushable =
       result.status === 'pending_approval' ||
       result.status === 'fallback_needs_human' ||
       result.status === 'skipped_taken_over' ||
-      result.status === 'skipped_needs_human';
+      isNeedsHumanReminder;
     if (pushable) {
-      const visitorLabel = visitorMsg.id; // placeholder; we send a friendlier label below
       const session = await this.livechat.getSession(sessionId).catch(() => null);
       const name = session?.visitorName?.trim() || session?.visitorEmail || `visitor${body.visitorId.slice(-5)}`;
-      const reasonLabel =
-        result.status === 'pending_approval' ? 'needs your review' :
-        result.status === 'fallback_needs_human' ? 'needs a human' :
-        result.status === 'skipped_taken_over' ? 'replied to your conversation' :
-        'is waiting for a human';
+      const isUrgent = result.status === 'fallback_needs_human' || isNeedsHumanReminder;
+      const title =
+        result.status === 'pending_approval' ? `Review needed — ${name}` :
+        result.status === 'fallback_needs_human' ? `Live chat needs you — ${name}` :
+        result.status === 'skipped_taken_over' ? `${name} replied` :
+        `Still waiting — ${name}`;
       void this.push.sendToAll({
-        title: `${name} ${reasonLabel}`,
+        title,
         body: visitorContent.slice(0, 140) || '(attachment)',
         tag: `lc-${sessionId}`,
         url: `/livechat?session=${sessionId}`,
         renotify: true,
+        requireInteraction: isUrgent,
       }).catch(() => undefined);
-      void visitorLabel; // unused
     }
 
     return {

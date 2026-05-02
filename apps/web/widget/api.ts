@@ -117,13 +117,29 @@ export interface SendMessageMeta {
   hadInteraction?: boolean;
 }
 
-export function sendMessage(cfg: WidgetConfig, content: string, attachmentIds?: string[], meta?: SendMessageMeta) {
+export interface VisitorPageContext {
+  scrollDepth?: number;
+  timeOnPageSec?: number;
+  pageH1?: string;
+  metaDescription?: string;
+  utmSource?: string;
+  utmCampaign?: string;
+  utmMedium?: string;
+  utmTerm?: string;
+  referrerDomain?: string;
+  isReturnVisitor?: boolean;
+  triggeredBy?: string;
+  custom?: Record<string, string | number | boolean>;
+}
+
+export function sendMessage(cfg: WidgetConfig, content: string, attachmentIds?: string[], meta?: SendMessageMeta, pageContext?: VisitorPageContext) {
   return postJson<MessageResponse>(`${cfg.apiBase}/livechat/message`, {
     siteKey: cfg.siteKey,
     visitorId: cfg.visitorId,
     content,
     attachmentIds: attachmentIds && attachmentIds.length ? attachmentIds : undefined,
     meta,
+    pageContext,
   });
 }
 

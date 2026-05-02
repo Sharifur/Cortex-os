@@ -172,7 +172,7 @@ function playNotificationSound() {
   } catch {}
 }
 
-type Tab = 'conversations' | 'sites' | 'operators' | 'setup';
+type Tab = 'conversations' | 'sites' | 'operators' | 'setup' | 'debug';
 
 export default function LiveChatPage() {
   const [tab, setTab] = useState<Tab>('conversations');
@@ -200,6 +200,9 @@ export default function LiveChatPage() {
           <TabButton active={tab === 'setup'} onClick={() => setTab('setup')}>
             Setup
           </TabButton>
+          <TabButton active={tab === 'debug'} onClick={() => setTab('debug')}>
+            Debug
+          </TabButton>
         </nav>
       </header>
       <div className="flex-1 overflow-hidden">
@@ -207,6 +210,7 @@ export default function LiveChatPage() {
         {tab === 'sites' && <SitesTab />}
         {tab === 'operators' && <OperatorsTab />}
         {tab === 'setup' && <SetupTab />}
+        {tab === 'debug' && <DebugTab />}
       </div>
     </div>
   );
@@ -216,6 +220,7 @@ function PushNotificationsToggle() {
   const token = useAuthStore((s) => s.token)!;
   const [status, setStatus] = useState<PushStatus | null>(null);
   const [busy, setBusy] = useState(false);
+  const [testSent, setTestSent] = useState(false);
 
   useEffect(() => {
     getPushStatus(token).then(setStatus);
@@ -273,15 +278,34 @@ function PushNotificationsToggle() {
 
   if (status.subscribed) {
     return (
-      <button
-        onClick={disable}
-        disabled={busy}
-        title="Disable push notifications on this device"
-        className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-md text-emerald-500 hover:bg-emerald-500/10 disabled:opacity-50"
-      >
-        <Bell className="w-3.5 h-3.5" />
-        <span className="hidden sm:inline">On</span>
-      </button>
+      <div className="inline-flex items-center gap-1">
+        <button
+          onClick={async () => {
+            setBusy(true);
+            try {
+              await fetch('/push/test', { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
+              setTestSent(true);
+              setTimeout(() => setTestSent(false), 2000);
+            } finally {
+              setBusy(false);
+            }
+          }}
+          disabled={busy}
+          title="Send a test push notification to this device"
+          className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent disabled:opacity-50"
+        >
+          <span className="hidden sm:inline">{testSent ? 'Sent!' : 'Test'}</span>
+        </button>
+        <button
+          onClick={disable}
+          disabled={busy}
+          title="Disable push notifications on this device"
+          className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-md text-emerald-500 hover:bg-emerald-500/10 disabled:opacity-50"
+        >
+          <Bell className="w-3.5 h-3.5" />
+          <span className="hidden sm:inline">On</span>
+        </button>
+      </div>
     );
   }
   return (
@@ -1800,7 +1824,7 @@ function SessionPane({
           {language && (
             <div className="flex justify-center mb-4">
               <span className="inline-flex items-center gap-2 px-3 py-1.5 bg-card border border-border rounded-full text-xs">
-                <span>{flagFor(detail.visitor?.ipCountry ?? language.split('-')[1] ?? '')}</span>
+                {detail.visitor?.ipCountry && <span>{flagFor(detail.visitor.ipCountry)}</span>}
                 {prettyLanguage(language)}
               </span>
             </div>
@@ -3297,6 +3321,124 @@ function SiteSetupCard({ site, apiBase }: { site: Site; apiBase: string }) {
           <li>"Currently on" never updates on SPA route changes → the widget tracker patches history.pushState; confirm the snippet loaded after the SPA bootstraps.</li>
         </ul>
       </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Debug Tab
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface IpLookupResult {
+  dbLoaded: boolean;
+  ip: string | null;
+  country: string | null;
+  countryName: string | null;
+  region: string | null;
+  city: string | null;
+  lat: string | null;
+  lon: string | null;
+  timezone: string | null;
+}
+
+function DebugTab() {
+  const token = useAuthStore((s) => s.token)!;
+  const [ip, setIp] = useState('');
+  const [result, setResult] = useState<IpLookupResult | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function lookup() {
+    setLoading(true);
+    setError(null);
+    setResult(null);
+    try {
+      const res = await fetch(`/agents/livechat/debug/ip-lookup?ip=${encodeURIComponent(ip.trim())}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setResult(await res.json());
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="p-6 max-w-xl mx-auto space-y-6 overflow-auto h-full">
+      <div>
+        <h2 className="text-base font-semibold mb-1">IP Geolocation Tester</h2>
+        <p className="text-xs text-muted-foreground">Enter an IP address to verify the MaxMind GeoLite2 database is installed and returning correct country data.</p>
+      </div>
+
+      <div className="flex gap-2">
+        <input
+          type="text"
+          value={ip}
+          onChange={(e) => setIp(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') lookup(); }}
+          placeholder="e.g. 8.8.8.8 or 2a00:1450:4009:822::200e"
+          className="flex-1 text-sm border border-border rounded-lg px-3 py-2 bg-background focus:outline-none focus:ring-2 focus:ring-ring"
+        />
+        <button
+          onClick={lookup}
+          disabled={loading || !ip.trim()}
+          className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium disabled:opacity-50"
+        >
+          {loading ? 'Looking up…' : 'Lookup'}
+        </button>
+      </div>
+
+      {error && (
+        <div className="text-sm text-destructive bg-destructive/10 rounded-lg px-4 py-3">{error}</div>
+      )}
+
+      {result && (
+        <div className="rounded-xl border border-border bg-card divide-y divide-border text-sm">
+          <div className="px-4 py-3 flex items-center justify-between">
+            <span className="text-muted-foreground">GeoLite2 DB</span>
+            <span className={result.dbLoaded ? 'text-green-500 font-medium' : 'text-destructive font-medium'}>
+              {result.dbLoaded ? 'Loaded' : 'NOT loaded — country detection is disabled'}
+            </span>
+          </div>
+          <div className="px-4 py-3 flex items-center justify-between">
+            <span className="text-muted-foreground">IP</span>
+            <span className="font-mono">{result.ip ?? '—'}</span>
+          </div>
+          <div className="px-4 py-3 flex items-center justify-between">
+            <span className="text-muted-foreground">Country</span>
+            <span>
+              {result.country
+                ? `${flagFor(result.country)} ${result.countryName ?? ''} (${result.country})`
+                : '—'}
+            </span>
+          </div>
+          <div className="px-4 py-3 flex items-center justify-between">
+            <span className="text-muted-foreground">Region</span>
+            <span>{result.region ?? '—'}</span>
+          </div>
+          <div className="px-4 py-3 flex items-center justify-between">
+            <span className="text-muted-foreground">City</span>
+            <span>{result.city ?? '—'}</span>
+          </div>
+          <div className="px-4 py-3 flex items-center justify-between">
+            <span className="text-muted-foreground">Timezone</span>
+            <span>{result.timezone ?? '—'}</span>
+          </div>
+          <div className="px-4 py-3 flex items-center justify-between">
+            <span className="text-muted-foreground">Coordinates</span>
+            <span>{result.lat && result.lon ? `${result.lat}, ${result.lon}` : '—'}</span>
+          </div>
+        </div>
+      )}
+
+      {!result && !error && (
+        <div className="text-xs text-muted-foreground space-y-1">
+          <p>If DB is not loaded, download <code>GeoLite2-City.mmdb</code> from MaxMind and place it at <code>apps/api/data/GeoLite2-City.mmdb</code> on the server, then restart the API.</p>
+          <p>Set <code>MAXMIND_DB_PATH</code> env var to override the path.</p>
+        </div>
+      )}
     </div>
   );
 }

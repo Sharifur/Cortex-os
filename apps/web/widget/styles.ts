@@ -16,6 +16,10 @@ export const WIDGET_STYLES = `
   right: auto;
   left: 40px;
 }
+@media (max-width: 480px) {
+  :host { bottom: 10px; right: 10px; }
+  :host(.lc-position-left) { right: auto; left: 10px; }
+}
 
 /* ── Bubble button ── */
 .lc-bubble {
@@ -364,7 +368,7 @@ export const WIDGET_STYLES = `
 .lc-msg-sender { font-size: 11px; color: #6b7280; font-weight: 500; padding: 0 3px; }
 .lc-msg-time { font-size: 10px; color: #9ca3af; padding: 0 3px; }
 
-.lc-msg { padding: 9px 13px; border-radius: 16px; font-size: 14px; line-height: 1.45; word-wrap: break-word; }
+.lc-msg { padding: 9px 13px; border-radius: 16px; font-size: 14px; line-height: 1.45; word-wrap: break-word; overflow-wrap: anywhere; }
 .lc-msg.lc-msg-visitor { background: var(--lc-brand); color: #fff; border-bottom-right-radius: 4px; }
 .lc-msg.lc-msg-agent { background: #fff; color: #1f2937; border: 1px solid #e5e7eb; border-bottom-left-radius: 4px; }
 .lc-msg.lc-msg-system { align-self: center; font-size: 11px; color: #9ca3af; background: transparent; padding: 4px 0; }
@@ -590,8 +594,9 @@ export const WIDGET_STYLES = `
 .lc-hp { position: absolute; left: -9999px; top: -9999px; width: 1px; height: 1px; opacity: 0; }
 
 /* ── Attach button ── */
-.lc-attach-btn { background: transparent; border: 0; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #6b7280; cursor: pointer; flex-shrink: 0; }
-.lc-attach-btn:hover { background: #f3f4f6; color: #1f2937; }
+/* .lc-composer .lc-attach-btn wins over .lc-composer button (specificity 0,2,0 > 0,1,1) */
+.lc-composer .lc-attach-btn { background: transparent; border: 0; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #6b7280; cursor: pointer; flex-shrink: 0; }
+.lc-composer .lc-attach-btn:hover { background: #f3f4f6; color: #1f2937; }
 .lc-attach-btn svg { width: 18px; height: 18px; }
 
 /* ── Attachments in messages ── */
@@ -625,6 +630,26 @@ export const WIDGET_STYLES = `
 .lc-rate-btn:hover:not(:disabled) { background: #f3f4f6; border-color: #d1d5db; }
 .lc-rate-btn:disabled { cursor: default; opacity: 0.5; }
 .lc-rate-btn--active { background: #f0fdf4; border-color: #86efac; }
+
+/* ── Streaming cursor ── */
+.lc-msg--streaming {
+  min-height: 1.4em;
+}
+.lc-msg--streaming::after {
+  content: '';
+  display: inline-block;
+  width: 2px;
+  height: 0.85em;
+  background: currentColor;
+  opacity: 0.6;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  animation: lc-cursor-blink 0.55s steps(1) infinite;
+}
+@keyframes lc-cursor-blink {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 0; }
+}
 
 /* ── Proactive welcome bubble ── */
 /* Styled as a chat bubble pointing down at the chat-launcher button.
@@ -714,13 +739,22 @@ export const WIDGET_STYLES = `
     width: 44px;
     height: 44px;
   }
-  .lc-attach-btn {
+  .lc-composer .lc-attach-btn {
+    width: 44px;
+    height: 44px;
+  }
+  .lc-composer .lc-emoji-btn {
+    width: 44px;
+    height: 44px;
+  }
+  .lc-composer button[type="submit"] {
     width: 44px;
     height: 44px;
   }
   /* Prevent double-tap zoom on all interactive elements. */
   .lc-close, .lc-menu-btn, .lc-newchat-btn,
   .lc-attach-btn, .lc-emoji-btn,
+  .lc-composer button[type="submit"],
   .lc-rate-btn, .lc-chip, .lc-fb-btn,
   .lc-quick-replies button, .lc-session-end-btn {
     touch-action: manipulation;
@@ -751,5 +785,12 @@ export const WIDGET_STYLES = `
   .lc-header { padding-top: calc(8px + env(safe-area-inset-top, 0px)); padding-bottom: 8px; }
   .lc-messages { padding: 6px 12px; }
   .lc-composer { padding-top: 6px; padding-bottom: calc(6px + env(safe-area-inset-bottom, 0px)); }
+  /* Emoji picker: shrink grid so it doesn't overflow the compressed panel. */
+  .lc-emoji-grid { max-height: 110px; }
+}
+/* Portrait + soft keyboard: medium-height viewport (keyboard visible but not landscape).
+   Reduce picker height so it fits between the header and composer. */
+@media (max-width: 480px) and (min-height: 401px) and (max-height: 600px) {
+  .lc-emoji-grid { max-height: 150px; }
 }
 `;
