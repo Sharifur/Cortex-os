@@ -10,8 +10,6 @@ RUN npm install --workspace=apps/api --workspace=apps/web
 COPY tsconfig.base.json ./
 COPY apps/api/ ./apps/api/
 COPY apps/web/ ./apps/web/
-# Ensure data dir exists (populated by CI before docker build)
-RUN mkdir -p /app/apps/api/data
 
 # Build widget bundle first so it lands in apps/api/public/livechat.js
 RUN npm --workspace=apps/web run build:widget
@@ -29,7 +27,6 @@ RUN npm install --omit=dev
 COPY --from=builder /app/apps/api/dist ./dist
 COPY --from=builder /app/apps/api/drizzle ./drizzle
 COPY --from=builder /app/apps/api/public ./public
-COPY --from=builder /app/apps/api/data ./data
 
 ENV NODE_ENV=production
 EXPOSE 3000

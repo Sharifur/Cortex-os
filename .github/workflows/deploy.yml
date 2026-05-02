@@ -1,52 +1,28 @@
-name: Build & Push Docker Image
+name: CI
 
 on:
   push:
+    branches: [main, dev]
+  pull_request:
     branches: [main]
 
-env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ghcr.io/sharifur/convex-os
-
 jobs:
-  build:
+  typecheck:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Download GeoLite2-City database
-        env:
-          MAXMIND_ACCOUNT_ID: ${{ secrets.MAXMIND_ACCOUNT_ID }}
-          MAXMIND_LICENSE_KEY: ${{ secrets.MAXMIND_LICENSE_KEY }}
-        run: |
-          mkdir -p apps/api/data
-          wget -q \
-            --user="${MAXMIND_ACCOUNT_ID}" \
-            --password="${MAXMIND_LICENSE_KEY}" \
-            "https://download.maxmind.com/geoip/databases/GeoLite2-City/download?suffix=tar.gz" \
-            -O /tmp/geo.tar.gz
-          tar -xzf /tmp/geo.tar.gz --strip-components=1 -C apps/api/data
-          rm /tmp/geo.tar.gz
-          echo "GeoLite2-City.mmdb size: $(du -sh apps/api/data/GeoLite2-City.mmdb | cut -f1)"
-
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
+      - uses: actions/setup-node@v4
         with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          node-version: 22
+          cache: npm
 
-      - name: Build and push
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: docker/Dockerfile.api
-          push: true
-          tags: |
-            ${{ env.IMAGE_NAME }}:latest
-            ${{ env.IMAGE_NAME }}:${{ github.sha }}
+      - run: npm install --workspace=apps/api --workspace=apps/web
+
+      - name: Typecheck API
+        run: npm --workspace=apps/api run build --if-present || npx tsc --noEmit
+        working-directory: apps/api
+
+      - name: Typecheck Web
+        run: npm --workspace=apps/web exec tsc -- --noEmit
+        working-directory: apps/web
