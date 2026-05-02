@@ -23,7 +23,7 @@ export function resolveConfig(): WidgetConfig | null {
     if (attr) context = JSON.parse(attr) as Record<string, string | number | boolean>;
   } catch {}
   try {
-    const wc = (window as Record<string, unknown>)['CortexLivechat'] as { context?: Record<string, string | number | boolean> } | undefined;
+    const wc = (window as unknown as Record<string, unknown>)['CortexLivechat'] as { context?: Record<string, string | number | boolean> } | undefined;
     if (wc?.context && typeof wc.context === 'object') context = { ...context, ...wc.context };
   } catch {}
 
