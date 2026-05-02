@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v2.7.1',
+    date: '2026-05-02',
+    entries: [
+      { tag: 'fix', scope: 'livechat', description: '"Correction sent" label now always visible after submitting a flag — was hidden until hover' },
+    ],
+  },
+  {
     version: 'v2.7.0',
     date: '2026-05-02',
     entries: [

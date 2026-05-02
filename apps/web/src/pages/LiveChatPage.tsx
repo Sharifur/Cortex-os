@@ -2438,7 +2438,7 @@ function MessageBubble({
               </button>
             )}
             {isAi && flagSubmitted && (
-              <span className="text-[10px] text-emerald-500 opacity-0 group-hover:opacity-100 transition-opacity">Correction sent</span>
+              <span className="text-[10px] text-emerald-500">Correction sent</span>
             )}
           </div>
         )}
