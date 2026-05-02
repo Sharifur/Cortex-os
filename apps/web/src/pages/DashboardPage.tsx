@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import {
   Activity, CheckCircle2, AlertCircle, Bot, Clock,
-  TrendingUp, ChevronRight, Zap, Users,
+  TrendingUp, ChevronRight, Zap, Users, MessageSquare,
 } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAuthStore } from '@/stores/authStore';
@@ -111,8 +111,28 @@ function StatCardSkeleton() {
   );
 }
 
+interface LivechatStats {
+  open: number;
+  needsHuman: number;
+  today: number;
+  pendingDrafts: number;
+}
+
 export default function DashboardPage() {
   const token = useAuthStore((s) => s.token)!;
+
+  const { data: chatStats } = useQuery<LivechatStats>({
+    queryKey: ['livechat-session-stats'],
+    queryFn: async () => {
+      const res = await fetch('/agents/livechat/sessions/stats', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error('Failed');
+      return res.json();
+    },
+    refetchInterval: 30_000,
+    staleTime: 15_000,
+  });
 
   const { data, isLoading } = useQuery<Stats>({
     queryKey: ['dashboard-stats'],
@@ -282,6 +302,41 @@ export default function DashboardPage() {
           </div>
         </section>
       </div>
+
+      {chatStats !== undefined && (
+        <section className="mb-6">
+          <h2 className="text-sm font-semibold mb-3 flex items-center gap-2">
+            <MessageSquare className="w-4 h-4 text-muted-foreground" />
+            Live Chat
+          </h2>
+          <Link to="/livechat" className="block rounded-xl border border-border bg-card hover:bg-accent/30 transition-colors p-4">
+            <div className="flex items-center gap-6 flex-wrap">
+              <div className="flex items-center gap-2">
+                <span className={`text-2xl font-bold ${chatStats.open > 0 ? 'text-foreground' : 'text-muted-foreground'}`}>
+                  {chatStats.open}
+                </span>
+                <span className="text-xs text-muted-foreground">active sessions</span>
+              </div>
+              {chatStats.needsHuman > 0 && (
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0" />
+                  <span className="text-sm font-medium text-amber-500">{chatStats.needsHuman} need human</span>
+                </div>
+              )}
+              {chatStats.pendingDrafts > 0 && (
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-blue-400 shrink-0" />
+                  <span className="text-sm font-medium text-blue-400">{chatStats.pendingDrafts} pending draft{chatStats.pendingDrafts > 1 ? 's' : ''}</span>
+                </div>
+              )}
+              <div className="ml-auto flex items-center gap-1 text-xs text-muted-foreground shrink-0">
+                <span>{chatStats.today} session{chatStats.today !== 1 ? 's' : ''} today</span>
+                <ChevronRight className="w-4 h-4" />
+              </div>
+            </div>
+          </Link>
+        </section>
+      )}
 
       <section>
         <h2 className="text-sm font-semibold mb-3 flex items-center gap-2">

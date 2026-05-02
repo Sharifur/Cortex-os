@@ -539,7 +539,7 @@ function SiteMetricsRow({ siteId, token }: { siteId: string; token: string }) {
         <Metric
           label="CSAT"
           value={data.csatPct != null ? `${data.csatPct}%` : '—'}
-          sub={data.thumbsUp + data.thumbsDown > 0 ? `${data.thumbsUp}👍 ${data.thumbsDown}👎` : 'no ratings yet'}
+          sub={data.thumbsUp + data.thumbsDown > 0 ? `${data.thumbsUp} up / ${data.thumbsDown} down` : 'no ratings yet'}
           accent={data.csatPct != null ? (data.csatPct >= 70 ? 'good' : data.csatPct >= 40 ? 'warn' : 'bad') : undefined}
         />
       </div>

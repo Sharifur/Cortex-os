@@ -1842,6 +1842,12 @@ function SettingsTab({ agent, token }: { agent: AgentDetail; token: string }) {
   if (isEmailManager) return <EmailManagerSettingsTab agent={agent} token={token} />;
   if (agent.key === 'taskip_internal') return <TaskipInternalSettingsTab agent={agent} token={token} />;
 
+  if (agent.key === 'livechat') return (
+    <Phase4SettingsTab agent={agent} token={token} setupContent={
+      <LivechatSetupSubTab agent={agent} />
+    } />
+  );
+
   if (agent.key === 'support') return (
     <Phase4SettingsTab agent={agent} token={token} setupContent={
       <Phase4SetupSubTab
@@ -2224,6 +2230,47 @@ function Phase4SetupSubTab({ agent, title, description, steps }: {
       <p className="text-xs text-muted-foreground mb-5">{description}</p>
       <div className="space-y-5">{steps}</div>
     </div>
+  );
+}
+
+function LivechatSetupSubTab({ agent }: { agent: AgentDetail }) {
+  return (
+    <Phase4SetupSubTab
+      agent={agent}
+      title="Live Chat Agent — Setup Checklist"
+      description="Deploys an AI-powered chat widget on your website. The agent handles visitor questions, escalates to human when needed, and learns from your knowledge base."
+      steps={<>
+        <SetupStep n={1} title="Add a site and install the widget" done={agent.registered}>
+          <p>Go to <a href="/livechat" className="text-primary hover:underline font-medium">Live Chat → Sites</a> and click <strong>New site</strong>.</p>
+          <ol className="list-decimal list-inside space-y-0.5 ml-1 mt-1">
+            <li>Enter a label, your site's origin (e.g. <code className="bg-muted px-1 rounded">https://yoursite.com</code>), and a brand color</li>
+            <li>Save — the install snippet appears automatically</li>
+            <li>Paste the <code className="bg-muted px-1 rounded">&lt;script&gt;</code> tag into your site's <code className="bg-muted px-1 rounded">&lt;head&gt;</code> or footer</li>
+          </ol>
+        </SetupStep>
+        <SetupStep n={2} title="Configure the bot persona" done={false}>
+          <p>In <a href="/livechat" className="text-primary hover:underline font-medium">Live Chat → Sites</a>, edit your site and set:</p>
+          <ul className="list-disc list-inside space-y-0.5 ml-1 mt-1">
+            <li><strong>Bot name</strong> — what visitors see as the agent's display name</li>
+            <li><strong>Product context</strong> — one-paragraph description of what you sell</li>
+            <li><strong>Reply tone</strong> — the voice the agent should use (e.g. "friendly and direct")</li>
+            <li><strong>Welcome message</strong> — first message shown when a visitor opens the widget</li>
+          </ul>
+        </SetupStep>
+        <SetupStep n={3} title="Add knowledge base content" done={false}>
+          <p>Go to <a href="/knowledge-base" className="text-primary hover:underline font-medium">Knowledge Base</a> and add entries tagged for the <code className="bg-muted px-1 rounded">livechat</code> agent:</p>
+          <ul className="list-disc list-inside space-y-0.5 ml-1 mt-1">
+            <li><strong>Facts</strong> — pricing, features, policies, FAQs</li>
+            <li><strong>Writing samples</strong> — example replies to use as the voice reference</li>
+            <li><strong>Prompt templates</strong> — override the default system prompt if needed</li>
+          </ul>
+        </SetupStep>
+        <SetupStep n={4} title="Enable and test" done={agent.enabled}>
+          <p>Enable this agent and open your site in a browser. Send a test message in the chat widget — the agent should reply within 2 seconds.</p>
+          <p className="mt-1">Check <a href="/livechat" className="text-primary hover:underline font-medium">Live Chat → Conversations</a> to see the session and take over if needed.</p>
+        </SetupStep>
+      </>}
+    />
   );
 }
 
