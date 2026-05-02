@@ -370,14 +370,14 @@ export class LivechatConversationsController {
   async uploadGeoDb(@Req() req: FastifyRequest) {
     const r = req as unknown as {
       isMultipart?: () => boolean;
-      parts: () => AsyncIterableIterator<Record<string, unknown>>;
+      parts: (opts?: { limits?: { fileSize?: number } }) => AsyncIterableIterator<Record<string, unknown>>;
     };
     if (!r.isMultipart || !r.isMultipart()) throw new BadRequestException('multipart/form-data required');
 
     let buffer: Buffer | null = null;
     let filename = '';
 
-    for await (const partRaw of r.parts()) {
+    for await (const partRaw of r.parts({ limits: { fileSize: 150 * 1024 * 1024 } })) {
       const part = partRaw as { type?: string; filename?: string; toBuffer?: () => Promise<Buffer> };
       if (part.type === 'file' && typeof part.toBuffer === 'function') {
         buffer = await part.toBuffer();
