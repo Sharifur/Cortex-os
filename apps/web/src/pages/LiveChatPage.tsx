@@ -963,12 +963,31 @@ interface InboxFilter {
 
 const STATUS_FILTERS: InboxFilter[] = [
   { key: 'all', label: 'All' },
+  { key: 'needs_reply', label: 'Needs reply' },
   { key: 'needs_review', label: 'Needs review', hasPendingDrafts: true },
   { key: 'open', label: 'Open', status: 'open' },
   { key: 'needs_human', label: 'Needs human', status: 'needs_human' },
   { key: 'human_taken_over', label: 'Taken over', status: 'human_taken_over' },
   { key: 'closed', label: 'Closed', status: 'closed' },
 ];
+
+// T4 chip set — shown inline; 'needs_reply' is client-side only.
+const CHIP_FILTERS: InboxFilter[] = [
+  { key: 'all', label: 'All' },
+  { key: 'needs_reply', label: 'Needs reply' },
+  { key: 'needs_review', label: 'Review', hasPendingDrafts: true },
+  { key: 'open', label: 'Open', status: 'open' },
+  { key: 'closed', label: 'Closed', status: 'closed' },
+];
+
+function needsReply(s: SessionRow): boolean {
+  return s.lastMessage?.role === 'visitor' && s.status !== 'closed';
+}
+
+function waitMinutes(s: SessionRow): number | null {
+  if (!needsReply(s) || !s.lastMessage?.createdAt) return null;
+  return Math.floor((Date.now() - new Date(s.lastMessage.createdAt).getTime()) / 60_000);
+}
 
 interface LiveVisitor {
   visitorPk: string;
@@ -994,7 +1013,6 @@ function ConversationsTab() {
   const token = useAuthStore((s) => s.token)!;
   const qc = useQueryClient();
   const [filterKey, setFilterKey] = useState('all');
-  const [filterOpen, setFilterOpen] = useState(false);
   const [filterSite, setFilterSite] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [advFilterOpen, setAdvFilterOpen] = useState(false);
@@ -1025,9 +1043,17 @@ function ConversationsTab() {
     staleTime: 5_000,
   });
 
+  // T2/T3: stats derived from the loaded sessions array.
+  const statsActive = useMemo(() => sessions.filter((s) => s.status !== 'closed').length, [sessions]);
+  const statsNeedsReply = useMemo(() => sessions.filter(needsReply).length, [sessions]);
+  const statsPendingReview = useMemo(() => sessions.filter((s) => (s.pendingDrafts ?? 0) > 0).length, [sessions]);
+
+  // T4: client-side 'needs_reply' layer on top of server results.
+  const baseFiltered = filterKey === 'needs_reply' ? sessions.filter(needsReply) : sessions;
+
   // Client-side text search across visitor name / email / last message.
   const searchedSessions = search.trim()
-    ? sessions.filter((s) => {
+    ? baseFiltered.filter((s) => {
         const q = search.trim().toLowerCase();
         return (
           (s.visitorName ?? '').toLowerCase().includes(q) ||
@@ -1036,7 +1062,7 @@ function ConversationsTab() {
           (s.currentPageTitle ?? '').toLowerCase().includes(q)
         );
       })
-    : sessions;
+    : baseFiltered;
 
   // Pending review count for the filter chip badge.
   const pendingCountKey = ['livechat-pending-count'] as const;
@@ -1092,28 +1118,43 @@ function ConversationsTab() {
       <aside
         className={`${showInboxOnMobile ? 'flex' : 'hidden'} md:flex w-full md:w-[340px] shrink-0 border-r border-border flex-col`}
       >
-        <div className="px-3 py-2.5 border-b border-border flex items-center gap-2 relative">
-          <button
-            onClick={() => setFilterOpen((v) => !v)}
-            className="flex items-center gap-1.5 text-sm font-medium hover:bg-accent rounded px-2 py-1"
-          >
-            {filter.label}
-            {filter.hasPendingDrafts && (pendingCount?.drafts ?? 0) > 0 && (
-              <span className="bg-amber-500/15 text-amber-600 text-[10px] px-1.5 py-0.5 rounded-full font-semibold">
-                {pendingCount?.drafts}
-              </span>
-            )}
-            <ChevronDown className="w-3.5 h-3.5" />
-          </button>
-          <button
-            onClick={() => setAdvFilterOpen((v) => !v)}
-            className={`ml-auto flex items-center gap-1 text-xs px-2 py-1 rounded ${
-              filterSite || search ? 'text-primary bg-primary/10' : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            <Filter className="w-3.5 h-3.5" />
-            Filters{filterSite || search ? ' · on' : ''}
-          </button>
+        {/* T4: Quick filter chips */}
+        <div className="px-3 py-2 border-b border-border relative">
+          <div className="flex items-center gap-1 overflow-x-auto" style={{ scrollbarWidth: 'none' }}>
+            {CHIP_FILTERS.map((f) => (
+              <button
+                key={f.key}
+                onClick={() => setFilterKey(f.key)}
+                className={`shrink-0 text-xs px-2.5 py-1 rounded-full border transition-colors ${
+                  filterKey === f.key
+                    ? 'bg-primary text-primary-foreground border-primary'
+                    : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground/30'
+                }`}
+              >
+                {f.label}
+                {f.key === 'needs_review' && (pendingCount?.drafts ?? 0) > 0 && (
+                  <span className="ml-1 inline-flex items-center justify-center bg-amber-500 text-white text-[9px] w-4 h-4 rounded-full font-semibold">
+                    {pendingCount?.drafts}
+                  </span>
+                )}
+                {f.key === 'needs_reply' && statsNeedsReply > 0 && (
+                  <span className="ml-1 inline-flex items-center justify-center bg-amber-500 text-white text-[9px] w-4 h-4 rounded-full font-semibold">
+                    {statsNeedsReply}
+                  </span>
+                )}
+              </button>
+            ))}
+            <button
+              onClick={() => setAdvFilterOpen((v) => !v)}
+              className={`ml-auto shrink-0 flex items-center gap-1 text-xs px-2 py-1 rounded ${
+                filterSite || search ? 'text-primary bg-primary/10' : 'text-muted-foreground hover:text-foreground'
+              }`}
+              title="Search &amp; site filter"
+            >
+              <Filter className="w-3.5 h-3.5" />
+              {(filterSite || search) && <span className="w-1.5 h-1.5 rounded-full bg-primary" />}
+            </button>
+          </div>
 
           {advFilterOpen && (
             <div className="absolute right-3 top-full mt-1 bg-card border border-border rounded-lg shadow-lg z-30 p-3 w-[300px] space-y-3">
@@ -1159,34 +1200,20 @@ function ConversationsTab() {
               </div>
             </div>
           )}
-
-          {filterOpen && (
-            <div
-              className="absolute left-3 top-full mt-1 bg-card border border-border rounded-lg shadow-lg z-30 py-1 min-w-[160px]"
-              onMouseLeave={() => setFilterOpen(false)}
-            >
-              {STATUS_FILTERS.map((f) => (
-                <button
-                  key={f.key}
-                  onClick={() => {
-                    setFilterKey(f.key);
-                    setFilterOpen(false);
-                  }}
-                  className={`w-full text-left px-3 py-1.5 text-sm hover:bg-accent transition-colors flex items-center justify-between gap-2 ${
-                    filterKey === f.key ? 'font-medium text-foreground' : 'text-muted-foreground'
-                  }`}
-                >
-                  <span>{f.label}</span>
-                  {f.hasPendingDrafts && (pendingCount?.drafts ?? 0) > 0 && (
-                    <span className="bg-amber-500/15 text-amber-600 text-[10px] px-1.5 py-0.5 rounded-full font-semibold">
-                      {pendingCount?.drafts}
-                    </span>
-                  )}
-                </button>
-              ))}
-            </div>
-          )}
         </div>
+
+        {/* T1: Header stats bar */}
+        {sessions.length > 0 && (
+          <div className="px-3 py-1.5 border-b border-border flex items-center gap-3 text-xs text-muted-foreground bg-muted/20">
+            <span>{statsActive} active</span>
+            {statsNeedsReply > 0 && (
+              <span className="text-amber-600 font-medium">{statsNeedsReply} need reply</span>
+            )}
+            {statsPendingReview > 0 && (
+              <span className="text-amber-600 font-medium">{statsPendingReview} pending review</span>
+            )}
+          </div>
+        )}
 
         <LiveVisitorsPanel
           visitors={liveVisitors}
@@ -1344,6 +1371,9 @@ function InboxRow({ session, selected, onClick }: { session: SessionRow; selecte
   // (en-US, en-GB) which is misleading for travellers / VPN users; better
   // to show no flag than the wrong flag.
   const country = session.ipCountry ?? null;
+  // T2/T3: needs-reply signal and wait time.
+  const isNeedsReply = needsReply(session);
+  const waitMins = waitMinutes(session);
   return (
     <button
       onClick={onClick}
@@ -1356,14 +1386,25 @@ function InboxRow({ session, selected, onClick }: { session: SessionRow; selecte
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between gap-2">
             <span className={`text-sm truncate ${selected ? 'font-semibold' : 'font-medium'}`} title={session.visitorEmail ?? undefined}>{name}</span>
-            <span className="text-[10px] text-muted-foreground shrink-0">{relativeTime(lastTime)}</span>
+            <div className="flex items-center gap-1.5 shrink-0">
+              {/* T2: amber dot when visitor is waiting for reply */}
+              {isNeedsReply && (
+                <span className="w-2 h-2 rounded-full bg-amber-500" title="Visitor waiting for reply" />
+              )}
+              <span className="text-[10px] text-muted-foreground">{relativeTime(lastTime)}</span>
+            </div>
           </div>
           <div className="flex items-center gap-1.5 mt-0.5 text-xs text-muted-foreground">
             <CornerDownRight className="w-3 h-3 shrink-0" />
             <span className="truncate">{session.lastMessage?.content ?? 'New conversation'}</span>
-            <ArrowRight className="w-3 h-3 text-red-500 shrink-0 ml-auto" />
           </div>
           <div className="mt-1 flex items-center gap-1.5 flex-wrap">
+            {/* T3: wait time badge */}
+            {waitMins !== null && waitMins >= 2 && (
+              <div className="inline-flex items-center text-[10px] text-amber-600 bg-amber-500/10 px-1.5 py-0.5 rounded font-medium">
+                waiting {waitMins < 60 ? `${waitMins}m` : `${Math.floor(waitMins / 60)}h ${waitMins % 60}m`}
+              </div>
+            )}
             {(session.pendingDrafts ?? 0) > 0 && (
               <div className="inline-flex items-center gap-1 text-[10px] text-amber-600 bg-amber-500/10 px-1.5 py-0.5 rounded">
                 <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
