@@ -25,7 +25,7 @@ export class NotificationsService {
 
     const [failures] = await this.db.db.execute(sql`
       SELECT COUNT(*)::int AS count FROM agent_runs
-      WHERE status = 'failed'
+      WHERE status = 'FAILED'
         AND started_at >= NOW() - INTERVAL '24 hours'
     `);
 
