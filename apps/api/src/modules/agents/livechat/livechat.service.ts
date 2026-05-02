@@ -630,6 +630,8 @@ export class LivechatService {
       .select({
         id: livechatSessions.id,
         siteId: livechatSessions.siteId,
+        siteKey: livechatSites.key,
+        siteLabel: livechatSites.label,
         visitorPk: livechatSessions.visitorPk,
         visitorId: livechatSessions.visitorId,
         contactId: livechatSessions.contactId,
@@ -648,6 +650,7 @@ export class LivechatService {
       })
       .from(livechatSessions)
       .leftJoin(livechatVisitors, eq(livechatVisitors.id, livechatSessions.visitorPk))
+      .leftJoin(livechatSites, eq(livechatSites.id, livechatSessions.siteId))
       .where(where.length ? and(...where) : undefined)
       .orderBy(desc(livechatSessions.lastSeenAt))
       .limit(limit);
