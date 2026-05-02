@@ -1,11 +1,13 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { eq, and, lte } from 'drizzle-orm';
+import { Injectable, Logger } from '@nestjs/common';
+import { InlineKeyboard } from 'grammy';
+import { eq, and } from 'drizzle-orm';
 import { DbService } from '../../../db/db.service';
 import { agents } from '../../../db/schema';
-import { employees, leaveRequests, salarySheets } from './schema';
+import { hrPayslipRuns } from './schema';
 import { AgentRegistryService } from '../runtime/agent-registry.service';
-import { LlmRouterService } from '../../llm/llm-router.service';
 import { TelegramService } from '../../telegram/telegram.service';
+import { SettingsService } from '../../settings/settings.service';
+import { HrmApiService, HrmApiError } from './hrm-api.service';
 import type {
   IAgent,
   TriggerSpec,
@@ -17,233 +19,266 @@ import type {
   McpToolDefinition,
   AgentApiRoute,
 } from '../runtime/types';
-import { agentLlmOpts } from '../runtime/llm-config.util';
 
 interface HrConfig {
   companyName: string;
   currency: string;
-  workingDaysPerMonth: number;
+  payslipDay: number;
   llm?: { provider?: string; model?: string };
 }
 
 interface HrSnapshot {
-  mode: 'salary' | 'alerts' | 'leave_request';
-  pendingLeaves: any[];
-  activeEmployees: any[];
-  alerts: string[];
+  mode: 'salary' | 'daily';
+  month: string;
   config: HrConfig;
+  pendingLeaves?: any[];
+  pendingWfh?: any[];
+  onLeaveToday?: any[];
+  onWfhToday?: any[];
+  alerts?: any;
+  generatedSlips?: any[];
 }
 
 const DEFAULT_CONFIG: HrConfig = {
   companyName: 'Xgenious',
   currency: 'BDT',
-  workingDaysPerMonth: 26,
+  payslipDay: 25,
 };
 
 @Injectable()
-export class HrAgent implements IAgent, OnModuleInit {
+export class HrAgent implements IAgent {
   readonly key = 'hr';
   readonly name = 'HR Manager Agent';
   private readonly logger = new Logger(HrAgent.name);
 
   constructor(
     private db: DbService,
-    private llm: LlmRouterService,
     private telegram: TelegramService,
     private registry: AgentRegistryService,
-  ) {}
-
-  onModuleInit() {
+    private settings: SettingsService,
+    private hrm: HrmApiService,
+  ) {
     this.registry.register(this);
   }
 
   triggers(): TriggerSpec[] {
     return [
-      { type: 'CRON', cron: '0 9 25 * *' },    // salary sheet on 25th
-      { type: 'CRON', cron: '0 9 * * *' },       // daily alerts
-      { type: 'WEBHOOK', webhookPath: '/hr/leave-request' },
+      { type: 'CRON', cron: '0 9 * * *' },
       { type: 'MANUAL' },
     ];
   }
 
-  async buildContext(trigger: TriggerEvent, run: RunContext): Promise<AgentContext> {
+  async buildContext(trigger: TriggerEvent, _run: RunContext): Promise<AgentContext> {
     const config = await this.getConfig();
     const now = new Date();
-    const day = now.getDate();
+    const today = now.getDate();
+    const month = now.toISOString().slice(0, 7);
+    const isSalaryDay = today === config.payslipDay;
 
-    const activeEmployees = await this.db.db
-      .select()
-      .from(employees)
-      .where(eq(employees.active, 'true'));
+    if (isSalaryDay) {
+      let generatedSlips: any[] = [];
+      try {
+        const result = await this.hrm.generatePayslips(month);
+        generatedSlips = result.data;
 
-    const pendingLeaves = await this.db.db
-      .select()
-      .from(leaveRequests)
-      .where(eq(leaveRequests.status, 'pending'));
-
-    const alerts: string[] = [];
-
-    // Check probation endings (within 7 days)
-    const inSevenDays = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
-    for (const emp of activeEmployees) {
-      if (emp.probationUntil && new Date(emp.probationUntil) <= inSevenDays && new Date(emp.probationUntil) >= now) {
-        alerts.push(`Probation ending for ${emp.name} on ${emp.probationUntil}`);
+        // Write pending_tg rows for any slip not yet tracked
+        for (const slip of generatedSlips) {
+          await this.db.db
+            .insert(hrPayslipRuns)
+            .values({
+              month,
+              xghrmId: slip.id,
+              employeeId: slip.employeeId,
+              employeeName: slip.employeeName,
+              netSalary: Math.round(slip.netSalary),
+              status: 'pending_tg',
+            })
+            .onConflictDoNothing();
+        }
+      } catch (err) {
+        this.logger.error(`generatePayslips failed: ${err instanceof HrmApiError ? err.message : err}`);
       }
-      if (emp.contractEndsAt && new Date(emp.contractEndsAt) <= inSevenDays && new Date(emp.contractEndsAt) >= now) {
-        alerts.push(`Contract expiring for ${emp.name} on ${emp.contractEndsAt}`);
-      }
+
+      return {
+        source: trigger,
+        snapshot: { mode: 'salary', month, config, generatedSlips },
+        followups: [],
+      };
     }
 
-    const mode = trigger.type === 'WEBHOOK'
-      ? 'leave_request'
-      : day === 25
-        ? 'salary'
-        : 'alerts';
+    // Daily digest mode
+    let pendingLeaves: any[] = [];
+    let pendingWfh: any[] = [];
+    let onLeaveToday: any[] = [];
+    let onWfhToday: any[] = [];
+    let alerts: any = {};
+
+    try {
+      const [lv, wfh, ol, ow, al] = await Promise.all([
+        this.hrm.getPendingLeaves(),
+        this.hrm.getPendingWfh(),
+        this.hrm.getTodayOnLeave(),
+        this.hrm.getTodayWfh(),
+        this.hrm.getAlerts(7),
+      ]);
+      pendingLeaves = lv.data;
+      pendingWfh = wfh.data;
+      onLeaveToday = ol.data;
+      onWfhToday = ow.data;
+      alerts = al;
+    } catch (err) {
+      this.logger.error(`Daily digest fetch failed: ${err instanceof HrmApiError ? err.message : err}`);
+    }
 
     return {
       source: trigger,
-      snapshot: { mode, pendingLeaves, activeEmployees, alerts, config },
+      snapshot: { mode: 'daily', month, config, pendingLeaves, pendingWfh, onLeaveToday, onWfhToday, alerts },
       followups: [],
     };
   }
 
   async decide(ctx: AgentContext): Promise<ProposedAction[]> {
-    const { mode, pendingLeaves, activeEmployees, alerts, config } = ctx.snapshot as HrSnapshot;
+    const snap = ctx.snapshot as HrSnapshot;
     const actions: ProposedAction[] = [];
 
-    if (mode === 'salary') {
-      const month = new Date().toISOString().slice(0, 7);
-      const existing = await this.db.db
+    if (snap.mode === 'salary') {
+      const pending = await this.db.db
         .select()
-        .from(salarySheets)
-        .where(eq(salarySheets.month, month))
-        .limit(1);
+        .from(hrPayslipRuns)
+        .where(and(eq(hrPayslipRuns.month, snap.month), eq(hrPayslipRuns.status, 'pending_tg')));
 
-      if (!existing.length) {
-        const lineItems = activeEmployees.map((emp) => ({
-          employeeId: emp.id,
-          name: emp.name,
-          role: emp.role,
-          baseSalary: emp.salary,
-          deductions: 0,
-          bonus: 0,
-          net: emp.salary,
-        }));
-        const total = lineItems.reduce((s, i) => s + i.net, 0);
-
+      for (const row of pending) {
+        const slip = snap.generatedSlips?.find((s: any) => s.id === row.xghrmId);
         actions.push({
-          type: 'generate_salary_sheet',
-          summary: `Generate ${month} salary sheet — ${activeEmployees.length} employees, total ${config.currency} ${total.toLocaleString()}`,
-          payload: { month, lineItems, total, currency: config.currency },
+          type: 'payslip_approval_request',
+          summary: `Payslip — ${row.employeeName} | ${snap.month} | Net: ${snap.config.currency} ${row.netSalary.toLocaleString()}`,
+          payload: {
+            runId: row.id,
+            xghrmId: row.xghrmId,
+            employeeId: row.employeeId,
+            employeeName: row.employeeName,
+            month: snap.month,
+            baseSalary: slip?.baseSalary ?? 0,
+            bonus: slip?.bonus ?? 0,
+            deductions: slip?.deductions ?? 0,
+            netSalary: row.netSalary,
+            currency: snap.config.currency,
+          },
           riskLevel: 'high',
         });
       }
+
+      if (!actions.length) {
+        actions.push({ type: 'noop', summary: `No pending payslips for ${snap.month}.`, payload: {}, riskLevel: 'low' });
+      }
+      return actions;
     }
 
-    if (mode === 'alerts' || mode === 'salary') {
-      for (const alert of alerts) {
-        actions.push({
-          type: 'notify_owner',
-          summary: alert,
-          payload: { message: `HR Alert: ${alert}` },
-          riskLevel: 'low',
-        });
-      }
-
-      for (const leave of pendingLeaves) {
-        try {
-          const [emp] = await this.db.db
-            .select()
-            .from(employees)
-            .where(eq(employees.id, leave.employeeId));
-
-          const response = await this.llm.complete({
-            messages: [
-              {
-                role: 'system',
-                content: `You are an HR manager. Evaluate leave requests fairly. Employee has ${emp?.leaveBalance ?? 0} days balance. Reply with JSON: { "decision": "approved" | "rejected", "reason": "..." }`,
-              },
-              {
-                role: 'user',
-                content: `Employee: ${emp?.name ?? leave.employeeId}\nType: ${leave.type}\nFrom: ${leave.fromDate} To: ${leave.toDate}\nReason: ${leave.reason ?? 'Not provided'}`,
-              },
-            ],
-            ...agentLlmOpts(config),
-            maxTokens: 150,
-          });
-
-          let parsed: { decision: string; reason: string };
-          try {
-            parsed = JSON.parse(response.content.trim());
-          } catch {
-            parsed = { decision: 'pending', reason: response.content.trim() };
-          }
-
-          actions.push({
-            type: 'respond_to_leave_request',
-            summary: `Leave ${parsed.decision}: ${emp?.name ?? leave.employeeId} (${leave.type} ${leave.fromDate}–${leave.toDate})`,
-            payload: { leaveId: leave.id, employeeId: leave.employeeId, employeeName: emp?.name, decision: parsed.decision, reason: parsed.reason },
-            riskLevel: 'medium',
-          });
-        } catch (err) {
-          this.logger.warn(`Failed to draft leave decision: ${err}`);
-        }
-      }
-    }
-
-    if (mode === 'leave_request' && (ctx.source as any).payload) {
-      const req = (ctx.source as any).payload as any;
+    // Daily mode
+    for (const leave of snap.pendingLeaves ?? []) {
       actions.push({
-        type: 'respond_to_leave_request',
-        summary: `New leave request from ${req.employeeName ?? req.employeeId}: ${req.type} ${req.fromDate}–${req.toDate}`,
-        payload: req,
+        type: 'leave_approval_request',
+        summary: `Leave request — ${leave.employeeName}: ${leave.type} ${leave.fromDate} to ${leave.toDate}`,
+        payload: { leaveId: leave.id, employeeName: leave.employeeName, type: leave.type, fromDate: leave.fromDate, toDate: leave.toDate },
         riskLevel: 'medium',
       });
     }
 
-    return actions.length
-      ? actions
-      : [{ type: 'noop', summary: 'No HR actions today.', payload: {}, riskLevel: 'low' }];
+    for (const wfh of snap.pendingWfh ?? []) {
+      actions.push({
+        type: 'wfh_approval_request',
+        summary: `WFH request — ${wfh.employeeName}: ${wfh.date}`,
+        payload: { wfhId: wfh.id, employeeName: wfh.employeeName, date: wfh.date, reason: wfh.reason },
+        riskLevel: 'low',
+      });
+    }
+
+    actions.push({
+      type: 'daily_digest',
+      summary: 'Daily HR summary',
+      payload: {
+        onLeaveToday: snap.onLeaveToday ?? [],
+        onWfhToday: snap.onWfhToday ?? [],
+        alerts: snap.alerts ?? {},
+        date: new Date().toDateString(),
+      },
+      riskLevel: 'low',
+    });
+
+    return actions;
   }
 
   requiresApproval(action: ProposedAction): boolean {
-    return action.type === 'generate_salary_sheet' || action.type === 'respond_to_leave_request';
+    return action.type === 'payslip_approval_request' || action.type === 'leave_approval_request';
   }
 
   async execute(action: ProposedAction): Promise<ActionResult> {
     if (action.type === 'noop') return { success: true };
     const p = action.payload as any;
 
-    if (action.type === 'notify_owner') {
-      await this.telegram.sendMessage(p.message);
+    if (action.type === 'daily_digest') {
+      const lines: string[] = [`Daily HR Summary — ${p.date}`, ''];
+
+      const onLeave: string = p.onLeaveToday.length
+        ? p.onLeaveToday.map((e: any) => `${e.employeeName} (${e.leaveType})`).join(', ')
+        : 'None';
+      lines.push(`On leave today: ${onLeave}`);
+
+      const onWfh: string = p.onWfhToday.length
+        ? p.onWfhToday.map((e: any) => e.employeeName).join(', ')
+        : 'None';
+      lines.push(`WFH today: ${onWfh}`);
+
+      const al = p.alerts as any;
+      const alertLines: string[] = [];
+      for (const e of al.probationEnding ?? []) alertLines.push(`Probation ending: ${e.employeeName} (${e.probationUntil})`);
+      for (const e of al.birthdays ?? []) alertLines.push(`Birthday: ${e.employeeName}`);
+      for (const e of al.workAnniversaries ?? []) alertLines.push(`Work anniversary: ${e.employeeName} — ${e.years} year${e.years !== 1 ? 's' : ''}`);
+
+      if (alertLines.length) {
+        lines.push('', 'Alerts:');
+        alertLines.forEach((a) => lines.push(`- ${a}`));
+      }
+
+      await this.telegram.sendMessage(lines.join('\n'));
       return { success: true };
     }
 
-    if (action.type === 'generate_salary_sheet') {
-      await this.db.db
-        .insert(salarySheets)
-        .values({
-          month: p.month,
-          lineItems: JSON.stringify(p.lineItems),
-          totals: JSON.stringify({ total: p.total, currency: p.currency }),
-        })
-        .onConflictDoNothing();
-      await this.telegram.sendMessage(
-        `Salary sheet for ${p.month} generated — ${p.lineItems.length} employees, ${p.currency} ${p.total.toLocaleString()}`,
+    if (action.type === 'leave_approval_request') {
+      const kb = new InlineKeyboard()
+        .text('Approve', `hr_leave_approve:${p.leaveId}`)
+        .text('Reject', `hr_leave_reject:${p.leaveId}`);
+      await this.telegram.sendMessageWithKeyboard(
+        `Leave request\n${p.employeeName}: ${p.type}\nFrom: ${p.fromDate} To: ${p.toDate}`,
+        kb,
       );
-      return { success: true, data: { month: p.month } };
+      return { success: true };
     }
 
-    if (action.type === 'respond_to_leave_request') {
-      if (p.leaveId) {
-        await this.db.db
-          .update(leaveRequests)
-          .set({ status: p.decision, decisionReason: p.reason, decidedAt: new Date() })
-          .where(eq(leaveRequests.id, p.leaveId));
-      }
-      await this.telegram.sendMessage(
-        `Leave request ${p.decision}: ${p.employeeName ?? p.employeeId}\nReason: ${p.reason}`,
+    if (action.type === 'wfh_approval_request') {
+      const kb = new InlineKeyboard()
+        .text('Approve', `hr_wfh_approve:${p.wfhId}`)
+        .text('Reject', `hr_wfh_reject:${p.wfhId}`);
+      await this.telegram.sendMessageWithKeyboard(
+        `WFH request\n${p.employeeName}: ${p.date}${p.reason ? `\nReason: ${p.reason}` : ''}`,
+        kb,
       );
+      return { success: true };
+    }
+
+    if (action.type === 'payslip_approval_request') {
+      const kb = new InlineKeyboard()
+        .text('Approve', `hr_slip_approve:${p.runId}:${p.xghrmId}`)
+        .text('Edit', `hr_slip_edit:${p.runId}:${p.xghrmId}`)
+        .text('Skip', `hr_slip_skip:${p.runId}`);
+      await this.telegram.sendMessageWithKeyboard(
+        `Payslip — ${p.employeeName}\nMonth: ${p.month}\nBase: ${p.currency} ${Number(p.baseSalary).toLocaleString()}\nBonus: ${p.currency} ${Number(p.bonus).toLocaleString()}\nDeductions: ${p.currency} ${Number(p.deductions).toLocaleString()}\nNet: ${p.currency} ${Number(p.netSalary).toLocaleString()}`,
+        kb,
+      );
+      await this.db.db
+        .update(hrPayslipRuns)
+        .set({ status: 'tg_sent' })
+        .where(eq(hrPayslipRuns.id, p.runId));
       return { success: true };
     }
 
@@ -254,50 +289,33 @@ export class HrAgent implements IAgent, OnModuleInit {
     return [
       {
         name: 'list_employees',
-        description: 'List all active employees',
-        inputSchema: { type: 'object', properties: {} },
-        handler: async () =>
-          this.db.db.select().from(employees).where(eq(employees.active, 'true')),
+        description: 'List employees from XGHRM',
+        inputSchema: { type: 'object', properties: { active: { type: 'string', enum: ['true', 'false', 'all'] } } },
+        handler: async (input) => this.hrm.getEmployees({ active: (input as any).active }),
       },
       {
         name: 'get_employee',
-        description: 'Get employee by ID',
+        description: 'Get a single employee by ID from XGHRM',
         inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
-        handler: async (input) => {
-          const [emp] = await this.db.db
-            .select()
-            .from(employees)
-            .where(eq(employees.id, (input as any).id));
-          return emp ?? null;
-        },
+        handler: async (input) => this.hrm.getEmployee((input as any).id),
       },
       {
-        name: 'compute_salary',
-        description: 'Compute salary with deductions/bonuses for an employee',
-        inputSchema: {
-          type: 'object',
-          properties: { employeeId: { type: 'string' }, deductions: { type: 'number' }, bonus: { type: 'number' } },
-          required: ['employeeId'],
-        },
-        handler: async (input) => {
-          const { employeeId, deductions = 0, bonus = 0 } = input as any;
-          const [emp] = await this.db.db.select().from(employees).where(eq(employees.id, employeeId));
-          if (!emp) return null;
-          return { employeeId, name: emp.name, base: emp.salary, deductions, bonus, net: emp.salary - deductions + bonus };
-        },
+        name: 'get_payslips',
+        description: 'Get payslips for a month from XGHRM',
+        inputSchema: { type: 'object', properties: { month: { type: 'string' } }, required: ['month'] },
+        handler: async (input) => this.hrm.getPayslips((input as any).month),
       },
       {
-        name: 'decide_leave',
-        description: 'LLM-draft a leave decision',
-        inputSchema: {
-          type: 'object',
-          properties: { leaveId: { type: 'string' } },
-          required: ['leaveId'],
-        },
-        handler: async (input) => {
-          const [leave] = await this.db.db.select().from(leaveRequests).where(eq(leaveRequests.id, (input as any).leaveId));
-          return leave ?? null;
-        },
+        name: 'get_pending_leaves',
+        description: 'Get pending leave requests from XGHRM',
+        inputSchema: { type: 'object', properties: {} },
+        handler: async () => this.hrm.getPendingLeaves(),
+      },
+      {
+        name: 'get_alerts',
+        description: 'Get HR alerts (probation endings, birthdays, anniversaries) from XGHRM',
+        inputSchema: { type: 'object', properties: { withinDays: { type: 'number' } } },
+        handler: async (input) => this.hrm.getAlerts((input as any).withinDays),
       },
     ];
   }
@@ -305,56 +323,25 @@ export class HrAgent implements IAgent, OnModuleInit {
   apiRoutes(): AgentApiRoute[] {
     return [
       {
-        method: 'POST',
-        path: '/hr/leave-request',
-        requiresAuth: true,
-        handler: async (body) => {
-          const { employeeId, type, fromDate, toDate, reason } = body as any;
-          const [row] = await this.db.db
-            .insert(leaveRequests)
-            .values({ employeeId, type, fromDate, toDate, reason: reason ?? null })
-            .returning();
-          return row;
-        },
-      },
-      {
         method: 'GET',
-        path: '/hr/salary-sheet/:month',
+        path: '/hr/test-connection',
         requiresAuth: true,
-        handler: async (body) => {
-          const month = (body as any).month;
-          const [sheet] = await this.db.db
-            .select()
-            .from(salarySheets)
-            .where(eq(salarySheets.month, month));
-          return sheet ?? null;
-        },
-      },
-      {
-        method: 'GET',
-        path: '/hr/alerts/today',
-        requiresAuth: true,
-        handler: async () => {
-          const now = new Date();
-          const inSevenDays = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
-          const allEmployees = await this.db.db.select().from(employees).where(eq(employees.active, 'true'));
-          const alerts: string[] = [];
-          for (const emp of allEmployees) {
-            if (emp.probationUntil && new Date(emp.probationUntil) <= inSevenDays && new Date(emp.probationUntil) >= now) {
-              alerts.push(`Probation ending: ${emp.name} (${emp.probationUntil})`);
-            }
-            if (emp.contractEndsAt && new Date(emp.contractEndsAt) <= inSevenDays && new Date(emp.contractEndsAt) >= now) {
-              alerts.push(`Contract expiring: ${emp.name} (${emp.contractEndsAt})`);
-            }
-          }
-          return { alerts, count: alerts.length };
-        },
+        handler: async () => this.hrm.testConnection(),
       },
     ];
   }
 
   private async getConfig(): Promise<HrConfig> {
     const [row] = await this.db.db.select().from(agents).where(eq(agents.key, this.key));
-    return { ...DEFAULT_CONFIG, ...(row?.config as Partial<HrConfig> ?? {}) };
+    const agentConf = (row?.config as Partial<HrConfig> ?? {});
+
+    const payslipDaySetting = await this.settings.getDecrypted('hrm_payslip_day');
+    const payslipDay = payslipDaySetting ? parseInt(payslipDaySetting, 10) : DEFAULT_CONFIG.payslipDay;
+
+    return {
+      ...DEFAULT_CONFIG,
+      ...agentConf,
+      payslipDay: isNaN(payslipDay) ? DEFAULT_CONFIG.payslipDay : Math.max(1, Math.min(28, payslipDay)),
+    };
   }
 }

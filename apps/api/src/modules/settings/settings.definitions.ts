@@ -2,7 +2,7 @@ export interface SettingDefinition {
   label: string;
   description?: string;
   isSecret: boolean;
-  group: 'general' | 'llm' | 'telegram' | 'ses' | 'gmail' | 'whatsapp' | 'linkedin' | 'reddit' | 'license' | 'storage' | 'insight' | 'safety';
+  group: 'general' | 'llm' | 'telegram' | 'ses' | 'gmail' | 'whatsapp' | 'linkedin' | 'reddit' | 'license' | 'storage' | 'insight' | 'safety' | 'hr';
   defaultValue?: string;
   provider?: 'openai' | 'gemini' | 'deepseek' | 'general';
 }
@@ -425,5 +425,27 @@ export const SETTING_DEFINITIONS: Record<string, SettingDefinition> = {
     isSecret: false,
     group: 'safety',
     defaultValue: 'false',
+  },
+
+  // HR Manager Agent
+  hrm_api_base_url: {
+    label: 'HRM API Base URL',
+    description: 'Base URL of the XGHRM AI-agent API, e.g. https://xghrm.yourdomain.com/api/ai-agent',
+    isSecret: false,
+    group: 'hr',
+    defaultValue: '',
+  },
+  hrm_api_secret: {
+    label: 'HRM API Secret',
+    description: '64-character hex secret from XGHRM Admin → AI Applications. Sent as X-Signature on every request.',
+    isSecret: true,
+    group: 'hr',
+  },
+  hrm_payslip_day: {
+    label: 'Monthly Payslip Day',
+    description: 'Day of the month the agent generates and sends payslips for approval (1–28).',
+    isSecret: false,
+    group: 'hr',
+    defaultValue: '25',
   },
 };
