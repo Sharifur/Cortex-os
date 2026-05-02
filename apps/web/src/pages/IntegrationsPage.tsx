@@ -869,14 +869,14 @@ function GmailTab({ token }: { rows: SettingRow[]; token: string }) {
           <div className="flex items-center gap-2">
             <button
               onClick={() => setModal('oauth')}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-primary-foreground text-sm rounded-lg hover:opacity-90"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-primary-foreground text-sm rounded-lg hover:opacity-90 whitespace-nowrap shrink-0"
               title="Use OAuth2 — required for Workspace accounts where App Passwords are blocked"
             >
               <Plus className="w-3.5 h-3.5" /> Connect with OAuth
             </button>
             <button
               onClick={() => setModal('add')}
-              className="flex items-center gap-1.5 px-3 py-1.5 border border-border text-sm rounded-lg hover:bg-accent/50"
+              className="flex items-center gap-1.5 px-3 py-1.5 border border-border text-sm rounded-lg hover:bg-accent/50 whitespace-nowrap shrink-0"
               title="Use IMAP + App Password — simpler for personal Gmail"
             >
               <Plus className="w-3.5 h-3.5" /> App Password
