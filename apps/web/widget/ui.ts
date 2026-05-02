@@ -41,7 +41,12 @@ const EMAIL_PROMPT_AFTER_VISITOR_MSGS = 3;
 export function mountWidget(cfg: WidgetConfig, siteConfig: SiteConfigResponse = DEFAULT_SITE_CONFIG) {
   const host = document.createElement('div');
   host.id = 'livechat-widget-root';
-  host.style.cssText = 'position: fixed; bottom: 40px; right: 40px; z-index: 2147483646;';
+  const isMobileViewport = () => window.innerWidth <= 480;
+  const MOBILE_HOST_BOTTOM = '10px';
+  const MOBILE_HOST_RIGHT = '10px';
+  const desktopHostCss = 'position: fixed; bottom: 40px; right: 40px; z-index: 2147483646;';
+  const mobileClosedCss = `position: fixed; bottom: ${MOBILE_HOST_BOTTOM}; right: ${MOBILE_HOST_RIGHT}; z-index: 2147483646;`;
+  host.style.cssText = isMobileViewport() ? mobileClosedCss : desktopHostCss;
   document.body.appendChild(host);
 
   const shadow = host.attachShadow({ mode: 'open' });
@@ -82,6 +87,7 @@ export function mountWidget(cfg: WidgetConfig, siteConfig: SiteConfigResponse = 
     host,
     cfg,
     reapplyCssVars,
+    activeDraftId: null as string | null,
   };
 
   const bubbleBtn = document.createElement('button');
@@ -140,9 +146,6 @@ export function mountWidget(cfg: WidgetConfig, siteConfig: SiteConfigResponse = 
   (panel as any)._state = state;
   (panel as any)._cfg = cfg;
 
-  const isMobile = () => window.innerWidth <= 480;
-  const DESKTOP_HOST_STYLE = `position: fixed; bottom: 40px; right: 40px; z-index: 2147483646;`;
-
   // On mobile we pin the host to the Visual Viewport so it tracks the
   // visible area exactly — accounting for the browser URL bar (which slides
   // in/out on scroll) and the software keyboard. Without this the header
@@ -163,13 +166,13 @@ export function mountWidget(cfg: WidgetConfig, siteConfig: SiteConfigResponse = 
     vvListenerInstalled = true;
     const onChange = () => {
       if (!state.open) return;
-      if (isMobile()) {
+      if (isMobileViewport()) {
         applyMobileHostStyle();
       } else {
         // Device rotated to landscape (width > 480px) — revert the host
         // back to the desktop floating style so the panel is no longer
         // pinned full-screen.
-        host.style.cssText = DESKTOP_HOST_STYLE;
+        host.style.cssText = desktopHostCss;
         reapplyCssVars();
       }
     };
@@ -182,7 +185,7 @@ export function mountWidget(cfg: WidgetConfig, siteConfig: SiteConfigResponse = 
     try { sessionStorage.setItem(PROACTIVE_KEY, '1'); } catch {}
     state.open = !state.open;
     if (state.open) {
-      if (isMobile()) { applyMobileHostStyle(); ensureVvListener(); }
+      if (isMobileViewport()) { applyMobileHostStyle(); ensureVvListener(); }
       panel.classList.remove('lc-panel--closing');
       panel.style.display = 'flex';
       state.unread = 0;
@@ -195,7 +198,7 @@ export function mountWidget(cfg: WidgetConfig, siteConfig: SiteConfigResponse = 
       setTimeout(() => {
         if (!state.open) {
           panel.style.display = 'none';
-          if (isMobile()) { host.style.cssText = DESKTOP_HOST_STYLE; reapplyCssVars(); }
+          if (isMobileViewport()) { host.style.cssText = mobileClosedCss; reapplyCssVars(); }
         }
         panel.classList.remove('lc-panel--closing');
       }, 180);
@@ -281,7 +284,10 @@ function buildPanel(shadow: ShadowRoot, cfg: WidgetConfig, state: any, render: (
   `;
   shadow.appendChild(panel);
 
-  const DESKTOP_HOST_STYLE_BP = `position: fixed; bottom: 40px; right: 40px; z-index: 2147483646;`;
+  const isLeftPos = (state.host as HTMLDivElement).classList.contains('lc-position-left');
+  const MOBILE_CLOSED_CSS_BP = isLeftPos
+    ? `position: fixed; bottom: 10px; left: 10px; z-index: 2147483646;`
+    : `position: fixed; bottom: 10px; right: 10px; z-index: 2147483646;`;
   const newChatBtn = panel.querySelector<HTMLButtonElement>('.lc-newchat-btn')!;
   newChatBtn.addEventListener('click', () => {
     if (!confirm('Start a new conversation? The current chat will be cleared.')) return;
@@ -294,7 +300,7 @@ function buildPanel(shadow: ShadowRoot, cfg: WidgetConfig, state: any, render: (
     setTimeout(() => {
       if (!state.open) {
         panel.style.display = 'none';
-        if (window.innerWidth <= 480) { state.host.style.cssText = DESKTOP_HOST_STYLE_BP; state.reapplyCssVars?.(); }
+        if (window.innerWidth <= 480) { state.host.style.cssText = MOBILE_CLOSED_CSS_BP; state.reapplyCssVars?.(); }
       }
       panel.classList.remove('lc-panel--closing');
     }, 180);
@@ -852,17 +858,23 @@ function connectAndListen(cfg: WidgetConfig, state: any, render: () => void, sit
     // Streaming reply: render a placeholder bubble keyed by draftId, append
     // deltas, then on stream_end swap the placeholder's id for the real
     // messageId so future renders dedupe correctly.
+    //
+    // stream_delta patches the streaming bubble's DOM node directly instead of
+    // calling render() — a full render() rebuilds list.innerHTML on every chunk
+    // which the browser can batch into a single repaint, making text appear all
+    // at once. Direct DOM patching lets each chunk paint individually.
     if (event.type === 'agent_stream_start' && event.draftId) {
       const panel = state.panel as HTMLDivElement | undefined;
       if (panel) hideTyping(panel);
       if (!state.messages.some((m: VisitorMessage) => m.id === event.draftId)) {
+        state.activeDraftId = event.draftId;
         state.messages.push({
           id: event.draftId,
           role: 'agent',
           content: '',
           createdAt: event.createdAt ?? new Date().toISOString(),
         });
-        render();
+        render(); // Creates the streaming bubble with lc-msg--streaming class
       }
       return;
     }
@@ -870,18 +882,28 @@ function connectAndListen(cfg: WidgetConfig, state: any, render: () => void, sit
       const idx = state.messages.findIndex((m: VisitorMessage) => m.id === event.draftId);
       if (idx >= 0) {
         state.messages[idx] = { ...state.messages[idx], content: state.messages[idx].content + event.delta };
-        render();
+        const panel = state.panel as HTMLDivElement | undefined;
+        const msgEl = panel?.querySelector<HTMLElement>('.lc-msg--streaming');
+        if (msgEl) {
+          // Show raw text during streaming — mdToHtml runs on stream_end.
+          msgEl.textContent = state.messages[idx].content;
+          const msgs = panel?.querySelector<HTMLDivElement>('.lc-messages');
+          if (msgs) msgs.scrollTop = msgs.scrollHeight;
+        } else {
+          render();
+        }
       }
       return;
     }
     if (event.type === 'agent_stream_end' && event.draftId && event.messageId) {
+      state.activeDraftId = null;
       const idx = state.messages.findIndex((m: VisitorMessage) => m.id === event.draftId);
       if (idx >= 0) {
         // Final content beats accumulated deltas — self-critique may have rewritten.
         state.messages[idx] = { ...state.messages[idx], id: event.messageId, content: event.content ?? state.messages[idx].content };
         cacheMessages(state.messages);
         if (!state.open) { state.unread = (state.unread ?? 0) + 1; playNotificationSound(); }
-        render();
+        render(); // Full render applies markdown, rating buttons, etc.
       }
       return;
     }
@@ -1011,10 +1033,12 @@ function renderMessages(panel: HTMLDivElement, state: any) {
           </div>
         </div>`;
       }
+      const isStreaming = m.id === state.activeDraftId;
+      const streamClass = isStreaming ? ' lc-msg--streaming' : '';
       return `<div class="lc-msg-row lc-msg-row-agent">
         <div class="lc-msg-avatar lc-msg-avatar-ai">${aiSparkleIcon()}</div>
         <div class="lc-msg-body">
-          <div class="lc-msg lc-msg-agent">${text}${attWrapper}</div>
+          <div class="lc-msg lc-msg-agent${streamClass}">${isStreaming ? escapeHtml(m.content) : text}${attWrapper}</div>
           ${timeEl}
           ${chips}
           ${ratingHtml}

@@ -16,6 +16,10 @@ export const WIDGET_STYLES = `
   right: auto;
   left: 40px;
 }
+@media (max-width: 480px) {
+  :host { bottom: 10px; right: 10px; }
+  :host(.lc-position-left) { right: auto; left: 10px; }
+}
 
 /* ── Bubble button ── */
 .lc-bubble {
@@ -626,6 +630,26 @@ export const WIDGET_STYLES = `
 .lc-rate-btn:hover:not(:disabled) { background: #f3f4f6; border-color: #d1d5db; }
 .lc-rate-btn:disabled { cursor: default; opacity: 0.5; }
 .lc-rate-btn--active { background: #f0fdf4; border-color: #86efac; }
+
+/* ── Streaming cursor ── */
+.lc-msg--streaming {
+  min-height: 1.4em;
+}
+.lc-msg--streaming::after {
+  content: '';
+  display: inline-block;
+  width: 2px;
+  height: 0.85em;
+  background: currentColor;
+  opacity: 0.6;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  animation: lc-cursor-blink 0.55s steps(1) infinite;
+}
+@keyframes lc-cursor-blink {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 0; }
+}
 
 /* ── Proactive welcome bubble ── */
 /* Styled as a chat bubble pointing down at the chat-launcher button.
