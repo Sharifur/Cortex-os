@@ -19,6 +19,7 @@ import { LivechatStreamService } from './livechat-stream.service';
 import { LivechatAttachmentsService } from './livechat-attachments.service';
 import { LivechatTranscriptService } from './livechat-transcript.service';
 import { EnrichmentService } from '../../../common/visitor-enrichment/enrichment.service';
+import { LivechatRateLimitService } from './livechat-rate-limit.service';
 
 @Controller('agents/livechat')
 @UseGuards(JwtAuthGuard)
@@ -29,6 +30,7 @@ export class LivechatConversationsController {
     private attachments: LivechatAttachmentsService,
     private transcript: LivechatTranscriptService,
     private enrichment: EnrichmentService,
+    private rateLimit: LivechatRateLimitService,
   ) {}
 
   @Get('operators')
@@ -294,6 +296,9 @@ export class LivechatConversationsController {
         url: a.url,
       })),
     });
+
+    // Suppress bot replies for 90 s after an operator speaks.
+    void this.rateLimit.markOperatorActive(id);
 
     if (session.status === 'open' || session.status === 'needs_human') {
       await this.livechat.setSessionStatus(id, 'human_taken_over');
