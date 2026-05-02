@@ -2647,7 +2647,7 @@ function VisitorSidebar({
               href={currentPageUrl}
               target="_blank"
               rel="noreferrer"
-              className="text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1 mt-1"
+              className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 mt-1 overflow-hidden"
             >
               <span className="truncate">{currentPageUrl}</span>
               <ExternalLink className="w-3 h-3 shrink-0" />
