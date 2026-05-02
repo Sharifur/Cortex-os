@@ -58,6 +58,14 @@ export function mountWidget(cfg: WidgetConfig, siteConfig: SiteConfigResponse = 
   styleEl.textContent = WIDGET_STYLES;
   shadow.appendChild(styleEl);
 
+  // host.style.cssText = '...' replaces ALL inline styles, wiping the CSS vars
+  // above. Call this after every cssText assignment to restore them.
+  const reapplyCssVars = () => {
+    host.style.setProperty('--lc-brand', brand);
+    host.style.setProperty('--lc-brand-shadow', rgba);
+    host.style.setProperty('--lc-brand-shadow-hover', rgbaHover);
+  };
+
   const state = {
     open: false,
     sessionId: readSessionId(),
@@ -73,6 +81,7 @@ export function mountWidget(cfg: WidgetConfig, siteConfig: SiteConfigResponse = 
     operators: siteConfig.operators ?? [],
     host,
     cfg,
+    reapplyCssVars,
   };
 
   const bubbleBtn = document.createElement('button');
@@ -145,6 +154,7 @@ export function mountWidget(cfg: WidgetConfig, siteConfig: SiteConfigResponse = 
     } else {
       host.style.cssText = `position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 2147483646;`;
     }
+    reapplyCssVars();
   }
 
   let vvListenerInstalled = false;
@@ -160,6 +170,7 @@ export function mountWidget(cfg: WidgetConfig, siteConfig: SiteConfigResponse = 
         // back to the desktop floating style so the panel is no longer
         // pinned full-screen.
         host.style.cssText = DESKTOP_HOST_STYLE;
+        reapplyCssVars();
       }
     };
     window.visualViewport!.addEventListener('resize', onChange);
@@ -184,7 +195,7 @@ export function mountWidget(cfg: WidgetConfig, siteConfig: SiteConfigResponse = 
       setTimeout(() => {
         if (!state.open) {
           panel.style.display = 'none';
-          if (isMobile()) host.style.cssText = DESKTOP_HOST_STYLE;
+          if (isMobile()) { host.style.cssText = DESKTOP_HOST_STYLE; reapplyCssVars(); }
         }
         panel.classList.remove('lc-panel--closing');
       }, 180);
@@ -283,7 +294,7 @@ function buildPanel(shadow: ShadowRoot, cfg: WidgetConfig, state: any, render: (
     setTimeout(() => {
       if (!state.open) {
         panel.style.display = 'none';
-        if (window.innerWidth <= 480) state.host.style.cssText = DESKTOP_HOST_STYLE_BP;
+        if (window.innerWidth <= 480) { state.host.style.cssText = DESKTOP_HOST_STYLE_BP; state.reapplyCssVars?.(); }
       }
       panel.classList.remove('lc-panel--closing');
     }, 180);

@@ -590,8 +590,9 @@ export const WIDGET_STYLES = `
 .lc-hp { position: absolute; left: -9999px; top: -9999px; width: 1px; height: 1px; opacity: 0; }
 
 /* ── Attach button ── */
-.lc-attach-btn { background: transparent; border: 0; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #6b7280; cursor: pointer; flex-shrink: 0; }
-.lc-attach-btn:hover { background: #f3f4f6; color: #1f2937; }
+/* .lc-composer .lc-attach-btn wins over .lc-composer button (specificity 0,2,0 > 0,1,1) */
+.lc-composer .lc-attach-btn { background: transparent; border: 0; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #6b7280; cursor: pointer; flex-shrink: 0; }
+.lc-composer .lc-attach-btn:hover { background: #f3f4f6; color: #1f2937; }
 .lc-attach-btn svg { width: 18px; height: 18px; }
 
 /* ── Attachments in messages ── */
@@ -714,13 +715,22 @@ export const WIDGET_STYLES = `
     width: 44px;
     height: 44px;
   }
-  .lc-attach-btn {
+  .lc-composer .lc-attach-btn {
+    width: 44px;
+    height: 44px;
+  }
+  .lc-composer .lc-emoji-btn {
+    width: 44px;
+    height: 44px;
+  }
+  .lc-composer button[type="submit"] {
     width: 44px;
     height: 44px;
   }
   /* Prevent double-tap zoom on all interactive elements. */
   .lc-close, .lc-menu-btn, .lc-newchat-btn,
   .lc-attach-btn, .lc-emoji-btn,
+  .lc-composer button[type="submit"],
   .lc-rate-btn, .lc-chip, .lc-fb-btn,
   .lc-quick-replies button, .lc-session-end-btn {
     touch-action: manipulation;
