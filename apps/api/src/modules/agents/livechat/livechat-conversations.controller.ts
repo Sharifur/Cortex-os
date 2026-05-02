@@ -25,6 +25,7 @@ import { EnrichmentService } from '../../../common/visitor-enrichment/enrichment
 import { GeoIpService } from '../../../common/visitor-enrichment/geoip.service';
 import { LivechatRateLimitService } from './livechat-rate-limit.service';
 import { SettingsService } from '../../settings/settings.service';
+import { SelfImprovementService } from '../../knowledge-base/self-improvement.service';
 
 @Controller('agents/livechat')
 @UseGuards(JwtAuthGuard)
@@ -38,6 +39,7 @@ export class LivechatConversationsController {
     private geoIp: GeoIpService,
     private settings: SettingsService,
     private rateLimit: LivechatRateLimitService,
+    private selfImprovement: SelfImprovementService,
   ) {}
 
   @Get('operators')
@@ -217,6 +219,22 @@ export class LivechatConversationsController {
     await this.livechat.deleteMessage(id);
     this.stream.publishToOperators({ type: 'session_upserted', sessionId: msg.sessionId });
     return { ok: true };
+  }
+
+  @Post('messages/:id/flag')
+  @HttpCode(HttpStatus.OK)
+  async flagMessage(@Param('id') id: string, @Body() body: { correction: string }) {
+    if (!body?.correction?.trim()) throw new BadRequestException('correction is required');
+    const msg = await this.livechat.getMessageById(id);
+    if (!msg) throw new NotFoundException(`Message not found: ${id}`);
+    if (msg.role !== 'agent') throw new BadRequestException('Only AI agent messages can be flagged');
+    const result = await this.selfImprovement.proposeFromCorrection({
+      agentKey: 'livechat',
+      agentName: 'Live Chat',
+      aiMessage: msg.content,
+      correction: body.correction.trim(),
+    });
+    return { ok: true, proposalId: result.proposalId };
   }
 
   /** Operator-side identify — set / update the visitor email on a session. */

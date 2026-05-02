@@ -109,6 +109,67 @@ export class SelfImprovementService {
     }
   }
 
+  async proposeFromCorrection(opts: {
+    agentKey: string;
+    agentName: string;
+    aiMessage: string;
+    correction: string;
+  }): Promise<{ proposalId: string }> {
+    const { agentKey, agentName, aiMessage, correction } = opts;
+
+    const response = await this.llm.complete({
+      messages: [
+        { role: 'system', content: PROPOSE_SYSTEM },
+        {
+          role: 'user',
+          content: `Agent: ${agentKey}\n\nAI message that contained wrong information:\n"${aiMessage.slice(0, 500)}"\n\nOperator's correction: "${correction.slice(0, 300)}"`,
+        },
+      ],
+      provider: 'auto',
+      model: 'gpt-4o-mini',
+      maxTokens: 300,
+      temperature: 0.3,
+    });
+
+    let proposal: { entryType: string; title: string; content: string; polarity?: string; reasoning: string };
+    const raw = response.content.trim();
+    const match = raw.match(/\{[\s\S]*\}/);
+    proposal = JSON.parse(match?.[0] ?? raw);
+    if (!proposal.entryType || !proposal.title || !proposal.content) throw new Error('LLM returned incomplete proposal');
+
+    const [row] = await this.db.db
+      .insert(kbProposals)
+      .values({
+        agentKey,
+        proposedEntryType: proposal.entryType,
+        title: proposal.title,
+        content: proposal.content,
+        polarity: proposal.polarity ?? null,
+        reasoning: proposal.reasoning ?? '',
+      })
+      .returning();
+
+    const typeLabel = { fact: 'Fact', blocklist: 'Blocklist rule', writing_sample: 'Negative example' }[proposal.entryType] ?? proposal.entryType;
+    const text = [
+      `*Operator Correction — KB Proposal*`,
+      `Agent: *${agentName}* (\`${agentKey}\`)`,
+      ``,
+      `AI said: _"${aiMessage.slice(0, 150)}"_`,
+      `Correction: "${correction.slice(0, 150)}"`,
+      ``,
+      `Proposed ${typeLabel}: *${proposal.title}*`,
+      `_${proposal.content.slice(0, 250)}_`,
+      ``,
+      `Why: ${proposal.reasoning}`,
+      ``,
+      `Add this to the Knowledge Base?`,
+    ].join('\n');
+
+    this.events.emit('telegram.kb_proposal', { proposalId: row.id, text } as KbProposalNotifyEvent);
+    this.logger.log(`Correction-based KB proposal created: ${row.id} for ${agentKey}`);
+    return { proposalId: row.id };
+  }
+
   async approveProposal(proposalId: string): Promise<void> {
     const [proposal] = await this.db.db
       .select()

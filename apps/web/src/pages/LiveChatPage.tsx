@@ -39,6 +39,7 @@ import {
   ArrowLeft,
   Bell,
   BellOff,
+  ThumbsDown,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -285,9 +286,14 @@ function PushNotificationsToggle() {
           onClick={async () => {
             setBusy(true);
             try {
-              await fetch('/push/test', { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
-              setTestSent(true);
-              setTimeout(() => setTestSent(false), 2000);
+              const res = await fetch('/push/test', { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
+              const data = await res.json().catch(() => ({}));
+              if (!res.ok) {
+                alert(data?.message ?? 'Test failed');
+              } else {
+                setTestSent(true);
+                setTimeout(() => setTestSent(false), 3000);
+              }
             } finally {
               setBusy(false);
             }
@@ -1319,7 +1325,12 @@ function LiveVisitorsPanel({
                   <span className="relative w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
                   {v.ipCountry && <span>{flagFor(v.ipCountry)}</span>}
                   <span className="truncate font-medium">{name}</span>
-                  {v.sessionId && <span className="text-[10px] bg-blue-500/15 text-blue-500 px-1 rounded">in chat</span>}
+                  {(v.siteLabel ?? v.siteKey) && (
+                    <span className="shrink-0 text-[10px] bg-muted text-muted-foreground px-1.5 py-0.5 rounded truncate max-w-[80px]">
+                      {v.siteLabel ?? v.siteKey}
+                    </span>
+                  )}
+                  {v.sessionId && <span className="text-[10px] bg-blue-500/15 text-blue-500 px-1 rounded shrink-0">in chat</span>}
                   <span className="ml-auto truncate text-muted-foreground">
                     {v.currentPageTitle ?? pathFromUrlMaybe(v.currentPageUrl) ?? '—'}
                   </span>
@@ -1695,6 +1706,15 @@ function SessionPane({
     onSuccess: () => qc.invalidateQueries({ queryKey: ['livechat-session', sessionId] }),
     onError: handleMutationError('Edit & approve failed'),
   });
+  const flagMut = useMutation({
+    mutationFn: ({ messageId, correction }: { messageId: string; correction: string }) =>
+      apiFetch(token, `/agents/livechat/messages/${messageId}/flag`, {
+        method: 'POST',
+        body: JSON.stringify({ correction }),
+      }),
+    onError: handleMutationError('Flag failed'),
+  });
+
   const [pendingAttachments, setPendingAttachments] = useState<AttachmentSummary[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -1901,6 +1921,7 @@ function SessionPane({
                     onApprove={() => approveMut.mutate(m.id)}
                     onReject={() => rejectMut.mutate(m.id)}
                     onEditApprove={(content) => editApproveMut.mutate({ messageId: m.id, content })}
+                    onFlag={(correction) => flagMut.mutate({ messageId: m.id, correction })}
                     busy={approveMut.isPending || rejectMut.isPending || editApproveMut.isPending}
                   />
                 ))}
@@ -2313,6 +2334,7 @@ function MessageBubble({
   onApprove,
   onReject,
   onEditApprove,
+  onFlag,
   busy,
 }: {
   message: MessageRow;
@@ -2321,13 +2343,18 @@ function MessageBubble({
   onApprove?: () => void;
   onReject?: () => void;
   onEditApprove?: (content: string) => void;
+  onFlag?: (correction: string) => void;
   busy?: boolean;
 }) {
   const isVisitor = message.role === 'visitor';
   const isOperator = message.role === 'operator';
   const isPending = !!message.pendingApproval && message.role === 'agent';
+  const isAi = message.role === 'agent' && !isPending;
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(message.content);
+  const [flagging, setFlagging] = useState(false);
+  const [correctionDraft, setCorrectionDraft] = useState('');
+  const [flagSubmitted, setFlagSubmitted] = useState(false);
   if (message.role === 'system') {
     return (
       <div className="text-center text-xs text-muted-foreground py-1">{message.content}</div>
@@ -2373,7 +2400,7 @@ function MessageBubble({
 
   // Agent or operator
   return (
-    <div className="flex items-end justify-end gap-2">
+    <div className="flex items-end justify-end gap-2 group">
       <div className="max-w-[70%]">
         {isPending && (
           <div className="text-[11px] text-amber-600 mb-1 text-right flex items-center justify-end gap-1">
@@ -2399,7 +2426,54 @@ function MessageBubble({
         )}
         {attachmentBlock}
         {!isPending && (
-          <div className="text-[10px] text-muted-foreground mt-0.5 text-right pr-1">{formatMessageTime(message.createdAt)}</div>
+          <div className="flex items-center justify-end gap-1 mt-0.5 pr-1">
+            <span className="text-[10px] text-muted-foreground">{formatMessageTime(message.createdAt)}</span>
+            {isAi && !flagSubmitted && (
+              <button
+                onClick={() => { setFlagging((v) => !v); setCorrectionDraft(''); }}
+                title="Flag wrong AI response"
+                className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded text-muted-foreground hover:text-red-400"
+              >
+                <ThumbsDown className="w-3 h-3" />
+              </button>
+            )}
+            {isAi && flagSubmitted && (
+              <span className="text-[10px] text-emerald-500 opacity-0 group-hover:opacity-100 transition-opacity">Correction sent</span>
+            )}
+          </div>
+        )}
+        {isAi && flagging && (
+          <div className="mt-1.5 rounded-lg border border-red-400/30 bg-red-500/5 p-2.5 space-y-1.5">
+            <p className="text-[11px] text-muted-foreground">What should the AI have said?</p>
+            <textarea
+              autoFocus
+              value={correctionDraft}
+              onChange={(e) => setCorrectionDraft(e.target.value)}
+              placeholder="Type the correct information..."
+              rows={3}
+              className="w-full text-xs bg-background border border-border rounded-md px-2.5 py-1.5 resize-none focus:outline-none focus:ring-1 focus:ring-primary"
+            />
+            <div className="flex items-center gap-1.5 justify-end">
+              <button
+                onClick={() => { setFlagging(false); setCorrectionDraft(''); }}
+                className="text-xs px-2.5 py-1 rounded-md border border-border hover:bg-accent/50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                disabled={!correctionDraft.trim()}
+                onClick={() => {
+                  onFlag?.(correctionDraft.trim());
+                  setFlagging(false);
+                  setCorrectionDraft('');
+                  setFlagSubmitted(true);
+                }}
+                className="text-xs px-2.5 py-1 rounded-md bg-red-500 hover:bg-red-600 text-white disabled:opacity-50 transition-colors"
+              >
+                Submit correction
+              </button>
+            </div>
+          </div>
         )}
         {isPending && (
           <div className="flex items-center justify-end gap-1.5 mt-1.5 text-xs">
@@ -2647,7 +2721,7 @@ function VisitorSidebar({
               href={currentPageUrl}
               target="_blank"
               rel="noreferrer"
-              className="text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1 mt-1"
+              className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 mt-1 overflow-hidden"
             >
               <span className="truncate">{currentPageUrl}</span>
               <ExternalLink className="w-3 h-3 shrink-0" />
