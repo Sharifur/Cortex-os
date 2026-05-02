@@ -3420,6 +3420,9 @@ function DebugTab() {
   const [mmLicenseKey, setMmLicenseKey] = useState('');
   const [downloading, setDownloading] = useState(false);
   const [downloadMsg, setDownloadMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadMsg, setUploadMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const mmdbFileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     fetch('/agents/livechat/geo/status', { headers: { Authorization: `Bearer ${token}` } })
@@ -3462,6 +3465,31 @@ function DebugTab() {
       setDownloadMsg({ ok: false, text: (e as Error).message });
     } finally {
       setDownloading(false);
+    }
+  }
+
+  async function uploadDb(file: File) {
+    setUploading(true);
+    setUploadMsg(null);
+    try {
+      const form = new FormData();
+      form.append('file', file, file.name);
+      const res = await fetch('/agents/livechat/geo/upload-db', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: form,
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setUploadMsg({ ok: false, text: data?.message ?? `HTTP ${res.status}` });
+      } else {
+        setUploadMsg({ ok: true, text: 'GeoLite2-City.mmdb uploaded and loaded successfully.' });
+        setGeoLoaded(true);
+      }
+    } catch (e) {
+      setUploadMsg({ ok: false, text: (e as Error).message });
+    } finally {
+      setUploading(false);
     }
   }
 
@@ -3532,6 +3560,34 @@ function DebugTab() {
               {downloadMsg && (
                 <div className={`text-xs px-3 py-2 rounded-md ${downloadMsg.ok ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : 'bg-red-500/10 text-red-600 dark:text-red-400'}`}>
                   {downloadMsg.text}
+                </div>
+              )}
+              <div className="flex items-center gap-2">
+                <div className="flex-1 h-px bg-border" />
+                <span className="text-[10px] text-muted-foreground">or upload the file directly</span>
+                <div className="flex-1 h-px bg-border" />
+              </div>
+              <input
+                ref={mmdbFileRef}
+                type="file"
+                accept=".mmdb"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) uploadDb(file);
+                  e.target.value = '';
+                }}
+              />
+              <button
+                onClick={() => mmdbFileRef.current?.click()}
+                disabled={uploading}
+                className="w-full text-xs px-3 py-2 rounded-md border border-border bg-background hover:bg-accent/50 font-medium disabled:opacity-50 transition-colors"
+              >
+                {uploading ? 'Uploading…' : 'Upload GeoLite2-City.mmdb from your computer'}
+              </button>
+              {uploadMsg && (
+                <div className={`text-xs px-3 py-2 rounded-md ${uploadMsg.ok ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : 'bg-red-500/10 text-red-600 dark:text-red-400'}`}>
+                  {uploadMsg.text}
                 </div>
               )}
             </div>
