@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { Bot, LogOut, LayoutDashboard, Settings, Activity, User, KeyRound, ChevronDown, AlertTriangle, Plug, Cable, BookOpen, CheckSquare, HeartPulse, Radio, Mail, Bug, Users, BellRing, DollarSign, MessageSquare, Menu, X } from 'lucide-react';
+import { Bot, LogOut, LayoutDashboard, Settings, Activity, User, KeyRound, ChevronDown, AlertTriangle, Plug, Cable, BookOpen, CheckSquare, HeartPulse, Radio, Mail, Bug, Users, BellRing, DollarSign, MessageSquare, Menu, X, ScrollText } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 import { useQuery } from '@tanstack/react-query';
 
@@ -35,6 +35,7 @@ const NAV = [
   { to: '/health', icon: <HeartPulse className="w-4 h-4" />, label: 'Health' },
   { to: '/debug-logs', icon: <Bug className="w-4 h-4" />, label: 'Debug Logs' },
   { to: '/settings', icon: <Settings className="w-4 h-4" />, label: 'Settings' },
+  { to: '/changelog', icon: <ScrollText className="w-4 h-4" />, label: 'Changelog' },
 ];
 
 function UserMenu() {
