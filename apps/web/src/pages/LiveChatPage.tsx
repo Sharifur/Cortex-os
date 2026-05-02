@@ -40,6 +40,7 @@ import {
   Bell,
   BellOff,
   ThumbsDown,
+  CheckCheck,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -148,6 +149,7 @@ interface MessageRow {
   role: 'visitor' | 'agent' | 'operator' | 'system' | 'note';
   content: string;
   createdAt: string;
+  seenAt?: string | null;
   attachments?: AttachmentSummary[];
   pendingApproval?: boolean;
 }
@@ -1625,6 +1627,9 @@ function SessionPane({
         setLiveMessages((prev) => prev.map((m) => m.id === event.draftId ? { ...m, content: m.content + event.delta } : m));
       } else if (event.type === 'agent_stream_end' && event.draftId && event.messageId) {
         setLiveMessages((prev) => prev.map((m) => m.id === event.draftId ? { ...m, id: event.messageId, content: event.content ?? m.content } : m));
+      } else if (event.type === 'messages_seen' && Array.isArray(event.messageIds) && event.seenAt) {
+        const ids = new Set<string>(event.messageIds);
+        setLiveMessages((prev) => prev.map((m) => ids.has(m.id) ? { ...m, seenAt: event.seenAt } : m));
       }
     });
     return () => {
@@ -2428,6 +2433,10 @@ function MessageBubble({
         {!isPending && (
           <div className="flex items-center justify-end gap-1 mt-0.5 pr-1">
             <span className="text-[10px] text-muted-foreground">{formatMessageTime(message.createdAt)}</span>
+            {message.seenAt
+              ? <CheckCheck className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+              : <Check className="w-3.5 h-3.5 text-muted-foreground/50 shrink-0" />
+            }
             {isAi && !flagSubmitted && (
               <button
                 onClick={() => { setFlagging((v) => !v); setCorrectionDraft(''); }}

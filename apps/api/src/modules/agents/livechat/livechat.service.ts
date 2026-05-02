@@ -516,6 +516,23 @@ export class LivechatService {
     return updated.length > 0;
   }
 
+  async markMessagesSeen(messageIds: string[], sessionId: string): Promise<string[]> {
+    if (!messageIds.length) return [];
+    const now = new Date();
+    const updated = await this.db.db
+      .update(livechatMessages)
+      .set({ seenAt: now })
+      .where(
+        and(
+          inArray(livechatMessages.id, messageIds),
+          eq(livechatMessages.sessionId, sessionId),
+          sql`${livechatMessages.seenAt} IS NULL`,
+        ),
+      )
+      .returning({ id: livechatMessages.id });
+    return updated.map((r) => r.id);
+  }
+
   async getRecentMessages(sessionId: string, limit = 50) {
     // Exclude pending drafts — agent context should reflect what the visitor actually saw.
     return this.db.db

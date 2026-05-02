@@ -4,7 +4,7 @@ import type { WidgetConfig } from './config';
 export interface LivechatEvent {
   type: 'message' | 'pageview' | 'session_status' | 'typing'
       | 'agent_stream_start' | 'agent_stream_delta' | 'agent_stream_end'
-      | 'agent_suggestions';
+      | 'agent_suggestions' | 'messages_seen';
   sessionId: string;
   role?: 'visitor' | 'agent' | 'operator' | 'system';
   content?: string;

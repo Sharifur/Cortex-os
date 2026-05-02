@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v2.8.0',
+    date: '2026-05-02',
+    entries: [
+      { tag: 'feat', scope: 'livechat', description: 'Message seen checkmarks — single grey check when sent, double blue check when visitor reads; visitor widget emits seen event on open and on new message' },
+    ],
+  },
+  {
     version: 'v2.7.2',
     date: '2026-05-02',
     entries: [

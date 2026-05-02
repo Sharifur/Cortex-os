@@ -265,6 +265,7 @@ export function mountWidget(cfg: WidgetConfig, siteConfig: SiteConfigResponse = 
     unreadBadge.style.display = 'none';
     panel.querySelector<HTMLTextAreaElement>('textarea')?.focus();
     scrollMessagesToEnd(panel);
+    markAgentMessagesSeen(state);
   }
 
   function closePanelAnim() {
@@ -907,6 +908,17 @@ function buildPanel(shadow: ShadowRoot, cfg: WidgetConfig, state: any, render: (
   return panel;
 }
 
+function markAgentMessagesSeen(state: any) {
+  if (!state.open || !state.socket) return;
+  if (!state._seenIds) state._seenIds = new Set<string>();
+  const unseen = (state.messages as VisitorMessage[])
+    .filter((m) => (m.role === 'agent' || m.role === 'operator') && !state._seenIds.has(m.id))
+    .map((m) => m.id);
+  if (!unseen.length) return;
+  unseen.forEach((id: string) => state._seenIds.add(id));
+  state.socket.emit('livechat:messages_seen', { messageIds: unseen });
+}
+
 function connectAndListen(cfg: WidgetConfig, state: any, render: () => void, siteConfig?: SiteConfigResponse) {
   if (!state.sessionId || state.socket) return;
   state.socket = connectVisitorSocket(cfg, state.sessionId, (event: LivechatEvent) => {
@@ -998,6 +1010,7 @@ function connectAndListen(cfg: WidgetConfig, state: any, render: () => void, sit
         state.messages[idx] = { ...state.messages[idx], id: event.messageId, content: event.content ?? state.messages[idx].content };
         cacheMessages(state.messages);
         if (!state.open) { state.unread = (state.unread ?? 0) + 1; playNotificationSound(); }
+        else markAgentMessagesSeen(state);
         render(); // Full render applies markdown, rating buttons, etc.
       }
       return;
@@ -1025,6 +1038,7 @@ function connectAndListen(cfg: WidgetConfig, state: any, render: () => void, sit
     const panel = state.panel as HTMLDivElement | undefined;
     if (panel) hideTyping(panel);
     if (!state.open) { state.unread = (state.unread ?? 0) + 1; playNotificationSound(); }
+    else markAgentMessagesSeen(state);
     render();
   });
 }
