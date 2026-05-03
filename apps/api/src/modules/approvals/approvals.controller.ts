@@ -6,6 +6,7 @@ import {
   Param,
   Post,
   UseGuards,
+  BadRequestException,
 } from '@nestjs/common';
 import { ApprovalService } from '../agents/runtime/approval.service';
 import { FollowupDto } from './dto/followup.dto';
@@ -37,5 +38,12 @@ export class ApprovalsController {
   @HttpCode(200)
   followup(@Param('id') id: string, @Body() dto: FollowupDto) {
     return this.approvals.followup(id, dto.instruction);
+  }
+
+  @Post('bulk-reject')
+  @HttpCode(200)
+  bulkReject(@Body() body: { ids: string[] }) {
+    if (!Array.isArray(body?.ids) || !body.ids.length) throw new BadRequestException('ids array required');
+    return this.approvals.bulkReject(body.ids);
   }
 }
