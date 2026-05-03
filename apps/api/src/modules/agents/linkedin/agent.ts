@@ -132,6 +132,7 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
             },
           ],
           ...agentLlmOpts(config),
+          agentKey: this.key,
           maxTokens: 120,
         });
 
@@ -239,6 +240,7 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
               { role: 'system', content: 'Write a brief, genuine LinkedIn DM intro. 2-3 sentences. No templates. No sales pitches.' },
               { role: 'user', content: `Name: ${name}\nHeadline: ${headline}\nContext: ${context}` },
             ],
+            agentKey: this.key,
             maxTokens: 120,
           });
           return { draft: response.content.trim() };
@@ -260,6 +262,7 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
               { role: 'system', content: 'Write a brief, genuine LinkedIn DM. 2-3 sentences.' },
               { role: 'user', content: `Name: ${name}\nHeadline: ${headline ?? ''}\nContext: ${context ?? ''}` },
             ],
+            agentKey: this.key,
             maxTokens: 120,
           });
           return { draft: response.content.trim() };
@@ -292,6 +295,7 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
         { role: 'user', content: effectiveInstructions },
       ],
       ...agentLlmOpts(config),
+      agentKey: this.key,
       maxTokens: 600,
     });
     let draft = response.content.trim();
@@ -320,6 +324,7 @@ If not, rewrite and return: {"ok":false,"revised":"improved comment here"}`,
           },
           { role: 'user', content: `Draft: "${draft}"` },
         ],
+        agentKey: this.key,
         maxTokens: 200,
       });
       const result = JSON.parse(critique.content);

@@ -55,6 +55,7 @@ export class LivechatIntentService {
       const res = await this.llm.complete({
         provider: 'openai',
         model: 'gpt-4o-mini',
+        agentKey: 'livechat',
         maxTokens: 60,
         temperature: 0,
         messages: [

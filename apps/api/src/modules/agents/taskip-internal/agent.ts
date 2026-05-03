@@ -125,6 +125,7 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
     for (let i = 0; i < MAX_TOOL_ITERATIONS; i++) {
       const result = await this.llm.completeWithTools({
         ...agentLlmOpts(config),
+        agentKey: this.key,
         messages,
         tools,
         maxTokens: 800,

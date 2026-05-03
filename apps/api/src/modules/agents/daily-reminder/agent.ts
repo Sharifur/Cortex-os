@@ -188,6 +188,7 @@ export class DailyReminderAgent implements IAgent, OnModuleInit {
 
       const response = await this.llm.complete({
         ...agentLlmOpts(config),
+        agentKey: this.key,
         messages: [
           {
             role: 'system',
@@ -217,6 +218,7 @@ export class DailyReminderAgent implements IAgent, OnModuleInit {
 
     const response = await this.llm.complete({
       ...agentLlmOpts(config),
+      agentKey: this.key,
       messages: [
         { role: 'system', content: systemMsg },
         { role: 'user', content: userMsg },

@@ -148,6 +148,7 @@ export class SupportAgent implements IAgent, OnModuleInit {
             { role: 'user', content: `Subject: ${ticket.subject}\n\nBody: ${ticket.body}\n\nFrom: ${ticket.userEmail}` },
           ],
           ...agentLlmOpts(config),
+          agentKey: this.key,
           maxTokens: 400,
         });
 
@@ -333,6 +334,7 @@ If not, rewrite and return: {"ok":false,"revised":"improved reply here"}`,
           },
           { role: 'user', content: `Draft: "${draft}"` },
         ],
+        agentKey: this.key,
         maxTokens: 300,
       });
       const result = JSON.parse(critique.content);

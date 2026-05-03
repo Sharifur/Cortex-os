@@ -144,6 +144,7 @@ export class SocialAgent implements IAgent, OnModuleInit {
             },
           ],
           ...agentLlmOpts(config),
+          agentKey: this.key,
           maxTokens: 100,
         });
 
@@ -309,6 +310,7 @@ export class SocialAgent implements IAgent, OnModuleInit {
         { role: 'user', content: effectiveInstructions },
       ],
       ...agentLlmOpts(config),
+      agentKey: this.key,
       maxTokens: 400,
     });
     let draft = response.content.trim();
@@ -337,6 +339,7 @@ If not, rewrite and return: {"ok":false,"revised":"improved reply here"}`,
           },
           { role: 'user', content: `Draft: "${draft}"` },
         ],
+        agentKey: this.key,
         maxTokens: 150,
       });
       const result = JSON.parse(critique.content);

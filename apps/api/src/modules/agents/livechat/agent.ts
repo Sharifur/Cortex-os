@@ -612,6 +612,7 @@ If not, rewrite and return: {"ok":false,"revised":"improved reply here"}`,
           },
           { role: 'user', content: `Visitor: "${visitorMessage.slice(0, 200)}"\n\nDraft: "${draft}"` },
         ],
+        agentKey: this.key,
         maxTokens: 300,
       });
       const result = JSON.parse(critique.content);
@@ -634,6 +635,7 @@ If not, rewrite and return: {"ok":false,"revised":"improved reply here"}`,
       const res = await this.llm.complete({
         maxTokens: 80,
         temperature: 0.3,
+        agentKey: this.key,
         messages: [
           {
             role: 'system',
