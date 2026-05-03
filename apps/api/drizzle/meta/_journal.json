@@ -323,6 +323,20 @@
       "when": 1777400037000,
       "tag": "0045_livechat_seen_at",
       "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "6",
+      "when": 1777400038000,
+      "tag": "0046_tasks_recurrence_dow_dom",
+      "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "6",
+      "when": 1777400039000,
+      "tag": "0047_tasks_reminder_sent_at",
+      "breakpoints": true
     }
   ]
 }
