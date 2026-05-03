@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v3.0.1',
+    date: '2026-05-03',
+    entries: [
+      { tag: 'fix', scope: 'livechat', description: 'Visitor list now sorts open/pending sessions first, then by last message time descending — closed sessions always sink to the bottom' },
+    ],
+  },
+  {
     version: 'v3.0.0',
     date: '2026-05-03',
     entries: [
