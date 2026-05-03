@@ -25,6 +25,7 @@ interface Task {
   title: string;
   instructions: string;
   agentKey: string;
+  telegramMode: 'agent' | 'notify' | 'approve';
   status: 'pending' | 'running' | 'awaiting_approval' | 'done' | 'failed';
   output: unknown | null;
   runId: string | null;
@@ -211,6 +212,12 @@ function TaskCard({
               <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${statusCls}`}>
                 {STATUS_LABEL[task.status] ?? task.status}
               </span>
+              {task.telegramMode === 'approve' && (
+                <span className="text-xs px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-400 font-medium">Telegram approval</span>
+              )}
+              {task.telegramMode === 'notify' && (
+                <span className="text-xs px-1.5 py-0.5 rounded bg-teal-500/10 text-teal-400 font-medium">Telegram notify</span>
+              )}
               {task.recurrence && task.recurrenceTime && (
                 <span className="text-xs px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-400 font-medium flex items-center gap-1">
                   <RefreshCw className="w-3 h-3" />
@@ -274,6 +281,7 @@ interface CreateForm {
   title: string;
   agentKey: string;
   instructions: string;
+  telegramMode: 'agent' | 'notify' | 'approve';
   recurring: boolean;
   recurrence: 'daily' | 'weekly' | 'weekdays' | 'monthly';
   recurrenceTimeDhaka: string;
@@ -306,6 +314,7 @@ function CreateTaskPanel({
     title: '',
     agentKey: AGENT_OPTIONS[0].key,
     instructions: '',
+    telegramMode: 'agent',
     recurring: false,
     recurrence: 'daily',
     recurrenceTimeDhaka: '09:00',
@@ -341,6 +350,7 @@ function CreateTaskPanel({
       title: form.title.trim(),
       agentKey: form.agentKey,
       instructions: form.instructions.trim(),
+      telegramMode: form.telegramMode,
     };
 
     if (form.recurring) {
@@ -410,6 +420,18 @@ function CreateTaskPanel({
             rows={5}
             className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring resize-none"
           />
+        </div>
+        <div>
+          <label className="text-xs font-medium text-muted-foreground mb-1 block">Telegram</label>
+          <select
+            value={form.telegramMode}
+            onChange={(e) => set('telegramMode', e.target.value as CreateForm['telegramMode'])}
+            className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+          >
+            <option value="agent">Agent decides (default)</option>
+            <option value="notify">Notify me when done</option>
+            <option value="approve">Ask for approval before acting</option>
+          </select>
         </div>
         <div className="flex items-center gap-2">
           <button

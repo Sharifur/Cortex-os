@@ -84,10 +84,22 @@ export class HrAgent implements IAgent {
     const today = now.getDate();
     const month = now.toISOString().slice(0, 7);
 
-    // MANUAL trigger with a query → chat mode (answer the specific question)
     const payload = trigger.payload as { query?: string; instructions?: string; source?: string; history?: string } | null;
     const query = payload?.query ?? payload?.instructions;
+    const source = payload?.source;
+
     if (trigger.type === 'MANUAL' && query) {
+      // Task-tab: salary keywords → real salary run (goes through Telegram approval)
+      if (source === 'task' && /salary|payslip|payroll/i.test(query)) {
+        return this.buildSalaryContext(trigger, month, config);
+      }
+
+      // Task-tab: leave/WFH/daily keywords → manual daily digest
+      if (source === 'task' && /leave|wfh|work.from.home|attendance|daily|check/i.test(query)) {
+        return this.buildDailyContext(trigger, month, config);
+      }
+
+      // Chat mode — read-only queries
       return {
         source: trigger,
         snapshot: { mode: 'chat', month, config, query, history: payload?.history } satisfies HrSnapshot,
@@ -95,33 +107,36 @@ export class HrAgent implements IAgent {
       };
     }
 
-    const isSalaryDay = today === config.payslipDay;
-
-    if (isSalaryDay) {
-      let employees: HrmEmployee[] = [];
-      let totalNet = 0;
-      try {
-        const result = await this.hrm.getEmployees({ active: 'true' });
-        employees = result.data;
-        totalNet = employees.reduce((sum, e) => sum + (e.salary ?? 0), 0);
-      } catch (err) {
-        this.logger.error(`getEmployees failed: ${err instanceof HrmApiError ? err.message : err}`);
-      }
-
-      return {
-        source: trigger,
-        snapshot: { mode: 'salary', month, config, employees, totalNet } satisfies HrSnapshot,
-        followups: [],
-      };
+    // CRON trigger: auto-route by payslip day
+    if (today === config.payslipDay) {
+      return this.buildSalaryContext(trigger, month, config);
     }
+    return this.buildDailyContext(trigger, month, config);
+  }
 
-    // Daily digest mode
+  private async buildSalaryContext(trigger: TriggerEvent, month: string, config: HrConfig): Promise<AgentContext> {
+    let employees: HrmEmployee[] = [];
+    let totalNet = 0;
+    try {
+      const result = await this.hrm.getEmployees({ active: 'true' });
+      employees = result.data;
+      totalNet = employees.reduce((sum, e) => sum + (e.salary ?? 0), 0);
+    } catch (err) {
+      this.logger.error(`getEmployees failed: ${err instanceof HrmApiError ? err.message : err}`);
+    }
+    return {
+      source: trigger,
+      snapshot: { mode: 'salary', month, config, employees, totalNet } satisfies HrSnapshot,
+      followups: [],
+    };
+  }
+
+  private async buildDailyContext(trigger: TriggerEvent, month: string, config: HrConfig): Promise<AgentContext> {
     let pendingLeaves: any[] = [];
     let pendingWfh: any[] = [];
     let onLeaveToday: any[] = [];
     let onWfhToday: any[] = [];
     let alerts: any = {};
-
     try {
       const [lv, wfh, ol, ow, al] = await Promise.all([
         this.hrm.getPendingLeaves(),
@@ -138,7 +153,6 @@ export class HrAgent implements IAgent {
     } catch (err) {
       this.logger.error(`Daily digest fetch failed: ${err instanceof HrmApiError ? err.message : err}`);
     }
-
     return {
       source: trigger,
       snapshot: { mode: 'daily', month, config, pendingLeaves, pendingWfh, onLeaveToday, onWfhToday, alerts } satisfies HrSnapshot,
@@ -213,7 +227,7 @@ export class HrAgent implements IAgent {
   }
 
   requiresApproval(action: ProposedAction): boolean {
-    return action.type === 'salary_run' || action.type === 'leave_approval_request';
+    return action.type === 'salary_run';
   }
 
   async execute(action: ProposedAction): Promise<ActionResult> {

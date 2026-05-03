@@ -18,7 +18,7 @@ import { pendingApprovals } from '../../db/schema';
 import { SelfImprovementService, KbProposalNotifyEvent } from '../knowledge-base/self-improvement.service';
 import { HrmApiService } from '../agents/hr/hrm-api.service';
 import { hrPayslipRuns } from '../../db/schema';
-import type { ApprovalCreatedEvent } from './telegram.types';
+import type { ApprovalCreatedEvent, TaskNotifyEvent } from './telegram.types';
 import { TELEGRAM_EVENTS } from './telegram.types';
 import type { ProposedAction } from '../agents/runtime/types';
 import { TelegramBotAgent } from '../agents/telegram-bot/agent';
@@ -147,6 +147,13 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     } catch (err) {
       this.logger.error(`Failed to send approval message: ${(err as Error).message}`);
     }
+  }
+
+  @OnEvent(TELEGRAM_EVENTS.TASK_NOTIFY)
+  async onTaskNotify(event: TaskNotifyEvent): Promise<void> {
+    if (!this.bot || !this.ownerChatId) return;
+    const text = `Task: ${event.taskTitle}\nAgent: ${event.agentKey}\n\n${event.summary}`;
+    try { await this.sendMessage(text); } catch { /* ignore */ }
   }
 
   @OnEvent('auth.login.new_ip')

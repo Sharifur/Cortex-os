@@ -13,6 +13,7 @@ export const tasks = pgTable('tasks', {
   recurrenceTime: text('recurrence_time'),
   recurrenceDow: integer('recurrence_dow'),  // 0=Sun … 6=Sat; used for weekly
   recurrenceDom: integer('recurrence_dom'),  // 1–31; used for monthly
+  telegramMode: text('telegram_mode').notNull().default('agent'),
   nextRunAt: timestamp('next_run_at'),
   reminderSentAt: timestamp('reminder_sent_at'),
   createdAt: timestamp('created_at').notNull().defaultNow(),

@@ -8,6 +8,13 @@ export interface ApprovalCreatedEvent {
   action: ProposedAction;
 }
 
+export interface TaskNotifyEvent {
+  taskTitle: string;
+  agentKey: string;
+  summary: string;
+}
+
 export const TELEGRAM_EVENTS = {
   APPROVAL_CREATED: 'approval.created',
+  TASK_NOTIFY: 'task.notify',
 } as const;
