@@ -22,6 +22,10 @@ export class EnrichmentService {
     };
   }
 
+  lookupIp(ip: string | null | undefined): GeoLookup {
+    return this.geo.lookup(ip);
+  }
+
   debugLookup(ip: string | null | undefined): { dbLoaded: boolean; ip: string | null } & GeoLookup {
     return {
       dbLoaded: this.geo.isLoaded(),

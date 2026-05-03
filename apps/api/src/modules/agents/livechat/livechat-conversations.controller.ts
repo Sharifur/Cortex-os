@@ -362,6 +362,7 @@ export class LivechatConversationsController {
     }
     try {
       await this.geoIp.downloadAndReload(accountId, licenseKey);
+      void this.livechat.backfillGeoCountries();
       return { ok: true, loaded: this.geoIp.isLoaded() };
     } catch (err) {
       throw new InternalServerErrorException((err as Error).message);
@@ -393,6 +394,7 @@ export class LivechatConversationsController {
 
     try {
       await this.geoIp.saveAndReload(buffer);
+      void this.livechat.backfillGeoCountries();
       return { ok: true, loaded: this.geoIp.isLoaded() };
     } catch (err) {
       throw new InternalServerErrorException((err as Error).message);
@@ -441,6 +443,7 @@ export class LivechatConversationsController {
 
     try {
       await this.geoIp.saveAndReload(assembled);
+      void this.livechat.backfillGeoCountries();
       return { ok: true, loaded: this.geoIp.isLoaded() };
     } catch (err) {
       throw new InternalServerErrorException((err as Error).message);

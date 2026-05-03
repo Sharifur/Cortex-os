@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v3.0.4',
+    date: '2026-05-03',
+    entries: [
+      { tag: 'fix', scope: 'geoip', description: 'Country flags now appear for existing visitors — GeoIP backfill runs on boot and after every database upload/download, updating all visitors that have an IP but no country data' },
+    ],
+  },
+  {
     version: 'v3.0.3',
     date: '2026-05-03',
     entries: [
