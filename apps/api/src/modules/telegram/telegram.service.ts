@@ -292,37 +292,31 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
         const [, approvalId, action] = ctx.match!;
         await ctx.answerCallbackQuery();
 
-        const originalText = ctx.msg?.text ?? '';
-
-        if (action === 'approve') {
-          await this.approvalSvc.approve(approvalId);
-          await ctx.editMessageText(`${originalText}\n\n*Approved*`, {
-            parse_mode: 'Markdown',
-          });
-        } else if (action === 'reject') {
-          const keyboard = new InlineKeyboard()
-            .text('Reject silently', `reject:${approvalId}:silent`)
-            .text('Reject + reason', `reject:${approvalId}:reason`);
-          await ctx.editMessageText(`${originalText}\n\nRejected — add a reason?`, {
-            reply_markup: keyboard,
-          });
-        } else if (action === 'followup') {
-          await ctx.editMessageText(
-            `${originalText}\n\n_Awaiting follow\\-up instruction\\.\\.\\._`,
-            { parse_mode: 'MarkdownV2' },
-          );
-          const prompt = await ctx.api.sendMessage(
-            this.ownerChatId!,
-            'Reply to this message with your follow\\-up instruction:',
-            {
-              parse_mode: 'MarkdownV2',
-              reply_markup: { force_reply: true, selective: true },
-            },
-          );
-          await this.db.db
-            .update(pendingApprovals)
-            .set({ telegramThreadId: String(prompt.message_id), status: 'FOLLOWUP' })
-            .where(eq(pendingApprovals.id, approvalId));
+        try {
+          if (action === 'approve') {
+            await this.approvalSvc.approve(approvalId);
+            await ctx.editMessageReplyMarkup({ reply_markup: { inline_keyboard: [] } });
+            await ctx.reply('Approved.');
+          } else if (action === 'reject') {
+            const keyboard = new InlineKeyboard()
+              .text('Reject silently', `reject:${approvalId}:silent`)
+              .text('Reject + reason', `reject:${approvalId}:reason`);
+            await ctx.editMessageReplyMarkup({ reply_markup: keyboard });
+          } else if (action === 'followup') {
+            const prompt = await ctx.api.sendMessage(
+              this.ownerChatId!,
+              'Reply to this message with your follow-up instruction:',
+              { reply_markup: { force_reply: true, selective: true } },
+            );
+            await this.db.db
+              .update(pendingApprovals)
+              .set({ telegramThreadId: String(prompt.message_id), status: 'FOLLOWUP' })
+              .where(eq(pendingApprovals.id, approvalId));
+            await ctx.editMessageReplyMarkup({ reply_markup: { inline_keyboard: [] } });
+          }
+        } catch (err) {
+          this.logger.error(`approval ${action} failed for ${approvalId}: ${err}`);
+          await ctx.reply(`Action failed: ${(err as Error).message}`);
         }
       },
     );
@@ -339,27 +333,27 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
 
         const [, approvalId, subAction] = ctx.match!;
         await ctx.answerCallbackQuery();
-        const originalText = ctx.msg?.text ?? '';
 
-        if (subAction === 'silent') {
-          await this.approvalSvc.rejectWithReason(approvalId, null);
-          await ctx.editMessageText(`${originalText}\n\n*Rejected*`, { parse_mode: 'Markdown' });
-        } else {
-          await ctx.editMessageText(`${originalText}\n\n_Awaiting rejection reason\\.\\.\\._`, {
-            parse_mode: 'MarkdownV2',
-          });
-          const prompt = await ctx.api.sendMessage(
-            this.ownerChatId!,
-            'Reply to this message with your rejection reason:',
-            {
-              parse_mode: 'MarkdownV2',
-              reply_markup: { force_reply: true, selective: true },
-            },
-          );
-          await this.db.db
-            .update(pendingApprovals)
-            .set({ telegramThreadId: `REJECT_REASON:${prompt.message_id}` })
-            .where(eq(pendingApprovals.id, approvalId));
+        try {
+          if (subAction === 'silent') {
+            await this.approvalSvc.rejectWithReason(approvalId, null);
+            await ctx.editMessageReplyMarkup({ reply_markup: { inline_keyboard: [] } });
+            await ctx.reply('Rejected.');
+          } else {
+            const prompt = await ctx.api.sendMessage(
+              this.ownerChatId!,
+              'Reply to this message with your rejection reason:',
+              { reply_markup: { force_reply: true, selective: true } },
+            );
+            await this.db.db
+              .update(pendingApprovals)
+              .set({ telegramThreadId: `REJECT_REASON:${prompt.message_id}` })
+              .where(eq(pendingApprovals.id, approvalId));
+            await ctx.editMessageReplyMarkup({ reply_markup: { inline_keyboard: [] } });
+          }
+        } catch (err) {
+          this.logger.error(`reject sub-action ${subAction} failed for ${approvalId}: ${err}`);
+          await ctx.reply(`Action failed: ${(err as Error).message}`);
         }
       },
     );
