@@ -16,6 +16,17 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v3.1.7',
+    date: '2026-05-03',
+    entries: [
+      { tag: 'fix', scope: 'hr', description: 'Chat mode is now explicitly read-only — system prompt and tool description for export_payslips_csv make clear it cannot generate salary slips; if asked, the agent explains the user must trigger a run from the Tasks tab' },
+      { tag: 'fix', scope: 'chat', description: 'Conversation history no longer causes duplicate messages — staleTime set to Infinity and a ref prevents history query re-fetches from overwriting locally-appended messages; key={convId} on ChatTab forces remount on conversation switch' },
+      { tag: 'fix', scope: 'hr', description: 'Conversation history is now passed to the LLM — prior messages are reconstructed from the history payload and prepended so the agent maintains context across turns' },
+      { tag: 'feat', scope: 'chat', description: 'Thumbs up/down feedback buttons appear on agent message hover — inline rating stored in local state; clicking again toggles off' },
+      { tag: 'feat', scope: 'hr', description: 'Updated HR chat suggestions: who is on leave today, pending leave requests, WFH, birthdays, payslip summary, CSV download, salary generation redirect' },
+    ],
+  },
+  {
     version: 'v3.1.6',
     date: '2026-05-03',
     entries: [

@@ -34,6 +34,7 @@ interface HrSnapshot {
   config: HrConfig;
   // chat mode
   query?: string;
+  history?: string;
   // salary mode
   employees?: HrmEmployee[];
   totalNet?: number;
@@ -84,12 +85,12 @@ export class HrAgent implements IAgent {
     const month = now.toISOString().slice(0, 7);
 
     // MANUAL trigger with a query → chat mode (answer the specific question)
-    const payload = trigger.payload as { query?: string; instructions?: string; source?: string } | null;
+    const payload = trigger.payload as { query?: string; instructions?: string; source?: string; history?: string } | null;
     const query = payload?.query ?? payload?.instructions;
     if (trigger.type === 'MANUAL' && query) {
       return {
         source: trigger,
-        snapshot: { mode: 'chat', month, config, query } satisfies HrSnapshot,
+        snapshot: { mode: 'chat', month, config, query, history: payload?.history } satisfies HrSnapshot,
         followups: [],
       };
     }
@@ -150,7 +151,7 @@ export class HrAgent implements IAgent {
     const actions: ProposedAction[] = [];
 
     if (snap.mode === 'chat') {
-      return this.answerChatQuery(snap.query!, snap.config);
+      return this.answerChatQuery(snap.query!, snap.config, snap.history);
     }
 
     if (snap.mode === 'salary') {
@@ -446,7 +447,7 @@ export class HrAgent implements IAgent {
       },
       {
         name: 'export_payslips_csv',
-        description: 'Get the CSV export URL for all payslips for a month',
+        description: 'Get the CSV download URL for ALREADY EXISTING payslips for a month. Does NOT generate new payslips.',
         inputSchema: {
           type: 'object',
           properties: { month: { type: 'string', description: 'YYYY-MM format' } },
@@ -470,11 +471,22 @@ export class HrAgent implements IAgent {
 
   // ─── Chat query handler ────────────────────────────────────────────────────
 
-  private async answerChatQuery(query: string, config: HrConfig): Promise<ProposedAction[]> {
+  private async answerChatQuery(query: string, config: HrConfig, history?: string): Promise<ProposedAction[]> {
     const tools = this.buildHrmToolDefinitions();
     const systemPrompt = this.buildChatSystemPrompt(config);
+
+    // Reconstruct prior conversation messages from history string
+    const priorMessages: LlmToolMessage[] = [];
+    if (history) {
+      for (const line of history.split('\n')) {
+        if (line.startsWith('User: ')) priorMessages.push({ role: 'user', content: line.slice(6) });
+        else if (line.startsWith('Agent: ')) priorMessages.push({ role: 'assistant', content: line.slice(7) });
+      }
+    }
+
     const messages: LlmToolMessage[] = [
       { role: 'system', content: systemPrompt },
+      ...priorMessages,
       { role: 'user', content: query },
     ];
 
@@ -524,22 +536,28 @@ export class HrAgent implements IAgent {
   }
 
   private buildChatSystemPrompt(config: HrConfig): string {
-    return `You are an HR assistant for ${config.companyName}. Answer HR questions using the available tools.
+    return `You are a read-only HR assistant for ${config.companyName}. You can ONLY read and report data — you cannot create, generate, approve, or modify anything.
 
-Tools you have:
-- list_employees: list all employees (optionally filter by active status)
-- get_employee: get details for one employee by ID
-- get_pending_leaves: get all pending leave requests awaiting approval
-- get_leave_requests: get leave requests with filters (status, employeeId, month)
-- get_alerts: get upcoming alerts — probation endings, contract expirations, birthdays, work anniversaries
+IMPORTANT RESTRICTIONS:
+- You CANNOT generate salary slips or payslips. Salary generation requires a dedicated approval flow. If asked, tell the user to trigger a manual salary run from the Tasks tab or wait for the scheduled payroll day.
+- You CANNOT approve or reject leave/WFH requests from this chat. Approvals happen via Telegram.
+- You CANNOT submit or create any records.
+- export_payslips_csv only downloads EXISTING payslips — it does NOT generate new ones.
+
+Read-only tools available:
+- list_employees: list employees (filter by active status)
+- get_employee: get one employee's details by ID
+- get_pending_leaves: pending leave requests awaiting approval
+- get_leave_requests: leave requests with filters (status, employeeId, month)
+- get_alerts: upcoming alerts — probation endings, birthdays, work anniversaries
 - get_today_on_leave: who is on leave today
 - get_today_wfh: who is working from home today
-- get_payslips: get all payslips for a given month (YYYY-MM)
-- get_payslip: get one employee's payslip for a given month
-- export_payslips_csv: get the CSV download URL for a month's payslips
+- get_payslips: list payslips for a given month (YYYY-MM)
+- get_payslip: one employee's payslip for a given month
+- export_payslips_csv: CSV download URL for EXISTING payslips for a month (does NOT generate new ones)
 
 Today is ${new Date().toDateString()}. Current month: ${new Date().toISOString().slice(0, 7)}.
-Answer concisely — the response will be sent to Telegram.`;
+Answer concisely. If asked to do something you cannot do, clearly explain the limitation and suggest the correct flow.`;
   }
 
   private buildHrmToolDefinitions(): ToolDefinition[] {
