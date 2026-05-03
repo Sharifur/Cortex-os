@@ -3504,6 +3504,7 @@ function DebugTab() {
   const [downloading, setDownloading] = useState(false);
   const [downloadMsg, setDownloadMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState('');
   const [uploadMsg, setUploadMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const mmdbFileRef = useRef<HTMLInputElement>(null);
 
@@ -3554,25 +3555,36 @@ function DebugTab() {
   async function uploadDb(file: File) {
     setUploading(true);
     setUploadMsg(null);
+    setUploadProgress('');
+    const CHUNK_SIZE = 10 * 1024 * 1024; // 10 MB
+    const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+    const uploadId = Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
     try {
-      const form = new FormData();
-      form.append('file', file, file.name);
-      const res = await fetch('/agents/livechat/geo/upload-db', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-        body: form,
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setUploadMsg({ ok: false, text: data?.message ?? `HTTP ${res.status}` });
-      } else {
-        setUploadMsg({ ok: true, text: 'GeoLite2-City.mmdb uploaded and loaded successfully.' });
-        setGeoLoaded(true);
+      for (let i = 0; i < totalChunks; i++) {
+        setUploadProgress(`Uploading chunk ${i + 1} of ${totalChunks}...`);
+        const slice = file.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
+        const buf = await slice.arrayBuffer();
+        const base64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+        const res = await fetch('/agents/livechat/geo/upload-chunk', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ uploadId, chunkIndex: i, totalChunks, data: base64 }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          setUploadMsg({ ok: false, text: data?.message ?? `HTTP ${res.status}` });
+          return;
+        }
+        if (i === totalChunks - 1) {
+          setUploadMsg({ ok: true, text: 'GeoLite2-City.mmdb uploaded and loaded successfully.' });
+          setGeoLoaded(true);
+        }
       }
     } catch (e) {
       setUploadMsg({ ok: false, text: (e as Error).message });
     } finally {
       setUploading(false);
+      setUploadProgress('');
     }
   }
 
@@ -3666,7 +3678,7 @@ function DebugTab() {
                 disabled={uploading}
                 className="w-full text-xs px-3 py-2 rounded-md border border-border bg-background hover:bg-accent/50 font-medium disabled:opacity-50 transition-colors"
               >
-                {uploading ? 'Uploading…' : 'Upload GeoLite2-City.mmdb from your computer'}
+                {uploading ? (uploadProgress || 'Uploading…') : 'Upload GeoLite2-City.mmdb from your computer'}
               </button>
               {uploadMsg && (
                 <div className={`text-xs px-3 py-2 rounded-md ${uploadMsg.ok ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : 'bg-red-500/10 text-red-600 dark:text-red-400'}`}>
