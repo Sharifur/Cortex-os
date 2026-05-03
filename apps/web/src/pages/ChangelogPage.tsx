@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v3.1.6',
+    date: '2026-05-03',
+    entries: [
+      { tag: 'fix', scope: 'notifications', description: 'Agent failures count clears when navigating to Activity page or clicking the row — stored as a seen-at timestamp in localStorage; backend only counts failures after that point, not the full 24h window' },
+    ],
+  },
+  {
     version: 'v3.1.5',
     date: '2026-05-03',
     entries: [
