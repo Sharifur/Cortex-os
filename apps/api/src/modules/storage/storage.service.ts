@@ -209,6 +209,30 @@ export class StorageService {
     }
   }
 
+  /** Store a raw binary file under a fixed key — no size/type validation. For internal system files only. */
+  async putSystemFile(key: string, buffer: Buffer, contentType = 'application/octet-stream'): Promise<void> {
+    const cfg = await this.resolveClient().catch(() => null);
+    if (!cfg) return;
+    await cfg.client.send(
+      new PutObjectCommand({ Bucket: cfg.bucket, Key: key, Body: buffer, ContentType: contentType }),
+    );
+  }
+
+  /** Download a raw binary file by fixed key. Returns null if not found or storage not configured. */
+  async getSystemFile(key: string): Promise<Buffer | null> {
+    const cfg = await this.resolveClient().catch(() => null);
+    if (!cfg) return null;
+    try {
+      const res = await cfg.client.send(new GetObjectCommand({ Bucket: cfg.bucket, Key: key }));
+      if (!res.Body) return null;
+      const chunks: Uint8Array[] = [];
+      for await (const chunk of res.Body as AsyncIterable<Uint8Array>) chunks.push(chunk);
+      return Buffer.concat(chunks);
+    } catch {
+      return null;
+    }
+  }
+
   /** Test the connection with current settings. */
   async testConnection(): Promise<{ ok: boolean; message: string }> {
     try {
