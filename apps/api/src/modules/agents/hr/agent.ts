@@ -221,7 +221,9 @@ export class HrAgent implements IAgent {
 
     if (action.type === 'notify_result') {
       const msg = (p.message as string) ?? action.summary;
-      await this.telegram.sendMessage(msg);
+      if (p.source !== 'chat') {
+        await this.telegram.sendMessage(msg);
+      }
       return { success: true };
     }
 
@@ -490,14 +492,14 @@ export class HrAgent implements IAgent {
       } catch (err) {
         const msg = `LLM error: ${err instanceof Error ? err.message : String(err)}`;
         this.logger.error(msg);
-        return [{ type: 'notify_result', summary: msg, payload: { message: msg, query }, riskLevel: 'low' }];
+        return [{ type: 'notify_result', summary: msg, payload: { message: msg, query, source: 'chat' }, riskLevel: 'low' }];
       }
 
       if (result.type === 'text') {
         return [{
           type: 'notify_result',
           summary: 'HR query answered',
-          payload: { message: result.content, query },
+          payload: { message: result.content, query, source: 'chat' },
           riskLevel: 'low',
         }];
       }
@@ -516,7 +518,7 @@ export class HrAgent implements IAgent {
     return [{
       type: 'notify_result',
       summary: 'HR query answered',
-      payload: { message: 'Could not produce a final answer within the iteration limit.', query },
+      payload: { message: 'Could not produce a final answer within the iteration limit.', query, source: 'chat' },
       riskLevel: 'low',
     }];
   }

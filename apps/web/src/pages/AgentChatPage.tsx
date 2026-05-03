@@ -864,7 +864,7 @@ export default function AgentChatPage() {
   }, [key]);
 
   return (
-    <div className="flex flex-col h-screen max-h-screen overflow-hidden">
+    <div className="flex flex-col h-full overflow-hidden">
       {/* Header */}
       <div className={`shrink-0 border-b border-border px-4 sm:px-5 py-2 sm:py-3 bg-card`}>
         <div className="flex items-center gap-2 sm:gap-3">

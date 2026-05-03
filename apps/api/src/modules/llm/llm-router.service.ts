@@ -168,10 +168,6 @@ export class LlmRouterService {
   async completeWithTools(opts: LlmCompleteWithToolsOpts): Promise<LlmToolResult> {
     const provider = opts.provider ?? 'auto';
 
-    if (provider === 'gemini') {
-      throw new Error('Gemini does not support tool calling in this router — use openai or deepseek');
-    }
-
     const resolvedProvider =
       provider !== 'auto'
         ? provider
@@ -180,6 +176,13 @@ export class LlmRouterService {
     if (resolvedProvider === 'deepseek') {
       return this.callOpenAiStyleWithTools(opts, 'deepseek');
     }
+
+    // Gemini does not support OpenAI-style tool calling; fall back to openai with a warning.
+    if (resolvedProvider === 'gemini') {
+      this.logger.warn('completeWithTools: gemini does not support tool calling — falling back to openai');
+      return this.callOpenAiStyleWithTools(opts, 'openai');
+    }
+
     return this.callOpenAiStyleWithTools(opts, 'openai');
   }
 
@@ -214,9 +217,26 @@ export class LlmRouterService {
       },
     }));
 
+    // Convert our internal ToolCall shape { id, name, arguments } back to what
+    // OpenAI requires in assistant messages: { id, type, function: { name, arguments } }
+    const openAiMessages: OpenAI.Chat.ChatCompletionMessageParam[] = opts.messages.map((m) => {
+      if (m.role === 'assistant' && Array.isArray((m as any).tool_calls) && (m as any).tool_calls.length) {
+        return {
+          role: 'assistant' as const,
+          content: (m as any).content ?? null,
+          tool_calls: (m as any).tool_calls.map((tc: any) => ({
+            id: tc.id,
+            type: 'function' as const,
+            function: { name: tc.name, arguments: tc.arguments },
+          })),
+        };
+      }
+      return m as OpenAI.Chat.ChatCompletionMessageParam;
+    });
+
     const res = await client.chat.completions.create({
       model,
-      messages: opts.messages as OpenAI.Chat.ChatCompletionMessageParam[],
+      messages: openAiMessages,
       tools,
       tool_choice: 'auto',
       max_tokens: opts.maxTokens,
