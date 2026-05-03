@@ -211,13 +211,15 @@ export class LivechatService implements OnModuleInit {
     return row ? this.toSiteRow(row) : null;
   }
 
-  /** Validate that the request's Origin header matches the site row, then return the site. */
+  /** Validate that the request's Origin header matches the site row, then return the site.
+   * Comparison is hostname-only so http:// and https:// variants of the same domain both pass. */
   async resolveSiteForRequest(siteKey: string, requestOrigin: string | null | undefined): Promise<LivechatSiteRow> {
     const site = await this.getSiteByKey(siteKey);
     if (!site) throw new NotFoundException(`Unknown site: ${siteKey}`);
     if (!site.enabled) throw new ForbiddenException(`Site disabled: ${siteKey}`);
-    const normalized = this.normalizeOrigin(requestOrigin ?? null);
-    if (!normalized || normalized !== site.origin) {
+    const requestHostname = this.extractHostname(requestOrigin ?? null);
+    const siteHostname = this.extractHostname(site.origin);
+    if (!requestHostname || requestHostname !== siteHostname) {
       throw new ForbiddenException(`Origin not allowed for site ${siteKey}`);
     }
     return site;
@@ -1179,6 +1181,15 @@ export class LivechatService implements OnModuleInit {
       const u = new URL(origin.trim());
       if (!u.protocol.startsWith('http')) return null;
       return `${u.protocol}//${u.host}`;
+    } catch {
+      return null;
+    }
+  }
+
+  private extractHostname(origin: string | undefined | null): string | null {
+    if (!origin) return null;
+    try {
+      return new URL(origin.trim()).hostname.toLowerCase();
     } catch {
       return null;
     }
