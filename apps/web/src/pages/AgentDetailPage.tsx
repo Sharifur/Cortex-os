@@ -222,8 +222,17 @@ function RunRowExpanded({ runId, token }: { runId: string; token: string }) {
   );
 }
 
+interface PendingApproval {
+  id: string;
+  runId: string;
+  agentKey: string;
+  action: { type: string; summary: string };
+  status: string;
+}
+
 function RunsTab({ agentKey, token }: { agentKey: string; token: string }) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const qc = useQueryClient();
 
   const toggleExpand = useCallback((id: string) => {
     setExpandedId((prev) => (prev === id ? null : id));
@@ -240,6 +249,37 @@ function RunsTab({ agentKey, token }: { agentKey: string; token: string }) {
     },
     refetchInterval: 10_000,
   });
+
+  const { data: allApprovals } = useQuery<PendingApproval[]>({
+    queryKey: ['pending-approvals'],
+    queryFn: () => apiFetch(token, '/approvals'),
+    refetchInterval: 10_000,
+  });
+
+  const approveMutation = useMutation({
+    mutationFn: (approvalId: string) =>
+      apiFetch(token, `/approvals/${approvalId}/approve`, { method: 'POST' }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['pending-approvals'] });
+      qc.invalidateQueries({ queryKey: ['agent-runs', agentKey] });
+    },
+  });
+
+  const rejectMutation = useMutation({
+    mutationFn: (approvalId: string) =>
+      apiFetch(token, `/approvals/${approvalId}/reject`, { method: 'POST' }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['pending-approvals'] });
+      qc.invalidateQueries({ queryKey: ['agent-runs', agentKey] });
+    },
+  });
+
+  const approvalsByRunId = (allApprovals ?? [])
+    .filter((a) => a.agentKey === agentKey)
+    .reduce<Record<string, PendingApproval[]>>((acc, a) => {
+      (acc[a.runId] ??= []).push(a);
+      return acc;
+    }, {});
 
   if (isLoading) {
     return (
@@ -266,13 +306,14 @@ function RunsTab({ agentKey, token }: { agentKey: string; token: string }) {
       <div className="divide-y divide-border">
         {runs.map((run) => {
           const isExpanded = expandedId === run.id;
+          const runApprovals = approvalsByRunId[run.id] ?? [];
           return (
             <div key={run.id}>
-              <div className="flex items-center gap-4 px-5 py-3.5 hover:bg-accent/30 transition-colors">
-                {/* Expand toggle */}
+              <div className="flex items-start sm:items-center gap-3 sm:gap-4 px-4 sm:px-5 py-3 sm:py-3.5 hover:bg-accent/30 transition-colors">
+                {/* Expand toggle + run info */}
                 <button
                   onClick={() => toggleExpand(run.id)}
-                  className="flex items-center gap-3 flex-1 min-w-0 text-left"
+                  className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0 text-left"
                 >
                   {isExpanded ? (
                     <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0" />
@@ -280,7 +321,7 @@ function RunsTab({ agentKey, token }: { agentKey: string; token: string }) {
                     <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
                   )}
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                    <div className="flex items-center gap-1.5 mb-0.5 flex-wrap">
                       <code className="text-xs font-mono text-muted-foreground">{run.id.slice(0, 12)}</code>
                       <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${STATUS_CLS[run.status] ?? 'text-muted-foreground'}`}>
                         {run.status}
@@ -288,6 +329,29 @@ function RunsTab({ agentKey, token }: { agentKey: string; token: string }) {
                       <span className="text-xs text-muted-foreground">{run.triggerType}</span>
                     </div>
                     {run.error && <p className="text-xs text-destructive truncate">{run.error}</p>}
+                    {/* Approve/Reject buttons for AWAITING_APPROVAL runs */}
+                    {run.status === 'AWAITING_APPROVAL' && runApprovals.length > 0 && (
+                      <div className="flex items-center gap-2 mt-1.5" onClick={(e) => e.stopPropagation()}>
+                        {runApprovals.map((approval) => (
+                          <div key={approval.id} className="flex gap-1.5">
+                            <button
+                              onClick={() => approveMutation.mutate(approval.id)}
+                              disabled={approveMutation.isPending}
+                              className="text-xs px-2 py-0.5 rounded bg-green-500/15 text-green-500 hover:bg-green-500/25 transition-colors border border-green-500/30 disabled:opacity-50"
+                            >
+                              {approveMutation.isPending ? '…' : 'Approve'}
+                            </button>
+                            <button
+                              onClick={() => rejectMutation.mutate(approval.id)}
+                              disabled={rejectMutation.isPending}
+                              className="text-xs px-2 py-0.5 rounded bg-red-500/15 text-red-500 hover:bg-red-500/25 transition-colors border border-red-500/30 disabled:opacity-50"
+                            >
+                              {rejectMutation.isPending ? '…' : 'Reject'}
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </button>
                 <div className="text-right shrink-0">
@@ -2879,7 +2943,7 @@ export default function AgentDetailPage() {
   });
 
   return (
-    <div className="p-8 max-w-4xl mx-auto">
+    <div className="p-4 sm:p-8 max-w-4xl mx-auto">
       <Link
         to="/agents"
         className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-5"
@@ -2893,12 +2957,12 @@ export default function AgentDetailPage() {
 
       {agent && (
         <>
-          <div className="flex items-center gap-3 mb-6">
-            <div className={`w-10 h-10 rounded-xl ${color.iconBg} flex items-center justify-center shrink-0`}>
+          <div className="flex items-start gap-3 mb-6">
+            <div className={`w-10 h-10 rounded-xl ${color.iconBg} flex items-center justify-center shrink-0 mt-0.5`}>
               <Bot className={`w-5 h-5 ${color.iconText}`} />
             </div>
             <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 mb-0.5">
+              <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
                 <h1 className="text-xl font-semibold">{agent.name}</h1>
                 <code className={`text-xs px-1.5 py-0.5 rounded ${color.badge} ${color.badgeText}`}>{agent.key}</code>
                 {!agent.registered && (
@@ -2912,14 +2976,14 @@ export default function AgentDetailPage() {
               {agent.description && (
                 <p className="text-sm text-muted-foreground">{agent.description}</p>
               )}
+              <Link
+                to={`/agents/${agent.key}/chat`}
+                className={`inline-flex items-center gap-1.5 text-xs sm:text-sm px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg border transition-colors mt-2 ${color.border} ${color.badgeText} hover:${color.iconBg}`}
+              >
+                <MessageSquare className="w-3 sm:w-3.5 h-3 sm:h-3.5" />
+                Chat
+              </Link>
             </div>
-            <Link
-              to={`/agents/${agent.key}/chat`}
-              className={`flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg border transition-colors shrink-0 ${color.border} ${color.badgeText} hover:${color.iconBg}`}
-            >
-              <MessageSquare className="w-3.5 h-3.5" />
-              Chat
-            </Link>
           </div>
 
           <div className="flex items-center gap-1 border-b border-border mb-6">

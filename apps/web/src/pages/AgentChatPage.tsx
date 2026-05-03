@@ -370,7 +370,7 @@ function ChatTab({
   const isBusy = triggerMutation.isPending || isThinking;
 
   return (
-    <div className="flex flex-col h-[calc(100vh-200px)] min-h-[500px] relative">
+    <div className="flex flex-col h-full relative">
       {/* Toolbar */}
       <div className="flex items-center justify-between px-4 py-2 border-b border-border shrink-0">
         <p className="text-xs text-muted-foreground font-mono truncate max-w-xs">{convId}</p>
@@ -791,37 +791,57 @@ export default function AgentChatPage() {
   return (
     <div className="flex flex-col h-screen max-h-screen overflow-hidden">
       {/* Header */}
-      <div className={`shrink-0 border-b border-border px-5 py-3 flex items-center gap-3 bg-card`}>
-        <Link
-          to={`/agents/${key}`}
-          className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mr-1"
-        >
-          <ArrowLeft className="w-3.5 h-3.5" />
-        </Link>
+      <div className={`shrink-0 border-b border-border px-4 sm:px-5 py-2 sm:py-3 bg-card`}>
+        <div className="flex items-center gap-2 sm:gap-3">
+          <Link
+            to={`/agents/${key}`}
+            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors shrink-0"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" />
+          </Link>
 
-        <div className={`w-8 h-8 rounded-lg ${color.iconBg} flex items-center justify-center shrink-0`}>
-          <Bot className={`w-4 h-4 ${color.iconText}`} />
+          <div className={`w-8 h-8 rounded-lg ${color.iconBg} flex items-center justify-center shrink-0`}>
+            <Bot className={`w-4 h-4 ${color.iconText}`} />
+          </div>
+
+          {isLoading ? (
+            <Skeleton className="h-5 w-32 rounded" />
+          ) : (
+            <div className="flex items-center gap-1.5 flex-wrap flex-1 min-w-0">
+              <span className="text-sm font-semibold truncate">{agent?.name}</span>
+              <code className={`text-xs px-1.5 py-0.5 rounded ${color.badge} ${color.badgeText} shrink-0`}>{key}</code>
+              {agent && !agent.enabled && (
+                <span className="text-xs text-amber-500 bg-amber-500/10 px-1.5 py-0.5 rounded shrink-0">disabled</span>
+              )}
+            </div>
+          )}
+
+          {/* Tab bar — desktop (shown inline) */}
+          <div className="hidden sm:flex items-center gap-1 border border-border rounded-lg p-0.5 bg-muted/30 ml-auto shrink-0">
+            {CHAT_TABS.map(({ key: tabKey, label, icon: Icon }) => (
+              <button
+                key={tabKey}
+                onClick={() => setActiveTab(tabKey)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                  activeTab === tabKey
+                    ? `bg-card text-foreground shadow-sm`
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                <Icon className="w-3 h-3" />
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
 
-        {isLoading ? (
-          <Skeleton className="h-5 w-32 rounded" />
-        ) : (
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-semibold">{agent?.name}</span>
-            <code className={`text-xs px-1.5 py-0.5 rounded ${color.badge} ${color.badgeText}`}>{key}</code>
-            {agent && !agent.enabled && (
-              <span className="text-xs text-amber-500 bg-amber-500/10 px-1.5 py-0.5 rounded">disabled</span>
-            )}
-          </div>
-        )}
-
-        {/* Tab bar in header */}
-        <div className="ml-auto flex items-center gap-1 border border-border rounded-lg p-0.5 bg-muted/30">
+        {/* Tab bar — mobile (shown below name row) */}
+        <div className="flex sm:hidden items-center gap-1 border border-border rounded-lg p-0.5 bg-muted/30 mt-2">
           {CHAT_TABS.map(({ key: tabKey, label, icon: Icon }) => (
             <button
               key={tabKey}
               onClick={() => setActiveTab(tabKey)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+              className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md text-xs font-medium transition-colors ${
                 activeTab === tabKey
                   ? `bg-card text-foreground shadow-sm`
                   : 'text-muted-foreground hover:text-foreground'

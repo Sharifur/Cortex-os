@@ -3,9 +3,12 @@ import { eq } from 'drizzle-orm';
 import { DbService } from '../../../db/db.service';
 import { agents, hrPayslipRuns } from '../../../db/schema';
 import { AgentRegistryService } from '../runtime/agent-registry.service';
+import { LlmRouterService } from '../../llm/llm-router.service';
 import { TelegramService } from '../../telegram/telegram.service';
 import { SettingsService } from '../../settings/settings.service';
 import { HrmApiService, HrmApiError, HrmEmployee } from './hrm-api.service';
+import { agentLlmOpts } from '../runtime/llm-config.util';
+import type { LlmToolMessage, ToolDefinition } from '../../llm/llm.types';
 import type {
   IAgent,
   TriggerSpec,
@@ -26,9 +29,11 @@ interface HrConfig {
 }
 
 interface HrSnapshot {
-  mode: 'salary' | 'daily';
+  mode: 'salary' | 'daily' | 'chat';
   month: string;
   config: HrConfig;
+  // chat mode
+  query?: string;
   // salary mode
   employees?: HrmEmployee[];
   totalNet?: number;
@@ -46,6 +51,8 @@ const DEFAULT_CONFIG: HrConfig = {
   payslipDay: 25,
 };
 
+const MAX_TOOL_ITERATIONS = 6;
+
 @Injectable()
 export class HrAgent implements IAgent {
   readonly key = 'hr';
@@ -54,6 +61,7 @@ export class HrAgent implements IAgent {
 
   constructor(
     private db: DbService,
+    private llm: LlmRouterService,
     private telegram: TelegramService,
     private registry: AgentRegistryService,
     private settings: SettingsService,
@@ -74,6 +82,18 @@ export class HrAgent implements IAgent {
     const now = new Date();
     const today = now.getDate();
     const month = now.toISOString().slice(0, 7);
+
+    // MANUAL trigger with a query → chat mode (answer the specific question)
+    const payload = trigger.payload as { query?: string; instructions?: string; source?: string } | null;
+    const query = payload?.query ?? payload?.instructions;
+    if (trigger.type === 'MANUAL' && query) {
+      return {
+        source: trigger,
+        snapshot: { mode: 'chat', month, config, query } satisfies HrSnapshot,
+        followups: [],
+      };
+    }
+
     const isSalaryDay = today === config.payslipDay;
 
     if (isSalaryDay) {
@@ -89,7 +109,7 @@ export class HrAgent implements IAgent {
 
       return {
         source: trigger,
-        snapshot: { mode: 'salary', month, config, employees, totalNet },
+        snapshot: { mode: 'salary', month, config, employees, totalNet } satisfies HrSnapshot,
         followups: [],
       };
     }
@@ -120,7 +140,7 @@ export class HrAgent implements IAgent {
 
     return {
       source: trigger,
-      snapshot: { mode: 'daily', month, config, pendingLeaves, pendingWfh, onLeaveToday, onWfhToday, alerts },
+      snapshot: { mode: 'daily', month, config, pendingLeaves, pendingWfh, onLeaveToday, onWfhToday, alerts } satisfies HrSnapshot,
       followups: [],
     };
   }
@@ -128,6 +148,10 @@ export class HrAgent implements IAgent {
   async decide(ctx: AgentContext): Promise<ProposedAction[]> {
     const snap = ctx.snapshot as HrSnapshot;
     const actions: ProposedAction[] = [];
+
+    if (snap.mode === 'chat') {
+      return this.answerChatQuery(snap.query!, snap.config);
+    }
 
     if (snap.mode === 'salary') {
       const count = snap.employees?.length ?? 0;
@@ -195,6 +219,12 @@ export class HrAgent implements IAgent {
     if (action.type === 'noop') return { success: true };
     const p = action.payload as any;
 
+    if (action.type === 'notify_result') {
+      const msg = (p.message as string) ?? action.summary;
+      await this.telegram.sendMessage(msg);
+      return { success: true };
+    }
+
     if (action.type === 'salary_run') {
       const { InlineKeyboard } = await import('grammy');
 
@@ -208,12 +238,10 @@ export class HrAgent implements IAgent {
         return { success: false, error: msg };
       }
 
-      // Surface skipped-due-to-no-attendance count
       if (result.noAttendance > 0) {
         await this.telegram.sendMessage(`${result.noAttendance} employee(s) had no attendance for ${p.month} and were skipped.`);
       }
 
-      // Surface already-generated note from the API
       if (result.alreadyGeneratedNote) {
         await this.telegram.sendMessage(result.alreadyGeneratedNote);
       }
@@ -223,7 +251,6 @@ export class HrAgent implements IAgent {
         return { success: true };
       }
 
-      // Insert tracking rows then send each slip to Telegram for per-slip approval
       for (const slip of result.data) {
         const [row] = await this.db.db
           .insert(hrPayslipRuns)
@@ -437,6 +464,110 @@ export class HrAgent implements IAgent {
         handler: async () => this.hrm.testConnection(),
       },
     ];
+  }
+
+  // ─── Chat query handler ────────────────────────────────────────────────────
+
+  private async answerChatQuery(query: string, config: HrConfig): Promise<ProposedAction[]> {
+    const tools = this.buildHrmToolDefinitions();
+    const systemPrompt = this.buildChatSystemPrompt(config);
+    const messages: LlmToolMessage[] = [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: query },
+    ];
+
+    for (let i = 0; i < MAX_TOOL_ITERATIONS; i++) {
+      let result: Awaited<ReturnType<LlmRouterService['completeWithTools']>>;
+      try {
+        result = await this.llm.completeWithTools({
+          ...agentLlmOpts(config),
+          messages,
+          tools,
+          maxTokens: 600,
+          temperature: 0.2,
+          agentKey: this.key,
+        });
+      } catch (err) {
+        const msg = `LLM error: ${err instanceof Error ? err.message : String(err)}`;
+        this.logger.error(msg);
+        return [{ type: 'notify_result', summary: msg, payload: { message: msg, query }, riskLevel: 'low' }];
+      }
+
+      if (result.type === 'text') {
+        return [{
+          type: 'notify_result',
+          summary: 'HR query answered',
+          payload: { message: result.content, query },
+          riskLevel: 'low',
+        }];
+      }
+
+      messages.push({ role: 'assistant', content: null, tool_calls: result.tool_calls });
+
+      for (const tc of result.tool_calls) {
+        let args: Record<string, unknown> = {};
+        try { args = JSON.parse(tc.arguments); } catch {}
+
+        const toolResult = await this.callHrmTool(tc.name, args);
+        messages.push({ role: 'tool', content: JSON.stringify(toolResult), tool_call_id: tc.id });
+      }
+    }
+
+    return [{
+      type: 'notify_result',
+      summary: 'HR query answered',
+      payload: { message: 'Could not produce a final answer within the iteration limit.', query },
+      riskLevel: 'low',
+    }];
+  }
+
+  private buildChatSystemPrompt(config: HrConfig): string {
+    return `You are an HR assistant for ${config.companyName}. Answer HR questions using the available tools.
+
+Tools you have:
+- list_employees: list all employees (optionally filter by active status)
+- get_employee: get details for one employee by ID
+- get_pending_leaves: get all pending leave requests awaiting approval
+- get_leave_requests: get leave requests with filters (status, employeeId, month)
+- get_alerts: get upcoming alerts — probation endings, contract expirations, birthdays, work anniversaries
+- get_today_on_leave: who is on leave today
+- get_today_wfh: who is working from home today
+- get_payslips: get all payslips for a given month (YYYY-MM)
+- get_payslip: get one employee's payslip for a given month
+- export_payslips_csv: get the CSV download URL for a month's payslips
+
+Today is ${new Date().toDateString()}. Current month: ${new Date().toISOString().slice(0, 7)}.
+Answer concisely — the response will be sent to Telegram.`;
+  }
+
+  private buildHrmToolDefinitions(): ToolDefinition[] {
+    return this.mcpTools()
+      .filter((t) => !['submit_leave_request', 'submit_wfh_request'].includes(t.name))
+      .map((t) => ({
+        name: t.name,
+        description: t.description,
+        parameters: t.inputSchema,
+      }));
+  }
+
+  private async callHrmTool(name: string, args: Record<string, unknown>): Promise<unknown> {
+    try {
+      switch (name) {
+        case 'list_employees': return this.hrm.getEmployees(args as any);
+        case 'get_employee': return this.hrm.getEmployee(args.id as string);
+        case 'get_payslips': return this.hrm.getPayslips(args.month as string);
+        case 'get_payslip': return this.hrm.getPayslip(args.employeeId as string, args.month as string);
+        case 'get_pending_leaves': return this.hrm.getPendingLeaves();
+        case 'get_leave_requests': return this.hrm.getLeaveRequests(args as any);
+        case 'get_alerts': return this.hrm.getAlerts(args.withinDays as number | undefined);
+        case 'get_today_on_leave': return this.hrm.getTodayOnLeave();
+        case 'get_today_wfh': return this.hrm.getTodayWfh();
+        case 'export_payslips_csv': return { url: await this.hrm.exportPayslipsCsvUrl(args.month as string) };
+        default: return { error: `Unknown tool: ${name}` };
+      }
+    } catch (err) {
+      return { error: err instanceof HrmApiError ? err.message : String(err) };
+    }
   }
 
   private async getConfig(): Promise<HrConfig> {
