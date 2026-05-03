@@ -206,7 +206,7 @@ export default function LiveChatPage() {
             Setup
           </TabButton>
           <TabButton active={tab === 'debug'} onClick={() => setTab('debug')}>
-            Debug
+            GEOLite2
           </TabButton>
         </nav>
       </header>
@@ -3504,7 +3504,7 @@ function DebugTab() {
   const [downloading, setDownloading] = useState(false);
   const [downloadMsg, setDownloadMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [uploading, setUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState('');
+  const [uploadProgress, setUploadProgress] = useState({ chunk: 0, total: 0 });
   const [uploadMsg, setUploadMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const mmdbFileRef = useRef<HTMLInputElement>(null);
 
@@ -3555,13 +3555,13 @@ function DebugTab() {
   async function uploadDb(file: File) {
     setUploading(true);
     setUploadMsg(null);
-    setUploadProgress('');
     const CHUNK_SIZE = 10 * 1024 * 1024; // 10 MB
     const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
     const uploadId = Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+    setUploadProgress({ chunk: 0, total: totalChunks });
     try {
       for (let i = 0; i < totalChunks; i++) {
-        setUploadProgress(`Uploading chunk ${i + 1} of ${totalChunks}...`);
+        setUploadProgress({ chunk: i + 1, total: totalChunks });
         const slice = file.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
         const buf = await slice.arrayBuffer();
         const base64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
@@ -3584,7 +3584,7 @@ function DebugTab() {
       setUploadMsg({ ok: false, text: (e as Error).message });
     } finally {
       setUploading(false);
-      setUploadProgress('');
+      setUploadProgress({ chunk: 0, total: 0 });
     }
   }
 
@@ -3619,7 +3619,7 @@ function DebugTab() {
             <span className="text-xs text-destructive bg-destructive/10 px-2 py-0.5 rounded-full font-medium">Not loaded</span>
           )}
         </div>
-        {!geoLoaded && (
+        {geoLoaded === false && (
           <>
             <p className="text-xs text-muted-foreground">
               Register a free account at <strong>maxmind.com</strong>, then go to <strong>Manage License Keys</strong> to create a key. Enter your Account ID and License Key below to download the GeoLite2-City database directly to the server.
@@ -3678,8 +3678,16 @@ function DebugTab() {
                 disabled={uploading}
                 className="w-full text-xs px-3 py-2 rounded-md border border-border bg-background hover:bg-accent/50 font-medium disabled:opacity-50 transition-colors"
               >
-                {uploading ? (uploadProgress || 'Uploading…') : 'Upload GeoLite2-City.mmdb from your computer'}
+                {uploading ? `Uploading chunk ${uploadProgress.chunk} of ${uploadProgress.total}…` : 'Upload GeoLite2-City.mmdb from your computer'}
               </button>
+              {uploading && uploadProgress.total > 0 && (
+                <div className="w-full bg-border rounded-full h-1.5 overflow-hidden">
+                  <div
+                    className="h-1.5 bg-primary rounded-full transition-all duration-300"
+                    style={{ width: `${Math.round((uploadProgress.chunk / uploadProgress.total) * 100)}%` }}
+                  />
+                </div>
+              )}
               {uploadMsg && (
                 <div className={`text-xs px-3 py-2 rounded-md ${uploadMsg.ok ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : 'bg-red-500/10 text-red-600 dark:text-red-400'}`}>
                   {uploadMsg.text}
