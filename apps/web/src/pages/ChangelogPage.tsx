@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v3.2.2',
+    date: '2026-05-03',
+    entries: [
+      { tag: 'fix', scope: 'tasks', description: 'Scheduled tasks now correctly trigger agent actions and send Telegram notifications — runTask() was missing source:task in the payload, causing the HR agent to fall back to read-only chat mode and skip the Telegram notify step' },
+    ],
+  },
+  {
     version: 'v3.2.1',
     date: '2026-05-03',
     entries: [

@@ -103,6 +103,7 @@ export class TasksService {
       _taskId: task.id,
       _taskTitle: task.title,
       instructions: task.instructions,
+      source: 'task',
     });
 
     await this.db.db
