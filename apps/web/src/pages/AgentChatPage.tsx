@@ -248,9 +248,23 @@ function ChatTab({
   }, [history]);
 
   function handleFeedback(msgId: string, rating: 'up' | 'down') {
+    const msg = messages.find((m) => m.id === msgId);
+    const newRating = msg?.feedback === rating ? undefined : rating;
     setMessages((prev) =>
-      prev.map((m) => m.id === msgId ? { ...m, feedback: m.feedback === rating ? undefined : rating } : m),
+      prev.map((m) => m.id === msgId ? { ...m, feedback: newRating } : m),
     );
+    if (newRating && msg) {
+      const userQuery = [...messages].reverse().find((m) => m.role === 'user')?.content;
+      apiFetch(token, `/agents/${agent.key}/feedback`, {
+        method: 'POST',
+        body: JSON.stringify({
+          agentName: agent.name,
+          rating: newRating,
+          agentMessage: msg.content,
+          userQuery,
+        }),
+      }).catch(() => {});
+    }
   }
 
   // Auto-scroll

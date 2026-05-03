@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v3.3.1',
+    date: '2026-05-03',
+    entries: [
+      { tag: 'feat', scope: 'chat', description: 'Thumbs down on any agent chat message triggers the self-improvement loop — emits kb.rejection so SelfImprovementService proposes a KB entry and sends it to Telegram for approval; applies to all agents, not just HR' },
+      { tag: 'feat', scope: 'telegram', description: 'Agent failures now send an immediate Telegram alert with agent name, task title (if from a task), error summary, and run ID — no need to open the web app to discover a failure; applies to all 14 agents' },
+    ],
+  },
+  {
     version: 'v3.3.0',
     date: '2026-05-03',
     entries: [

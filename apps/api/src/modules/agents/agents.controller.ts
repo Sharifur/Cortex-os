@@ -60,6 +60,15 @@ export class AgentsController {
     return this.agents.delete(key);
   }
 
+  @Post(':key/feedback')
+  @HttpCode(201)
+  submitFeedback(
+    @Param('key') key: string,
+    @Body() body: { agentName: string; rating: 'up' | 'down'; agentMessage: string; userQuery?: string },
+  ) {
+    return this.agents.submitFeedback({ agentKey: key, ...body });
+  }
+
   @Post(':key/conversations/message')
   @HttpCode(201)
   saveMessage(

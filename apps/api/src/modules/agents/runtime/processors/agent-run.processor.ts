@@ -13,7 +13,7 @@ import { AgentLogService } from '../agent-log.service';
 import { QUEUE_NAMES } from '../../../../common/queue/queue.constants';
 import { TELEGRAM_EVENTS } from '../../../telegram/telegram.types';
 import type { AgentRunJobData, AgentExecuteJobData, TriggerEvent } from '../types';
-import type { ApprovalCreatedEvent, TaskNotifyEvent } from '../../../telegram/telegram.types';
+import type { ApprovalCreatedEvent, TaskNotifyEvent, AgentFailedEvent } from '../../../telegram/telegram.types';
 
 const MAX_FOLLOWUPS = 5;
 
@@ -197,10 +197,21 @@ export class AgentRunProcessor extends WorkerHost {
         .set({ status: 'FAILED', error: message, finishedAt: new Date() })
         .where(eq(agentRuns.id, runId));
       await this.logSvc.error(runId, `Run failed: ${message}`);
-      const failedTaskId = (runRow?.triggerPayload as Record<string, unknown> | null)?._taskId as string | undefined;
+
+      const failedPayload = runRow?.triggerPayload as Record<string, unknown> | null;
+      const failedTaskId = failedPayload?._taskId as string | undefined;
       if (failedTaskId) {
         await this.db.db.update(tasksTable).set({ status: 'failed', updatedAt: new Date() }).where(eq(tasksTable.id, failedTaskId));
       }
+
+      this.eventEmitter.emit(TELEGRAM_EVENTS.AGENT_FAILED, {
+        agentKey,
+        agentName,
+        runId,
+        error: message,
+        taskTitle: failedPayload?._taskTitle as string | undefined,
+      } satisfies AgentFailedEvent);
+
       throw err;
     }
   }

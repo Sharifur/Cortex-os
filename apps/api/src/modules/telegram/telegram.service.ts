@@ -18,7 +18,7 @@ import { pendingApprovals } from '../../db/schema';
 import { SelfImprovementService, KbProposalNotifyEvent } from '../knowledge-base/self-improvement.service';
 import { HrmApiService } from '../agents/hr/hrm-api.service';
 import { hrPayslipRuns } from '../../db/schema';
-import type { ApprovalCreatedEvent, TaskNotifyEvent } from './telegram.types';
+import type { ApprovalCreatedEvent, TaskNotifyEvent, AgentFailedEvent } from './telegram.types';
 import { TELEGRAM_EVENTS } from './telegram.types';
 import type { ProposedAction } from '../agents/runtime/types';
 import { TelegramBotAgent } from '../agents/telegram-bot/agent';
@@ -154,6 +154,16 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     if (!this.bot || !this.ownerChatId) return;
     const text = `Task: ${event.taskTitle}\nAgent: ${event.agentKey}\n\n${event.summary}`;
     try { await this.sendMessage(text); } catch { /* ignore */ }
+  }
+
+  @OnEvent(TELEGRAM_EVENTS.AGENT_FAILED)
+  async onAgentFailed(event: AgentFailedEvent): Promise<void> {
+    if (!this.bot || !this.ownerChatId) return;
+    const lines = [`Agent failed: ${event.agentName}`];
+    if (event.taskTitle) lines.push(`Task: ${event.taskTitle}`);
+    lines.push(`Error: ${event.error.slice(0, 300)}`);
+    lines.push(`Run: ${event.runId}`);
+    try { await this.sendMessage(lines.join('\n')); } catch { /* ignore */ }
   }
 
   @OnEvent('auth.login.new_ip')

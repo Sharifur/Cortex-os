@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { eq, desc, and, sql, inArray } from 'drizzle-orm';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { DbService } from '../../db/db.service';
 import { agents, agentRuns, agentConversations, pendingApprovals, agentLogs } from '../../db/schema';
 import { AgentRuntimeService } from './runtime/agent-runtime.service';
@@ -13,6 +14,7 @@ export class AgentsService {
     private db: DbService,
     private runtime: AgentRuntimeService,
     private registry: AgentRegistryService,
+    private events: EventEmitter2,
   ) {}
 
   async findAll() {
@@ -105,6 +107,26 @@ export class AgentsService {
       LIMIT 50
     `);
     return rows;
+  }
+
+  async submitFeedback(data: {
+    agentKey: string;
+    agentName: string;
+    rating: 'up' | 'down';
+    agentMessage: string;
+    userQuery?: string;
+  }) {
+    if (data.rating === 'down') {
+      this.events.emit('kb.rejection', {
+        agentKey: data.agentKey,
+        agentName: data.agentName,
+        draft: data.agentMessage,
+        reason: data.userQuery
+          ? `User marked as unhelpful. Original query: "${data.userQuery.slice(0, 200)}"`
+          : 'User marked this response as unhelpful in chat.',
+      });
+    }
+    return { ok: true };
   }
 
   async saveConversationMessage(data: {
