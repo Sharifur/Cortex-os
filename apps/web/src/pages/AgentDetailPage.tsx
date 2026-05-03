@@ -329,25 +329,30 @@ function RunsTab({ agentKey, token }: { agentKey: string; token: string }) {
                       <span className="text-xs text-muted-foreground">{run.triggerType}</span>
                     </div>
                     {run.error && <p className="text-xs text-destructive truncate">{run.error}</p>}
-                    {/* Approve/Reject buttons for AWAITING_APPROVAL runs */}
+                    {/* Approve/Reject per pending approval for AWAITING_APPROVAL runs */}
                     {run.status === 'AWAITING_APPROVAL' && runApprovals.length > 0 && (
-                      <div className="flex items-center gap-2 mt-1.5" onClick={(e) => e.stopPropagation()}>
+                      <div className="mt-2 space-y-1.5" onClick={(e) => e.stopPropagation()}>
                         {runApprovals.map((approval) => (
-                          <div key={approval.id} className="flex gap-1.5">
-                            <button
-                              onClick={() => approveMutation.mutate(approval.id)}
-                              disabled={approveMutation.isPending}
-                              className="text-xs px-2 py-0.5 rounded bg-green-500/15 text-green-500 hover:bg-green-500/25 transition-colors border border-green-500/30 disabled:opacity-50"
-                            >
-                              {approveMutation.isPending ? '…' : 'Approve'}
-                            </button>
-                            <button
-                              onClick={() => rejectMutation.mutate(approval.id)}
-                              disabled={rejectMutation.isPending}
-                              className="text-xs px-2 py-0.5 rounded bg-red-500/15 text-red-500 hover:bg-red-500/25 transition-colors border border-red-500/30 disabled:opacity-50"
-                            >
-                              {rejectMutation.isPending ? '…' : 'Reject'}
-                            </button>
+                          <div key={approval.id} className="flex items-center gap-2 flex-wrap rounded-lg bg-yellow-500/5 border border-yellow-500/20 px-2.5 py-1.5">
+                            <span className="text-[11px] text-muted-foreground flex-1 min-w-0 truncate" title={approval.action.summary}>
+                              {approval.action.summary}
+                            </span>
+                            <div className="flex gap-1.5 shrink-0">
+                              <button
+                                onClick={() => approveMutation.mutate(approval.id)}
+                                disabled={approveMutation.isPending || rejectMutation.isPending}
+                                className="text-xs px-2.5 py-0.5 rounded bg-green-500/15 text-green-500 hover:bg-green-500/25 transition-colors border border-green-500/30 disabled:opacity-50 font-medium"
+                              >
+                                {approveMutation.isPending ? '…' : 'Approve'}
+                              </button>
+                              <button
+                                onClick={() => rejectMutation.mutate(approval.id)}
+                                disabled={approveMutation.isPending || rejectMutation.isPending}
+                                className="text-xs px-2.5 py-0.5 rounded bg-red-500/15 text-red-500 hover:bg-red-500/25 transition-colors border border-red-500/30 disabled:opacity-50 font-medium"
+                              >
+                                {rejectMutation.isPending ? '…' : 'Reject'}
+                              </button>
+                            </div>
                           </div>
                         ))}
                       </div>
