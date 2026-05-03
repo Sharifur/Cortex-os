@@ -192,7 +192,13 @@ export class HrmApiService {
   }
 
   async generatePayslips(month: string) {
-    return this.request<{ generated: number; skipped: number; data: HrmPayslip[] }>('POST', '/payslips/generate', { month });
+    return this.request<{
+      generated: number;
+      noAttendance: number;
+      alreadyGeneratedNote: string | null;
+      alreadyGenerated: { employeeId: string; employeeName: string; slipId: string }[];
+      data: HrmPayslip[];
+    }>('POST', '/payslips/generate', { month });
   }
 
   async updatePayslip(id: string, data: { bonus?: number; deductions?: number }) {

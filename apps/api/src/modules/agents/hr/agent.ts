@@ -199,23 +199,32 @@ export class HrAgent implements IAgent {
       const { InlineKeyboard } = await import('grammy');
 
       // Generate payslips after Cortex approval
-      let generated: Awaited<ReturnType<HrmApiService['generatePayslips']>>['data'] = [];
+      let result: Awaited<ReturnType<HrmApiService['generatePayslips']>>;
       try {
-        const result = await this.hrm.generatePayslips(p.month);
-        generated = result.data;
+        result = await this.hrm.generatePayslips(p.month);
       } catch (err) {
         const msg = err instanceof HrmApiError ? err.message : String(err);
         this.logger.error(`generatePayslips failed: ${msg}`);
         return { success: false, error: msg };
       }
 
-      if (generated.length === 0) {
-        await this.telegram.sendMessage(`Payroll ${p.month}: no new payslips generated (all already exist or no attendance).`);
+      // Surface skipped-due-to-no-attendance count
+      if (result.noAttendance > 0) {
+        await this.telegram.sendMessage(`${result.noAttendance} employee(s) had no attendance for ${p.month} and were skipped.`);
+      }
+
+      // Surface already-generated note from the API
+      if (result.alreadyGeneratedNote) {
+        await this.telegram.sendMessage(result.alreadyGeneratedNote);
+      }
+
+      if (result.data.length === 0) {
+        await this.telegram.sendMessage(`Payroll ${p.month}: no new payslips to send for approval.`);
         return { success: true };
       }
 
       // Insert tracking rows then send each slip to Telegram for per-slip approval
-      for (const slip of generated) {
+      for (const slip of result.data) {
         const [row] = await this.db.db
           .insert(hrPayslipRuns)
           .values({
@@ -230,6 +239,8 @@ export class HrAgent implements IAgent {
         const text =
           `Payslip — ${slip.employeeName}\n` +
           `Month: ${slip.month}\n` +
+          `Working days: ${slip.workingDays ?? '-'}\n` +
+          `Present days: ${slip.presentDays ?? '-'}\n` +
           `Base: ${slip.currency} ${Number(slip.baseSalary).toLocaleString()}\n` +
           (slip.bonus ? `Bonus: ${slip.currency} ${Number(slip.bonus).toLocaleString()}\n` : '') +
           (slip.deductions ? `Deductions: ${slip.currency} ${Number(slip.deductions).toLocaleString()}\n` : '') +
