@@ -29,10 +29,10 @@ export const AGENT_TASK_SUGGESTIONS: Record<string, string[]> = {
   ],
 
   email_manager: [
-    'Summarize my Gmail inbox from today',
-    'Draft a polite reply to the latest important email',
-    'Find emails awaiting my response',
-    'Highlight emails containing a meeting request',
+    'Draft a reply to this client email:',
+    'Write an onboarding reply for a new Taskip customer asking about setup',
+    'Write a follow-up for a client who has not responded in 3 days',
+    'Write a polite refund decline for an Envato customer',
   ],
 
   linkedin: [

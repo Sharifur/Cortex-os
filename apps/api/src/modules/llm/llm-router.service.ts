@@ -315,9 +315,28 @@ export class LlmRouterService {
     const model = opts.model ?? defaultModel;
 
     const client = new OpenAI({ apiKey });
+
+    let messages: OpenAI.Chat.ChatCompletionMessageParam[] = opts.messages as OpenAI.Chat.ChatCompletionMessageParam[];
+    if (opts.imageBase64) {
+      const mimeType = (opts.imageMimeType ?? 'image/jpeg') as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp';
+      const imageUrl = `data:${mimeType};base64,${opts.imageBase64}`;
+      messages = opts.messages.map((m, i) => {
+        if (i === opts.messages.length - 1 && m.role === 'user') {
+          return {
+            role: 'user' as const,
+            content: [
+              { type: 'image_url' as const, image_url: { url: imageUrl } },
+              { type: 'text' as const, text: m.content },
+            ],
+          };
+        }
+        return m as OpenAI.Chat.ChatCompletionMessageParam;
+      });
+    }
+
     const res = await client.chat.completions.create({
       model,
-      messages: opts.messages as OpenAI.Chat.ChatCompletionMessageParam[],
+      messages,
       max_tokens: opts.maxTokens,
       temperature: opts.temperature,
     });

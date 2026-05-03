@@ -13,6 +13,10 @@ export interface LlmCompleteOpts {
   agentKey?: string;
   /** Optional run id, attached to the usage log row. */
   runId?: string;
+  /** Base64-encoded image to attach to the last user message (vision calls). OpenAI only. */
+  imageBase64?: string;
+  /** MIME type of the image, e.g. image/jpeg. Defaults to image/jpeg. */
+  imageMimeType?: string;
 }
 
 export interface LlmStreamChunk {
