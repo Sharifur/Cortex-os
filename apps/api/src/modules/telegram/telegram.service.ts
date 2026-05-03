@@ -122,10 +122,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
 
   async sendMessageWithKeyboard(text: string, keyboard: InlineKeyboard): Promise<{ message_id: number } | null> {
     if (!this.bot || !this.ownerChatId) return null;
-    return this.bot.api.sendMessage(this.ownerChatId, text, {
-      parse_mode: 'Markdown',
-      reply_markup: keyboard,
-    });
+    return this.bot.api.sendMessage(this.ownerChatId, text, { reply_markup: keyboard });
   }
 
   @OnEvent(TELEGRAM_EVENTS.APPROVAL_CREATED)
@@ -140,7 +137,6 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
 
     try {
       const sent = await this.bot.api.sendMessage(this.ownerChatId, text, {
-        parse_mode: 'Markdown',
         reply_markup: keyboard,
       });
 
@@ -176,10 +172,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       .text('Skip', `kbproposal:${event.proposalId}:reject`);
 
     try {
-      await this.bot.api.sendMessage(this.ownerChatId, event.text, {
-        parse_mode: 'Markdown',
-        reply_markup: keyboard,
-      });
+      await this.bot.api.sendMessage(this.ownerChatId, event.text, { reply_markup: keyboard });
     } catch (err) {
       this.logger.error(`Failed to send KB proposal message: ${(err as Error).message}`);
     }
@@ -187,6 +180,12 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
 
   private registerHandlers() {
     if (!this.bot) return;
+
+    // Ensure ownerChatId is always resolved before any handler runs.
+    this.bot.use(async (_ctx, next) => {
+      await this.resolveOwnerChatId();
+      return next();
+    });
 
     // ── Native slash commands ──────────────────────────────────────────────
     this.bot.command('help', async (ctx) => {
@@ -281,11 +280,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       const tz = (await this.settings.getDecrypted('timezone')) || 'UTC';
       const res = await this.botAgent.resolvePendingReminderWithDelay(fromId ?? 'default', minutes, tz);
       const original = ctx.msg?.text ?? '';
-      if (res.scheduled) {
-        await ctx.editMessageText(`${original}\n\n${res.reply}`, { parse_mode: 'Markdown' });
-      } else {
-        await ctx.editMessageText(`${original}\n\n${res.reply}`, { parse_mode: 'Markdown' });
-      }
+      await ctx.editMessageText(`${original}\n\n${res.reply}`);
     });
 
     // Inline keyboard callbacks: approval:<id>:<action>
@@ -549,11 +544,11 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       }
 
       const agent = ROUTABLE_AGENTS.find((a) => a.key === agentKey);
-      await ctx.editMessageText(`Routing to *${agent?.name ?? agentKey}*...`, { parse_mode: 'Markdown' });
+      await ctx.editMessageText(`Routing to ${agent?.name ?? agentKey}...`);
 
       try {
         await this.agentRuntime.triggerAgent(agentKey, 'MANUAL', { instructions: pending.text });
-        await ctx.editMessageText(`Sent to *${agent?.name ?? agentKey}*. Check the run in the dashboard.`, { parse_mode: 'Markdown' });
+        await ctx.editMessageText(`Sent to ${agent?.name ?? agentKey}. Check the run in the dashboard.`);
       } catch (err) {
         await ctx.editMessageText(`Failed to trigger ${agentKey}: ${(err as Error).message}`);
       }
@@ -652,25 +647,24 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       case 'reminder_scheduled':
       case 'time_unparseable':
       case 'clarify':
-        await ctx.reply(result.reply, { parse_mode: 'Markdown' });
+        await ctx.reply(result.reply);
         return;
 
       case 'ask_for_time': {
-        // Quick-time inline keyboard so the user can tap instead of typing.
         const kb = new InlineKeyboard()
           .text('In 10 min', 'remind_in:10').text('In 30 min', 'remind_in:30').row()
           .text('In 1 hour', 'remind_in:60').text('In 2 hours', 'remind_in:120').row()
           .text('In 4 hours', 'remind_in:240').text('In 8 hours', 'remind_in:480').row();
-        await ctx.reply(result.reply, { parse_mode: 'Markdown', reply_markup: kb });
+        await ctx.reply(result.reply, { reply_markup: kb });
         return;
       }
 
       case 'mention_route':
       case 'classified_route':
-        await ctx.reply(`Routing to *${result.agentName}*...`, { parse_mode: 'Markdown' });
+        await ctx.reply(`Routing to ${result.agentName}...`);
         try {
           await this.agentRuntime.triggerAgent(result.agentKey, 'MANUAL', { instructions: result.instructions });
-          await ctx.reply(`Done. *${result.agentName}* is running — check the dashboard for results.`, { parse_mode: 'Markdown' });
+          await ctx.reply(`Done. ${result.agentName} is running — check the dashboard for results.`);
         } catch (err) {
           await ctx.reply(`Failed: ${(err as Error).message}`);
         }
@@ -710,6 +704,13 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  private async resolveOwnerChatId(): Promise<string | null> {
+    if (!this.ownerChatId) {
+      this.ownerChatId = await this.settings.getDecrypted('telegram_owner_chat_id');
+    }
+    return this.ownerChatId;
+  }
+
   private isOwner(fromId: string | null): boolean {
     return !!fromId && !!this.ownerChatId && fromId === this.ownerChatId;
   }
@@ -721,11 +722,11 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
   ): string {
     const risk = RISK_LABEL[action.riskLevel] ?? '[unknown]';
     return [
-      `*${agentName}* proposes:`,
-      `_${action.summary}_`,
+      `${agentName} proposes:`,
+      action.summary,
       '',
-      `Run: \`${runId}\``,
-      `Action: \`${action.type}\``,
+      `Run: ${runId}`,
+      `Action: ${action.type}`,
       `Risk: ${risk} ${action.riskLevel}`,
     ].join('\n');
   }

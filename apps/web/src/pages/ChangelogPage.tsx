@@ -16,6 +16,16 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v3.1.5',
+    date: '2026-05-03',
+    entries: [
+      { tag: 'fix', scope: 'telegram', description: 'Removed parse_mode:Markdown from all button messages (approval, KB proposal, HR leave/WFH/payslip, routing) — underscores in employee names or action summaries were silently breaking message delivery and preventing buttons from appearing' },
+      { tag: 'fix', scope: 'telegram', description: 'Added bot middleware to re-fetch ownerChatId on every update — if the setting was not loaded at startup, all callback button clicks were silently rejected as Unauthorized' },
+      { tag: 'fix', scope: 'hr', description: 'Chat queries from the web UI no longer go to Telegram — notify_result actions tagged with source:chat skip the telegram.sendMessage call; the chat page already reads the response from the run result' },
+      { tag: 'fix', scope: 'runtime', description: 'Agent runs no longer show AWAITING_APPROVAL when all actions auto-execute — the run processor only sets that status when at least one action requires explicit approval' },
+    ],
+  },
+  {
     version: 'v3.1.4',
     date: '2026-05-03',
     entries: [

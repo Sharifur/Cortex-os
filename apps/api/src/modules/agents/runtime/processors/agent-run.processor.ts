@@ -116,14 +116,18 @@ export class AgentRunProcessor extends WorkerHost {
         return;
       }
 
+      const anyRequiresApproval = actions.some((a) => agent.requiresApproval(a));
+
       await this.db.db
         .update(agentRuns)
-        .set({ proposedActions: actions, status: 'AWAITING_APPROVAL' })
+        .set({ proposedActions: actions, status: anyRequiresApproval ? 'AWAITING_APPROVAL' : 'RUNNING' })
         .where(eq(agentRuns.id, runId));
 
-      const awaitingTaskId = (runRow.triggerPayload as Record<string, unknown> | null)?._taskId as string | undefined;
-      if (awaitingTaskId) {
-        await this.db.db.update(tasksTable).set({ status: 'awaiting_approval', updatedAt: new Date() }).where(eq(tasksTable.id, awaitingTaskId));
+      if (anyRequiresApproval) {
+        const awaitingTaskId = (runRow.triggerPayload as Record<string, unknown> | null)?._taskId as string | undefined;
+        if (awaitingTaskId) {
+          await this.db.db.update(tasksTable).set({ status: 'awaiting_approval', updatedAt: new Date() }).where(eq(tasksTable.id, awaitingTaskId));
+        }
       }
 
       for (const action of actions) {
