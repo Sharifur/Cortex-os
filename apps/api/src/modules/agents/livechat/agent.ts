@@ -69,6 +69,48 @@ function sanitizeOperatorField(value: string | null | undefined, maxLen = 800): 
     .trim();
 }
 
+const INJECTION_PATTERNS: RegExp[] = [
+  /ignore\s+(all\s+)?(previous|above|prior|earlier)\s+instructions?/i,
+  /forget\s+(everything|all|your\s+instructions?|the\s+above)/i,
+  /you\s+are\s+now\s+(a\s+)?(new|different|free|unresticted|dan|evil)/i,
+  /\byou\s+are\s+DAN\b/i,
+  /disregard\s+(your|all|the)\s+(previous\s+)?(instructions?|rules?|prompt|guidelines?)/i,
+  /act\s+as\s+(if\s+you\s+)?(a\s+)?(GPT|DAN|evil|unrestricted|jailbroken|free|uncensored)/i,
+  /pretend\s+(you\s+)?(have\s+no|are\s+not|to\s+be)\s+(limits?|restrictions?|rules?|guidelines?|an?\s+AI)/i,
+  /system\s*:\s*you\s+are/i,
+  /\[system\]/i,
+  /<\s*system\s*>/i,
+  /new\s+instructions?:\s*ignore/i,
+  /jailbreak/i,
+  /do\s+anything\s+now/i,
+];
+
+function stripInjectionAttempts(text: string): { cleaned: string; detected: boolean } {
+  let cleaned = text;
+  let detected = false;
+  for (const pat of INJECTION_PATTERNS) {
+    if (pat.test(cleaned)) {
+      detected = true;
+      cleaned = cleaned.replace(pat, '[removed]');
+    }
+  }
+  return { cleaned: cleaned.trim() || text.trim(), detected };
+}
+
+const PII_PATTERNS: [RegExp, string][] = [
+  [/\b[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}\b/g, '[email]'],
+  [/\b(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]\d{3}[-.\s]\d{4}\b/g, '[phone]'],
+  [/\b4[0-9]{12}(?:[0-9]{3})?\b|\b5[1-5][0-9]{14}\b|\b3[47][0-9]{13}\b|\b6(?:011|5[0-9]{2})[0-9]{12}\b/g, '[card]'],
+];
+
+function redactPii(text: string): string {
+  let out = text;
+  for (const [pat, replacement] of PII_PATTERNS) {
+    out = out.replace(pat, replacement);
+  }
+  return out;
+}
+
 export interface HandleVisitorMessageResult {
   ok: boolean;
   status: 'replied' | 'pending_approval' | 'skipped_taken_over' | 'skipped_needs_human' | 'fallback_needs_human' | 'error';
@@ -184,7 +226,11 @@ export class LivechatAgent implements IAgent, OnModuleInit {
     const config = await this.getConfig();
     const site = await this.livechat.getSiteById(session.siteId).catch(() => null);
 
-    const safeVisitorMessage = input.visitorMessage.slice(0, 800);
+    const { cleaned: injectionCleaned, detected: injectionDetected } = stripInjectionAttempts(input.visitorMessage.slice(0, 800));
+    if (injectionDetected) {
+      this.logger.warn(`session ${input.sessionId}: prompt injection attempt detected and stripped`);
+    }
+    const safeVisitorMessage = redactPii(injectionCleaned);
 
     if (site) {
       const limits = await this.livechat.getLimits();
@@ -595,7 +641,7 @@ export class LivechatAgent implements IAgent, OnModuleInit {
     if (p.custom && Object.keys(p.custom).length) {
       const customLines = Object.entries(p.custom)
         .slice(0, 10)
-        .map(([k, v]) => `  ${k}: ${v}`)
+        .map(([k, v]) => `  ${sanitizeOperatorField(String(k), 60)}: ${sanitizeOperatorField(String(v), 200)}`)
         .join('\n');
       lines.push(`Operator context:\n${customLines}`);
     }

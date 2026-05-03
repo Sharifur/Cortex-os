@@ -16,6 +16,17 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v3.4.3',
+    date: '2026-05-03',
+    entries: [
+      { tag: 'fix', scope: 'livechat', description: 'Security: prompt injection detection — visitor messages are scanned for known injection phrases ("ignore previous instructions", "you are DAN", "jailbreak", system-prompt spoofing tags, etc.) before reaching the LLM; detected patterns are stripped and logged as warnings' },
+      { tag: 'fix', scope: 'livechat', description: 'Security: PII redaction before LLM calls — email addresses, phone numbers, and credit card patterns in visitor messages are replaced with [email]/[phone]/[card] tokens so they never appear in LLM provider logs' },
+      { tag: 'fix', scope: 'livechat', description: 'Security: pageContext.custom field sanitization — operator-supplied custom context values injected into the agent system prompt are now run through sanitizeOperatorField (HTML/code-fence stripping, 200-char cap) to prevent prompt injection via the embed snippet' },
+      { tag: 'fix', scope: 'livechat', description: 'Security: WebSocket session ownership verified on connection — the gateway now checks that the sessionId passed by the visitor actually belongs to their visitorId on the correct site before joining the session room; previously any party that knew a sessionId UUID could subscribe to and read that conversation' },
+      { tag: 'fix', scope: 'api', description: 'Security: Content-Security-Policy header added to all API responses — default-src: none; frame-ancestors: none, appropriate for a pure JSON/WebSocket API with no embedded resources' },
+    ],
+  },
+  {
     version: 'v3.4.2',
     date: '2026-05-03',
     entries: [

@@ -86,6 +86,8 @@ async function bootstrap() {
     reply.header('X-DNS-Prefetch-Control', 'off');
     reply.header('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
     reply.header('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
+    // Pure API — no scripts, frames, or embedded resources needed.
+    reply.header('Content-Security-Policy', "default-src 'none'; frame-ancestors 'none'");
     return payload;
   });
 
