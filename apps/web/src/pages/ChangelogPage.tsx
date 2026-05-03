@@ -16,6 +16,108 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v3.4.3',
+    date: '2026-05-03',
+    entries: [
+      { tag: 'fix', scope: 'livechat', description: 'Security: prompt injection detection — visitor messages are scanned for known injection phrases ("ignore previous instructions", "you are DAN", "jailbreak", system-prompt spoofing tags, etc.) before reaching the LLM; detected patterns are stripped and logged as warnings' },
+      { tag: 'fix', scope: 'livechat', description: 'Security: PII redaction before LLM calls — email addresses, phone numbers, and credit card patterns in visitor messages are replaced with [email]/[phone]/[card] tokens so they never appear in LLM provider logs' },
+      { tag: 'fix', scope: 'livechat', description: 'Security: pageContext.custom field sanitization — operator-supplied custom context values injected into the agent system prompt are now run through sanitizeOperatorField (HTML/code-fence stripping, 200-char cap) to prevent prompt injection via the embed snippet' },
+      { tag: 'fix', scope: 'livechat', description: 'Security: WebSocket session ownership verified on connection — the gateway now checks that the sessionId passed by the visitor actually belongs to their visitorId on the correct site before joining the session room; previously any party that knew a sessionId UUID could subscribe to and read that conversation' },
+      { tag: 'fix', scope: 'api', description: 'Security: Content-Security-Policy header added to all API responses — default-src: none; frame-ancestors: none, appropriate for a pure JSON/WebSocket API with no embedded resources' },
+    ],
+  },
+  {
+    version: 'v3.4.2',
+    date: '2026-05-03',
+    entries: [
+      { tag: 'fix', scope: 'livechat', description: 'Security: hardened livechat agent system prompt with explicit identity rules — the agent now refuses to name its underlying AI model or provider (OpenAI, Anthropic, GPT, Claude, Gemini, etc.) and deflects all meta-questions about its technology or system instructions' },
+      { tag: 'fix', scope: 'livechat', description: 'Security: added post-generation output filter — any draft response containing model/provider disclosure patterns is replaced with a safe deflection before being sent to the visitor or persisted to the database' },
+    ],
+  },
+  {
+    version: 'v3.4.1',
+    date: '2026-05-03',
+    entries: [
+      { tag: 'feat', scope: 'livechat', description: 'Translate visitor messages: hover any non-English visitor message → globe icon appears → click to translate to English inline below the bubble using the LLM router; translation is cached per-message for the session' },
+      { tag: 'feat', scope: 'livechat', description: 'Auto-translate operator replies: when a session is non-English, a toggle appears in the composer bar — when on, the operator types in English and the message is automatically translated to the visitor\'s language before being sent; falls back to original on LLM error' },
+    ],
+  },
+  {
+    version: 'v3.4.0',
+    date: '2026-05-03',
+    entries: [
+      { tag: 'feat', scope: 'livechat', description: 'Force email option in site settings (Identity tab) — when enabled, visitors must enter their email in a pre-chat gate before they can send a message; stored in localStorage so one-time only per device' },
+      { tag: 'feat', scope: 'livechat', description: 'Reply feature: hover any message in the admin panel to see a reply button; clicking it shows a reply preview bar above the composer and sends replyToId + quoted snippet with the message; replies render as a quote block above the bubble' },
+      { tag: 'fix', scope: 'livechat', description: 'Message bubbles now preserve newlines (whitespace-pre-wrap) and wrap long URLs correctly ([overflow-wrap:anywhere]) — previously multiline messages and long URLs overflowed the bubble, especially on mobile' },
+      { tag: 'fix', scope: 'livechat', description: 'Mobile chat panel: reduced side padding (px-3 on mobile, px-6 on desktop) and widened bubbles to 85% max on small screens to prevent clipping' },
+      { tag: 'fix', scope: 'livechat', description: 'Seen checkmark is now green (CheckCheck in text-green-500) to clearly distinguish from sent-not-seen (single grey check); previously both used similar blue/grey tones' },
+      { tag: 'fix', scope: 'livechat', description: 'Visitor message newlines in widget now render as <br> — previously typing multiline messages produced a single collapsed line in the chat bubble' },
+    ],
+  },
+  {
+    version: 'v3.3.2',
+    date: '2026-05-03',
+    entries: [
+      { tag: 'fix', scope: 'livechat', description: 'Agent reply bubbles now render markdown — bold (**text**), italic (*text*), and inline code (`text`) are parsed and rendered correctly; URLs remain clickable as before' },
+      { tag: 'fix', scope: 'telegram', description: 'Approval/rejection/followup buttons were silently doing nothing in production — the Telegram bot was only started in non-production environments; removed the NODE_ENV guard so polling runs in all environments including Coolify' },
+    ],
+  },
+  {
+    version: 'v3.3.1',
+    date: '2026-05-03',
+    entries: [
+      { tag: 'feat', scope: 'chat', description: 'Thumbs down on any agent chat message triggers the self-improvement loop — emits kb.rejection so SelfImprovementService proposes a KB entry and sends it to Telegram for approval; applies to all agents, not just HR' },
+      { tag: 'feat', scope: 'telegram', description: 'Agent failures now send an immediate Telegram alert with agent name, task title (if from a task), error summary, and run ID — no need to open the web app to discover a failure; applies to all 14 agents' },
+    ],
+  },
+  {
+    version: 'v3.3.0',
+    date: '2026-05-03',
+    entries: [
+      { tag: 'feat', scope: 'tasks', description: 'Telegram mode per task: agent (default, agent handles Telegram itself), notify (plain text when done), approve (all actions gate on Telegram Approve/Reject before executing) — set via dropdown in the task form, shown as badge on task card' },
+      { tag: 'fix', scope: 'hr', description: 'Leave approval requests no longer require Cortex approval before reaching Telegram — Approve/Reject buttons appear in Telegram immediately when the daily task fires' },
+    ],
+  },
+  {
+    version: 'v3.2.2',
+    date: '2026-05-03',
+    entries: [
+      { tag: 'fix', scope: 'tasks', description: 'Scheduled tasks now correctly trigger agent actions and send Telegram notifications — runTask() was missing source:task in the payload, causing the HR agent to fall back to read-only chat mode and skip the Telegram notify step' },
+    ],
+  },
+  {
+    version: 'v3.2.1',
+    date: '2026-05-03',
+    entries: [
+      { tag: 'fix', scope: 'notifications', description: 'Opening the notification bell dropdown now immediately marks agent failures as seen — previously the count only cleared after navigating to the Activity page; the badge now disappears as soon as the dropdown is opened' },
+    ],
+  },
+  {
+    version: 'v3.2.0',
+    date: '2026-05-03',
+    entries: [
+      { tag: 'feat', scope: 'llm-usage', description: 'All agent LLM calls now include agentKey attribution — every agent (support, whatsapp, email-manager, linkedin, reddit, social, shorts, taskip-trial, daily-reminder, canva, taskip-internal, telegram-bot, livechat, hr) passes agentKey to complete() and completeWithTools() so calls appear correctly attributed in the by-agent breakdown on the LLM Usage page instead of Unattributed' },
+    ],
+  },
+  {
+    version: 'v3.1.7',
+    date: '2026-05-03',
+    entries: [
+      { tag: 'fix', scope: 'hr', description: 'Chat mode is now explicitly read-only — system prompt and tool description for export_payslips_csv make clear it cannot generate salary slips; if asked, the agent explains the user must trigger a run from the Tasks tab' },
+      { tag: 'fix', scope: 'chat', description: 'Conversation history no longer causes duplicate messages — staleTime set to Infinity and a ref prevents history query re-fetches from overwriting locally-appended messages; key={convId} on ChatTab forces remount on conversation switch' },
+      { tag: 'fix', scope: 'hr', description: 'Conversation history is now passed to the LLM — prior messages are reconstructed from the history payload and prepended so the agent maintains context across turns' },
+      { tag: 'feat', scope: 'chat', description: 'Thumbs up/down feedback buttons appear on agent message hover — inline rating stored in local state; clicking again toggles off' },
+      { tag: 'feat', scope: 'hr', description: 'Updated HR chat suggestions: who is on leave today, pending leave requests, WFH, birthdays, payslip summary, CSV download, salary generation redirect' },
+    ],
+  },
+  {
+    version: 'v3.1.6',
+    date: '2026-05-03',
+    entries: [
+      { tag: 'fix', scope: 'notifications', description: 'Agent failures count clears when navigating to Activity page or clicking the row — stored as a seen-at timestamp in localStorage; backend only counts failures after that point, not the full 24h window' },
+    ],
+  },
+  {
     version: 'v3.1.5',
     date: '2026-05-03',
     entries: [

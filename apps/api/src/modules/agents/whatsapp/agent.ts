@@ -140,6 +140,7 @@ export class WhatsAppAgent implements IAgent, OnModuleInit {
             { role: 'user', content: `From: ${fromName}\n\n${msg.body}` },
           ],
           ...agentLlmOpts(config),
+          agentKey: this.key,
           maxTokens: 200,
         });
 
@@ -382,6 +383,7 @@ If not, rewrite and return: {"ok":false,"revised":"improved reply here"}`,
           },
           { role: 'user', content: `Draft: "${draft}"` },
         ],
+        agentKey: this.key,
         maxTokens: 200,
       });
       const result = JSON.parse(critique.content);

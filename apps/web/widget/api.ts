@@ -15,6 +15,7 @@ export interface SiteConfigResponse {
   welcomeQuickReplies?: string[];
   brandColor: string;
   position: 'bottom-right' | 'bottom-left';
+  requireEmail?: boolean;
 }
 
 export async function fetchSiteConfig(cfg: WidgetConfig): Promise<SiteConfigResponse | null> {
@@ -132,7 +133,7 @@ export interface VisitorPageContext {
   custom?: Record<string, string | number | boolean>;
 }
 
-export function sendMessage(cfg: WidgetConfig, content: string, attachmentIds?: string[], meta?: SendMessageMeta, pageContext?: VisitorPageContext) {
+export function sendMessage(cfg: WidgetConfig, content: string, attachmentIds?: string[], meta?: SendMessageMeta, pageContext?: VisitorPageContext, replyToId?: string, replyToContent?: string) {
   return postJson<MessageResponse>(`${cfg.apiBase}/livechat/message`, {
     siteKey: cfg.siteKey,
     visitorId: cfg.visitorId,
@@ -140,6 +141,8 @@ export function sendMessage(cfg: WidgetConfig, content: string, attachmentIds?: 
     attachmentIds: attachmentIds && attachmentIds.length ? attachmentIds : undefined,
     meta,
     pageContext,
+    replyToId: replyToId || undefined,
+    replyToContent: replyToContent || undefined,
   });
 }
 

@@ -60,6 +60,8 @@ interface MessageBody {
   content: string;
   attachmentIds?: string[];
   pageContext?: VisitorPageContext;
+  replyToId?: string;
+  replyToContent?: string;
   /** Anti-bot signals — silently fail the request when triggered. */
   meta?: {
     /** Honeypot field. Real widget keeps this empty; bots auto-fill. */
@@ -109,6 +111,7 @@ interface WidgetConfigResponse {
   welcomeQuickReplies: string[];
   brandColor: string;
   position: 'bottom-right' | 'bottom-left';
+  requireEmail: boolean;
 }
 
 @Controller('livechat')
@@ -141,6 +144,7 @@ export class LivechatPublicController {
       welcomeQuickReplies: site.welcomeQuickReplies,
       brandColor: site.brandColor || '#2563eb',
       position: site.position,
+      requireEmail: site.requireEmail,
     };
   }
 
@@ -390,6 +394,8 @@ export class LivechatPublicController {
       sessionId,
       role: 'visitor',
       content: visitorContent,
+      replyToId: body.replyToId || null,
+      replyToContent: body.replyToContent ? body.replyToContent.slice(0, 200) : null,
     });
 
     // Dedupe — appendMessage flagged this as an exact recent duplicate.

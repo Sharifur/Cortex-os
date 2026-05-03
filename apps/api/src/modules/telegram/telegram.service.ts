@@ -18,7 +18,7 @@ import { pendingApprovals } from '../../db/schema';
 import { SelfImprovementService, KbProposalNotifyEvent } from '../knowledge-base/self-improvement.service';
 import { HrmApiService } from '../agents/hr/hrm-api.service';
 import { hrPayslipRuns } from '../../db/schema';
-import type { ApprovalCreatedEvent } from './telegram.types';
+import type { ApprovalCreatedEvent, TaskNotifyEvent, AgentFailedEvent } from './telegram.types';
 import { TELEGRAM_EVENTS } from './telegram.types';
 import type { ProposedAction } from '../agents/runtime/types';
 import { TelegramBotAgent } from '../agents/telegram-bot/agent';
@@ -96,11 +96,9 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
         { command: 'cancel', description: 'Cancel the pending reminder I asked you about' },
       ]).catch((err: Error) => this.logger.warn(`setMyCommands failed: ${err.message}`));
 
-      if (process.env.NODE_ENV !== 'production') {
-        this.bot.start().catch((err: Error) =>
-          this.logger.error(`Bot polling error: ${err.message}`),
-        );
-      }
+      this.bot.start().catch((err: Error) =>
+        this.logger.error(`Bot polling error: ${err.message}`),
+      );
       this.logger.log('Telegram bot started');
     } catch (err) {
       this.logger.error(`Failed to init Telegram bot: ${(err as Error).message}`);
@@ -147,6 +145,23 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     } catch (err) {
       this.logger.error(`Failed to send approval message: ${(err as Error).message}`);
     }
+  }
+
+  @OnEvent(TELEGRAM_EVENTS.TASK_NOTIFY)
+  async onTaskNotify(event: TaskNotifyEvent): Promise<void> {
+    if (!this.bot || !this.ownerChatId) return;
+    const text = `Task: ${event.taskTitle}\nAgent: ${event.agentKey}\n\n${event.summary}`;
+    try { await this.sendMessage(text); } catch { /* ignore */ }
+  }
+
+  @OnEvent(TELEGRAM_EVENTS.AGENT_FAILED)
+  async onAgentFailed(event: AgentFailedEvent): Promise<void> {
+    if (!this.bot || !this.ownerChatId) return;
+    const lines = [`Agent failed: ${event.agentName}`];
+    if (event.taskTitle) lines.push(`Task: ${event.taskTitle}`);
+    lines.push(`Error: ${event.error.slice(0, 300)}`);
+    lines.push(`Run: ${event.runId}`);
+    try { await this.sendMessage(lines.join('\n')); } catch { /* ignore */ }
   }
 
   @OnEvent('auth.login.new_ip')

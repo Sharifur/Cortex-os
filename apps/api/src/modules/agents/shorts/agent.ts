@@ -157,6 +157,7 @@ Return a JSON array of ${config.videosPerRun} script objects. No markdown, no ex
           { role: 'user', content: userPrompt },
         ],
         ...agentLlmOpts(config),
+        agentKey: this.key,
         maxTokens: 3000,
         temperature: 0.8,
       });

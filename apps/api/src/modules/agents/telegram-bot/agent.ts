@@ -404,6 +404,7 @@ ${turnsBlock}${lastRouteBlock}Current local time: ${nowLocal} (${tz}). Current U
 
     const completion = this.llm.completeWithTools({
       ...agentLlmOpts(config),
+      agentKey: this.key,
       tools,
       messages: [
         { role: 'system', content: systemPrompt },

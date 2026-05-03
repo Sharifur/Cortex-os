@@ -412,6 +412,7 @@ export class EmailManagerAgent implements IAgent, OnModuleInit {
         { role: 'user', content: effectiveInstructions },
       ],
       ...agentLlmOpts(config),
+      agentKey: this.key,
       maxTokens: 400,
       temperature: 0.7,
     });
@@ -443,6 +444,7 @@ export class EmailManagerAgent implements IAgent, OnModuleInit {
     const prompt = `From: ${msg.from}\nSubject: ${msg.subject}\n\n${msg.snippet}`;
     const res = await this.llm.complete({
       ...agentLlmOpts(config),
+      agentKey: this.key,
       messages: [
         { role: 'system', content: CLASSIFY_SYSTEM },
         { role: 'user', content: prompt },
@@ -466,6 +468,7 @@ export class EmailManagerAgent implements IAgent, OnModuleInit {
   ): Promise<string> {
     const res = await this.llm.complete({
       ...agentLlmOpts(config),
+      agentKey: this.key,
       messages: [
         { role: 'system', content: (customSystem ?? DRAFT_SYSTEM) + kbBlock },
         {
@@ -493,6 +496,7 @@ If not, rewrite and return: {"ok":false,"revised":"improved reply here"}`,
           },
           { role: 'user', content: `Draft: "${draft}"` },
         ],
+        agentKey: this.key,
         maxTokens: 250,
       });
       const result = JSON.parse(critique.content);

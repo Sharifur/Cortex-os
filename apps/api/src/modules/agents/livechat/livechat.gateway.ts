@@ -76,10 +76,21 @@ export class LivechatGateway implements OnModuleInit, OnGatewayConnection, OnGat
       return;
     }
 
+    let site: Awaited<ReturnType<LivechatService['resolveSiteForRequest']>>;
     try {
-      await this.livechat.resolveSiteForRequest(siteKey, origin);
+      site = await this.livechat.resolveSiteForRequest(siteKey, origin);
     } catch {
       client.emit('error', { message: 'origin not allowed' });
+      client.disconnect(true);
+      return;
+    }
+
+    // Verify the session exists and actually belongs to this visitor on this site.
+    // Without this check, anyone who guesses a sessionId UUID can join the room
+    // and receive all agent replies and stream events for that conversation.
+    const session = await this.livechat.getSession(sessionId).catch(() => null);
+    if (!session || session.visitorId !== visitorId || session.siteId !== site.id) {
+      client.emit('error', { message: 'session not found' });
       client.disconnect(true);
       return;
     }

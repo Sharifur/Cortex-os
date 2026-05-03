@@ -27,8 +27,23 @@ interface NotifSummary {
   total: number;
 }
 
+const FAILURES_SEEN_KEY = 'agent-failures-seen-at';
+
+function getFailuresSince(): string {
+  try {
+    const v = localStorage.getItem(FAILURES_SEEN_KEY);
+    if (v) return v;
+  } catch { /* ignore */ }
+  return new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+}
+
+function markFailuresSeen() {
+  try { localStorage.setItem(FAILURES_SEEN_KEY, new Date().toISOString()); } catch { /* ignore */ }
+}
+
 function NotificationBell({ token }: { token: string }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -36,7 +51,8 @@ function NotificationBell({ token }: { token: string }) {
   const { data } = useQuery<NotifSummary>({
     queryKey: ['notifications-summary'],
     queryFn: async () => {
-      const res = await fetch('/notifications/summary', { headers: { Authorization: `Bearer ${token}` } });
+      const since = getFailuresSince();
+      const res = await fetch(`/notifications/summary?failuresSince=${encodeURIComponent(since)}`, { headers: { Authorization: `Bearer ${token}` } });
       if (!res.ok) return { waitingChats: 0, pendingApprovals: 0, agentFailures: 0, kbProposals: 0, total: 0 };
       return res.json();
     },
@@ -44,6 +60,14 @@ function NotificationBell({ token }: { token: string }) {
   });
 
   const total = data?.total ?? 0;
+
+  // Auto-dismiss failure count when user is on /activity
+  useEffect(() => {
+    if (location.pathname === '/activity' && (data?.agentFailures ?? 0) > 0) {
+      markFailuresSeen();
+      queryClient.invalidateQueries({ queryKey: ['notifications-summary'] });
+    }
+  }, [location.pathname, data?.agentFailures, queryClient]);
 
   useEffect(() => {
     const socket = getRealtimeSocket(token);
@@ -79,6 +103,10 @@ function NotificationBell({ token }: { token: string }) {
   }, []);
 
   function go(to: string) {
+    if (to === '/activity') {
+      markFailuresSeen();
+      queryClient.invalidateQueries({ queryKey: ['notifications-summary'] });
+    }
     navigate(to);
     setOpen(false);
   }
@@ -113,7 +141,14 @@ function NotificationBell({ token }: { token: string }) {
   return (
     <div className="relative" ref={ref}>
       <button
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => {
+          const next = !open;
+          setOpen(next);
+          if (next && (data?.agentFailures ?? 0) > 0) {
+            markFailuresSeen();
+            queryClient.invalidateQueries({ queryKey: ['notifications-summary'] });
+          }
+        }}
         className="relative flex items-center justify-center w-8 h-8 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
         aria-label="Notifications"
       >
@@ -280,7 +315,7 @@ function Sidebar({
           <>
             <Bot className="w-5 h-5 text-primary shrink-0" />
             <span className="font-semibold text-sm">Cortex OS</span>
-            <span className="text-muted-foreground text-xs">v3.1.5</span>
+            <span className="text-muted-foreground text-xs">v3.4.3</span>
             {onToggleCollapse && (
               <button
                 onClick={onToggleCollapse}
@@ -471,7 +506,7 @@ export default function AppLayout() {
           <div className="flex items-center gap-2">
             <Bot className="w-5 h-5 text-primary" />
             <span className="font-semibold text-sm">Cortex OS</span>
-            <span className="text-muted-foreground text-xs">v3.1.5</span>
+            <span className="text-muted-foreground text-xs">v3.4.3</span>
           </div>
           <button
             onClick={() => setDrawerOpen(false)}

@@ -41,6 +41,8 @@ import {
   BellOff,
   ThumbsDown,
   CheckCheck,
+  CornerUpLeft,
+  Languages,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -67,6 +69,7 @@ interface Site {
   replyTone: string | null;
   trackBots: boolean;
   autoApprove: boolean;
+  requireEmail: boolean;
   operatorName: string | null;
   botName: string | null;
   botSubtitle: string | null;
@@ -152,6 +155,8 @@ interface MessageRow {
   seenAt?: string | null;
   attachments?: AttachmentSummary[];
   pendingApproval?: boolean;
+  replyToId?: string | null;
+  replyToContent?: string | null;
 }
 
 interface SessionDetail {
@@ -369,6 +374,7 @@ function SitesTab() {
         replyTone: s.replyTone ?? null,
         trackBots: s.trackBots,
         autoApprove: s.autoApprove,
+        requireEmail: s.requireEmail ?? false,
         botName: s.botName ?? null,
         botSubtitle: s.botSubtitle ?? null,
         welcomeMessage: s.welcomeMessage ?? null,
@@ -755,7 +761,7 @@ function SiteFormModal({ site, onClose, onSave, error }: { site: Partial<Site>; 
                 placeholder="https://bytesed.com"
               />
             </Field>
-            <div className="flex items-center gap-4 pt-1">
+            <div className="flex flex-wrap items-center gap-4 pt-1">
               <label className="flex items-center gap-2 text-sm">
                 <input type="checkbox" checked={draft.enabled ?? true} onChange={(e) => setDraft({ ...draft, enabled: e.target.checked })} />
                 Enabled
@@ -764,7 +770,16 @@ function SiteFormModal({ site, onClose, onSave, error }: { site: Partial<Site>; 
                 <input type="checkbox" checked={draft.trackBots ?? false} onChange={(e) => setDraft({ ...draft, trackBots: e.target.checked })} />
                 Track bots
               </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={draft.requireEmail ?? false} onChange={(e) => setDraft({ ...draft, requireEmail: e.target.checked })} />
+                Require email
+              </label>
             </div>
+            {draft.requireEmail && (
+              <p className="text-xs text-muted-foreground bg-muted/50 border border-border rounded-md px-3 py-2">
+                Visitors must enter their email before sending a message. The gate appears when the panel opens.
+              </p>
+            )}
           </div>
         )}
 
@@ -1512,6 +1527,23 @@ function SessionPane({
 
   const [selectedOperatorId, setSelectedOperatorId] = useState<string>('');
   const [composerTab, setComposerTab] = useState<'reply' | 'note' | 'shortcuts' | 'kb'>('reply');
+  const [translations, setTranslations] = useState<Record<string, string>>({});
+  const [translating, setTranslating] = useState<Set<string>>(new Set());
+  const [autoTranslate, setAutoTranslate] = useState(false);
+
+  const translateMessage = async (msgId: string, text: string, targetLang: string) => {
+    if (translations[msgId] || translating.has(msgId)) return;
+    setTranslating((s) => new Set(s).add(msgId));
+    try {
+      const res = await apiFetch(token, '/agents/livechat/translate', {
+        method: 'POST',
+        body: JSON.stringify({ text, targetLang: 'English', sourceLang: targetLang }),
+      }) as { translated: string };
+      setTranslations((prev) => ({ ...prev, [msgId]: res.translated }));
+    } catch { /* ignore */ } finally {
+      setTranslating((s) => { const n = new Set(s); n.delete(msgId); return n; });
+    }
+  };
   const [showEmoji, setShowEmoji] = useState(false);
   const [showFormat, setShowFormat] = useState(false);
   const [kbQuery, setKbQuery] = useState('');
@@ -1739,8 +1771,10 @@ function SessionPane({
     onError: handleMutationError('Upload failed'),
   });
 
+  const [replyTo, setReplyTo] = useState<{ id: string; content: string; role: string } | null>(null);
+
   const sendMut = useMutation({
-    mutationFn: (payload: { content: string; attachmentIds: string[]; operatorId?: string; internal?: boolean }) =>
+    mutationFn: (payload: { content: string; attachmentIds: string[]; operatorId?: string; internal?: boolean; replyToId?: string; replyToContent?: string }) =>
       apiFetch(token, `/agents/livechat/sessions/${sessionId}/message`, {
         method: 'POST',
         body: JSON.stringify({
@@ -1748,12 +1782,14 @@ function SessionPane({
           attachmentIds: payload.attachmentIds.length ? payload.attachmentIds : undefined,
           operatorId: payload.operatorId || undefined,
           internal: payload.internal === true,
+          replyToId: payload.replyToId || undefined,
+          replyToContent: payload.replyToContent || undefined,
         }),
       }),
     onSuccess: () => {
       if (composerRef.current) composerRef.current.value = '';
       setPendingAttachments([]);
-      // Clear typing on send so the visitor doesn't see lingering dots.
+      setReplyTo(null);
       sockRef.current?.emit('livechat:typing', { sessionId, on: false });
       if (operatorTypingTimerRef.current) clearTimeout(operatorTypingTimerRef.current);
       qc.invalidateQueries({ queryKey: ['livechat-session', sessionId] });
@@ -1777,16 +1813,26 @@ function SessionPane({
     onError: handleMutationError('Set email failed'),
   });
 
-  const submitOperator = () => {
-    const content = composerRef.current?.value?.trim() ?? '';
+  const submitOperator = async () => {
+    let content = composerRef.current?.value?.trim() ?? '';
     if (!content && pendingAttachments.length === 0) return;
+    const isNote = composerTab === 'note';
+    if (!isNote && autoTranslate && language && !language.startsWith('en')) {
+      try {
+        const res = await apiFetch(token, '/agents/livechat/translate', {
+          method: 'POST',
+          body: JSON.stringify({ text: content, targetLang: language }),
+        }) as { translated: string };
+        if (res.translated) content = res.translated;
+      } catch { /* send in original if translation fails */ }
+    }
     sendMut.mutate({
       content,
       attachmentIds: pendingAttachments.map((a) => a.id),
       operatorId: selectedOperatorId || undefined,
-      // Note tab sends as an internal note — server records role='note' and
-      // skips the visitor-room broadcast, so only operators ever see it.
-      internal: composerTab === 'note',
+      internal: isNote,
+      replyToId: replyTo?.id,
+      replyToContent: replyTo?.content.slice(0, 200),
     });
   };
 
@@ -1901,7 +1947,7 @@ function SessionPane({
         )}
 
         {/* MESSAGES */}
-        <div className="flex-1 overflow-auto px-6 py-5">
+        <div className="flex-1 overflow-auto px-3 sm:px-6 py-4 sm:py-5">
           {language && (
             <div className="flex justify-center mb-4">
               <span className="inline-flex items-center gap-2 px-3 py-1.5 bg-card border border-border rounded-full text-xs">
@@ -1928,6 +1974,11 @@ function SessionPane({
                     onEditApprove={(content) => editApproveMut.mutate({ messageId: m.id, content })}
                     onFlag={(correction) => flagMut.mutate({ messageId: m.id, correction })}
                     busy={approveMut.isPending || rejectMut.isPending || editApproveMut.isPending}
+                    onReply={(msg) => { setReplyTo({ id: msg.id, content: msg.content, role: msg.role }); setComposerTab('reply'); composerRef.current?.focus(); }}
+                    sessionLanguage={language}
+                    translation={translations[m.id]}
+                    translating={translating.has(m.id)}
+                    onTranslate={() => translateMessage(m.id, m.content, language ?? 'auto')}
                   />
                 ))}
               </div>
@@ -2029,19 +2080,45 @@ function SessionPane({
               </div>
             </div>
           )}
-          {composerEnabled && availableOperators.length > 0 && (
-            <div className="flex items-center gap-2 px-4 py-1.5 border-b border-border bg-muted/30">
-              <span className="text-xs text-muted-foreground shrink-0">Speaking as:</span>
-              <select
-                value={selectedOperatorId}
-                onChange={(e) => setSelectedOperatorId(e.target.value)}
-                className="text-xs bg-transparent border-0 outline-none text-foreground font-medium flex-1 cursor-pointer"
-              >
-                <option value="">Default</option>
-                {availableOperators.map((op) => (
-                  <option key={op.id} value={op.id}>{op.name}</option>
-                ))}
-              </select>
+          {composerEnabled && (
+            <div className="flex items-center gap-3 px-4 py-1.5 border-b border-border bg-muted/30 flex-wrap">
+              {availableOperators.length > 0 && (
+                <>
+                  <span className="text-xs text-muted-foreground shrink-0">Speaking as:</span>
+                  <select
+                    value={selectedOperatorId}
+                    onChange={(e) => setSelectedOperatorId(e.target.value)}
+                    className="text-xs bg-transparent border-0 outline-none text-foreground font-medium cursor-pointer"
+                  >
+                    <option value="">Default</option>
+                    {availableOperators.map((op) => (
+                      <option key={op.id} value={op.id}>{op.name}</option>
+                    ))}
+                  </select>
+                </>
+              )}
+              {language && !language.startsWith('en') && composerTab === 'reply' && (
+                <label className="flex items-center gap-1.5 ml-auto cursor-pointer" title={`Auto-translate your English reply to ${prettyLanguage(language)}`}>
+                  <div
+                    onClick={() => setAutoTranslate((v) => !v)}
+                    className={`w-7 h-4 rounded-full transition-colors relative cursor-pointer ${autoTranslate ? 'bg-blue-500' : 'bg-muted-foreground/30'}`}
+                  >
+                    <span className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-transform ${autoTranslate ? 'translate-x-3.5' : 'translate-x-0.5'}`} />
+                  </div>
+                  <span className="text-[11px] text-muted-foreground">Auto-translate to {prettyLanguage(language)}</span>
+                </label>
+              )}
+            </div>
+          )}
+          {replyTo && (
+            <div className="flex items-start gap-2 px-4 py-2 bg-muted/40 border-b border-border">
+              <div className="flex-1 min-w-0">
+                <div className="text-[10px] text-muted-foreground mb-0.5 uppercase tracking-wide">Replying to {replyTo.role}</div>
+                <div className="text-xs text-foreground/70 truncate">{replyTo.content}</div>
+              </div>
+              <button onClick={() => setReplyTo(null)} className="text-muted-foreground hover:text-foreground p-0.5 shrink-0 mt-0.5">
+                <XCircle className="w-3.5 h-3.5" />
+              </button>
             </div>
           )}
           <textarea
@@ -2340,6 +2417,11 @@ function MessageBubble({
   onReject,
   onEditApprove,
   onFlag,
+  onReply,
+  onTranslate,
+  translation,
+  translating: isTranslating,
+  sessionLanguage,
   busy,
 }: {
   message: MessageRow;
@@ -2349,6 +2431,11 @@ function MessageBubble({
   onReject?: () => void;
   onEditApprove?: (content: string) => void;
   onFlag?: (correction: string) => void;
+  onReply?: (msg: MessageRow) => void;
+  onTranslate?: () => void;
+  translation?: string;
+  translating?: boolean;
+  sessionLanguage?: string | null;
   busy?: boolean;
 }) {
   const isVisitor = message.role === 'visitor';
@@ -2386,18 +2473,48 @@ function MessageBubble({
     </div>
   );
 
+  const isNonEnglish = sessionLanguage && !sessionLanguage.startsWith('en');
+
   if (isVisitor) {
     return (
-      <div className="flex items-end gap-2">
+      <div className="flex items-end gap-2 min-w-0 group">
         <Avatar name={visitorName} country={country} size="sm" />
-        <div className="max-w-[70%]">
+        <div className="max-w-[85%] sm:max-w-[70%] min-w-0">
+          {message.replyToContent && (
+            <div className="text-[11px] text-muted-foreground bg-muted/40 border-l-2 border-muted-foreground/30 px-2 py-1 mb-1 rounded truncate">
+              {message.replyToContent}
+            </div>
+          )}
           {message.content && (
-            <div className="bg-muted/60 text-foreground text-sm rounded-2xl rounded-bl-sm px-3.5 py-2 break-words">
+            <div className="bg-muted/60 text-foreground text-sm rounded-2xl rounded-bl-sm px-3.5 py-2 whitespace-pre-wrap [overflow-wrap:anywhere]">
               <Linkified text={message.content} dark={false} />
             </div>
           )}
+          {translation && (
+            <div className="mt-1 text-[11px] text-muted-foreground bg-muted/30 border border-border rounded-lg px-2.5 py-1.5 italic">
+              <span className="not-italic text-[10px] font-medium uppercase tracking-wide text-blue-400 mr-1">EN</span>
+              {translation}
+            </div>
+          )}
           {attachmentBlock}
-          <div className="text-[10px] text-muted-foreground mt-0.5 pl-1">{formatMessageTime(message.createdAt)}</div>
+          <div className="text-[10px] text-muted-foreground mt-0.5 pl-1 flex items-center gap-1">
+            {formatMessageTime(message.createdAt)}
+            {isNonEnglish && !translation && onTranslate && (
+              <button
+                onClick={onTranslate}
+                disabled={isTranslating}
+                className="opacity-0 group-hover:opacity-100 transition-opacity ml-1 hover:text-blue-400 disabled:opacity-50"
+                title="Translate to English"
+              >
+                {isTranslating ? <span className="text-[9px]">…</span> : <Languages className="w-3 h-3" />}
+              </button>
+            )}
+            {onReply && (
+              <button onClick={() => onReply(message)} className="opacity-0 group-hover:opacity-100 transition-opacity hover:text-foreground" title="Reply">
+                <CornerUpLeft className="w-3 h-3" />
+              </button>
+            )}
+          </div>
         </div>
       </div>
     );
@@ -2405,17 +2522,22 @@ function MessageBubble({
 
   // Agent or operator
   return (
-    <div className="flex items-end justify-end gap-2 group">
-      <div className="max-w-[70%]">
+    <div className="flex items-end justify-end gap-2 group min-w-0">
+      <div className="max-w-[85%] sm:max-w-[70%] min-w-0">
         {isPending && (
           <div className="text-[11px] text-amber-600 mb-1 text-right flex items-center justify-end gap-1">
             <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-500" />
             Awaiting your approval — visitor has not seen this yet
           </div>
         )}
+        {message.replyToContent && (
+          <div className="text-[11px] text-muted-foreground bg-muted/40 border-l-2 border-muted-foreground/30 px-2 py-1 mb-1 rounded truncate text-right">
+            {message.replyToContent}
+          </div>
+        )}
         {message.content && !editing && (
           <div
-            className={`text-sm rounded-2xl rounded-br-sm px-3.5 py-2 break-words ${
+            className={`text-sm rounded-2xl rounded-br-sm px-3.5 py-2 whitespace-pre-wrap [overflow-wrap:anywhere] ${
               isPending ? 'bg-amber-50 text-amber-900 border border-amber-200' : 'bg-blue-500 text-white'
             }`}
           >
@@ -2434,9 +2556,14 @@ function MessageBubble({
           <div className="flex items-center justify-end gap-1 mt-0.5 pr-1">
             <span className="text-[10px] text-muted-foreground">{formatMessageTime(message.createdAt)}</span>
             {message.seenAt
-              ? <CheckCheck className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+              ? <CheckCheck className="w-3.5 h-3.5 text-green-500 shrink-0" />
               : <Check className="w-3.5 h-3.5 text-muted-foreground/50 shrink-0" />
             }
+            {onReply && (
+              <button onClick={() => onReply(message)} className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded text-muted-foreground hover:text-foreground" title="Reply">
+                <CornerUpLeft className="w-3 h-3" />
+              </button>
+            )}
             {isAi && !flagSubmitted && (
               <button
                 onClick={() => { setFlagging((v) => !v); setCorrectionDraft(''); }}
@@ -2544,39 +2671,54 @@ function MessageBubble({
   );
 }
 
-function Linkified({ text, dark }: { text: string; dark: boolean }) {
-  const parts: (string | { url: string; tail: string })[] = [];
-  const re = /(https?:\/\/[^\s<]+)/g;
-  let lastIdx = 0;
+type InlineToken =
+  | { kind: 'text'; value: string }
+  | { kind: 'bold'; value: string }
+  | { kind: 'italic'; value: string }
+  | { kind: 'code'; value: string }
+  | { kind: 'url'; url: string; tail: string };
+
+function tokenize(text: string): InlineToken[] {
+  const tokens: InlineToken[] = [];
+  const re = /(\*\*(.+?)\*\*|\*(.+?)\*|`([^`]+)`|(https?:\/\/[^\s<]+))/gs;
+  let last = 0;
   let m: RegExpExecArray | null;
   while ((m = re.exec(text)) !== null) {
-    if (m.index > lastIdx) parts.push(text.slice(lastIdx, m.index));
-    const url = m[0];
-    const trailMatch = url.match(/[.,;:!?)]+$/);
-    const tail = trailMatch ? trailMatch[0] : '';
-    parts.push({ url: tail ? url.slice(0, -tail.length) : url, tail });
-    lastIdx = m.index + url.length;
+    if (m.index > last) tokens.push({ kind: 'text', value: text.slice(last, m.index) });
+    if (m[2] !== undefined) {
+      tokens.push({ kind: 'bold', value: m[2] });
+    } else if (m[3] !== undefined) {
+      tokens.push({ kind: 'italic', value: m[3] });
+    } else if (m[4] !== undefined) {
+      tokens.push({ kind: 'code', value: m[4] });
+    } else if (m[5] !== undefined) {
+      const url = m[5];
+      const trailMatch = url.match(/[.,;:!?)]+$/);
+      const tail = trailMatch ? trailMatch[0] : '';
+      tokens.push({ kind: 'url', url: tail ? url.slice(0, -tail.length) : url, tail });
+    }
+    last = m.index + m[0].length;
   }
-  if (lastIdx < text.length) parts.push(text.slice(lastIdx));
+  if (last < text.length) tokens.push({ kind: 'text', value: text.slice(last) });
+  return tokens;
+}
+
+function Linkified({ text, dark }: { text: string; dark: boolean }) {
+  const tokens = tokenize(text);
   return (
     <>
-      {parts.map((p, i) =>
-        typeof p === 'string' ? (
-          <span key={i}>{p}</span>
-        ) : (
+      {tokens.map((t, i) => {
+        if (t.kind === 'bold') return <strong key={i}>{t.value}</strong>;
+        if (t.kind === 'italic') return <em key={i}>{t.value}</em>;
+        if (t.kind === 'code') return <code key={i} className="rounded px-1 py-0.5 text-[0.8em] bg-black/20 font-mono">{t.value}</code>;
+        if (t.kind === 'url') return (
           <span key={i}>
-            <a
-              href={p.url}
-              target="_blank"
-              rel="noopener noreferrer nofollow"
-              className={`underline ${dark ? 'text-white' : 'text-blue-600'}`}
-            >
-              {p.url}
-            </a>
-            {p.tail}
+            <a href={t.url} target="_blank" rel="noopener noreferrer nofollow" className={`underline ${dark ? 'text-white' : 'text-blue-600'}`}>{t.url}</a>
+            {t.tail}
           </span>
-        ),
-      )}
+        );
+        return <span key={i}>{t.value}</span>;
+      })}
     </>
   );
 }

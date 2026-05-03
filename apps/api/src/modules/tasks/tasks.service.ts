@@ -10,6 +10,7 @@ interface CreateTaskDto {
   title: string;
   instructions: string;
   agentKey: string;
+  telegramMode?: string;
   recurrence?: string;
   recurrenceTime?: string;
   recurrenceDow?: number | null;
@@ -22,6 +23,7 @@ interface UpdateTaskDto {
   title?: string;
   instructions?: string;
   agentKey?: string;
+  telegramMode?: string;
   recurrence?: string | null;
   recurrenceTime?: string | null;
   recurrenceDow?: number | null;
@@ -61,6 +63,7 @@ export class TasksService {
         title: dto.title,
         instructions: dto.instructions,
         agentKey: dto.agentKey,
+        telegramMode: dto.telegramMode ?? 'agent',
         recurrence: dto.recurrence ?? null,
         recurrenceTime: dto.recurrenceTime ?? null,
         recurrenceDow: dto.recurrenceDow ?? null,
@@ -103,6 +106,7 @@ export class TasksService {
       _taskId: task.id,
       _taskTitle: task.title,
       instructions: task.instructions,
+      source: 'task',
     });
 
     await this.db.db

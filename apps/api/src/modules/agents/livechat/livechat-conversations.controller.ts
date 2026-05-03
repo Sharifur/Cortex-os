@@ -29,6 +29,7 @@ import { GeoIpService } from '../../../common/visitor-enrichment/geoip.service';
 import { LivechatRateLimitService } from './livechat-rate-limit.service';
 import { SettingsService } from '../../settings/settings.service';
 import { SelfImprovementService } from '../../knowledge-base/self-improvement.service';
+import { LlmRouterService } from '../../llm/llm-router.service';
 
 @Controller('agents/livechat')
 @UseGuards(JwtAuthGuard)
@@ -43,6 +44,7 @@ export class LivechatConversationsController {
     private settings: SettingsService,
     private rateLimit: LivechatRateLimitService,
     private selfImprovement: SelfImprovementService,
+    private llm: LlmRouterService,
   ) {}
 
   @Get('operators')
@@ -265,7 +267,7 @@ export class LivechatConversationsController {
 
   @Post('sessions/:id/message')
   @HttpCode(HttpStatus.CREATED)
-  async operatorReply(@Param('id') id: string, @Body() body: { content: string; attachmentIds?: string[]; operatorId?: string; internal?: boolean }) {
+  async operatorReply(@Param('id') id: string, @Body() body: { content: string; attachmentIds?: string[]; operatorId?: string; internal?: boolean; replyToId?: string; replyToContent?: string }) {
     const hasAttachments = Array.isArray(body?.attachmentIds) && body.attachmentIds.length > 0;
     if (!body?.content?.trim() && !hasAttachments) throw new BadRequestException('content or attachments required');
     const session = await this.livechat.getSession(id);
@@ -276,7 +278,7 @@ export class LivechatConversationsController {
     // broadcast — only operators viewing this session ever see them via
     // the session detail re-fetch + the operator-room session_upserted ping.
     const isInternal = body.internal === true;
-    const msg = await this.livechat.appendMessage({ sessionId: id, role: isInternal ? 'note' : 'operator', content });
+    const msg = await this.livechat.appendMessage({ sessionId: id, role: isInternal ? 'note' : 'operator', content, replyToId: body.replyToId || null, replyToContent: body.replyToContent ? body.replyToContent.slice(0, 200) : null });
     if (isInternal) {
       this.stream.publishToOperators({ type: 'session_upserted', sessionId: id });
       return { ok: true, message: { id: msg.id, content, createdAt: msg.createdAt, attachments: [], role: 'note' } };
@@ -471,5 +473,24 @@ export class LivechatConversationsController {
   @Get('visitors/:id/sessions')
   visitorSessions(@Param('id') id: string, @Query('limit') limit?: string) {
     return this.livechat.getVisitorSessions(id, limit ? Math.min(Number(limit), 100) : 20);
+  }
+
+  @Post('translate')
+  @HttpCode(HttpStatus.OK)
+  async translate(@Body() body: { text: string; targetLang: string; sourceLang?: string }) {
+    if (!body?.text?.trim()) throw new BadRequestException('text is required');
+    if (!body?.targetLang?.trim()) throw new BadRequestException('targetLang is required');
+
+    const source = body.sourceLang ? ` from ${body.sourceLang}` : '';
+    const prompt = `Translate the following text${source} to ${body.targetLang}. Return ONLY the translated text, no explanations, no quotes, no markdown.\n\n${body.text.trim()}`;
+
+    const res = await this.llm.complete({
+      agentKey: 'livechat',
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.1,
+      maxTokens: 1000,
+    });
+
+    return { translated: res.text.trim() };
   }
 }

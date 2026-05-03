@@ -317,6 +317,7 @@ export class TaskipTrialAgent implements IAgent, OnModuleInit {
 
     const response = await this.llm.complete({
       ...agentLlmOpts(config),
+      agentKey: this.key,
       messages: [
         { role: 'system', content: prompt.system },
         { role: 'user', content: userMsg },

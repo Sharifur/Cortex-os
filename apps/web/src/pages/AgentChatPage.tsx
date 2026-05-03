@@ -5,6 +5,7 @@ import {
   Bot, ArrowLeft, Send, Loader2, RefreshCw,
   Calendar, Clock, CheckCircle2, XCircle,
   AlertCircle, MessageSquare, ListTodo, RotateCcw, History, X,
+  ThumbsUp, ThumbsDown,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -141,11 +142,12 @@ function TypingBubble({ color }: { color: ReturnType<typeof agentColor> }) {
 // ─── Message bubble ───────────────────────────────────────────────────────────
 
 function MessageBubble({
-  msg, color, agentName,
+  msg, color, agentName, onFeedback,
 }: {
-  msg: ConvMessage & { pending?: boolean };
+  msg: ConvMessage & { pending?: boolean; feedback?: 'up' | 'down' };
   color: ReturnType<typeof agentColor>;
   agentName: string;
+  onFeedback?: (msgId: string, rating: 'up' | 'down') => void;
 }) {
   const isUser = msg.role === 'user';
 
@@ -170,12 +172,32 @@ function MessageBubble({
             <span className="text-xs text-amber-500">Awaiting Telegram approval</span>
           </div>
         )}
-        <div className={`text-[10px] text-muted-foreground/50 mt-0.5 px-1 ${isUser ? 'text-right' : ''}`}>
-          {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+        <div className={`flex items-center gap-2 mt-0.5 px-1 ${isUser ? 'justify-end' : ''}`}>
+          <span className="text-[10px] text-muted-foreground/50">
+            {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          </span>
           {msg.runId && (
-            <Link to={`/runs/${msg.runId}`} className="ml-1.5 hover:text-muted-foreground transition-colors">
+            <Link to={`/runs/${msg.runId}`} className="text-[10px] text-muted-foreground/50 hover:text-muted-foreground transition-colors">
               run →
             </Link>
+          )}
+          {!isUser && onFeedback && (
+            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+              <button
+                onClick={() => onFeedback(msg.id, 'up')}
+                title="Helpful"
+                className={`p-0.5 rounded transition-colors ${msg.feedback === 'up' ? 'text-green-400' : 'text-muted-foreground/40 hover:text-green-400'}`}
+              >
+                <ThumbsUp className="w-3 h-3" />
+              </button>
+              <button
+                onClick={() => onFeedback(msg.id, 'down')}
+                title="Not helpful"
+                className={`p-0.5 rounded transition-colors ${msg.feedback === 'down' ? 'text-red-400' : 'text-muted-foreground/40 hover:text-red-400'}`}
+              >
+                <ThumbsDown className="w-3 h-3" />
+              </button>
+            </div>
           )}
         </div>
       </div>
@@ -195,13 +217,15 @@ function ChatTab({
   onNewConv: () => void;
   onSwitchConv: (id: string) => void;
 }) {
-  const [messages, setMessages] = useState<(ConvMessage & { pending?: boolean })[]>([]);
+  const [messages, setMessages] = useState<(ConvMessage & { pending?: boolean; feedback?: 'up' | 'down' })[]>([]);
   const [input, setInput] = useState('');
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
   const [isThinking, setIsThinking] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // Prevents history query re-fetches from overwriting locally-appended messages.
+  const historyApplied = useRef(false);
 
   const { data: convList } = useQuery<ConvSummary[]>({
     queryKey: ['conv-list', agent.key],
@@ -209,16 +233,39 @@ function ChatTab({
     staleTime: 10_000,
   });
 
-  // Load conversation history
+  // Load conversation history — only apply once per mount (convId changes remount ChatTab via key prop)
   const { data: history, isLoading: histLoading } = useQuery<ConvMessage[]>({
     queryKey: ['conv', agent.key, convId],
     queryFn: () => apiFetch(token, `/agents/${agent.key}/conversations/${convId}`),
-    staleTime: 30_000,
+    staleTime: Infinity,
   });
 
   useEffect(() => {
-    if (history) setMessages(history);
+    if (history && !historyApplied.current) {
+      historyApplied.current = true;
+      setMessages(history);
+    }
   }, [history]);
+
+  function handleFeedback(msgId: string, rating: 'up' | 'down') {
+    const msg = messages.find((m) => m.id === msgId);
+    const newRating = msg?.feedback === rating ? undefined : rating;
+    setMessages((prev) =>
+      prev.map((m) => m.id === msgId ? { ...m, feedback: newRating } : m),
+    );
+    if (newRating && msg) {
+      const userQuery = [...messages].reverse().find((m) => m.role === 'user')?.content;
+      apiFetch(token, `/agents/${agent.key}/feedback`, {
+        method: 'POST',
+        body: JSON.stringify({
+          agentName: agent.name,
+          rating: newRating,
+          agentMessage: msg.content,
+          userQuery,
+        }),
+      }).catch(() => {});
+    }
+  }
 
   // Auto-scroll
   useEffect(() => {
@@ -461,7 +508,7 @@ function ChatTab({
         )}
 
         {messages.map((msg) => (
-          <MessageBubble key={msg.id} msg={msg} color={color} agentName={agent.name} />
+          <MessageBubble key={msg.id} msg={msg} color={color} agentName={agent.name} onFeedback={handleFeedback} />
         ))}
 
         {isThinking && <TypingBubble color={color} />}
@@ -932,7 +979,7 @@ export default function AgentChatPage() {
       {/* Content */}
       <div className="flex-1 overflow-hidden">
         {agent && activeTab === 'chat' && (
-          <ChatTab agent={agent} token={token} color={color} convId={convId} onNewConv={handleNewConv} onSwitchConv={handleSwitchConv} />
+          <ChatTab key={convId} agent={agent} token={token} color={color} convId={convId} onNewConv={handleNewConv} onSwitchConv={handleSwitchConv} />
         )}
         {agent && activeTab === 'tasks' && (
           <TasksTab agent={agent} token={token} color={color} />

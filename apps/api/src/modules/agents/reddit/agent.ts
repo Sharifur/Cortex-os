@@ -150,6 +150,7 @@ export class RedditAgent implements IAgent, OnModuleInit {
             },
           ],
           ...agentLlmOpts(config),
+          agentKey: this.key,
           maxTokens: 150,
         });
 
@@ -309,6 +310,7 @@ export class RedditAgent implements IAgent, OnModuleInit {
         { role: 'user', content: effectiveInstructions },
       ],
       ...agentLlmOpts(config),
+      agentKey: this.key,
       maxTokens: 200,
     });
     let draft = response.content.trim();
@@ -337,6 +339,7 @@ If not, rewrite and return: {"ok":false,"revised":"improved comment here"}`,
           },
           { role: 'user', content: `Draft: "${draft}"` },
         ],
+        agentKey: this.key,
         maxTokens: 200,
       });
       const result = JSON.parse(critique.content);

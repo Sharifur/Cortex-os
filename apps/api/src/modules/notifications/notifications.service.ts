@@ -6,7 +6,7 @@ import { sql } from 'drizzle-orm';
 export class NotificationsService {
   constructor(private db: DbService) {}
 
-  async getSummary() {
+  async getSummary(opts: { failuresSince?: Date } = {}) {
     const [waiting] = await this.db.db.execute(sql`
       SELECT COUNT(DISTINCT s.id)::int AS count
       FROM livechat_sessions s
@@ -23,10 +23,11 @@ export class NotificationsService {
       SELECT COUNT(*)::int AS count FROM pending_approvals WHERE status = 'PENDING'
     `);
 
+    const since = opts.failuresSince ?? new Date(Date.now() - 24 * 60 * 60 * 1000);
     const [failures] = await this.db.db.execute(sql`
       SELECT COUNT(*)::int AS count FROM agent_runs
       WHERE status = 'FAILED'
-        AND started_at >= NOW() - INTERVAL '24 hours'
+        AND started_at >= ${since.toISOString()}
     `);
 
     const [proposals] = await this.db.db.execute(sql`

@@ -118,6 +118,7 @@ export class CanvaAgent implements IAgent, OnModuleInit {
           { role: 'user', content: CALENDAR_PROMPT(month, config.brandVoice, config.targetCount, config.brands, config.formats) },
         ],
         ...agentLlmOpts(config),
+        agentKey: this.key,
         maxTokens: 4000,
       });
 
@@ -207,6 +208,7 @@ export class CanvaAgent implements IAgent, OnModuleInit {
               { role: 'user', content: `Hook: ${idea.hook}\nBody: ${idea.body}\nCTA: ${idea.cta}` },
             ],
             ...agentLlmOpts(config),
+            agentKey: this.key,
             maxTokens: 300,
           });
           return { ideaId: idea.id, script: response.content.trim() };

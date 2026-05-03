@@ -13,7 +13,7 @@ import { AgentLogService } from '../agent-log.service';
 import { QUEUE_NAMES } from '../../../../common/queue/queue.constants';
 import { TELEGRAM_EVENTS } from '../../../telegram/telegram.types';
 import type { AgentRunJobData, AgentExecuteJobData, TriggerEvent } from '../types';
-import type { ApprovalCreatedEvent } from '../../../telegram/telegram.types';
+import type { ApprovalCreatedEvent, TaskNotifyEvent, AgentFailedEvent } from '../../../telegram/telegram.types';
 
 const MAX_FOLLOWUPS = 5;
 
@@ -95,6 +95,20 @@ export class AgentRunProcessor extends WorkerHost {
         { actions: actions.map((a) => ({ type: a.type, summary: a.summary, riskLevel: a.riskLevel, payload: a.payload })) },
       );
 
+      // Read telegram_mode from the parent task (if this run was triggered by one)
+      const trigPayload = runRow.triggerPayload as Record<string, unknown> | null;
+      const parentTaskId = trigPayload?._taskId as string | undefined;
+      let telegramMode = 'agent';
+      let parentTask: typeof tasksTable.$inferSelect | undefined;
+      if (parentTaskId) {
+        const [t] = await this.db.db.select().from(tasksTable).where(eq(tasksTable.id, parentTaskId));
+        if (t) { parentTask = t; telegramMode = t.telegramMode ?? 'agent'; }
+      }
+
+      // 'approve' mode: every action gates on Telegram regardless of agent.requiresApproval
+      const needsApproval = (action: (typeof actions)[number]) =>
+        telegramMode === 'approve' || agent.requiresApproval(action);
+
       if (!actions.length) {
         await this.db.db
           .update(agentRuns)
@@ -102,36 +116,40 @@ export class AgentRunProcessor extends WorkerHost {
           .where(eq(agentRuns.id, runId));
         await this.logSvc.info(runId, `Run completed — no actions`);
 
-        // Close out the parent task so it doesn't sit in "running" forever.
-        const noopTaskId = (runRow.triggerPayload as Record<string, unknown> | null)?._taskId as string | undefined;
-        if (noopTaskId) {
-          const [t] = await this.db.db.select().from(tasksTable).where(eq(tasksTable.id, noopTaskId));
-          if (t?.recurrence && t.recurrenceTime) {
-            const nextRunAt = computeNextRunAt(t.recurrence, t.recurrenceTime);
-            await this.db.db.update(tasksTable).set({ status: 'pending', nextRunAt, updatedAt: new Date() }).where(eq(tasksTable.id, noopTaskId));
-          } else if (t) {
-            await this.db.db.update(tasksTable).set({ status: 'done', updatedAt: new Date() }).where(eq(tasksTable.id, noopTaskId));
+        if (telegramMode === 'notify' && parentTask) {
+          this.eventEmitter.emit(TELEGRAM_EVENTS.TASK_NOTIFY, {
+            taskTitle: parentTask.title,
+            agentKey,
+            summary: 'Completed — nothing to action.',
+          } satisfies TaskNotifyEvent);
+        }
+
+        if (parentTask) {
+          if (parentTask.recurrence && parentTask.recurrenceTime) {
+            const nextRunAt = computeNextRunAt(parentTask.recurrence, parentTask.recurrenceTime);
+            await this.db.db.update(tasksTable).set({ status: 'pending', nextRunAt, updatedAt: new Date() }).where(eq(tasksTable.id, parentTaskId!));
+          } else {
+            await this.db.db.update(tasksTable).set({ status: 'done', updatedAt: new Date() }).where(eq(tasksTable.id, parentTaskId!));
           }
         }
         return;
       }
 
-      const anyRequiresApproval = actions.some((a) => agent.requiresApproval(a));
+      const anyRequiresApproval = actions.some((a) => needsApproval(a));
 
       await this.db.db
         .update(agentRuns)
         .set({ proposedActions: actions, status: anyRequiresApproval ? 'AWAITING_APPROVAL' : 'RUNNING' })
         .where(eq(agentRuns.id, runId));
 
-      if (anyRequiresApproval) {
-        const awaitingTaskId = (runRow.triggerPayload as Record<string, unknown> | null)?._taskId as string | undefined;
-        if (awaitingTaskId) {
-          await this.db.db.update(tasksTable).set({ status: 'awaiting_approval', updatedAt: new Date() }).where(eq(tasksTable.id, awaitingTaskId));
-        }
+      if (anyRequiresApproval && parentTaskId) {
+        await this.db.db.update(tasksTable).set({ status: 'awaiting_approval', updatedAt: new Date() }).where(eq(tasksTable.id, parentTaskId));
       }
 
+      let autoSummaryLines: string[] = [];
+
       for (const action of actions) {
-        if (agent.requiresApproval(action)) {
+        if (needsApproval(action)) {
           const approval = await this.approvalSvc.createApproval(runId, action);
           await this.logSvc.info(runId, `Approval pending: ${action.summary}`, {
             approvalId: approval.id,
@@ -157,7 +175,20 @@ export class AgentRunProcessor extends WorkerHost {
             { attempts: 3, backoff: { type: 'exponential', delay: 60_000 } },
           );
           await this.logSvc.info(runId, `Auto-executing: ${action.summary}`);
+          autoSummaryLines.push(action.summary);
         }
+      }
+
+      // 'notify' mode: send a plain Telegram summary of what the agent decided
+      if (telegramMode === 'notify' && parentTask) {
+        const summaryText = autoSummaryLines.length
+          ? autoSummaryLines.join('\n')
+          : actions.map((a) => a.summary).join('\n');
+        this.eventEmitter.emit(TELEGRAM_EVENTS.TASK_NOTIFY, {
+          taskTitle: parentTask.title,
+          agentKey,
+          summary: summaryText,
+        } satisfies TaskNotifyEvent);
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -166,10 +197,21 @@ export class AgentRunProcessor extends WorkerHost {
         .set({ status: 'FAILED', error: message, finishedAt: new Date() })
         .where(eq(agentRuns.id, runId));
       await this.logSvc.error(runId, `Run failed: ${message}`);
-      const failedTaskId = (runRow?.triggerPayload as Record<string, unknown> | null)?._taskId as string | undefined;
+
+      const failedPayload = runRow?.triggerPayload as Record<string, unknown> | null;
+      const failedTaskId = failedPayload?._taskId as string | undefined;
       if (failedTaskId) {
         await this.db.db.update(tasksTable).set({ status: 'failed', updatedAt: new Date() }).where(eq(tasksTable.id, failedTaskId));
       }
+
+      this.eventEmitter.emit(TELEGRAM_EVENTS.AGENT_FAILED, {
+        agentKey,
+        agentName,
+        runId,
+        error: message,
+        taskTitle: failedPayload?._taskTitle as string | undefined,
+      } satisfies AgentFailedEvent);
+
       throw err;
     }
   }

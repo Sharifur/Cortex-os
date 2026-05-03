@@ -1,4 +1,4 @@
-import { Controller, Get, UseGuards } from '@nestjs/common';
+import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { NotificationsService } from './notifications.service';
 
@@ -8,7 +8,8 @@ export class NotificationsController {
   constructor(private notifications: NotificationsService) {}
 
   @Get('summary')
-  summary() {
-    return this.notifications.getSummary();
+  summary(@Query('failuresSince') failuresSince?: string) {
+    const since = failuresSince ? new Date(failuresSince) : undefined;
+    return this.notifications.getSummary({ failuresSince: since });
   }
 }
