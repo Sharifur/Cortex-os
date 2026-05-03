@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v3.0.3',
+    date: '2026-05-03',
+    entries: [
+      { tag: 'feat', scope: 'geoip', description: 'Chunked upload now shows a progress bar and "Uploading chunk X of Y" label; download/upload section hidden when database is already loaded; Debug tab renamed to GEOLite2' },
+    ],
+  },
+  {
     version: 'v3.0.2',
     date: '2026-05-03',
     entries: [
