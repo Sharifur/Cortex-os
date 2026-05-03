@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { useQuery, useMutation } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, Link } from 'react-router-dom';
 import {
   Bot, ArrowLeft, Send, Loader2, RefreshCw,
@@ -370,7 +370,7 @@ function ChatTab({
   const isBusy = triggerMutation.isPending || isThinking;
 
   return (
-    <div className="flex flex-col h-[calc(100vh-200px)] min-h-[500px] relative">
+    <div className="flex flex-col h-full relative">
       {/* Toolbar */}
       <div className="flex items-center justify-between px-4 py-2 border-b border-border shrink-0">
         <p className="text-xs text-muted-foreground font-mono truncate max-w-xs">{convId}</p>
@@ -507,6 +507,14 @@ function ChatTab({
 
 // ─── Tasks tab ────────────────────────────────────────────────────────────────
 
+interface TaskApproval {
+  id: string;
+  runId: string;
+  agentKey: string;
+  action: { type: string; summary: string };
+  status: string;
+}
+
 function TasksTab({
   agent, token, color,
 }: {
@@ -514,6 +522,7 @@ function TasksTab({
   token: string;
   color: ReturnType<typeof agentColor>;
 }) {
+  const qc = useQueryClient();
   const [taskInput, setTaskInput] = useState('');
   const [priority, setPriority] = useState<'high' | 'medium' | 'low'>('medium');
 
@@ -522,7 +531,31 @@ function TasksTab({
   }[]>({
     queryKey: ['agent-runs-tasks', agent.key],
     queryFn: () => apiFetch(token, `/agents/${agent.key}/runs?limit=30`),
-    refetchInterval: 15_000,
+    refetchInterval: 10_000,
+  });
+
+  const { data: allApprovals } = useQuery<TaskApproval[]>({
+    queryKey: ['pending-approvals'],
+    queryFn: () => apiFetch(token, '/approvals'),
+    refetchInterval: 10_000,
+  });
+
+  const approveMutation = useMutation({
+    mutationFn: (approvalId: string) =>
+      apiFetch(token, `/approvals/${approvalId}/approve`, { method: 'POST' }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['pending-approvals'] });
+      qc.invalidateQueries({ queryKey: ['agent-runs-tasks', agent.key] });
+    },
+  });
+
+  const rejectMutation = useMutation({
+    mutationFn: (approvalId: string) =>
+      apiFetch(token, `/approvals/${approvalId}/reject`, { method: 'POST' }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['pending-approvals'] });
+      qc.invalidateQueries({ queryKey: ['agent-runs-tasks', agent.key] });
+    },
   });
 
   const triggerMutation = useMutation({
@@ -536,6 +569,13 @@ function TasksTab({
       }),
     onSuccess: () => { setTaskInput(''); refetch(); },
   });
+
+  const approvalsByRunId = (allApprovals ?? [])
+    .filter((a) => a.agentKey === agent.key)
+    .reduce<Record<string, TaskApproval[]>>((acc, a) => {
+      (acc[a.runId] ??= []).push(a);
+      return acc;
+    }, {});
 
   const manualRuns = (runs ?? []).filter((r) => r.triggerType === 'MANUAL');
 
@@ -607,33 +647,68 @@ function TasksTab({
           {manualRuns.map((run) => {
             const payload = run.triggerPayload as { query?: string; priority?: string } | null;
             const query = payload?.query ?? 'Manual trigger';
+            const runApprovals = approvalsByRunId[run.id] ?? [];
+            const isAwaiting = run.status === 'AWAITING_APPROVAL' && runApprovals.length > 0;
+
             return (
-              <Link
-                key={run.id}
-                to={`/runs/${run.id}`}
-                className="flex items-start gap-3 rounded-lg border border-border bg-card px-3 py-2.5 hover:bg-accent/30 transition-colors"
-              >
-                <div className="shrink-0 mt-0.5">
-                  {run.status === 'EXECUTED' ? (
-                    <CheckCircle2 className="w-4 h-4 text-green-400" />
-                  ) : run.status === 'FAILED' || run.status === 'REJECTED' ? (
-                    <XCircle className="w-4 h-4 text-red-400" />
-                  ) : (
-                    <Clock className="w-4 h-4 text-muted-foreground" />
-                  )}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-medium truncate">{query}</p>
-                  <div className="flex items-center gap-2 mt-0.5">
-                    <span className={`text-[10px] font-medium ${STATUS_CLS[run.status] ?? 'text-muted-foreground'}`}>
-                      {run.status}
-                    </span>
-                    <span className="text-[10px] text-muted-foreground">
-                      {new Date(run.startedAt).toLocaleDateString()} {new Date(run.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </span>
+              <div key={run.id} className="rounded-lg border border-border bg-card overflow-hidden">
+                <Link
+                  to={`/runs/${run.id}`}
+                  className="flex items-start gap-3 px-3 py-2.5 hover:bg-accent/30 transition-colors"
+                >
+                  <div className="shrink-0 mt-0.5">
+                    {run.status === 'EXECUTED' ? (
+                      <CheckCircle2 className="w-4 h-4 text-green-400" />
+                    ) : run.status === 'FAILED' || run.status === 'REJECTED' ? (
+                      <XCircle className="w-4 h-4 text-red-400" />
+                    ) : isAwaiting ? (
+                      <AlertCircle className="w-4 h-4 text-amber-400" />
+                    ) : (
+                      <Clock className="w-4 h-4 text-muted-foreground" />
+                    )}
                   </div>
-                </div>
-              </Link>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium truncate">{query}</p>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <span className={`text-[10px] font-medium ${STATUS_CLS[run.status] ?? 'text-muted-foreground'}`}>
+                        {run.status}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground">
+                        {new Date(run.startedAt).toLocaleDateString()} {new Date(run.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    </div>
+                  </div>
+                </Link>
+
+                {/* Approve/Reject section for each pending approval */}
+                {isAwaiting && (
+                  <div className="border-t border-yellow-500/20 bg-yellow-500/5 px-3 py-2 space-y-1.5">
+                    {runApprovals.map((approval) => (
+                      <div key={approval.id} className="flex items-center gap-2 flex-wrap">
+                        <span className="text-[11px] text-muted-foreground flex-1 min-w-0 truncate" title={approval.action.summary}>
+                          {approval.action.summary}
+                        </span>
+                        <div className="flex gap-1.5 shrink-0">
+                          <button
+                            onClick={() => approveMutation.mutate(approval.id)}
+                            disabled={approveMutation.isPending || rejectMutation.isPending}
+                            className="text-xs px-2.5 py-0.5 rounded bg-green-500/15 text-green-500 hover:bg-green-500/25 border border-green-500/30 disabled:opacity-50 font-medium transition-colors"
+                          >
+                            {approveMutation.isPending ? '…' : 'Approve'}
+                          </button>
+                          <button
+                            onClick={() => rejectMutation.mutate(approval.id)}
+                            disabled={approveMutation.isPending || rejectMutation.isPending}
+                            className="text-xs px-2.5 py-0.5 rounded bg-red-500/15 text-red-500 hover:bg-red-500/25 border border-red-500/30 disabled:opacity-50 font-medium transition-colors"
+                          >
+                            {rejectMutation.isPending ? '…' : 'Reject'}
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             );
           })}
         </div>
@@ -791,37 +866,57 @@ export default function AgentChatPage() {
   return (
     <div className="flex flex-col h-screen max-h-screen overflow-hidden">
       {/* Header */}
-      <div className={`shrink-0 border-b border-border px-5 py-3 flex items-center gap-3 bg-card`}>
-        <Link
-          to={`/agents/${key}`}
-          className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mr-1"
-        >
-          <ArrowLeft className="w-3.5 h-3.5" />
-        </Link>
+      <div className={`shrink-0 border-b border-border px-4 sm:px-5 py-2 sm:py-3 bg-card`}>
+        <div className="flex items-center gap-2 sm:gap-3">
+          <Link
+            to={`/agents/${key}`}
+            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors shrink-0"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" />
+          </Link>
 
-        <div className={`w-8 h-8 rounded-lg ${color.iconBg} flex items-center justify-center shrink-0`}>
-          <Bot className={`w-4 h-4 ${color.iconText}`} />
+          <div className={`w-8 h-8 rounded-lg ${color.iconBg} flex items-center justify-center shrink-0`}>
+            <Bot className={`w-4 h-4 ${color.iconText}`} />
+          </div>
+
+          {isLoading ? (
+            <Skeleton className="h-5 w-32 rounded" />
+          ) : (
+            <div className="flex items-center gap-1.5 flex-wrap flex-1 min-w-0">
+              <span className="text-sm font-semibold truncate">{agent?.name}</span>
+              <code className={`text-xs px-1.5 py-0.5 rounded ${color.badge} ${color.badgeText} shrink-0`}>{key}</code>
+              {agent && !agent.enabled && (
+                <span className="text-xs text-amber-500 bg-amber-500/10 px-1.5 py-0.5 rounded shrink-0">disabled</span>
+              )}
+            </div>
+          )}
+
+          {/* Tab bar — desktop (shown inline) */}
+          <div className="hidden sm:flex items-center gap-1 border border-border rounded-lg p-0.5 bg-muted/30 ml-auto shrink-0">
+            {CHAT_TABS.map(({ key: tabKey, label, icon: Icon }) => (
+              <button
+                key={tabKey}
+                onClick={() => setActiveTab(tabKey)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                  activeTab === tabKey
+                    ? `bg-card text-foreground shadow-sm`
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                <Icon className="w-3 h-3" />
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
 
-        {isLoading ? (
-          <Skeleton className="h-5 w-32 rounded" />
-        ) : (
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-semibold">{agent?.name}</span>
-            <code className={`text-xs px-1.5 py-0.5 rounded ${color.badge} ${color.badgeText}`}>{key}</code>
-            {agent && !agent.enabled && (
-              <span className="text-xs text-amber-500 bg-amber-500/10 px-1.5 py-0.5 rounded">disabled</span>
-            )}
-          </div>
-        )}
-
-        {/* Tab bar in header */}
-        <div className="ml-auto flex items-center gap-1 border border-border rounded-lg p-0.5 bg-muted/30">
+        {/* Tab bar — mobile (shown below name row) */}
+        <div className="flex sm:hidden items-center gap-1 border border-border rounded-lg p-0.5 bg-muted/30 mt-2">
           {CHAT_TABS.map(({ key: tabKey, label, icon: Icon }) => (
             <button
               key={tabKey}
               onClick={() => setActiveTab(tabKey)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+              className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md text-xs font-medium transition-colors ${
                 activeTab === tabKey
                   ? `bg-card text-foreground shadow-sm`
                   : 'text-muted-foreground hover:text-foreground'
