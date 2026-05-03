@@ -1084,6 +1084,8 @@ function ImportTab({ token }: { token: string }) {
   const [files, setFiles] = useState<File[]>([]);
   const [fileAgentKeys, setFileAgentKeys] = useState('');
   const [fileCategory, setFileCategory] = useState('document');
+  const [fileSiteKeys, setFileSiteKeys] = useState('');
+  const [fileExcludedSiteKeys, setFileExcludedSiteKeys] = useState('');
   const [uploading, setUploading] = useState(false);
   const [fileResults, setFileResults] = useState<Record<string, { ok: boolean; chunks?: number; title?: string; error?: string }>>({});
   const [activeFileName, setActiveFileName] = useState<string | null>(null);
@@ -1119,6 +1121,8 @@ function ImportTab({ token }: { token: string }) {
   const [url, setUrl] = useState('');
   const [linkAgentKeys, setLinkAgentKeys] = useState('');
   const [linkCategory, setLinkCategory] = useState('webpage');
+  const [linkSiteKeys, setLinkSiteKeys] = useState('');
+  const [linkExcludedSiteKeys, setLinkExcludedSiteKeys] = useState('');
   const [linking, setLinking] = useState(false);
   const [linkResult, setLinkResult] = useState<{ chunks: number; title?: string } | null>(null);
   const [linkError, setLinkError] = useState('');
@@ -1148,7 +1152,7 @@ function ImportTab({ token }: { token: string }) {
         const base64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
         const result = await apiFetch(token, '/knowledge-base/ingest/document', {
           method: 'POST',
-          body: JSON.stringify({ filename: f.name, mimeType: f.type, data: base64, agentKeys: fileAgentKeys || undefined, category: fileCategory }),
+          body: JSON.stringify({ filename: f.name, mimeType: f.type, data: base64, agentKeys: fileAgentKeys || undefined, category: fileCategory, siteKeys: fileSiteKeys || undefined, excludedSiteKeys: fileExcludedSiteKeys || undefined }),
         });
         localResults[f.name] = { ok: true, chunks: result.chunks, title: result.title };
         setFileResults((prev) => ({ ...prev, [f.name]: localResults[f.name] }));
@@ -1168,6 +1172,8 @@ function ImportTab({ token }: { token: string }) {
     if (Object.values(localResults).every((r) => r.ok)) {
       setFileAgentKeys('');
       setFileCategory('document');
+      setFileSiteKeys('');
+      setFileExcludedSiteKeys('');
       if (fileRef.current) fileRef.current.value = '';
     }
   }
@@ -1178,13 +1184,15 @@ function ImportTab({ token }: { token: string }) {
     try {
       const result = await apiFetch(token, '/knowledge-base/ingest/link', {
         method: 'POST',
-        body: JSON.stringify({ url: url.trim(), agentKeys: linkAgentKeys || undefined, category: linkCategory }),
+        body: JSON.stringify({ url: url.trim(), agentKeys: linkAgentKeys || undefined, category: linkCategory, siteKeys: linkSiteKeys || undefined, excludedSiteKeys: linkExcludedSiteKeys || undefined }),
       });
       setLinkResult(result);
       qc.invalidateQueries({ queryKey: ['kb-imports', 'kb-entries'] });
       setUrl('');
       setLinkAgentKeys('');
       setLinkCategory('webpage');
+      setLinkSiteKeys('');
+      setLinkExcludedSiteKeys('');
     } catch (err: any) {
       setLinkError(err.message ?? 'Import failed');
     } finally {
@@ -1290,11 +1298,22 @@ function ImportTab({ token }: { token: string }) {
           )}
 
           <div className="grid grid-cols-2 gap-3">
-            <AgentMultiSelect value={fileAgentKeys} onChange={setFileAgentKeys} placeholder="Agents (optional)" />
+            <AgentMultiSelect value={fileAgentKeys} onChange={(next) => { setFileAgentKeys(next); if (!parseAgentKeys(next).includes('livechat')) { setFileSiteKeys(''); setFileExcludedSiteKeys(''); } }} placeholder="Agents (optional)" />
             <select className="bg-background border border-border rounded-lg px-3 py-1.5 text-sm focus:outline-none" value={fileCategory} onChange={e => setFileCategory(e.target.value)}>
               {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
           </div>
+          {parseAgentKeys(fileAgentKeys).includes('livechat') && (
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">Live Chat site scope</label>
+              <LivechatSiteScopeEditor
+                token={token}
+                siteKeys={fileSiteKeys}
+                excludedSiteKeys={fileExcludedSiteKeys}
+                onChange={(next) => { setFileSiteKeys(next.siteKeys); setFileExcludedSiteKeys(next.excludedSiteKeys); }}
+              />
+            </div>
+          )}
 
           <div className="flex gap-2">
             <button
@@ -1326,11 +1345,22 @@ function ImportTab({ token }: { token: string }) {
             onChange={e => { setUrl(e.target.value); setLinkResult(null); setLinkError(''); }}
           />
           <div className="grid grid-cols-2 gap-3">
-            <AgentMultiSelect value={linkAgentKeys} onChange={setLinkAgentKeys} placeholder="Agents (optional)" />
+            <AgentMultiSelect value={linkAgentKeys} onChange={(next) => { setLinkAgentKeys(next); if (!parseAgentKeys(next).includes('livechat')) { setLinkSiteKeys(''); setLinkExcludedSiteKeys(''); } }} placeholder="Agents (optional)" />
             <select className="bg-background border border-border rounded-lg px-3 py-1.5 text-sm focus:outline-none" value={linkCategory} onChange={e => setLinkCategory(e.target.value)}>
               {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
           </div>
+          {parseAgentKeys(linkAgentKeys).includes('livechat') && (
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">Live Chat site scope</label>
+              <LivechatSiteScopeEditor
+                token={token}
+                siteKeys={linkSiteKeys}
+                excludedSiteKeys={linkExcludedSiteKeys}
+                onChange={(next) => { setLinkSiteKeys(next.siteKeys); setLinkExcludedSiteKeys(next.excludedSiteKeys); }}
+              />
+            </div>
+          )}
           {linkError && <p className="text-xs text-destructive">{linkError}</p>}
           {linkResult && <p className="text-xs text-green-400">✓ Imported "{linkResult.title}" — {linkResult.chunks} chunks</p>}
           <button

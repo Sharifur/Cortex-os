@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v2.9.3',
+    date: '2026-05-03',
+    entries: [
+      { tag: 'fix', scope: 'kb', description: 'Live Chat site scope selector now appears in the Import tab (document and URL) when livechat agent is selected, matching behaviour of the Add Entry modal' },
+    ],
+  },
+  {
     version: 'v2.9.2',
     date: '2026-05-02',
     entries: [
