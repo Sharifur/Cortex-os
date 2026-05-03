@@ -1,12 +1,15 @@
-import { Injectable, Logger, OnModuleInit, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, BadRequestException, Optional } from '@nestjs/common';
 import { Reader, ReaderModel } from '@maxmind/geoip2-node';
 import path from 'path';
 import fs from 'fs';
 import https from 'https';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import { StorageService } from '../../modules/storage/storage.service';
 
 const execAsync = promisify(exec);
+
+const STORAGE_KEY = 'system/GeoLite2-City.mmdb';
 
 export interface GeoLookup {
   country: string | null;
@@ -22,6 +25,8 @@ export interface GeoLookup {
 export class GeoIpService implements OnModuleInit {
   private readonly logger = new Logger(GeoIpService.name);
   private reader: ReaderModel | null = null;
+
+  constructor(@Optional() private readonly storage: StorageService) {}
 
   async onModuleInit() {
     const candidates = [
@@ -41,9 +46,15 @@ export class GeoIpService implements OnModuleInit {
         this.logger.warn(`Failed to open ${p}: ${(err as Error).message}`);
       }
     }
-    this.logger.warn(
-      'GeoLite2-City.mmdb not found. Visitor enrichment will skip GeoIP fields. See apps/api/data/README.md for download instructions.',
-    );
+
+    // Local file not found — try restoring from object storage (persists across deployments)
+    await this.restoreFromStorage();
+
+    if (!this.reader) {
+      this.logger.warn(
+        'GeoLite2-City.mmdb not found. Visitor enrichment will skip GeoIP fields. Upload the file in Live Chat > GEOLite2.',
+      );
+    }
   }
 
   isLoaded(): boolean {
@@ -84,7 +95,6 @@ export class GeoIpService implements OnModuleInit {
     });
 
     try {
-      // GNU tar: strip the dated directory, extract only the .mmdb file.
       await execAsync(`tar -xzf "${tmpPath}" --strip-components=1 -C "${dataDir}"`);
     } finally {
       try { fs.unlinkSync(tmpPath); } catch { /* ignore */ }
@@ -92,6 +102,10 @@ export class GeoIpService implements OnModuleInit {
 
     this.reader = null;
     await this.onModuleInit();
+
+    // Persist to object storage so the file survives redeployments
+    void this.backupToStorage();
+
     this.logger.log('GeoLite2-City.mmdb downloaded and reloaded successfully');
   }
 
@@ -101,7 +115,46 @@ export class GeoIpService implements OnModuleInit {
     fs.writeFileSync(path.join(dataDir, 'GeoLite2-City.mmdb'), buffer);
     this.reader = null;
     await this.onModuleInit();
+
+    // Persist to object storage so the file survives redeployments
+    void this.backupToStorage(buffer);
+
     this.logger.log('GeoLite2-City.mmdb saved from upload and reloaded');
+  }
+
+  private async backupToStorage(buffer?: Buffer): Promise<void> {
+    if (!this.storage) return;
+    try {
+      const data = buffer ?? (() => {
+        const p = path.resolve(process.cwd(), 'data', 'GeoLite2-City.mmdb');
+        return fs.existsSync(p) ? fs.readFileSync(p) : null;
+      })();
+      if (!data) return;
+      await this.storage.putSystemFile(STORAGE_KEY, data, 'application/octet-stream');
+      this.logger.log('GeoLite2-City.mmdb backed up to object storage');
+    } catch (err) {
+      this.logger.warn(`Failed to back up GeoLite2-City.mmdb to storage: ${(err as Error).message}`);
+    }
+  }
+
+  private async restoreFromStorage(): Promise<void> {
+    if (!this.storage) return;
+    try {
+      this.logger.log('Attempting to restore GeoLite2-City.mmdb from object storage...');
+      const data = await this.storage.getSystemFile(STORAGE_KEY);
+      if (!data) {
+        this.logger.log('GeoLite2-City.mmdb not found in object storage');
+        return;
+      }
+      const dataDir = path.resolve(process.cwd(), 'data');
+      if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
+      const localPath = path.join(dataDir, 'GeoLite2-City.mmdb');
+      fs.writeFileSync(localPath, data);
+      this.reader = await Reader.open(localPath);
+      this.logger.log(`GeoLite2-City.mmdb restored from object storage (${Math.round(data.length / 1024 / 1024)}MB)`);
+    } catch (err) {
+      this.logger.warn(`Failed to restore GeoLite2-City.mmdb from storage: ${(err as Error).message}`);
+    }
   }
 
   lookup(ip: string | null | undefined): GeoLookup {
