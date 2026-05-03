@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v3.2.1',
+    date: '2026-05-03',
+    entries: [
+      { tag: 'fix', scope: 'notifications', description: 'Opening the notification bell dropdown now immediately marks agent failures as seen — previously the count only cleared after navigating to the Activity page; the badge now disappears as soon as the dropdown is opened' },
+    ],
+  },
+  {
     version: 'v3.2.0',
     date: '2026-05-03',
     entries: [

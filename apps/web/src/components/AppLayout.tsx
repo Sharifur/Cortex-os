@@ -141,7 +141,14 @@ function NotificationBell({ token }: { token: string }) {
   return (
     <div className="relative" ref={ref}>
       <button
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => {
+          const next = !open;
+          setOpen(next);
+          if (next && (data?.agentFailures ?? 0) > 0) {
+            markFailuresSeen();
+            queryClient.invalidateQueries({ queryKey: ['notifications-summary'] });
+          }
+        }}
         className="relative flex items-center justify-center w-8 h-8 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
         aria-label="Notifications"
       >
@@ -308,7 +315,7 @@ function Sidebar({
           <>
             <Bot className="w-5 h-5 text-primary shrink-0" />
             <span className="font-semibold text-sm">Cortex OS</span>
-            <span className="text-muted-foreground text-xs">v3.2.0</span>
+            <span className="text-muted-foreground text-xs">v3.2.1</span>
             {onToggleCollapse && (
               <button
                 onClick={onToggleCollapse}
@@ -499,7 +506,7 @@ export default function AppLayout() {
           <div className="flex items-center gap-2">
             <Bot className="w-5 h-5 text-primary" />
             <span className="font-semibold text-sm">Cortex OS</span>
-            <span className="text-muted-foreground text-xs">v3.2.0</span>
+            <span className="text-muted-foreground text-xs">v3.2.1</span>
           </div>
           <button
             onClick={() => setDrawerOpen(false)}
