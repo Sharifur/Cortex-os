@@ -168,10 +168,6 @@ export class LlmRouterService {
   async completeWithTools(opts: LlmCompleteWithToolsOpts): Promise<LlmToolResult> {
     const provider = opts.provider ?? 'auto';
 
-    if (provider === 'gemini') {
-      throw new Error('Gemini does not support tool calling in this router — use openai or deepseek');
-    }
-
     const resolvedProvider =
       provider !== 'auto'
         ? provider
@@ -180,6 +176,13 @@ export class LlmRouterService {
     if (resolvedProvider === 'deepseek') {
       return this.callOpenAiStyleWithTools(opts, 'deepseek');
     }
+
+    // Gemini does not support OpenAI-style tool calling; fall back to openai with a warning.
+    if (resolvedProvider === 'gemini') {
+      this.logger.warn('completeWithTools: gemini does not support tool calling — falling back to openai');
+      return this.callOpenAiStyleWithTools(opts, 'openai');
+    }
+
     return this.callOpenAiStyleWithTools(opts, 'openai');
   }
 

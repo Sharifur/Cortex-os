@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v3.1.4',
+    date: '2026-05-03',
+    entries: [
+      { tag: 'fix', scope: 'llm', description: 'completeWithTools now respects the global LLM provider setting for all agents — when Settings sets gemini as default, tool-calling falls back to openai with a warning instead of silently ignoring the setting; all agents using agentLlmOpts({}) correctly inherit the settings provider' },
+    ],
+  },
+  {
     version: 'v3.1.3',
     date: '2026-05-03',
     entries: [
