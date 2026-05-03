@@ -16,13 +16,6 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
-    version: 'v3.0.8',
-    date: '2026-05-03',
-    entries: [
-      { tag: 'fix', scope: 'geoip', description: 'GeoLite2-City.mmdb now persists across redeployments — backed up to Cloudflare R2 on upload/download, restored from R2 on startup if local file is missing' },
-    ],
-  },
-  {
     version: 'v3.0.7',
     date: '2026-05-03',
     entries: [
