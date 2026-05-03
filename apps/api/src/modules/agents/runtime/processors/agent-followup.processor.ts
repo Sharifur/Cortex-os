@@ -87,6 +87,9 @@ export class AgentFollowupProcessor extends WorkerHost {
       .set({ proposedActions: actions, status: 'AWAITING_APPROVAL' })
       .where(eq(agentRuns.id, runId));
 
+    // Cancel any remaining PENDING approvals for this run before creating new ones.
+    await this.approvalSvc.cancelPendingForRun(runId);
+
     for (const action of actions) {
       if (agent.requiresApproval(action)) {
         const approval = await this.approvalSvc.createApproval(runId, action);

@@ -185,6 +185,31 @@ export class ApprovalService {
     );
   }
 
+  async cancelPendingForRun(runId: string): Promise<void> {
+    await this.db.db
+      .update(pendingApprovals)
+      .set({ status: 'REJECTED', resolvedAt: new Date() })
+      .where(and(eq(pendingApprovals.runId, runId), eq(pendingApprovals.status, 'PENDING')));
+  }
+
+  async bulkReject(ids: string[]): Promise<void> {
+    if (!ids.length) return;
+    const now = new Date();
+    for (const id of ids) {
+      const approval = await this.getById(id);
+      if (!approval || (approval.status !== 'PENDING' && approval.status !== 'FOLLOWUP')) continue;
+      await this.db.db
+        .update(pendingApprovals)
+        .set({ status: 'REJECTED', resolvedAt: now })
+        .where(eq(pendingApprovals.id, id));
+      await this.db.db
+        .update(agentRuns)
+        .set({ status: 'REJECTED', finishedAt: now })
+        .where(eq(agentRuns.id, approval.runId));
+      this.events.emit('approval.removed', { id });
+    }
+  }
+
   async sweepExpired() {
     const now = new Date();
     const expired = await this.db.db

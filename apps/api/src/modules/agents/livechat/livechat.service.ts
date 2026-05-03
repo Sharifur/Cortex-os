@@ -1,5 +1,5 @@
-import { Injectable, Logger, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
-import { eq, sql, desc, and, inArray, gte } from 'drizzle-orm';
+import { Injectable, Logger, NotFoundException, BadRequestException, ForbiddenException, OnModuleInit } from '@nestjs/common';
+import { eq, sql, desc, and, inArray, gte, isNull, isNotNull } from 'drizzle-orm';
 import { DbService } from '../../../db/db.service';
 import {
   livechatSites,
@@ -115,7 +115,7 @@ export interface SessionContext {
 }
 
 @Injectable()
-export class LivechatService {
+export class LivechatService implements OnModuleInit {
   private readonly logger = new Logger(LivechatService.name);
 
   private limitsCache: { perSession: number; dailyReply: number; expiresAt: number } | null = null;
@@ -129,6 +129,11 @@ export class LivechatService {
     private kb: KnowledgeBaseService,
     private settings: SettingsService,
   ) {}
+
+  onModuleInit() {
+    // Fire-and-forget: backfill country data for visitors that connected before GeoIP was loaded.
+    void this.backfillGeoCountries();
+  }
 
   /** Settings-backed limits with 60s cache. Falls back to constants on error. */
   async getLimits(): Promise<{ perSession: number; dailyReply: number }> {
@@ -1213,6 +1218,33 @@ export class LivechatService {
       .map((s) => s.trim())
       .filter(Boolean)
       .slice(0, 6);
+  }
+
+  /** Backfill ipCountry/city/etc for visitors that have an IP but no country data.
+   *  Called fire-and-forget after GeoIP database is loaded/replaced. */
+  async backfillGeoCountries(): Promise<void> {
+    const rows = await this.db.db
+      .select({ id: livechatVisitors.id, ip: livechatVisitors.ip })
+      .from(livechatVisitors)
+      .where(and(isNotNull(livechatVisitors.ip), isNull(livechatVisitors.ipCountry)));
+
+    for (const row of rows) {
+      const geo = this.enrichment.lookupIp(row.ip);
+      if (!geo.country) continue;
+      await this.db.db
+        .update(livechatVisitors)
+        .set({
+          ipCountry: geo.country,
+          ipCountryName: geo.countryName,
+          ipRegion: geo.region,
+          ipCity: geo.city,
+          ipLat: geo.lat,
+          ipLon: geo.lon,
+          ipTimezone: geo.timezone,
+        })
+        .where(eq(livechatVisitors.id, row.id));
+    }
+    this.logger.log(`GeoIP backfill complete — updated ${rows.length} visitor(s)`);
   }
 
   private toSiteRow(r: typeof livechatSites.$inferSelect): LivechatSiteRow {
