@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v2.9.4',
+    date: '2026-05-03',
+    entries: [
+      { tag: 'fix', scope: 'hr', description: 'HR test-connection errors now appear in debug logs — removed internal error swallowing so failures propagate as 500 with the real error message; dispatcher catch block sends actual error text instead of generic message' },
+    ],
+  },
+  {
     version: 'v2.9.3',
     date: '2026-05-03',
     entries: [
