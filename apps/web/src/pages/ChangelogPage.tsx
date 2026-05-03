@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v3.1.3',
+    date: '2026-05-03',
+    entries: [
+      { tag: 'fix', scope: 'hr', description: 'LLM tool-call loop now works — assistant messages replayed to OpenAI now include type:"function" and nested function:{name,arguments} as required; previously the flat internal ToolCall shape was sent raw and OpenAI rejected it with 400' },
+      { tag: 'fix', scope: 'telegram', description: 'sendMessage no longer sets parse_mode:Markdown — LLM responses and agent digests are plain text; any underscore, asterisk, or bracket in the text was causing Telegram entity-parse errors' },
+    ],
+  },
+  {
     version: 'v3.1.2',
     date: '2026-05-03',
     entries: [

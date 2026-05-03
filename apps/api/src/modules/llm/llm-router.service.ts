@@ -214,9 +214,26 @@ export class LlmRouterService {
       },
     }));
 
+    // Convert our internal ToolCall shape { id, name, arguments } back to what
+    // OpenAI requires in assistant messages: { id, type, function: { name, arguments } }
+    const openAiMessages: OpenAI.Chat.ChatCompletionMessageParam[] = opts.messages.map((m) => {
+      if (m.role === 'assistant' && Array.isArray((m as any).tool_calls) && (m as any).tool_calls.length) {
+        return {
+          role: 'assistant' as const,
+          content: (m as any).content ?? null,
+          tool_calls: (m as any).tool_calls.map((tc: any) => ({
+            id: tc.id,
+            type: 'function' as const,
+            function: { name: tc.name, arguments: tc.arguments },
+          })),
+        };
+      }
+      return m as OpenAI.Chat.ChatCompletionMessageParam;
+    });
+
     const res = await client.chat.completions.create({
       model,
-      messages: opts.messages as OpenAI.Chat.ChatCompletionMessageParam[],
+      messages: openAiMessages,
       tools,
       tool_choice: 'auto',
       max_tokens: opts.maxTokens,

@@ -117,7 +117,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
 
   async sendMessage(text: string): Promise<void> {
     if (!this.bot || !this.ownerChatId) return;
-    await this.bot.api.sendMessage(this.ownerChatId, text, { parse_mode: 'Markdown' });
+    await this.bot.api.sendMessage(this.ownerChatId, text);
   }
 
   async sendMessageWithKeyboard(text: string, keyboard: InlineKeyboard): Promise<{ message_id: number } | null> {
