@@ -15,6 +15,9 @@ import {
   BadRequestException,
   InternalServerErrorException,
 } from '@nestjs/common';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
 import type { FastifyRequest } from 'fastify';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { LivechatService, LivechatOperatorRow } from './livechat.service';
@@ -390,6 +393,54 @@ export class LivechatConversationsController {
 
     try {
       await this.geoIp.saveAndReload(buffer);
+      return { ok: true, loaded: this.geoIp.isLoaded() };
+    } catch (err) {
+      throw new InternalServerErrorException((err as Error).message);
+    }
+  }
+
+  @Post('geo/upload-chunk')
+  @HttpCode(HttpStatus.OK)
+  async uploadGeoChunk(
+    @Body() body: { uploadId: string; chunkIndex: number; totalChunks: number; data: string },
+  ) {
+    const { uploadId, chunkIndex, totalChunks, data } = body;
+    if (!uploadId || typeof chunkIndex !== 'number' || typeof totalChunks !== 'number' || !data) {
+      throw new BadRequestException('uploadId, chunkIndex, totalChunks, and data are required');
+    }
+    if (!/^[a-zA-Z0-9_-]{8,64}$/.test(uploadId)) throw new BadRequestException('invalid uploadId');
+    if (chunkIndex < 0 || chunkIndex >= totalChunks) throw new BadRequestException('invalid chunkIndex');
+
+    const tmpDir = os.tmpdir();
+    const chunkPath = path.join(tmpDir, `geo_chunk_${uploadId}_${chunkIndex}`);
+    const chunkBuf = Buffer.from(data, 'base64');
+    await fs.promises.writeFile(chunkPath, chunkBuf);
+
+    if (chunkIndex < totalChunks - 1) {
+      return { ok: true, received: chunkIndex + 1, total: totalChunks };
+    }
+
+    // Last chunk received — assemble all chunks in order.
+    const parts: Buffer[] = [];
+    for (let i = 0; i < totalChunks; i++) {
+      const p = path.join(tmpDir, `geo_chunk_${uploadId}_${i}`);
+      try {
+        parts.push(await fs.promises.readFile(p));
+      } catch {
+        throw new InternalServerErrorException(`Missing chunk ${i} — upload may have been interrupted`);
+      }
+    }
+    const assembled = Buffer.concat(parts);
+
+    // Clean up temp files.
+    await Promise.allSettled(
+      Array.from({ length: totalChunks }, (_, i) =>
+        fs.promises.unlink(path.join(tmpDir, `geo_chunk_${uploadId}_${i}`)),
+      ),
+    );
+
+    try {
+      await this.geoIp.saveAndReload(assembled);
       return { ok: true, loaded: this.geoIp.isLoaded() };
     } catch (err) {
       throw new InternalServerErrorException((err as Error).message);

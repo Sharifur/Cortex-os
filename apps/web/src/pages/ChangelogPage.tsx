@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v3.0.2',
+    date: '2026-05-03',
+    entries: [
+      { tag: 'feat', scope: 'geoip', description: 'GeoLite2-City.mmdb upload now uses 10 MB chunked transfer — large files (130 MB+) upload reliably with per-chunk progress shown in the button' },
+    ],
+  },
+  {
     version: 'v3.0.1',
     date: '2026-05-03',
     entries: [
