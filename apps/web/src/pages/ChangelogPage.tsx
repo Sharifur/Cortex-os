@@ -16,10 +16,18 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v3.0.9',
+    date: '2026-05-03',
+    entries: [
+      { tag: 'fix', scope: 'hr', description: 'Payslip generate response updated — removed .skipped field, added alreadyGeneratedNote and noAttendance handling; no-attendance count and already-generated note both surfaced to Telegram' },
+      { tag: 'feat', scope: 'hr', description: 'Payslip Telegram message now includes working days and present days from API response' },
+    ],
+  },
+  {
     version: 'v3.0.8',
     date: '2026-05-03',
     entries: [
-      { tag: 'fix', scope: 'geoip', description: 'GeoLite2-City.mmdb now persists across redeployments — backed up to Cloudflare R2 on upload/download, restored from R2 on startup if local file is missing' },
+      { tag: 'fix', scope: 'notifications', description: 'Bell badge now updates in real time — subscribes to approvals and activity rooms via WebSocket; correct event names (approval:created, approval:removed, activity:log); fallback poll reduced to 15s' },
     ],
   },
   {
