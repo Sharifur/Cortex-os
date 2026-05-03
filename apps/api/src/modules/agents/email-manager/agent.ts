@@ -42,6 +42,7 @@ interface EmailSnapshot {
   config: EmailManagerConfig;
   taskMode?: boolean;
   instructions?: string;
+  imageData?: { base64: string; mimeType: string };
 }
 
 const CLASSIFY_SYSTEM = `You are an email classifier for Sharifur Rahman, founder of Taskip and Xgenious.
@@ -55,6 +56,38 @@ Reply with ONLY the category name, nothing else.`;
 
 const DRAFT_SYSTEM = `You are Sharifur Rahman's email assistant. Write a concise, professional reply.
 Keep it under 100 words. Be warm but direct. Do not include a subject line — just the reply body.`;
+
+const CLIENT_REPLY_SYSTEM = `You are Sharifur Rahman's email assistant for client onboarding and sales.
+Your job is to draft a professional reply to the client email provided.
+
+Output format — use exactly this structure:
+Subject: Re: [original subject or a fitting subject if unclear]
+
+[reply body]
+
+Best regards,
+Sharifur
+Taskip / Xgenious
+
+Rules:
+- Lead directly with the answer. No "Thank you for reaching out", no filler opening.
+- Use facts from the Knowledge Base below for pricing, features, timelines, and technical details. Do not guess.
+- If the client asks about a price or feature not in the KB, say: "I will confirm that and get back to you shortly."
+- Keep the body between 100 and 200 words. Longer for complex onboarding questions, shorter for simple ones.
+- Match the client's language (Bangla, English, etc.).
+- End with one clear next step or action for the client.`;
+
+function looksLikeClientEmail(text: string): boolean {
+  if (text.length < 60) return false;
+  const lower = text.toLowerCase();
+  const hasEmailHeaders = /^from:\s/im.test(text) || /^subject:\s/im.test(text);
+  const hasConversationStructure = (text.match(/\n/g) ?? []).length >= 3;
+  const hasClientSignals = lower.includes('purchase') || lower.includes('license') ||
+    lower.includes('envato') || lower.includes('codecanyon') || lower.includes('support') ||
+    lower.includes('install') || lower.includes('price') || lower.includes('refund') ||
+    lower.includes('invoice') || lower.includes('order') || lower.includes('payment');
+  return hasEmailHeaders || (hasConversationStructure && hasClientSignals) || (text.match(/\n/g) ?? []).length >= 5;
+}
 
 @Injectable()
 export class EmailManagerAgent implements IAgent, OnModuleInit {
@@ -87,6 +120,21 @@ export class EmailManagerAgent implements IAgent, OnModuleInit {
         source: trigger,
         snapshot: { taskMode: true, instructions: (payload.instructions as string) ?? '', newMessages: [], config },
         followups: [],
+      };
+    }
+    // Chat messages from AgentChatPage arrive with source:'chat' and a query field.
+    if (payload?.query) {
+      const imageData = payload.imageData as { base64: string; mimeType: string } | undefined;
+      return {
+        source: trigger,
+        snapshot: {
+          taskMode: true,
+          instructions: String(payload.query),
+          imageData,
+          newMessages: [],
+          config,
+        },
+        followups: (run.context as AgentContext | null)?.followups ?? [],
       };
     }
 
@@ -133,7 +181,7 @@ export class EmailManagerAgent implements IAgent, OnModuleInit {
     const snapshot = ctx.snapshot as EmailSnapshot & { skip?: boolean };
     if (snapshot.taskMode) {
       const followupNote = ctx.followups?.at(-1)?.text;
-      return this.decideTaskMode(snapshot.instructions ?? '', snapshot.config, followupNote);
+      return this.decideTaskMode(snapshot.instructions ?? '', snapshot.config, followupNote, snapshot.imageData);
     }
     if (snapshot.skip || !snapshot.newMessages.length) return [];
 
@@ -220,6 +268,10 @@ export class EmailManagerAgent implements IAgent, OnModuleInit {
 
   async execute(action: ProposedAction): Promise<ActionResult> {
     switch (action.type) {
+      case 'notify_result':
+        // Draft shown in agent chat — no side effects needed.
+        return { success: true, data: { draft: (action.payload as { message?: string }).message } };
+
       case 'archive_email': {
         const { messageId, externalMsgId, classification } = action.payload as {
           messageId: string;
@@ -388,13 +440,36 @@ export class EmailManagerAgent implements IAgent, OnModuleInit {
     ];
   }
 
-  private async decideTaskMode(instructions: string, config: EmailManagerConfig, followupNote?: string): Promise<ProposedAction[]> {
+  private async decideTaskMode(
+    instructions: string,
+    config: EmailManagerConfig,
+    followupNote?: string,
+    imageData?: { base64: string; mimeType: string },
+  ): Promise<ProposedAction[]> {
     const [alwaysOn, samples, blocklist, rejections] = await Promise.all([
       this.kb.getAlwaysOnContext(this.key),
       this.kb.getWritingSamples(this.key),
       this.kb.getBlocklistRules(this.key),
       this.kb.getRecentRejections(this.key, 3),
     ]);
+
+    const effectiveInstructions = followupNote
+      ? `${instructions}\n\nAdditional note: ${followupNote}`
+      : instructions;
+
+    // If an image was pasted, extract email text from it first via vision.
+    let resolvedText = effectiveInstructions;
+    if (imageData) {
+      resolvedText = await this.extractEmailFromImage(imageData, effectiveInstructions);
+    }
+
+    // Route: if the input looks like a client email, draft a reply.
+    // Otherwise treat as a compose instruction.
+    if (looksLikeClientEmail(resolvedText)) {
+      return this.draftClientReply(resolvedText, config, alwaysOn, samples, blocklist, rejections);
+    }
+
+    // Compose path — general email writing from instructions.
     const template = await this.kb.getPromptTemplate(this.key);
     const kbBlock = this.kb.buildKbPromptBlock({
       voiceProfile: alwaysOn.find(e => e.entryType === 'voice_profile') ?? null,
@@ -404,28 +479,95 @@ export class EmailManagerAgent implements IAgent, OnModuleInit {
       negativeSamples: samples.filter(s => s.polarity === 'negative'),
       rejections,
     });
-    const effectiveInstructions = followupNote ? `${instructions}\n\nAdditional note: ${followupNote}` : instructions;
     const defaultSystem = `You are Sharifur Rahman's email assistant. Write a concise, professional email based on the given instructions. Keep it under 150 words. Be warm but direct. Do not include a subject line — just the email body.`;
     const response = await this.llm.complete({
       messages: [
         { role: 'system', content: (template?.system ?? defaultSystem) + kbBlock },
-        { role: 'user', content: effectiveInstructions },
+        { role: 'user', content: resolvedText },
       ],
       ...agentLlmOpts(config),
       agentKey: this.key,
-      maxTokens: 400,
+      maxTokens: 450,
       temperature: 0.7,
     });
     let draft = response.content.trim();
     if (!draft) return [{ type: 'noop', summary: 'No draft generated.', payload: {}, riskLevel: 'low' }];
     draft = await this.selfCritique(draft, alwaysOn.find(e => e.entryType === 'voice_profile')?.content, blocklist);
-    const violation = blocklist.find(p => draft.toLowerCase().includes(p.toLowerCase()));
     return [{
-      type: 'send_reply',
-      summary: `Email draft: "${draft.slice(0, 80)}"${violation ? ` - Blocklist: "${violation}"` : ''}`,
-      payload: { messageId: '', threadId: '', from: '', subject: instructions.slice(0, 60), draft },
-      riskLevel: violation ? 'high' : 'medium',
+      type: 'notify_result',
+      summary: draft,
+      payload: { message: draft },
+      riskLevel: 'low',
     }];
+  }
+
+  private async draftClientReply(
+    emailText: string,
+    config: EmailManagerConfig,
+    alwaysOn: Awaited<ReturnType<KnowledgeBaseService['getAlwaysOnContext']>>,
+    samples: Awaited<ReturnType<KnowledgeBaseService['getWritingSamples']>>,
+    blocklist: string[],
+    rejections: Awaited<ReturnType<KnowledgeBaseService['getRecentRejections']>>,
+  ): Promise<ProposedAction[]> {
+    const references = await this.kb.searchEntries(emailText.slice(0, 600), this.key, 8).catch(() => []);
+    const kbBlock = this.kb.buildKbPromptBlock({
+      voiceProfile: alwaysOn.find(e => e.entryType === 'voice_profile') ?? null,
+      facts: alwaysOn.filter(e => e.entryType === 'fact'),
+      references,
+      positiveSamples: samples.filter(s => s.polarity === 'positive'),
+      negativeSamples: samples.filter(s => s.polarity === 'negative'),
+      rejections,
+    });
+    const response = await this.llm.complete({
+      messages: [
+        { role: 'system', content: CLIENT_REPLY_SYSTEM + kbBlock },
+        { role: 'user', content: emailText.slice(0, 3000) },
+      ],
+      ...agentLlmOpts(config),
+      provider: 'openai',
+      model: 'gpt-4o',
+      agentKey: this.key,
+      maxTokens: 600,
+      temperature: 0.6,
+    });
+    let draft = response.content.trim();
+    if (!draft) return [{ type: 'noop', summary: 'No draft generated.', payload: {}, riskLevel: 'low' }];
+    draft = await this.selfCritique(draft, alwaysOn.find(e => e.entryType === 'voice_profile')?.content, blocklist);
+    return [{
+      type: 'notify_result',
+      summary: draft,
+      payload: { message: draft },
+      riskLevel: 'low',
+    }];
+  }
+
+  private async extractEmailFromImage(
+    imageData: { base64: string; mimeType: string },
+    fallbackText: string,
+  ): Promise<string> {
+    try {
+      const response = await this.llm.complete({
+        provider: 'openai',
+        model: 'gpt-4o',
+        agentKey: this.key,
+        maxTokens: 800,
+        temperature: 0,
+        imageBase64: imageData.base64,
+        imageMimeType: imageData.mimeType,
+        messages: [
+          {
+            role: 'system',
+            content: 'Extract the full email conversation from this image exactly as written. Preserve From, Subject, dates, and all message bodies. Return plain text only — no markdown, no commentary.',
+          },
+          { role: 'user', content: 'Extract the email conversation from this image.' },
+        ],
+      });
+      const extracted = response.content.trim();
+      return extracted || fallbackText;
+    } catch (err) {
+      this.logger.warn(`Image email extraction failed: ${(err as Error).message}`);
+      return fallbackText;
+    }
   }
 
   private async classify(

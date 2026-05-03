@@ -5,7 +5,7 @@ import {
   Bot, ArrowLeft, Send, Loader2, RefreshCw,
   Calendar, Clock, CheckCircle2, XCircle,
   AlertCircle, MessageSquare, ListTodo, RotateCcw, History, X,
-  ThumbsUp, ThumbsDown,
+  ThumbsUp, ThumbsDown, ImagePlus,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -222,8 +222,11 @@ function ChatTab({
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
   const [isThinking, setIsThinking] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [pastedImage, setPastedImage] = useState<{ base64: string; mimeType: string; previewUrl: string } | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const supportsImages = agent.key === 'email_manager';
   // Prevents history query re-fetches from overwriting locally-appended messages.
   const historyApplied = useRef(false);
 
@@ -319,30 +322,34 @@ function ChatTab({
 
   const triggerMutation = useMutation({
     mutationFn: async (query: string) => {
-      // Build history context (last 6 messages)
       const recent = messages.slice(-6);
       const historyCtx = recent.length
         ? recent.map((m) => `${m.role === 'user' ? 'User' : 'Agent'}: ${m.content}`).join('\n')
+        : undefined;
+      const imagePayload = pastedImage
+        ? { base64: pastedImage.base64, mimeType: pastedImage.mimeType }
         : undefined;
 
       return apiFetch(token, `/agents/${agent.key}/trigger`, {
         method: 'POST',
         body: JSON.stringify({
           triggerType: 'MANUAL',
-          payload: { query, source: 'chat', conversationId: convId, history: historyCtx },
+          payload: { query, source: 'chat', conversationId: convId, history: historyCtx, imageData: imagePayload },
         }),
       });
     },
     onMutate: async (query: string) => {
+      const imageLabel = pastedImage ? '\n[image attached]' : '';
       const userMsg: ConvMessage = {
         id: `u-${Date.now()}`,
         role: 'user',
-        content: query,
+        content: query + imageLabel,
         runId: null,
         requiresApproval: false,
         createdAt: new Date().toISOString(),
       };
       setMessages((prev) => [...prev, userMsg]);
+      setPastedImage(null);
       setIsThinking(true);
 
       // Save user message to backend
@@ -371,7 +378,7 @@ function ChatTab({
   });
 
   function handleSend() {
-    const q = input.trim();
+    const q = input.trim() || (pastedImage ? 'Draft a reply to this email.' : '');
     if (!q || triggerMutation.isPending || isThinking) return;
     setInput('');
 
@@ -412,6 +419,39 @@ function ChatTab({
       e.preventDefault();
       handleSend();
     }
+  }
+
+  function readFileAsBase64(file: File): Promise<{ base64: string; mimeType: string; previewUrl: string }> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = reader.result as string;
+        const base64 = dataUrl.split(',')[1] ?? '';
+        resolve({ base64, mimeType: file.type || 'image/jpeg', previewUrl: dataUrl });
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function handlePaste(e: React.ClipboardEvent) {
+    if (!supportsImages) return;
+    const items = Array.from(e.clipboardData.items);
+    const imageItem = items.find((item) => item.type.startsWith('image/'));
+    if (!imageItem) return;
+    e.preventDefault();
+    const file = imageItem.getAsFile();
+    if (!file) return;
+    const result = await readFileAsBase64(file).catch(() => null);
+    if (result) setPastedImage(result);
+  }
+
+  async function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const result = await readFileAsBase64(file).catch(() => null);
+    if (result) setPastedImage(result);
+    e.target.value = '';
   }
 
   const isBusy = triggerMutation.isPending || isThinking;
@@ -527,13 +567,39 @@ function ChatTab({
             textareaRef.current?.focus();
           }}
         />
+        {pastedImage && (
+          <div className="mb-2 flex items-center gap-2">
+            <img src={pastedImage.previewUrl} alt="pasted" className="h-14 rounded-lg border border-border object-cover" />
+            <button onClick={() => setPastedImage(null)} className="text-muted-foreground hover:text-foreground p-1">
+              <X className="w-3.5 h-3.5" />
+            </button>
+            <span className="text-xs text-muted-foreground">Image attached — agent will read the email from it</span>
+          </div>
+        )}
         <div className="flex gap-2 items-end">
+          {supportsImages && (
+            <>
+              <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileSelect} />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isBusy}
+                title="Attach image of email"
+                className="shrink-0 h-10 w-10 flex items-center justify-center rounded-xl border border-border text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors disabled:opacity-40"
+              >
+                <ImagePlus className="w-4 h-4" />
+              </button>
+            </>
+          )}
           <textarea
             ref={textareaRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={`Message ${agent.name}… (Enter to send, Shift+Enter for newline)`}
+            onPaste={handlePaste}
+            placeholder={supportsImages
+              ? `Paste a client email or type instructions… (Ctrl+V to paste screenshot)`
+              : `Message ${agent.name}… (Enter to send, Shift+Enter for newline)`}
             rows={2}
             disabled={!agent.enabled || !agent.registered || isBusy}
             className="flex-1 font-sans text-sm bg-muted/40 border border-border rounded-xl p-3 resize-none focus:outline-none focus:ring-1 focus:ring-ring text-foreground placeholder:text-muted-foreground/50 disabled:opacity-50"
@@ -541,7 +607,7 @@ function ChatTab({
           <Button
             size="sm"
             onClick={handleSend}
-            disabled={!input.trim() || !agent.enabled || !agent.registered || isBusy}
+            disabled={(!input.trim() && !pastedImage) || !agent.enabled || !agent.registered || isBusy}
             className="h-10 w-10 p-0 rounded-xl shrink-0"
           >
             {isBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}

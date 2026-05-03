@@ -16,6 +16,25 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v3.5.1',
+    date: '2026-05-03',
+    entries: [
+      { tag: 'fix', scope: 'geoip', description: 'GeoLite2 file upload crashed with "Maximum call stack size exceeded" — caused by spreading a 10 MB Uint8Array as arguments to String.fromCharCode; replaced with a simple for-loop to build the binary string before btoa encoding' },
+      { tag: 'fix', scope: 'livechat', description: 'Translate globe icon now appears on hover for all visitor messages — previously only shown when visitor\'s detected browser language was non-English, so messages from visitors with English browser settings (writing in Russian, Bangla, etc.) never showed the button' },
+    ],
+  },
+  {
+    version: 'v3.5.0',
+    date: '2026-05-03',
+    entries: [
+      { tag: 'feat', scope: 'email_manager', description: 'Draft reply assistant in agent chat — paste a client email as text and the agent drafts a full reply using the Knowledge Base for pricing, features, and product details; output includes subject line and signed body ready to copy' },
+      { tag: 'feat', scope: 'email_manager', description: 'Image input support — paste a screenshot of an email conversation (Ctrl+V) or upload via the attach button; gpt-4o reads the image, extracts the full conversation, then drafts the reply exactly as with text input' },
+      { tag: 'feat', scope: 'llm', description: 'Vision support added to LLM router — imageBase64 + imageMimeType fields on LlmCompleteOpts; OpenAI provider attaches the image as a multimodal content block on the last user message (gpt-4o)' },
+      { tag: 'fix', scope: 'email_manager', description: 'Agent chat messages were previously ignored (fell through to the Gmail CRON path); buildContext now detects source:chat payload and routes to task mode with the query as instructions' },
+      { tag: 'fix', scope: 'email_manager', description: 'Draft replies now returned as notify_result actions (displayed directly in chat bubble, no Telegram approval) instead of send_reply (which was going to AWAITING_APPROVAL state)' },
+    ],
+  },
+  {
     version: 'v3.4.3',
     date: '2026-05-03',
     entries: [
