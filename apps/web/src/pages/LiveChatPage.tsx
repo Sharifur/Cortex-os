@@ -2499,7 +2499,7 @@ function MessageBubble({
           {attachmentBlock}
           <div className="text-[10px] text-muted-foreground mt-0.5 pl-1 flex items-center gap-1">
             {formatMessageTime(message.createdAt)}
-            {isNonEnglish && !translation && onTranslate && (
+            {!translation && onTranslate && (
               <button
                 onClick={onTranslate}
                 disabled={isTranslating}
@@ -3706,7 +3706,10 @@ function DebugTab() {
         setUploadProgress({ chunk: i + 1, total: totalChunks });
         const slice = file.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
         const buf = await slice.arrayBuffer();
-        const base64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+        const uint8 = new Uint8Array(buf);
+        let binary = '';
+        for (let j = 0; j < uint8.length; j++) binary += String.fromCharCode(uint8[j]);
+        const base64 = btoa(binary);
         const res = await fetch('/agents/livechat/geo/upload-chunk', {
           method: 'POST',
           headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
