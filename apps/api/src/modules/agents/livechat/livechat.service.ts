@@ -45,6 +45,7 @@ export interface LivechatSiteRow {
   transcriptBcc: string | null;
   transcriptFrom: string | null;
   topicHandlingRules: string | null;
+  requireEmail: boolean;
   createdAt: Date;
 }
 
@@ -69,6 +70,7 @@ export interface CreateSiteDto {
   transcriptBcc?: string | null;
   transcriptFrom?: string | null;
   topicHandlingRules?: string | null;
+  requireEmail?: boolean;
 }
 
 export interface UpdateSiteDto {
@@ -92,6 +94,7 @@ export interface UpdateSiteDto {
   transcriptBcc?: string | null;
   transcriptFrom?: string | null;
   topicHandlingRules?: string | null;
+  requireEmail?: boolean;
 }
 
 export interface LivechatOperatorRow {
@@ -397,6 +400,8 @@ export class LivechatService implements OnModuleInit {
     role: 'visitor' | 'agent' | 'operator' | 'system' | 'note';
     content: string;
     pendingApproval?: boolean;
+    replyToId?: string | null;
+    replyToContent?: string | null;
   }): Promise<{ id: string; createdAt: Date; pendingApproval: boolean; duplicate?: boolean }> {
     // Dedupe identical visitor messages within a 5-second window.
     // Catches double-clicks, network retries, and the same content arriving
@@ -451,6 +456,8 @@ export class LivechatService implements OnModuleInit {
         role: input.role,
         content: input.content,
         pendingApproval: input.pendingApproval ?? false,
+        replyToId: input.replyToId ?? null,
+        replyToContent: input.replyToContent ?? null,
       })
       .returning({ id: livechatMessages.id, createdAt: livechatMessages.createdAt, pendingApproval: livechatMessages.pendingApproval });
 
@@ -1014,6 +1021,7 @@ export class LivechatService implements OnModuleInit {
         transcriptBcc: dto.transcriptBcc?.trim() || null,
         transcriptFrom: dto.transcriptFrom?.trim() || null,
         topicHandlingRules: dto.topicHandlingRules?.trim() || null,
+        requireEmail: dto.requireEmail ?? false,
       })
       .returning();
     await this.originCache.refresh().catch(() => undefined);
@@ -1149,6 +1157,7 @@ export class LivechatService implements OnModuleInit {
     if (dto.transcriptBcc !== undefined) set.transcriptBcc = dto.transcriptBcc?.trim() || null;
     if (dto.transcriptFrom !== undefined) set.transcriptFrom = dto.transcriptFrom?.trim() || null;
     if (dto.topicHandlingRules !== undefined) set.topicHandlingRules = dto.topicHandlingRules?.trim() || null;
+    if (dto.requireEmail !== undefined) set.requireEmail = dto.requireEmail;
 
     if (Object.keys(set).length === 0) return this.toSiteRow(existing);
 
@@ -1271,6 +1280,7 @@ export class LivechatService implements OnModuleInit {
       transcriptBcc: r.transcriptBcc,
       transcriptFrom: r.transcriptFrom,
       topicHandlingRules: r.topicHandlingRules ?? null,
+      requireEmail: r.requireEmail,
       createdAt: r.createdAt,
     };
   }

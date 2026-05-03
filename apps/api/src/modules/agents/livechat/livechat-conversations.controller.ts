@@ -265,7 +265,7 @@ export class LivechatConversationsController {
 
   @Post('sessions/:id/message')
   @HttpCode(HttpStatus.CREATED)
-  async operatorReply(@Param('id') id: string, @Body() body: { content: string; attachmentIds?: string[]; operatorId?: string; internal?: boolean }) {
+  async operatorReply(@Param('id') id: string, @Body() body: { content: string; attachmentIds?: string[]; operatorId?: string; internal?: boolean; replyToId?: string; replyToContent?: string }) {
     const hasAttachments = Array.isArray(body?.attachmentIds) && body.attachmentIds.length > 0;
     if (!body?.content?.trim() && !hasAttachments) throw new BadRequestException('content or attachments required');
     const session = await this.livechat.getSession(id);
@@ -276,7 +276,7 @@ export class LivechatConversationsController {
     // broadcast — only operators viewing this session ever see them via
     // the session detail re-fetch + the operator-room session_upserted ping.
     const isInternal = body.internal === true;
-    const msg = await this.livechat.appendMessage({ sessionId: id, role: isInternal ? 'note' : 'operator', content });
+    const msg = await this.livechat.appendMessage({ sessionId: id, role: isInternal ? 'note' : 'operator', content, replyToId: body.replyToId || null, replyToContent: body.replyToContent ? body.replyToContent.slice(0, 200) : null });
     if (isInternal) {
       this.stream.publishToOperators({ type: 'session_upserted', sessionId: id });
       return { ok: true, message: { id: msg.id, content, createdAt: msg.createdAt, attachments: [], role: 'note' } };

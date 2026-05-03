@@ -41,6 +41,7 @@ import {
   BellOff,
   ThumbsDown,
   CheckCheck,
+  CornerUpLeft,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -67,6 +68,7 @@ interface Site {
   replyTone: string | null;
   trackBots: boolean;
   autoApprove: boolean;
+  requireEmail: boolean;
   operatorName: string | null;
   botName: string | null;
   botSubtitle: string | null;
@@ -152,6 +154,8 @@ interface MessageRow {
   seenAt?: string | null;
   attachments?: AttachmentSummary[];
   pendingApproval?: boolean;
+  replyToId?: string | null;
+  replyToContent?: string | null;
 }
 
 interface SessionDetail {
@@ -369,6 +373,7 @@ function SitesTab() {
         replyTone: s.replyTone ?? null,
         trackBots: s.trackBots,
         autoApprove: s.autoApprove,
+        requireEmail: s.requireEmail ?? false,
         botName: s.botName ?? null,
         botSubtitle: s.botSubtitle ?? null,
         welcomeMessage: s.welcomeMessage ?? null,
@@ -755,7 +760,7 @@ function SiteFormModal({ site, onClose, onSave, error }: { site: Partial<Site>; 
                 placeholder="https://bytesed.com"
               />
             </Field>
-            <div className="flex items-center gap-4 pt-1">
+            <div className="flex flex-wrap items-center gap-4 pt-1">
               <label className="flex items-center gap-2 text-sm">
                 <input type="checkbox" checked={draft.enabled ?? true} onChange={(e) => setDraft({ ...draft, enabled: e.target.checked })} />
                 Enabled
@@ -764,7 +769,16 @@ function SiteFormModal({ site, onClose, onSave, error }: { site: Partial<Site>; 
                 <input type="checkbox" checked={draft.trackBots ?? false} onChange={(e) => setDraft({ ...draft, trackBots: e.target.checked })} />
                 Track bots
               </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={draft.requireEmail ?? false} onChange={(e) => setDraft({ ...draft, requireEmail: e.target.checked })} />
+                Require email
+              </label>
             </div>
+            {draft.requireEmail && (
+              <p className="text-xs text-muted-foreground bg-muted/50 border border-border rounded-md px-3 py-2">
+                Visitors must enter their email before sending a message. The gate appears when the panel opens.
+              </p>
+            )}
           </div>
         )}
 
@@ -1739,8 +1753,10 @@ function SessionPane({
     onError: handleMutationError('Upload failed'),
   });
 
+  const [replyTo, setReplyTo] = useState<{ id: string; content: string; role: string } | null>(null);
+
   const sendMut = useMutation({
-    mutationFn: (payload: { content: string; attachmentIds: string[]; operatorId?: string; internal?: boolean }) =>
+    mutationFn: (payload: { content: string; attachmentIds: string[]; operatorId?: string; internal?: boolean; replyToId?: string; replyToContent?: string }) =>
       apiFetch(token, `/agents/livechat/sessions/${sessionId}/message`, {
         method: 'POST',
         body: JSON.stringify({
@@ -1748,12 +1764,14 @@ function SessionPane({
           attachmentIds: payload.attachmentIds.length ? payload.attachmentIds : undefined,
           operatorId: payload.operatorId || undefined,
           internal: payload.internal === true,
+          replyToId: payload.replyToId || undefined,
+          replyToContent: payload.replyToContent || undefined,
         }),
       }),
     onSuccess: () => {
       if (composerRef.current) composerRef.current.value = '';
       setPendingAttachments([]);
-      // Clear typing on send so the visitor doesn't see lingering dots.
+      setReplyTo(null);
       sockRef.current?.emit('livechat:typing', { sessionId, on: false });
       if (operatorTypingTimerRef.current) clearTimeout(operatorTypingTimerRef.current);
       qc.invalidateQueries({ queryKey: ['livechat-session', sessionId] });
@@ -1784,9 +1802,9 @@ function SessionPane({
       content,
       attachmentIds: pendingAttachments.map((a) => a.id),
       operatorId: selectedOperatorId || undefined,
-      // Note tab sends as an internal note — server records role='note' and
-      // skips the visitor-room broadcast, so only operators ever see it.
       internal: composerTab === 'note',
+      replyToId: replyTo?.id,
+      replyToContent: replyTo?.content.slice(0, 200),
     });
   };
 
@@ -1901,7 +1919,7 @@ function SessionPane({
         )}
 
         {/* MESSAGES */}
-        <div className="flex-1 overflow-auto px-6 py-5">
+        <div className="flex-1 overflow-auto px-3 sm:px-6 py-4 sm:py-5">
           {language && (
             <div className="flex justify-center mb-4">
               <span className="inline-flex items-center gap-2 px-3 py-1.5 bg-card border border-border rounded-full text-xs">
@@ -1928,6 +1946,7 @@ function SessionPane({
                     onEditApprove={(content) => editApproveMut.mutate({ messageId: m.id, content })}
                     onFlag={(correction) => flagMut.mutate({ messageId: m.id, correction })}
                     busy={approveMut.isPending || rejectMut.isPending || editApproveMut.isPending}
+                    onReply={(msg) => { setReplyTo({ id: msg.id, content: msg.content, role: msg.role }); setComposerTab('reply'); composerRef.current?.focus(); }}
                   />
                 ))}
               </div>
@@ -2042,6 +2061,17 @@ function SessionPane({
                   <option key={op.id} value={op.id}>{op.name}</option>
                 ))}
               </select>
+            </div>
+          )}
+          {replyTo && (
+            <div className="flex items-start gap-2 px-4 py-2 bg-muted/40 border-b border-border">
+              <div className="flex-1 min-w-0">
+                <div className="text-[10px] text-muted-foreground mb-0.5 uppercase tracking-wide">Replying to {replyTo.role}</div>
+                <div className="text-xs text-foreground/70 truncate">{replyTo.content}</div>
+              </div>
+              <button onClick={() => setReplyTo(null)} className="text-muted-foreground hover:text-foreground p-0.5 shrink-0 mt-0.5">
+                <XCircle className="w-3.5 h-3.5" />
+              </button>
             </div>
           )}
           <textarea
@@ -2340,6 +2370,7 @@ function MessageBubble({
   onReject,
   onEditApprove,
   onFlag,
+  onReply,
   busy,
 }: {
   message: MessageRow;
@@ -2349,6 +2380,7 @@ function MessageBubble({
   onReject?: () => void;
   onEditApprove?: (content: string) => void;
   onFlag?: (correction: string) => void;
+  onReply?: (msg: MessageRow) => void;
   busy?: boolean;
 }) {
   const isVisitor = message.role === 'visitor';
@@ -2388,16 +2420,28 @@ function MessageBubble({
 
   if (isVisitor) {
     return (
-      <div className="flex items-end gap-2">
+      <div className="flex items-end gap-2 min-w-0 group">
         <Avatar name={visitorName} country={country} size="sm" />
-        <div className="max-w-[70%]">
+        <div className="max-w-[85%] sm:max-w-[70%] min-w-0">
+          {message.replyToContent && (
+            <div className="text-[11px] text-muted-foreground bg-muted/40 border-l-2 border-muted-foreground/30 px-2 py-1 mb-1 rounded truncate">
+              {message.replyToContent}
+            </div>
+          )}
           {message.content && (
-            <div className="bg-muted/60 text-foreground text-sm rounded-2xl rounded-bl-sm px-3.5 py-2 break-words">
+            <div className="bg-muted/60 text-foreground text-sm rounded-2xl rounded-bl-sm px-3.5 py-2 whitespace-pre-wrap [overflow-wrap:anywhere]">
               <Linkified text={message.content} dark={false} />
             </div>
           )}
           {attachmentBlock}
-          <div className="text-[10px] text-muted-foreground mt-0.5 pl-1">{formatMessageTime(message.createdAt)}</div>
+          <div className="text-[10px] text-muted-foreground mt-0.5 pl-1 flex items-center gap-1">
+            {formatMessageTime(message.createdAt)}
+            {onReply && (
+              <button onClick={() => onReply(message)} className="opacity-0 group-hover:opacity-100 transition-opacity ml-1 hover:text-foreground" title="Reply">
+                <CornerUpLeft className="w-3 h-3" />
+              </button>
+            )}
+          </div>
         </div>
       </div>
     );
@@ -2405,17 +2449,22 @@ function MessageBubble({
 
   // Agent or operator
   return (
-    <div className="flex items-end justify-end gap-2 group">
-      <div className="max-w-[70%]">
+    <div className="flex items-end justify-end gap-2 group min-w-0">
+      <div className="max-w-[85%] sm:max-w-[70%] min-w-0">
         {isPending && (
           <div className="text-[11px] text-amber-600 mb-1 text-right flex items-center justify-end gap-1">
             <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-500" />
             Awaiting your approval — visitor has not seen this yet
           </div>
         )}
+        {message.replyToContent && (
+          <div className="text-[11px] text-muted-foreground bg-muted/40 border-l-2 border-muted-foreground/30 px-2 py-1 mb-1 rounded truncate text-right">
+            {message.replyToContent}
+          </div>
+        )}
         {message.content && !editing && (
           <div
-            className={`text-sm rounded-2xl rounded-br-sm px-3.5 py-2 break-words ${
+            className={`text-sm rounded-2xl rounded-br-sm px-3.5 py-2 whitespace-pre-wrap [overflow-wrap:anywhere] ${
               isPending ? 'bg-amber-50 text-amber-900 border border-amber-200' : 'bg-blue-500 text-white'
             }`}
           >
@@ -2434,9 +2483,14 @@ function MessageBubble({
           <div className="flex items-center justify-end gap-1 mt-0.5 pr-1">
             <span className="text-[10px] text-muted-foreground">{formatMessageTime(message.createdAt)}</span>
             {message.seenAt
-              ? <CheckCheck className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+              ? <CheckCheck className="w-3.5 h-3.5 text-green-500 shrink-0" />
               : <Check className="w-3.5 h-3.5 text-muted-foreground/50 shrink-0" />
             }
+            {onReply && (
+              <button onClick={() => onReply(message)} className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded text-muted-foreground hover:text-foreground" title="Reply">
+                <CornerUpLeft className="w-3 h-3" />
+              </button>
+            )}
             {isAi && !flagSubmitted && (
               <button
                 onClick={() => { setFlagging((v) => !v); setCorrectionDraft(''); }}

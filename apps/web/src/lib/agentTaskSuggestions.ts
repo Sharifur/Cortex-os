@@ -78,14 +78,15 @@ export const AGENT_TASK_SUGGESTIONS: Record<string, string[]> = {
   ],
 
   hr: [
-    'Who is on leave today?',
+    'Generate salary slips for this month',
+    'Check today\'s leave and WFH requests',
     'Show pending leave requests',
+    'Who is on leave today?',
     'Who is working from home today?',
     'Any upcoming birthdays or anniversaries?',
     'List all active employees',
     'Show payslips for this month',
     'Download payslip CSV for this month',
-    'Generate salary slips for this month',
   ],
 
   canva: [

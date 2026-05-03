@@ -263,9 +263,19 @@ export function mountWidget(cfg: WidgetConfig, siteConfig: SiteConfigResponse = 
     panel.style.display = 'flex';
     state.unread = 0;
     unreadBadge.style.display = 'none';
-    panel.querySelector<HTMLTextAreaElement>('textarea')?.focus();
     scrollMessagesToEnd(panel);
     markAgentMessagesSeen(state);
+
+    // requireEmail gate: show overlay before first interaction if email not yet captured
+    if (siteConfig.requireEmail) {
+      let emailSaved = false;
+      try { const v = localStorage.getItem(IDENTIFY_EMAIL_KEY); emailSaved = v === 'saved' || (!!v && v !== 'skipped'); } catch {}
+      if (!emailSaved) {
+        showRequireEmailGate(panel, cfg, state, render, siteConfig);
+        return;
+      }
+    }
+    panel.querySelector<HTMLTextAreaElement>('textarea')?.focus();
   }
 
   function closePanelAnim() {
@@ -1043,6 +1053,46 @@ function connectAndListen(cfg: WidgetConfig, state: any, render: () => void, sit
   });
 }
 
+function showRequireEmailGate(panel: HTMLDivElement, cfg: import('./config').WidgetConfig, state: any, render: () => void, siteConfig: import('./api').SiteConfigResponse) {
+  const existing = panel.querySelector<HTMLDivElement>('.lc-email-gate');
+  if (existing) { existing.style.display = 'flex'; return; }
+
+  const gate = document.createElement('div');
+  gate.className = 'lc-email-gate';
+  gate.style.cssText = 'position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:24px;background:var(--lc-bg,#0f172a);z-index:10;';
+  gate.innerHTML = `
+    <div style="font-size:14px;font-weight:600;text-align:center;">Enter your email to start chatting</div>
+    <div style="font-size:12px;color:#94a3b8;text-align:center;">We'll use this to follow up if we miss you.</div>
+    <input class="lc-gate-email" type="email" placeholder="you@example.com" autocomplete="email"
+      style="width:100%;padding:8px 12px;border-radius:8px;border:1px solid #334155;background:#1e293b;color:#f1f5f9;font-size:13px;outline:none;box-sizing:border-box;" />
+    <div class="lc-gate-error" style="color:#f87171;font-size:11px;display:none;"></div>
+    <button class="lc-gate-submit" style="width:100%;padding:10px;border-radius:8px;background:var(--lc-brand,#2563eb);color:#fff;font-size:13px;font-weight:600;border:none;cursor:pointer;">Continue</button>
+  `;
+  panel.appendChild(gate);
+
+  const emailInput = gate.querySelector<HTMLInputElement>('.lc-gate-email')!;
+  const errEl = gate.querySelector<HTMLDivElement>('.lc-gate-error')!;
+  const submitBtn = gate.querySelector<HTMLButtonElement>('.lc-gate-submit')!;
+
+  const showErr = (msg: string) => { errEl.textContent = msg; errEl.style.display = 'block'; };
+
+  const submit = async () => {
+    const val = emailInput.value.trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val)) { showErr("That doesn't look like a valid email."); return; }
+    errEl.style.display = 'none';
+    submitBtn.disabled = true;
+    try {
+      await import('./api').then((m) => m.identify(cfg, { email: val }));
+      try { localStorage.setItem(IDENTIFY_EMAIL_KEY, 'saved'); localStorage.setItem(IDENTIFY_DISMISSED_KEY, 'saved'); } catch {}
+      gate.style.display = 'none';
+      panel.querySelector<HTMLTextAreaElement>('textarea')?.focus();
+    } catch { showErr('Something went wrong — please try again.'); submitBtn.disabled = false; }
+  };
+  submitBtn.addEventListener('click', submit);
+  emailInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } });
+  setTimeout(() => emailInput.focus(), 50);
+}
+
 function renderMessages(panel: HTMLDivElement, state: any) {
   const list = panel.querySelector<HTMLDivElement>('.lc-messages');
   if (!list) return;
@@ -1405,13 +1455,13 @@ function renderAttachment(a: AttachmentSummary): string {
 /** Escape text and convert any http(s) URLs into rel-safe links opening in a new tab. */
 function linkifyHtml(text: string): string {
   const escaped = escapeHtml(text);
-  return escaped.replace(/(https?:\/\/[^\s<]+)/g, (url) => {
-    // Strip a trailing punctuation that's likely sentence-ending, not part of the URL.
+  const linked = escaped.replace(/(https?:\/\/[^\s<]+)/g, (url) => {
     const m = url.match(/[.,;:!?)]+$/);
     const tail = m ? m[0] : '';
     const clean = tail ? url.slice(0, -tail.length) : url;
     return `<a href="${escapeAttr(clean)}" target="_blank" rel="noopener noreferrer nofollow">${clean}</a>${tail}`;
   });
+  return linked.replace(/\n/g, '<br>');
 }
 
 /**

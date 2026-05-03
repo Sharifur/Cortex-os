@@ -26,6 +26,7 @@ export const livechatSites = pgTable(
     transcriptBcc: text('transcript_bcc'),
     transcriptFrom: text('transcript_from'),
     topicHandlingRules: text('topic_handling_rules'),
+    requireEmail: boolean('require_email').notNull().default(false),
     createdAt: timestamp('created_at').notNull().defaultNow(),
   },
   (t) => ({
@@ -128,6 +129,8 @@ export const livechatMessages = pgTable(
     pendingApproval: boolean('pending_approval').notNull().default(false),
     visitorRating: text('visitor_rating'),
     seenAt: timestamp('seen_at'),
+    replyToId: text('reply_to_id'),
+    replyToContent: text('reply_to_content'),
     createdAt: timestamp('created_at').notNull().defaultNow(),
   },
   (t) => ({
