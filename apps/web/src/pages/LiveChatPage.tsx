@@ -42,6 +42,7 @@ import {
   ThumbsDown,
   CheckCheck,
   CornerUpLeft,
+  Languages,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -1526,6 +1527,23 @@ function SessionPane({
 
   const [selectedOperatorId, setSelectedOperatorId] = useState<string>('');
   const [composerTab, setComposerTab] = useState<'reply' | 'note' | 'shortcuts' | 'kb'>('reply');
+  const [translations, setTranslations] = useState<Record<string, string>>({});
+  const [translating, setTranslating] = useState<Set<string>>(new Set());
+  const [autoTranslate, setAutoTranslate] = useState(false);
+
+  const translateMessage = async (msgId: string, text: string, targetLang: string) => {
+    if (translations[msgId] || translating.has(msgId)) return;
+    setTranslating((s) => new Set(s).add(msgId));
+    try {
+      const res = await apiFetch(token, '/agents/livechat/translate', {
+        method: 'POST',
+        body: JSON.stringify({ text, targetLang: 'English', sourceLang: targetLang }),
+      }) as { translated: string };
+      setTranslations((prev) => ({ ...prev, [msgId]: res.translated }));
+    } catch { /* ignore */ } finally {
+      setTranslating((s) => { const n = new Set(s); n.delete(msgId); return n; });
+    }
+  };
   const [showEmoji, setShowEmoji] = useState(false);
   const [showFormat, setShowFormat] = useState(false);
   const [kbQuery, setKbQuery] = useState('');
@@ -1795,14 +1813,24 @@ function SessionPane({
     onError: handleMutationError('Set email failed'),
   });
 
-  const submitOperator = () => {
-    const content = composerRef.current?.value?.trim() ?? '';
+  const submitOperator = async () => {
+    let content = composerRef.current?.value?.trim() ?? '';
     if (!content && pendingAttachments.length === 0) return;
+    const isNote = composerTab === 'note';
+    if (!isNote && autoTranslate && language && !language.startsWith('en')) {
+      try {
+        const res = await apiFetch(token, '/agents/livechat/translate', {
+          method: 'POST',
+          body: JSON.stringify({ text: content, targetLang: language }),
+        }) as { translated: string };
+        if (res.translated) content = res.translated;
+      } catch { /* send in original if translation fails */ }
+    }
     sendMut.mutate({
       content,
       attachmentIds: pendingAttachments.map((a) => a.id),
       operatorId: selectedOperatorId || undefined,
-      internal: composerTab === 'note',
+      internal: isNote,
       replyToId: replyTo?.id,
       replyToContent: replyTo?.content.slice(0, 200),
     });
@@ -1947,6 +1975,10 @@ function SessionPane({
                     onFlag={(correction) => flagMut.mutate({ messageId: m.id, correction })}
                     busy={approveMut.isPending || rejectMut.isPending || editApproveMut.isPending}
                     onReply={(msg) => { setReplyTo({ id: msg.id, content: msg.content, role: msg.role }); setComposerTab('reply'); composerRef.current?.focus(); }}
+                    sessionLanguage={language}
+                    translation={translations[m.id]}
+                    translating={translating.has(m.id)}
+                    onTranslate={() => translateMessage(m.id, m.content, language ?? 'auto')}
                   />
                 ))}
               </div>
@@ -2048,19 +2080,34 @@ function SessionPane({
               </div>
             </div>
           )}
-          {composerEnabled && availableOperators.length > 0 && (
-            <div className="flex items-center gap-2 px-4 py-1.5 border-b border-border bg-muted/30">
-              <span className="text-xs text-muted-foreground shrink-0">Speaking as:</span>
-              <select
-                value={selectedOperatorId}
-                onChange={(e) => setSelectedOperatorId(e.target.value)}
-                className="text-xs bg-transparent border-0 outline-none text-foreground font-medium flex-1 cursor-pointer"
-              >
-                <option value="">Default</option>
-                {availableOperators.map((op) => (
-                  <option key={op.id} value={op.id}>{op.name}</option>
-                ))}
-              </select>
+          {composerEnabled && (
+            <div className="flex items-center gap-3 px-4 py-1.5 border-b border-border bg-muted/30 flex-wrap">
+              {availableOperators.length > 0 && (
+                <>
+                  <span className="text-xs text-muted-foreground shrink-0">Speaking as:</span>
+                  <select
+                    value={selectedOperatorId}
+                    onChange={(e) => setSelectedOperatorId(e.target.value)}
+                    className="text-xs bg-transparent border-0 outline-none text-foreground font-medium cursor-pointer"
+                  >
+                    <option value="">Default</option>
+                    {availableOperators.map((op) => (
+                      <option key={op.id} value={op.id}>{op.name}</option>
+                    ))}
+                  </select>
+                </>
+              )}
+              {language && !language.startsWith('en') && composerTab === 'reply' && (
+                <label className="flex items-center gap-1.5 ml-auto cursor-pointer" title={`Auto-translate your English reply to ${prettyLanguage(language)}`}>
+                  <div
+                    onClick={() => setAutoTranslate((v) => !v)}
+                    className={`w-7 h-4 rounded-full transition-colors relative cursor-pointer ${autoTranslate ? 'bg-blue-500' : 'bg-muted-foreground/30'}`}
+                  >
+                    <span className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-transform ${autoTranslate ? 'translate-x-3.5' : 'translate-x-0.5'}`} />
+                  </div>
+                  <span className="text-[11px] text-muted-foreground">Auto-translate to {prettyLanguage(language)}</span>
+                </label>
+              )}
             </div>
           )}
           {replyTo && (
@@ -2371,6 +2418,10 @@ function MessageBubble({
   onEditApprove,
   onFlag,
   onReply,
+  onTranslate,
+  translation,
+  translating: isTranslating,
+  sessionLanguage,
   busy,
 }: {
   message: MessageRow;
@@ -2381,6 +2432,10 @@ function MessageBubble({
   onEditApprove?: (content: string) => void;
   onFlag?: (correction: string) => void;
   onReply?: (msg: MessageRow) => void;
+  onTranslate?: () => void;
+  translation?: string;
+  translating?: boolean;
+  sessionLanguage?: string | null;
   busy?: boolean;
 }) {
   const isVisitor = message.role === 'visitor';
@@ -2418,6 +2473,8 @@ function MessageBubble({
     </div>
   );
 
+  const isNonEnglish = sessionLanguage && !sessionLanguage.startsWith('en');
+
   if (isVisitor) {
     return (
       <div className="flex items-end gap-2 min-w-0 group">
@@ -2433,11 +2490,27 @@ function MessageBubble({
               <Linkified text={message.content} dark={false} />
             </div>
           )}
+          {translation && (
+            <div className="mt-1 text-[11px] text-muted-foreground bg-muted/30 border border-border rounded-lg px-2.5 py-1.5 italic">
+              <span className="not-italic text-[10px] font-medium uppercase tracking-wide text-blue-400 mr-1">EN</span>
+              {translation}
+            </div>
+          )}
           {attachmentBlock}
           <div className="text-[10px] text-muted-foreground mt-0.5 pl-1 flex items-center gap-1">
             {formatMessageTime(message.createdAt)}
+            {isNonEnglish && !translation && onTranslate && (
+              <button
+                onClick={onTranslate}
+                disabled={isTranslating}
+                className="opacity-0 group-hover:opacity-100 transition-opacity ml-1 hover:text-blue-400 disabled:opacity-50"
+                title="Translate to English"
+              >
+                {isTranslating ? <span className="text-[9px]">…</span> : <Languages className="w-3 h-3" />}
+              </button>
+            )}
             {onReply && (
-              <button onClick={() => onReply(message)} className="opacity-0 group-hover:opacity-100 transition-opacity ml-1 hover:text-foreground" title="Reply">
+              <button onClick={() => onReply(message)} className="opacity-0 group-hover:opacity-100 transition-opacity hover:text-foreground" title="Reply">
                 <CornerUpLeft className="w-3 h-3" />
               </button>
             )}
