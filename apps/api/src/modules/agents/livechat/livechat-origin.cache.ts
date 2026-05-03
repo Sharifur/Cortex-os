@@ -7,6 +7,7 @@ import { livechatSites } from './schema';
 export class LivechatOriginCache implements OnModuleInit {
   private readonly logger = new Logger(LivechatOriginCache.name);
   private origins = new Set<string>();
+  private hostnames = new Set<string>();
   private timer: NodeJS.Timeout | null = null;
 
   constructor(private db: DbService) {}
@@ -21,7 +22,13 @@ export class LivechatOriginCache implements OnModuleInit {
 
   has(origin: string | null | undefined): boolean {
     if (!origin) return false;
-    return this.origins.has(origin);
+    if (this.origins.has(origin)) return true;
+    try {
+      const hostname = new URL(origin.trim()).hostname.toLowerCase();
+      return this.hostnames.has(hostname);
+    } catch {
+      return false;
+    }
   }
 
   list(): string[] {
@@ -34,5 +41,10 @@ export class LivechatOriginCache implements OnModuleInit {
       .from(livechatSites)
       .where(eq(livechatSites.enabled, true));
     this.origins = new Set(rows.map((r) => r.origin));
+    this.hostnames = new Set(
+      rows.map((r) => {
+        try { return new URL(r.origin.trim()).hostname.toLowerCase(); } catch { return ''; }
+      }).filter(Boolean),
+    );
   }
 }

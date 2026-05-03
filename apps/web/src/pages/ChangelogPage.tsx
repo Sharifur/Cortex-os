@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v3.5.2',
+    date: '2026-05-03',
+    entries: [
+      { tag: 'fix', scope: 'livechat', description: 'CORS http/https mismatch — sites registered with https:// were rejecting requests from http:// widgets; both the origin cache and the site resolver now compare hostname only, so http://bytesed.com matches a site configured as https://bytesed.com' },
+    ],
+  },
+  {
     version: 'v3.5.1',
     date: '2026-05-03',
     entries: [
