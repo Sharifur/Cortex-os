@@ -192,42 +192,51 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     this.bot.command('help', async (ctx) => {
       const fromId = ctx.from?.id ? String(ctx.from.id) : null;
       if (!this.isOwner(fromId)) return;
-      await ctx.reply(this.botAgent.helpReply(), { parse_mode: 'Markdown' });
+      try {
+        await ctx.reply(this.botAgent.helpReply(), { parse_mode: 'Markdown' });
+      } catch {
+        await ctx.reply(this.botAgent.helpReply().replace(/[*_`[\]]/g, '')).catch(() => {});
+      }
     });
 
     this.bot.command('cancel', async (ctx) => {
       const fromId = ctx.from?.id ? String(ctx.from.id) : null;
       if (!this.isOwner(fromId)) return;
-      const tz = (await this.settings.getDecrypted('timezone')) || 'UTC';
-      const result = await this.botAgent.routeMessage('/cancel', fromId ?? 'default', tz);
-      if (result.kind === 'cancelled') await ctx.reply(result.reply, { parse_mode: 'Markdown' });
+      try {
+        const tz = (await this.settings.getDecrypted('timezone')) || 'UTC';
+        const result = await this.botAgent.routeMessage('/cancel', fromId ?? 'default', tz);
+        if (result.kind === 'cancelled') await ctx.reply(result.reply);
+        else await ctx.reply('Nothing to cancel.');
+      } catch (err) {
+        await ctx.reply(`Error: ${(err as Error).message}`);
+      }
     });
 
     this.bot.command('remind', async (ctx) => {
       const fromId = ctx.from?.id ? String(ctx.from.id) : null;
       if (!this.isOwner(fromId)) return;
-      const body = (ctx.match ?? '').toString().trim();
-      if (!body) {
-        await ctx.reply(
-          'Usage: `/remind <what> [in 30 min | tomorrow at 9am]`\nExample: `/remind drink water in 5 min`',
-          { parse_mode: 'Markdown' },
-        );
-        return;
+      try {
+        const body = (ctx.match ?? '').toString().trim();
+        if (!body) {
+          await ctx.reply('Usage: /remind <what> [in 30 min | tomorrow at 9am]\nExample: /remind drink water in 5 min');
+          return;
+        }
+        const tz = (await this.settings.getDecrypted('timezone')) || 'UTC';
+        await ctx.api.sendChatAction(ctx.chat.id, 'typing');
+        const result = await this.botAgent.routeMessage(body, fromId ?? 'default', tz);
+        await this.dispatchRouteResult(ctx, result);
+      } catch (err) {
+        await ctx.reply(`Error: ${(err as Error).message}`);
       }
-      // Delegate to the bot agent — handles both "with time" and "ask for time".
-      const tz = (await this.settings.getDecrypted('timezone')) || 'UTC';
-      await ctx.api.sendChatAction(ctx.chat.id, 'typing');
-      const result = await this.botAgent.routeMessage(body, fromId ?? 'default', tz);
-      await this.dispatchRouteResult(ctx, result);
     });
 
     this.bot.command('status', async (ctx) => {
       const fromId = ctx.from?.id ? String(ctx.from.id) : null;
       if (!this.isOwner(fromId)) return;
-      await ctx.reply('Triggering *Daily Reminder*...', { parse_mode: 'Markdown' });
       try {
+        await ctx.reply('Triggering Daily Reminder...');
         await this.agentRuntime.triggerAgent('daily_reminder', 'MANUAL', { instructions: "Today's status briefing" });
-        await ctx.reply('Done. *Daily Reminder* is running — results will arrive shortly.', { parse_mode: 'Markdown' });
+        await ctx.reply('Daily Reminder is running. Results will arrive shortly.');
       } catch (err) {
         await ctx.reply(`Failed: ${(err as Error).message}`);
       }
@@ -236,12 +245,12 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     this.bot.command('agents', async (ctx) => {
       const fromId = ctx.from?.id ? String(ctx.from.id) : null;
       if (!this.isOwner(fromId)) return;
-      const list = ROUTABLE_AGENTS
-        .map((a) => `• *${a.name}* (\`@${a.key}\`) — ${a.desc}`)
-        .join('\n');
-      await ctx.reply(`*Agents available*\n\n${list}\n\nMention with \`@<key>\` to delegate, e.g. \`@email_manager draft a reply to Bob\`.`, {
-        parse_mode: 'Markdown',
-      });
+      try {
+        const list = ROUTABLE_AGENTS.map((a) => `• ${a.name} (@${a.key}) — ${a.desc}`).join('\n');
+        await ctx.reply(`Agents available\n\n${list}\n\nMention with @<key> to delegate, e.g. "@email_manager draft a reply to Bob".`);
+      } catch (err) {
+        await ctx.reply(`Error: ${(err as Error).message}`);
+      }
     });
 
     this.bot.command('inbox', async (ctx) => {
@@ -253,8 +262,8 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
           await ctx.reply('No pending approvals.');
           return;
         }
-        const lines = pending.slice(0, 10).map((p) => `• ${p.id} — ${(p.action as { summary?: string } | null)?.summary ?? p.id}`);
-        await ctx.reply(`*Pending approvals (${pending.length})*\n${lines.join('\n')}`, { parse_mode: 'Markdown' });
+        const lines = pending.slice(0, 10).map((p) => `• ${(p.action as { summary?: string } | null)?.summary ?? p.id}`);
+        await ctx.reply(`Pending approvals (${pending.length})\n${lines.join('\n')}`);
       } catch (err) {
         await ctx.reply(`Failed to fetch inbox: ${(err as Error).message}`);
       }
@@ -396,12 +405,12 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       }
       const [, leaveId] = ctx.match!;
       await ctx.answerCallbackQuery();
-      const original = ctx.msg?.text ?? '';
       try {
         await this.hrm.approveLeave(leaveId);
-        await ctx.editMessageText(`${original}\n\nApproved`, { parse_mode: 'Markdown' });
+        await ctx.editMessageReplyMarkup({ reply_markup: { inline_keyboard: [] } });
+        await ctx.reply('Leave approved.');
       } catch (err) {
-        await ctx.editMessageText(`${original}\n\nFailed: ${(err as Error).message}`);
+        await ctx.reply(`Failed: ${(err as Error).message}`);
       }
     });
 
@@ -413,8 +422,8 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       }
       const [, leaveId] = ctx.match!;
       await ctx.answerCallbackQuery();
+      await ctx.editMessageReplyMarkup({ reply_markup: { inline_keyboard: [] } });
       const original = ctx.msg?.text ?? '';
-      await ctx.editMessageText(`${original}\n\n_Awaiting rejection reason..._`, { parse_mode: 'Markdown' });
       const prompt = await ctx.api.sendMessage(this.ownerChatId!, 'Reason for rejecting this leave:', {
         reply_markup: { force_reply: true, selective: true },
       });
@@ -434,12 +443,12 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       }
       const [, wfhId] = ctx.match!;
       await ctx.answerCallbackQuery();
-      const original = ctx.msg?.text ?? '';
       try {
         await this.hrm.approveWfh(wfhId);
-        await ctx.editMessageText(`${original}\n\nApproved`, { parse_mode: 'Markdown' });
+        await ctx.editMessageReplyMarkup({ reply_markup: { inline_keyboard: [] } });
+        await ctx.reply('WFH approved.');
       } catch (err) {
-        await ctx.editMessageText(`${original}\n\nFailed: ${(err as Error).message}`);
+        await ctx.reply(`Failed: ${(err as Error).message}`);
       }
     });
 
@@ -451,8 +460,8 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       }
       const [, wfhId] = ctx.match!;
       await ctx.answerCallbackQuery();
+      await ctx.editMessageReplyMarkup({ reply_markup: { inline_keyboard: [] } });
       const original = ctx.msg?.text ?? '';
-      await ctx.editMessageText(`${original}\n\n_Awaiting rejection reason..._`, { parse_mode: 'Markdown' });
       const prompt = await ctx.api.sendMessage(this.ownerChatId!, 'Reason for rejecting this WFH:', {
         reply_markup: { force_reply: true, selective: true },
       });
@@ -472,14 +481,14 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       }
       const [, runId, xghrmId] = ctx.match!;
       await ctx.answerCallbackQuery();
-      const original = ctx.msg?.text ?? '';
       try {
         await this.hrm.approvePayslip(xghrmId);
         await this.db.db.update(hrPayslipRuns).set({ status: 'approved' }).where(eq(hrPayslipRuns.id, runId));
-        await ctx.editMessageText(`${original}\n\nApproved`, { parse_mode: 'Markdown' });
+        await ctx.editMessageReplyMarkup({ reply_markup: { inline_keyboard: [] } });
+        await ctx.reply('Payslip approved.');
         await this.checkPayslipRunComplete(runId);
       } catch (err) {
-        await ctx.editMessageText(`${original}\n\nFailed: ${(err as Error).message}`);
+        await ctx.reply(`Failed: ${(err as Error).message}`);
       }
     });
 
@@ -491,8 +500,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       }
       const [, runId, xghrmId] = ctx.match!;
       await ctx.answerCallbackQuery();
-      const original = ctx.msg?.text ?? '';
-      await ctx.editMessageText(`${original}\n\n_Awaiting edited values..._`, { parse_mode: 'Markdown' });
+      await ctx.editMessageReplyMarkup({ reply_markup: { inline_keyboard: [] } });
       const prompt = await ctx.api.sendMessage(
         this.ownerChatId!,
         'Enter new values (e.g. bonus=5000 deductions=2000):',
@@ -515,9 +523,9 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       }
       const [, runId] = ctx.match!;
       await ctx.answerCallbackQuery();
-      const original = ctx.msg?.text ?? '';
       await this.db.db.update(hrPayslipRuns).set({ status: 'skipped' }).where(eq(hrPayslipRuns.id, runId));
-      await ctx.editMessageText(`${original}\n\nSkipped`, { parse_mode: 'Markdown' });
+      await ctx.editMessageReplyMarkup({ reply_markup: { inline_keyboard: [] } });
+      await ctx.reply('Payslip skipped.');
       await this.checkPayslipRunComplete(runId);
     });
 
@@ -723,14 +731,15 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async handleHrPendingReply(
-    ctx: { reply: (t: string, o?: object) => Promise<unknown>; api: { editMessageText: (chatId: string, msgId: number, text: string, opts?: object) => Promise<unknown> } },
+    ctx: { reply: (t: string, o?: object) => Promise<unknown>; api: { editMessageText: (chatId: string, msgId: number, text: string, opts?: object) => Promise<unknown>; editMessageReplyMarkup: (chatId: string, msgId: number, opts: object) => Promise<unknown> } },
     pending: HrPendingReply,
     text: string,
   ) {
     if (pending.type === 'leave_reject') {
       try {
         await this.hrm.rejectLeave(pending.xghrmId, text);
-        await ctx.api.editMessageText(this.ownerChatId!, pending.originalMsgId, `${pending.originalText}\n\nRejected — ${text}`, { parse_mode: 'Markdown' });
+        await ctx.api.editMessageReplyMarkup(this.ownerChatId!, pending.originalMsgId, { reply_markup: { inline_keyboard: [] } });
+        await ctx.reply(`Leave rejected. Reason: ${text}`);
       } catch (err) {
         await ctx.reply(`Failed to reject leave: ${(err as Error).message}`);
       }
@@ -740,7 +749,8 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     if (pending.type === 'wfh_reject') {
       try {
         await this.hrm.rejectWfh(pending.xghrmId, text);
-        await ctx.api.editMessageText(this.ownerChatId!, pending.originalMsgId, `${pending.originalText}\n\nRejected — ${text}`, { parse_mode: 'Markdown' });
+        await ctx.api.editMessageReplyMarkup(this.ownerChatId!, pending.originalMsgId, { reply_markup: { inline_keyboard: [] } });
+        await ctx.reply(`WFH rejected. Reason: ${text}`);
       } catch (err) {
         await ctx.reply(`Failed to reject WFH: ${(err as Error).message}`);
       }
@@ -767,11 +777,15 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
           .text('Approve', `hr_slip_approve:${pending.runId}:${pending.xghrmId}`)
           .text('Edit again', `hr_slip_edit:${pending.runId}:${pending.xghrmId}`)
           .text('Skip', `hr_slip_skip:${pending.runId}`);
-        const updatedText = `Payslip — ${updated.employeeName}\nMonth: ${updated.month}\nBase: ${updated.currency} ${Number(updated.baseSalary).toLocaleString()}\nBonus: ${updated.currency} ${Number(updated.bonus).toLocaleString()}\nDeductions: ${updated.currency} ${Number(updated.deductions).toLocaleString()}\nNet: ${updated.currency} ${Number(updated.netSalary).toLocaleString()}`;
-        await ctx.api.editMessageText(this.ownerChatId!, pending.originalMsgId, updatedText, {
-          parse_mode: 'Markdown',
-          reply_markup: kb,
-        });
+        const updatedText =
+          `Payslip — ${updated.employeeName}\n` +
+          `Month: ${updated.month}\n` +
+          `Base: ${updated.currency} ${Number(updated.baseSalary).toLocaleString()}\n` +
+          `Bonus: ${updated.currency} ${Number(updated.bonus).toLocaleString()}\n` +
+          `Deductions: ${updated.currency} ${Number(updated.deductions).toLocaleString()}\n` +
+          `Net: ${updated.currency} ${Number(updated.netSalary).toLocaleString()}`;
+        await ctx.api.editMessageReplyMarkup(this.ownerChatId!, pending.originalMsgId, { reply_markup: kb });
+        await ctx.reply(updatedText);
       } catch (err) {
         await ctx.reply(`Failed to update payslip: ${(err as Error).message}`);
       }

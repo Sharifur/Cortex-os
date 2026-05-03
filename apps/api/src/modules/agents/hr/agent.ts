@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
 import { DbService } from '../../../db/db.service';
-import { agents } from '../../../db/schema';
+import { agents, hrPayslipRuns } from '../../../db/schema';
 import { AgentRegistryService } from '../runtime/agent-registry.service';
 import { TelegramService } from '../../telegram/telegram.service';
 import { SettingsService } from '../../settings/settings.service';
@@ -196,7 +196,9 @@ export class HrAgent implements IAgent {
     const p = action.payload as any;
 
     if (action.type === 'salary_run') {
-      // Generate payslips NOW (after approval), then approve each one.
+      const { InlineKeyboard } = await import('grammy');
+
+      // Generate payslips after Cortex approval
       let generated: Awaited<ReturnType<HrmApiService['generatePayslips']>>['data'] = [];
       try {
         const result = await this.hrm.generatePayslips(p.month);
@@ -207,20 +209,43 @@ export class HrAgent implements IAgent {
         return { success: false, error: msg };
       }
 
-      let approved = 0;
+      if (generated.length === 0) {
+        await this.telegram.sendMessage(`Payroll ${p.month}: no new payslips generated (all already exist or no attendance).`);
+        return { success: true };
+      }
+
+      // Insert tracking rows then send each slip to Telegram for per-slip approval
       for (const slip of generated) {
-        try {
-          await this.hrm.approvePayslip(slip.id);
-          approved++;
-        } catch (err) {
-          this.logger.warn(`approvePayslip ${slip.id} failed: ${err instanceof HrmApiError ? err.message : err}`);
+        const [row] = await this.db.db
+          .insert(hrPayslipRuns)
+          .values({
+            month: slip.month,
+            xghrmId: slip.id,
+            employeeId: slip.employeeId,
+            employeeName: slip.employeeName,
+            netSalary: Math.round(slip.netSalary),
+          })
+          .returning();
+
+        const text =
+          `Payslip — ${slip.employeeName}\n` +
+          `Month: ${slip.month}\n` +
+          `Base: ${slip.currency} ${Number(slip.baseSalary).toLocaleString()}\n` +
+          (slip.bonus ? `Bonus: ${slip.currency} ${Number(slip.bonus).toLocaleString()}\n` : '') +
+          (slip.deductions ? `Deductions: ${slip.currency} ${Number(slip.deductions).toLocaleString()}\n` : '') +
+          `Net: ${slip.currency} ${Number(slip.netSalary).toLocaleString()}`;
+
+        const kb = new InlineKeyboard()
+          .text('Approve', `hr_slip_approve:${row.id}:${slip.id}`)
+          .text('Edit', `hr_slip_edit:${row.id}:${slip.id}`)
+          .text('Skip', `hr_slip_skip:${row.id}`);
+
+        const msg = await this.telegram.sendMessageWithKeyboard(text, kb);
+        if (msg?.message_id) {
+          await this.db.db.update(hrPayslipRuns).set({ telegramMsgId: msg.message_id, status: 'tg_sent' }).where(eq(hrPayslipRuns.id, row.id));
         }
       }
 
-      const totalNet = generated.reduce((s, sl) => s + sl.netSalary, 0);
-      await this.telegram.sendMessage(
-        `Payroll approved — ${p.month}\n${approved} of ${generated.length} payslip${generated.length !== 1 ? 's' : ''} approved\nTotal: ${p.currency} ${totalNet.toLocaleString()}`,
-      );
       return { success: true };
     }
 
@@ -348,6 +373,46 @@ export class HrAgent implements IAgent {
         description: 'Get employees working from home today',
         inputSchema: { type: 'object', properties: {} },
         handler: async () => this.hrm.getTodayWfh(),
+      },
+      {
+        name: 'submit_leave_request',
+        description: 'Submit a leave request for an employee',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            employeeId: { type: 'string' },
+            type: { type: 'string', enum: ['annual', 'sick', 'unpaid', 'maternity', 'paternity', 'other'] },
+            fromDate: { type: 'string', description: 'YYYY-MM-DD' },
+            toDate: { type: 'string', description: 'YYYY-MM-DD' },
+            reason: { type: 'string' },
+          },
+          required: ['employeeId', 'type', 'fromDate', 'toDate'],
+        },
+        handler: async (input) => this.hrm.createLeaveRequest(input as any),
+      },
+      {
+        name: 'submit_wfh_request',
+        description: 'Submit a WFH request for an employee',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            employeeId: { type: 'string' },
+            date: { type: 'string', description: 'YYYY-MM-DD' },
+            reason: { type: 'string' },
+          },
+          required: ['employeeId', 'date'],
+        },
+        handler: async (input) => this.hrm.createWfhRequest(input as any),
+      },
+      {
+        name: 'export_payslips_csv',
+        description: 'Get the CSV export URL for all payslips for a month',
+        inputSchema: {
+          type: 'object',
+          properties: { month: { type: 'string', description: 'YYYY-MM format' } },
+          required: ['month'],
+        },
+        handler: async (input) => ({ url: await this.hrm.exportPayslipsCsvUrl((input as any).month) }),
       },
     ];
   }

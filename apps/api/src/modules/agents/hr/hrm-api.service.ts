@@ -153,8 +153,12 @@ export class HrmApiService {
     return this.request<{ data: HrmLeaveRequest[]; total: number }>('GET', '/leave-requests/pending');
   }
 
+  async createLeaveRequest(data: { employeeId: string; type: string; fromDate: string; toDate: string; reason?: string }) {
+    return this.request<HrmLeaveRequest>('POST', '/leave-requests', data);
+  }
+
   async approveLeave(id: string, reason?: string) {
-    return this.request<HrmLeaveRequest>('POST', `/leave-requests/${id}/approve`, { reason: reason ?? null });
+    return this.request<HrmLeaveRequest>('POST', `/leave-requests/${id}/approve`, reason ? { reason } : {});
   }
 
   async rejectLeave(id: string, reason: string) {
@@ -166,8 +170,12 @@ export class HrmApiService {
     return this.request<{ data: HrmWfhRequest[]; total: number }>('GET', '/wfh-requests/pending');
   }
 
+  async createWfhRequest(data: { employeeId: string; date: string; reason?: string }) {
+    return this.request<HrmWfhRequest>('POST', '/wfh-requests', data);
+  }
+
   async approveWfh(id: string, reason?: string) {
-    return this.request<HrmWfhRequest>('POST', `/wfh-requests/${id}/approve`, { reason: reason ?? null });
+    return this.request<HrmWfhRequest>('POST', `/wfh-requests/${id}/approve`, reason ? { reason } : {});
   }
 
   async rejectWfh(id: string, reason: string) {
