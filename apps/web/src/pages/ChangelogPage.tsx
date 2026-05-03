@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v3.0.8',
+    date: '2026-05-03',
+    entries: [
+      { tag: 'fix', scope: 'notifications', description: 'Bell badge now updates in real time — subscribes to approvals and activity rooms via WebSocket; correct event names (approval:created, approval:removed, activity:log); fallback poll reduced to 15s' },
+    ],
+  },
+  {
     version: 'v3.0.7',
     date: '2026-05-03',
     entries: [

@@ -40,7 +40,7 @@ function NotificationBell({ token }: { token: string }) {
       if (!res.ok) return { waitingChats: 0, pendingApprovals: 0, agentFailures: 0, kbProposals: 0, total: 0 };
       return res.json();
     },
-    refetchInterval: 30_000,
+    refetchInterval: 15_000,
   });
 
   const total = data?.total ?? 0;
@@ -48,13 +48,25 @@ function NotificationBell({ token }: { token: string }) {
   useEffect(() => {
     const socket = getRealtimeSocket(token);
     const invalidate = () => queryClient.invalidateQueries({ queryKey: ['notifications-summary'] });
-    socket.on('session_upserted', invalidate);
-    socket.on('approval:new', invalidate);
-    socket.on('run:failed', invalidate);
+
+    const onConnect = () => {
+      socket.emit('approvals:subscribe');
+      socket.emit('activity:subscribe');
+    };
+
+    if (socket.connected) onConnect();
+    socket.on('connect', onConnect);
+    socket.on('approval:created', invalidate);
+    socket.on('approval:removed', invalidate);
+    socket.on('activity:log', invalidate);
+
     return () => {
-      socket.off('session_upserted', invalidate);
-      socket.off('approval:new', invalidate);
-      socket.off('run:failed', invalidate);
+      socket.off('connect', onConnect);
+      socket.off('approval:created', invalidate);
+      socket.off('approval:removed', invalidate);
+      socket.off('activity:log', invalidate);
+      socket.emit('approvals:unsubscribe');
+      socket.emit('activity:unsubscribe');
     };
   }, [token, queryClient]);
 
@@ -268,7 +280,7 @@ function Sidebar({
           <>
             <Bot className="w-5 h-5 text-primary shrink-0" />
             <span className="font-semibold text-sm">Cortex OS</span>
-            <span className="text-muted-foreground text-xs">v3.0.7</span>
+            <span className="text-muted-foreground text-xs">v3.0.8</span>
             {onToggleCollapse && (
               <button
                 onClick={onToggleCollapse}
@@ -459,7 +471,7 @@ export default function AppLayout() {
           <div className="flex items-center gap-2">
             <Bot className="w-5 h-5 text-primary" />
             <span className="font-semibold text-sm">Cortex OS</span>
-            <span className="text-muted-foreground text-xs">v3.0.7</span>
+            <span className="text-muted-foreground text-xs">v3.0.8</span>
           </div>
           <button
             onClick={() => setDrawerOpen(false)}
