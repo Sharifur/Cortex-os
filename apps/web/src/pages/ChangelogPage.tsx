@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v3.5.3',
+    date: '2026-05-03',
+    entries: [
+      { tag: 'feat', scope: 'livechat', description: 'Translate button always visible on all messages — removed hover-only opacity for visitor messages; added translate button and translation display to agent/AI message bubbles so operators can translate in both directions' },
+    ],
+  },
+  {
     version: 'v3.5.2',
     date: '2026-05-03',
     entries: [

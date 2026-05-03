@@ -2503,7 +2503,7 @@ function MessageBubble({
               <button
                 onClick={onTranslate}
                 disabled={isTranslating}
-                className="opacity-0 group-hover:opacity-100 transition-opacity ml-1 hover:text-blue-400 disabled:opacity-50"
+                className="ml-1 hover:text-blue-400 disabled:opacity-50"
                 title="Translate to English"
               >
                 {isTranslating ? <span className="text-[9px]">…</span> : <Languages className="w-3 h-3" />}
@@ -2552,6 +2552,12 @@ function MessageBubble({
           />
         )}
         {attachmentBlock}
+        {translation && (
+          <div className="mt-1 text-[11px] text-muted-foreground bg-muted/30 border border-border rounded-lg px-2.5 py-1.5 italic text-right">
+            <span className="not-italic text-[10px] font-medium uppercase tracking-wide text-blue-400 mr-1">EN</span>
+            {translation}
+          </div>
+        )}
         {!isPending && (
           <div className="flex items-center justify-end gap-1 mt-0.5 pr-1">
             <span className="text-[10px] text-muted-foreground">{formatMessageTime(message.createdAt)}</span>
@@ -2559,6 +2565,16 @@ function MessageBubble({
               ? <CheckCheck className="w-3.5 h-3.5 text-green-500 shrink-0" />
               : <Check className="w-3.5 h-3.5 text-muted-foreground/50 shrink-0" />
             }
+            {!translation && onTranslate && (
+              <button
+                onClick={onTranslate}
+                disabled={isTranslating}
+                className="hover:text-blue-400 disabled:opacity-50"
+                title="Translate to English"
+              >
+                {isTranslating ? <span className="text-[9px]">…</span> : <Languages className="w-3 h-3" />}
+              </button>
+            )}
             {onReply && (
               <button onClick={() => onReply(message)} className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded text-muted-foreground hover:text-foreground" title="Reply">
                 <CornerUpLeft className="w-3 h-3" />
