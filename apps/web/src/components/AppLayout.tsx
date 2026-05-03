@@ -280,7 +280,7 @@ function Sidebar({
           <>
             <Bot className="w-5 h-5 text-primary shrink-0" />
             <span className="font-semibold text-sm">Cortex OS</span>
-            <span className="text-muted-foreground text-xs">v3.1.1</span>
+            <span className="text-muted-foreground text-xs">v3.1.2</span>
             {onToggleCollapse && (
               <button
                 onClick={onToggleCollapse}
@@ -471,7 +471,7 @@ export default function AppLayout() {
           <div className="flex items-center gap-2">
             <Bot className="w-5 h-5 text-primary" />
             <span className="font-semibold text-sm">Cortex OS</span>
-            <span className="text-muted-foreground text-xs">v3.1.1</span>
+            <span className="text-muted-foreground text-xs">v3.1.2</span>
           </div>
           <button
             onClick={() => setDrawerOpen(false)}
@@ -533,7 +533,7 @@ export default function AppLayout() {
             <UserMenu />
           </div>
         </header>
-        <main className="flex-1 overflow-auto">
+        <main className={`flex-1 ${/\/agents\/[^/]+\/chat/.test(location.pathname) ? 'overflow-hidden' : 'overflow-auto'}`}>
           <Outlet />
         </main>
       </div>
