@@ -96,11 +96,9 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
         { command: 'cancel', description: 'Cancel the pending reminder I asked you about' },
       ]).catch((err: Error) => this.logger.warn(`setMyCommands failed: ${err.message}`));
 
-      if (process.env.NODE_ENV !== 'production') {
-        this.bot.start().catch((err: Error) =>
-          this.logger.error(`Bot polling error: ${err.message}`),
-        );
-      }
+      this.bot.start().catch((err: Error) =>
+        this.logger.error(`Bot polling error: ${err.message}`),
+      );
       this.logger.log('Telegram bot started');
     } catch (err) {
       this.logger.error(`Failed to init Telegram bot: ${(err as Error).message}`);

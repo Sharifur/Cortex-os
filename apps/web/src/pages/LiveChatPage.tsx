@@ -2544,39 +2544,54 @@ function MessageBubble({
   );
 }
 
-function Linkified({ text, dark }: { text: string; dark: boolean }) {
-  const parts: (string | { url: string; tail: string })[] = [];
-  const re = /(https?:\/\/[^\s<]+)/g;
-  let lastIdx = 0;
+type InlineToken =
+  | { kind: 'text'; value: string }
+  | { kind: 'bold'; value: string }
+  | { kind: 'italic'; value: string }
+  | { kind: 'code'; value: string }
+  | { kind: 'url'; url: string; tail: string };
+
+function tokenize(text: string): InlineToken[] {
+  const tokens: InlineToken[] = [];
+  const re = /(\*\*(.+?)\*\*|\*(.+?)\*|`([^`]+)`|(https?:\/\/[^\s<]+))/gs;
+  let last = 0;
   let m: RegExpExecArray | null;
   while ((m = re.exec(text)) !== null) {
-    if (m.index > lastIdx) parts.push(text.slice(lastIdx, m.index));
-    const url = m[0];
-    const trailMatch = url.match(/[.,;:!?)]+$/);
-    const tail = trailMatch ? trailMatch[0] : '';
-    parts.push({ url: tail ? url.slice(0, -tail.length) : url, tail });
-    lastIdx = m.index + url.length;
+    if (m.index > last) tokens.push({ kind: 'text', value: text.slice(last, m.index) });
+    if (m[2] !== undefined) {
+      tokens.push({ kind: 'bold', value: m[2] });
+    } else if (m[3] !== undefined) {
+      tokens.push({ kind: 'italic', value: m[3] });
+    } else if (m[4] !== undefined) {
+      tokens.push({ kind: 'code', value: m[4] });
+    } else if (m[5] !== undefined) {
+      const url = m[5];
+      const trailMatch = url.match(/[.,;:!?)]+$/);
+      const tail = trailMatch ? trailMatch[0] : '';
+      tokens.push({ kind: 'url', url: tail ? url.slice(0, -tail.length) : url, tail });
+    }
+    last = m.index + m[0].length;
   }
-  if (lastIdx < text.length) parts.push(text.slice(lastIdx));
+  if (last < text.length) tokens.push({ kind: 'text', value: text.slice(last) });
+  return tokens;
+}
+
+function Linkified({ text, dark }: { text: string; dark: boolean }) {
+  const tokens = tokenize(text);
   return (
     <>
-      {parts.map((p, i) =>
-        typeof p === 'string' ? (
-          <span key={i}>{p}</span>
-        ) : (
+      {tokens.map((t, i) => {
+        if (t.kind === 'bold') return <strong key={i}>{t.value}</strong>;
+        if (t.kind === 'italic') return <em key={i}>{t.value}</em>;
+        if (t.kind === 'code') return <code key={i} className="rounded px-1 py-0.5 text-[0.8em] bg-black/20 font-mono">{t.value}</code>;
+        if (t.kind === 'url') return (
           <span key={i}>
-            <a
-              href={p.url}
-              target="_blank"
-              rel="noopener noreferrer nofollow"
-              className={`underline ${dark ? 'text-white' : 'text-blue-600'}`}
-            >
-              {p.url}
-            </a>
-            {p.tail}
+            <a href={t.url} target="_blank" rel="noopener noreferrer nofollow" className={`underline ${dark ? 'text-white' : 'text-blue-600'}`}>{t.url}</a>
+            {t.tail}
           </span>
-        ),
-      )}
+        );
+        return <span key={i}>{t.value}</span>;
+      })}
     </>
   );
 }
