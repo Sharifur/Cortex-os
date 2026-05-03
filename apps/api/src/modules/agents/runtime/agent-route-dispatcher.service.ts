@@ -64,7 +64,8 @@ export class AgentRouteDispatcherService implements OnApplicationBootstrap {
             this.logger.error(
               `Agent route error [${agent.key} ${route.method} ${route.path}]: ${err}`,
             );
-            reply.status(500).send({ error: 'Internal server error' });
+            const msg = err instanceof Error ? err.message : String(err);
+            reply.status(500).send({ ok: false, error: msg });
           }
         };
 

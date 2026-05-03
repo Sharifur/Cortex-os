@@ -28,8 +28,10 @@ interface Task {
   status: 'pending' | 'running' | 'awaiting_approval' | 'done' | 'failed';
   output: unknown | null;
   runId: string | null;
-  recurrence: 'daily' | 'weekly' | 'weekdays' | null;
+  recurrence: 'daily' | 'weekly' | 'weekdays' | 'monthly' | null;
   recurrenceTime: string | null;
+  recurrenceDow: number | null;
+  recurrenceDom: number | null;
   nextRunAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -67,11 +69,28 @@ const STATUS_LABEL: Record<string, string> = {
   failed: 'Failed',
 };
 
-const RECURRENCE_LABEL: Record<string, string> = {
-  daily: 'Daily',
-  weekly: 'Weekly',
-  weekdays: 'Weekdays',
-};
+const DOW_LABEL = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const DOW_FULL  = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+function recurrenceLabel(task: Pick<Task, 'recurrence' | 'recurrenceDow' | 'recurrenceDom'>): string {
+  if (!task.recurrence) return '';
+  if (task.recurrence === 'daily') return 'Daily';
+  if (task.recurrence === 'weekdays') return 'Weekdays';
+  if (task.recurrence === 'weekly') {
+    return task.recurrenceDow !== null && task.recurrenceDow !== undefined
+      ? `Every ${DOW_FULL[task.recurrenceDow]}`
+      : 'Weekly';
+  }
+  if (task.recurrence === 'monthly') {
+    if (task.recurrenceDom !== null && task.recurrenceDom !== undefined) {
+      const d = task.recurrenceDom;
+      const suffix = d === 1 || d === 21 || d === 31 ? 'st' : d === 2 || d === 22 ? 'nd' : d === 3 || d === 23 ? 'rd' : 'th';
+      return `Monthly (${d}${suffix})`;
+    }
+    return 'Monthly';
+  }
+  return task.recurrence;
+}
 
 function agentLabel(key: string) {
   return AGENT_OPTIONS.find((a) => a.key === key)?.label ?? key;
@@ -195,7 +214,7 @@ function TaskCard({
               {task.recurrence && task.recurrenceTime && (
                 <span className="text-xs px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-400 font-medium flex items-center gap-1">
                   <RefreshCw className="w-3 h-3" />
-                  {RECURRENCE_LABEL[task.recurrence]} {formatRecurrenceTime(task.recurrenceTime)}
+                  {recurrenceLabel(task)} {formatRecurrenceTime(task.recurrenceTime)}
                 </span>
               )}
               {task.nextRunAt && (
@@ -256,11 +275,13 @@ interface CreateForm {
   agentKey: string;
   instructions: string;
   recurring: boolean;
-  recurrence: 'daily' | 'weekly' | 'weekdays';
+  recurrence: 'daily' | 'weekly' | 'weekdays' | 'monthly';
   recurrenceTimeDhaka: string;
+  recurrenceDow: number;   // 0=Sun … 6=Sat (weekly)
+  recurrenceDom: number;   // 1–31 (monthly)
   scheduleMode: ScheduleMode;
-  scheduledDate: string; // YYYY-MM-DD local
-  scheduledTime: string; // HH:MM local (Dhaka)
+  scheduledDate: string;
+  scheduledTime: string;
 }
 
 function CreateTaskPanel({
@@ -288,6 +309,8 @@ function CreateTaskPanel({
     recurring: false,
     recurrence: 'daily',
     recurrenceTimeDhaka: '09:00',
+    recurrenceDow: 1,   // Monday
+    recurrenceDom: 1,
     scheduleMode: 'now',
     scheduledDate: defaultDate,
     scheduledTime: defaultTime,
@@ -323,6 +346,8 @@ function CreateTaskPanel({
     if (form.recurring) {
       body.recurrence = form.recurrence;
       body.recurrenceTime = dhakaToUtcTime(form.recurrenceTimeDhaka);
+      if (form.recurrence === 'weekly') body.recurrenceDow = form.recurrenceDow;
+      if (form.recurrence === 'monthly') body.recurrenceDom = form.recurrenceDom;
     } else if (form.scheduleMode === 'now') {
       body.runNow = true;
     } else if (form.scheduleMode === 'scheduled') {
@@ -401,28 +426,73 @@ function CreateTaskPanel({
           <span className="text-sm">Recurring</span>
         </div>
         {form.recurring && (
-          <div className="flex items-center gap-3">
-            <div className="flex-1">
-              <label className="text-xs font-medium text-muted-foreground mb-1 block">Repeat</label>
-              <select
-                value={form.recurrence}
-                onChange={(e) => set('recurrence', e.target.value as CreateForm['recurrence'])}
-                className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
-              >
-                <option value="daily">Daily</option>
-                <option value="weekly">Weekly</option>
-                <option value="weekdays">Weekdays</option>
-              </select>
+          <div className="space-y-3">
+            <div className="flex items-center gap-3">
+              <div className="flex-1">
+                <label className="text-xs font-medium text-muted-foreground mb-1 block">Repeat</label>
+                <select
+                  value={form.recurrence}
+                  onChange={(e) => set('recurrence', e.target.value as CreateForm['recurrence'])}
+                  className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                >
+                  <option value="daily">Every day</option>
+                  <option value="weekly">Every week</option>
+                  <option value="weekdays">Weekdays (Mon–Fri)</option>
+                  <option value="monthly">Every month</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-muted-foreground mb-1 block">Time (Dhaka)</label>
+                <Input
+                  type="time"
+                  value={form.recurrenceTimeDhaka}
+                  onChange={(e) => set('recurrenceTimeDhaka', e.target.value)}
+                  className="text-sm w-32"
+                />
+              </div>
             </div>
-            <div>
-              <label className="text-xs font-medium text-muted-foreground mb-1 block">Time (Dhaka)</label>
-              <Input
-                type="time"
-                value={form.recurrenceTimeDhaka}
-                onChange={(e) => set('recurrenceTimeDhaka', e.target.value)}
-                className="text-sm w-32"
-              />
-            </div>
+            {form.recurrence === 'weekly' && (
+              <div>
+                <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Day of week</label>
+                <div className="flex gap-1.5 flex-wrap">
+                  {DOW_LABEL.map((label, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => set('recurrenceDow', idx)}
+                      className={`px-2.5 py-1 rounded-md text-xs font-medium border transition-colors ${
+                        form.recurrenceDow === idx
+                          ? 'bg-primary text-primary-foreground border-primary'
+                          : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground/30'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {form.recurrence === 'monthly' && (
+              <div>
+                <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Day of month</label>
+                <div className="flex gap-1 flex-wrap">
+                  {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
+                    <button
+                      key={d}
+                      type="button"
+                      onClick={() => set('recurrenceDom', d)}
+                      className={`w-8 h-8 rounded-md text-xs font-medium border transition-colors ${
+                        form.recurrenceDom === d
+                          ? 'bg-primary text-primary-foreground border-primary'
+                          : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground/30'
+                      }`}
+                    >
+                      {d}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
         {!form.recurring && (

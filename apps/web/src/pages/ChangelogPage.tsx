@@ -16,6 +16,28 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v3.0.0',
+    date: '2026-05-03',
+    entries: [
+      { tag: 'feat', scope: 'tasks', description: 'Weekly recurrence now has a day-of-week picker (Mon–Sun); monthly recurrence added with a day-of-month picker (1–31)' },
+      { tag: 'feat', scope: 'tasks', description: 'Telegram reminder sent ~1 hour before any scheduled or recurring task runs; reminder_sent_at tracked in DB to avoid duplicates, reset on each rescheduling cycle' },
+    ],
+  },
+  {
+    version: 'v2.9.4',
+    date: '2026-05-03',
+    entries: [
+      { tag: 'fix', scope: 'hr', description: 'HR test-connection errors now appear in debug logs — removed internal error swallowing so failures propagate as 500 with the real error message; dispatcher catch block sends actual error text instead of generic message' },
+    ],
+  },
+  {
+    version: 'v2.9.3',
+    date: '2026-05-03',
+    entries: [
+      { tag: 'fix', scope: 'kb', description: 'Live Chat site scope selector now appears in the Import tab (document and URL) when livechat agent is selected, matching behaviour of the Add Entry modal' },
+    ],
+  },
+  {
     version: 'v2.9.2',
     date: '2026-05-02',
     entries: [

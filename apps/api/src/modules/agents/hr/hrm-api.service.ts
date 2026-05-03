@@ -206,14 +206,8 @@ export class HrmApiService {
     });
   }
 
-  async testConnection(): Promise<{ ok: boolean; employeeCount?: number; error?: string }> {
-    try {
-      const result = await this.getEmployees({ active: 'true' });
-      return { ok: true, employeeCount: result.total };
-    } catch (err) {
-      const msg = err instanceof HrmApiError ? err.message : String(err);
-      this.logger.warn(`HRM connection test failed: ${msg}`);
-      return { ok: false, error: msg };
-    }
+  async testConnection(): Promise<{ ok: boolean; employeeCount?: number }> {
+    const result = await this.getEmployees({ active: 'true' });
+    return { ok: true, employeeCount: result.total };
   }
 }

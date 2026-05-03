@@ -1,7 +1,8 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { eq, desc, lte, and, sql } from 'drizzle-orm';
+import { eq, desc, lte, and, sql, isNull, between } from 'drizzle-orm';
 import { DbService } from '../../db/db.service';
 import { AgentRuntimeService } from '../agents/runtime/agent-runtime.service';
+import { TelegramService } from '../telegram/telegram.service';
 import { tasks } from '../../db/schema';
 import { computeNextRunAt } from './task.utils';
 
@@ -11,8 +12,10 @@ interface CreateTaskDto {
   agentKey: string;
   recurrence?: string;
   recurrenceTime?: string;
+  recurrenceDow?: number | null;
+  recurrenceDom?: number | null;
   runNow?: boolean;
-  scheduledAt?: string; // ISO string for one-time scheduled tasks
+  scheduledAt?: string;
 }
 
 interface UpdateTaskDto {
@@ -21,6 +24,8 @@ interface UpdateTaskDto {
   agentKey?: string;
   recurrence?: string | null;
   recurrenceTime?: string | null;
+  recurrenceDow?: number | null;
+  recurrenceDom?: number | null;
   nextRunAt?: Date | null;
 }
 
@@ -29,6 +34,7 @@ export class TasksService {
   constructor(
     private db: DbService,
     private runtime: AgentRuntimeService,
+    private telegram: TelegramService,
   ) {}
 
   list() {
@@ -44,7 +50,7 @@ export class TasksService {
   async create(dto: CreateTaskDto) {
     const nextRunAt =
       dto.recurrence && dto.recurrenceTime
-        ? computeNextRunAt(dto.recurrence, dto.recurrenceTime)
+        ? computeNextRunAt(dto.recurrence, dto.recurrenceTime, dto.recurrenceDow, dto.recurrenceDom)
         : dto.scheduledAt
           ? new Date(dto.scheduledAt)
           : null;
@@ -57,6 +63,8 @@ export class TasksService {
         agentKey: dto.agentKey,
         recurrence: dto.recurrence ?? null,
         recurrenceTime: dto.recurrenceTime ?? null,
+        recurrenceDow: dto.recurrenceDow ?? null,
+        recurrenceDom: dto.recurrenceDom ?? null,
         nextRunAt,
       })
       .returning();
@@ -109,10 +117,10 @@ export class TasksService {
     const task = await this.get(taskId);
 
     if (task.recurrence && task.recurrenceTime) {
-      const nextRunAt = computeNextRunAt(task.recurrence, task.recurrenceTime);
+      const nextRunAt = computeNextRunAt(task.recurrence, task.recurrenceTime, task.recurrenceDow, task.recurrenceDom);
       await this.db.db
         .update(tasks)
-        .set({ status: 'pending', nextRunAt, updatedAt: new Date() })
+        .set({ status: 'pending', nextRunAt, reminderSentAt: null, updatedAt: new Date() })
         .where(eq(tasks.id, taskId));
     } else {
       await this.db.db
@@ -127,7 +135,8 @@ export class TasksService {
 
     const update: Record<string, unknown> = { status: 'failed', updatedAt: new Date() };
     if (task.recurrence && task.recurrenceTime) {
-      update.nextRunAt = computeNextRunAt(task.recurrence, task.recurrenceTime);
+      update.nextRunAt = computeNextRunAt(task.recurrence, task.recurrenceTime, task.recurrenceDow, task.recurrenceDom);
+      update.reminderSentAt = null;
     }
 
     await this.db.db.update(tasks).set(update).where(eq(tasks.id, taskId));
@@ -135,6 +144,33 @@ export class TasksService {
 
   async processDueTasks() {
     const now = new Date();
+
+    // Send Telegram reminder for tasks running in ~1 hour (55–65 min window)
+    const reminderFrom = new Date(now.getTime() + 55 * 60_000);
+    const reminderTo   = new Date(now.getTime() + 65 * 60_000);
+    const upcoming = await this.db.db
+      .select()
+      .from(tasks)
+      .where(
+        and(
+          eq(tasks.status, 'pending'),
+          isNull(tasks.reminderSentAt),
+          between(tasks.nextRunAt, reminderFrom, reminderTo),
+        ),
+      );
+    for (const task of upcoming) {
+      const when = task.nextRunAt
+        ? task.nextRunAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        : 'soon';
+      await this.telegram.sendMessage(
+        `Reminder: task "${task.title}" (${task.agentKey}) runs in ~1 hour at ${when}.`,
+      ).catch(() => {});
+      await this.db.db
+        .update(tasks)
+        .set({ reminderSentAt: now })
+        .where(eq(tasks.id, task.id));
+    }
+
     const due = await this.db.db
       .select()
       .from(tasks)

@@ -2311,7 +2311,11 @@ function HrSetupSubTab({ agent, token }: { agent: AgentDetail; token: string }) 
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
-      setTestResult(data);
+      if (!res.ok) {
+        setTestResult({ ok: false, error: data.error ?? `HTTP ${res.status}` });
+      } else {
+        setTestResult(data);
+      }
     } catch {
       setTestResult({ ok: false, error: 'Network error — could not reach the server' });
     } finally {
