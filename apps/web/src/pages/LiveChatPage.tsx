@@ -146,6 +146,12 @@ interface AttachmentSummary {
   url: string;
 }
 
+interface KbSource {
+  id: string;
+  title: string;
+  entryType: string;
+}
+
 interface MessageRow {
   id: string;
   sessionId: string;
@@ -157,6 +163,7 @@ interface MessageRow {
   pendingApproval?: boolean;
   replyToId?: string | null;
   replyToContent?: string | null;
+  metadata?: { kbSources?: KbSource[] } | null;
 }
 
 interface SessionDetail {
@@ -2410,6 +2417,36 @@ function ComposerTab({ active, disabled, onClick, children }: { active?: boolean
   );
 }
 
+function KbSourcesPanel({ sources }: { sources: KbSource[] }) {
+  const [open, setOpen] = useState(false);
+  const entryColor = (t: string) => {
+    if (t === 'product' || t === 'service' || t === 'offer') return 'text-cyan-400';
+    if (t === 'fact') return 'text-purple-400';
+    return 'text-blue-400';
+  };
+  return (
+    <div className="mt-1 text-right">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="text-[10px] text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+        title="KB sources used for this reply"
+      >
+        {open ? 'hide kb sources' : `kb: ${sources.length} source${sources.length === 1 ? '' : 's'}`}
+      </button>
+      {open && (
+        <div className="mt-1 rounded-lg border border-border bg-muted/20 px-2.5 py-2 text-left space-y-1">
+          {sources.map((s) => (
+            <div key={s.id} className="flex items-center gap-1.5 text-[11px]">
+              <span className={`shrink-0 font-medium ${entryColor(s.entryType)}`}>[{s.entryType}]</span>
+              <span className="text-muted-foreground truncate">{s.title}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function MessageBubble({
   message,
   visitorName,
@@ -2627,6 +2664,9 @@ function MessageBubble({
               </button>
             </div>
           </div>
+        )}
+        {isAi && message.metadata?.kbSources && message.metadata.kbSources.length > 0 && (
+          <KbSourcesPanel sources={message.metadata.kbSources} />
         )}
         {isPending && (
           <div className="flex items-center justify-end gap-1.5 mt-1.5 text-xs">

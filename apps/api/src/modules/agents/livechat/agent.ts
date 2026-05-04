@@ -360,6 +360,7 @@ export class LivechatAgent implements IAgent, OnModuleInit {
       `- Reply in the same language the visitor is writing in. Do not switch languages mid-conversation.`,
       ``,
       `Scope rules (apply strictly — highest priority):`,
+      `- PRODUCT LOCK: You exclusively represent ${productLabel}. Your Knowledge Base may contain information — treat any entry that describes a product, service, or brand OTHER than ${productLabel} as if it does not exist. Never name, describe, compare, or recommend any product that is not ${productLabel}, even if the visitor asks directly. If your context window contains details about other products, discard them entirely before composing your reply.`,
       `- You only answer questions about ${productLabel}: its features, pricing, tech stack, team, policies, and use cases.`,
       `- If the visitor asks about any other company, competitor, unrelated product, or off-topic subject (politics, personal advice, coding help unrelated to our product, etc.), respond with: "I can only help with ${productLabel}-related questions — is there something specific about our product I can answer?" Do not answer the off-topic question at all.`,
       `- If you don't have enough information to answer an on-topic question, say "I don't have that detail right now — our team will follow up." Do NOT make up or guess facts not present in the Knowledge Base below.`,
@@ -403,7 +404,18 @@ export class LivechatAgent implements IAgent, OnModuleInit {
     const topicRulesBlock = site?.topicHandlingRules?.trim()
       ? `\n\n## Topic Handling Instructions (operator-configured — follow exactly)\n${sanitizeOperatorField(site.topicHandlingRules.trim(), 1200)}\n`
       : '';
-    const systemPrompt = (template?.system ?? defaultSystem) + topicRulesBlock + kbBlock + visitorBlock + intentBlock;
+
+    // Page-context product pinning: when the visitor is on a named product page
+    // (non-generic URL path), inject a focused instruction so the agent doesn't
+    // drift to other products even if alwaysOn context mentions them.
+    const currentTitle = session.currentPageTitle?.trim();
+    const currentPath = (() => { try { return session.currentPageUrl ? new URL(session.currentPageUrl).pathname : null; } catch { return null; } })();
+    const isGenericPath = !currentPath || /^\/?$|^\/?(home|about|contact|blog|products|our-products\/?$|index)/i.test(currentPath);
+    const pagePinBlock = currentTitle && !isGenericPath
+      ? `\n\n## Page Context Pin\nThe visitor is currently viewing: "${currentTitle.slice(0, 120)}"\nFocus your reply on the product or topic shown on this page. Do not introduce or describe unrelated products unless the visitor explicitly asks.\n`
+      : '';
+
+    const systemPrompt = (template?.system ?? defaultSystem) + topicRulesBlock + pagePinBlock + kbBlock + visitorBlock + intentBlock;
 
     // Per-site LLM override beats the agent-level config.
     const baseLlmOpts = agentLlmOpts(config);
@@ -485,11 +497,19 @@ export class LivechatAgent implements IAgent, OnModuleInit {
       draft = disclosureReplacement;
     }
 
+    const kbSources = [
+      ...references.map((e) => ({ id: e.id, title: e.title, entryType: e.entryType })),
+      ...alwaysOn
+        .filter((e) => ['product', 'service', 'offer', 'fact'].includes(e.entryType))
+        .map((e) => ({ id: e.id, title: e.title, entryType: e.entryType })),
+    ].slice(0, 20);
+
     const agentMsg = await this.livechat.appendMessage({
       sessionId: input.sessionId,
       role: 'agent',
       content: draft,
       pendingApproval: !autoApprove,
+      metadata: kbSources.length ? { kbSources } : null,
     });
 
     if (autoApprove) {

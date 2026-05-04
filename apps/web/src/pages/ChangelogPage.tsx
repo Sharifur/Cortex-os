@@ -16,6 +16,17 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v3.7.0',
+    date: '2026-05-04',
+    entries: [
+      { tag: 'feat', scope: 'livechat', description: 'KB debug panel — every AI reply in the operator panel now shows a "kb: N sources" button below the bubble; click to expand a list of KB entry titles and types (product, fact, reference) that were retrieved to generate that reply; aids diagnosing wrong-site or wrong-product answers' },
+      { tag: 'feat', scope: 'livechat', description: 'Page-context product pinning — when the visitor is on a named product page (non-generic URL), the agent system prompt is pinned to that page title so replies stay focused on the product shown, not other products in context' },
+      { tag: 'feat', scope: 'livechat', description: 'PRODUCT LOCK rule added to system prompt — agent is now explicitly instructed to treat KB entries about other brands as non-existent, even if they slip into context; provides a hard backstop against cross-site product contamination independent of KB filtering' },
+      { tag: 'feat', scope: 'kb', description: 'Untagged entry warning in KB admin — entries with the livechat agent selected but no site key set now show a yellow "no site — inactive" badge; entries without a site key are silently excluded from all livechat sessions after the strict site filter deployed in v3.6.2' },
+      { tag: 'chore', scope: 'db', description: 'Migration 0051: added metadata jsonb column to livechat_messages for KB source tracking' },
+    ],
+  },
+  {
     version: 'v3.6.2',
     date: '2026-05-04',
     entries: [
