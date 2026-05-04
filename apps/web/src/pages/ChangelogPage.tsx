@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v3.8.10',
+    date: '2026-05-04',
+    entries: [
+      { tag: 'fix', scope: 'livechat', description: 'KB Gaps — commit missing deleteKbGap service method so DELETE /agents/livechat/kb-gaps/:id resolves; fixes Dismiss button 404 and Answer+save flow returning "Failed to save"' },
+    ],
+  },
+  {
     version: 'v3.8.9',
     date: '2026-05-04',
     entries: [
