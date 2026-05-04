@@ -28,6 +28,7 @@ interface VisitorMessage {
 }
 
 const MESSAGES_KEY = 'livechat_messages_cache_v2';
+const CACHE_BUST_KEY = 'livechat_cache_bust';
 const SESSION_KEY = 'livechat_session_id';
 const IDENTIFY_DISMISSED_KEY = 'livechat_identify_dismissed'; // legacy, retained to not re-prompt loyal visitors
 const IDENTIFY_NAME_KEY = 'livechat_identify_name';            // 'saved' | 'skipped' | <stored name>
@@ -39,6 +40,7 @@ const RATE_LIMIT_WINDOW_MS = 60_000;
 const EMAIL_PROMPT_AFTER_VISITOR_MSGS = 3;
 
 export function mountWidget(cfg: WidgetConfig, siteConfig: SiteConfigResponse = DEFAULT_SITE_CONFIG) {
+  applyServerCacheBust(cfg.siteKey, siteConfig.cacheBust);
   const pageLoadTime = Date.now();
   const host = document.createElement('div');
   host.id = 'livechat-widget-root';
@@ -1409,6 +1411,17 @@ function readSessionId(): string | null {
 function writeSessionId(id: string) {
   try { localStorage.setItem(SESSION_KEY, id); } catch {}
 }
+function applyServerCacheBust(siteKey: string, serverBust: string | null | undefined) {
+  if (!serverBust) return;
+  try {
+    const stored = localStorage.getItem(`${CACHE_BUST_KEY}_${siteKey}`);
+    if (stored !== serverBust) {
+      localStorage.removeItem(MESSAGES_KEY);
+      localStorage.setItem(`${CACHE_BUST_KEY}_${siteKey}`, serverBust);
+    }
+  } catch {}
+}
+
 function readCachedMessages(): VisitorMessage[] {
   try {
     const raw = localStorage.getItem(MESSAGES_KEY);

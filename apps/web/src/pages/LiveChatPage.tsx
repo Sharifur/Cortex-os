@@ -44,6 +44,7 @@ import {
   CornerUpLeft,
   Languages,
   Flag,
+  RefreshCw,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -371,6 +372,17 @@ function SitesTab() {
 
   const [editing, setEditing] = useState<Partial<Site> | null>(null);
   const [installing, setInstalling] = useState<Site | null>(null);
+  const [clearedSiteId, setClearedSiteId] = useState<string | null>(null);
+
+  const clearCacheMut = useMutation({
+    mutationFn: (siteId: string) =>
+      apiFetch(token, `/agents/livechat/sites/${siteId}/clear-cache`, { method: 'POST' }),
+    onSuccess: (_data, siteId) => {
+      qc.invalidateQueries({ queryKey: ['livechat-sites'] });
+      setClearedSiteId(siteId);
+      setTimeout(() => setClearedSiteId(null), 2500);
+    },
+  });
 
   const saveMut = useMutation({
     mutationFn: async (s: Partial<Site>) => {
@@ -462,6 +474,18 @@ function SitesTab() {
                   </div>
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => clearCacheMut.mutate(s.id)}
+                    disabled={clearCacheMut.isPending}
+                    title="Clear widget cache — forces all visitors to reload their conversation on next page visit"
+                  >
+                    {clearedSiteId === s.id
+                      ? <Check className="w-4 h-4 text-emerald-500" />
+                      : <RefreshCw className={`w-4 h-4 ${clearCacheMut.isPending ? 'animate-spin' : ''}`} />
+                    }
+                  </Button>
                   <Button size="sm" variant="ghost" onClick={() => setInstalling(s)} title="Install instructions">
                     <Code2 className="w-4 h-4" />
                   </Button>

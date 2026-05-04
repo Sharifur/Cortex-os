@@ -16,6 +16,7 @@ export interface SiteConfigResponse {
   brandColor: string;
   position: 'bottom-right' | 'bottom-left';
   requireEmail?: boolean;
+  cacheBust?: string | null;
 }
 
 export async function fetchSiteConfig(cfg: WidgetConfig): Promise<SiteConfigResponse | null> {

@@ -112,6 +112,7 @@ interface WidgetConfigResponse {
   brandColor: string;
   position: 'bottom-right' | 'bottom-left';
   requireEmail: boolean;
+  cacheBust: string | null;
 }
 
 @Controller('livechat')
@@ -145,6 +146,7 @@ export class LivechatPublicController {
       brandColor: site.brandColor || '#2563eb',
       position: site.position,
       requireEmail: site.requireEmail,
+      cacheBust: site.widgetCacheBust ?? null,
     };
   }
 
