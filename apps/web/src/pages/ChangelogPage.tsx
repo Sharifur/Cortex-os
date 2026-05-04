@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v3.8.9',
+    date: '2026-05-04',
+    entries: [
+      { tag: 'feat', scope: 'kb', description: 'Correction-to-KB — LLM now synthesizes a proper Q&A reference entry from operator corrections; visitor question sourced from replyToContent; siteKey resolved from session and scoped on the KB entry; category (faq/product/policy/general) and sourceType (correction) stored so entries are filterable; correction entries saved at priority 80' },
+    ],
+  },
+  {
     version: 'v3.8.8',
     date: '2026-05-04',
     entries: [

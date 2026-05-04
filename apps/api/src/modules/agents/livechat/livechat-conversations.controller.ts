@@ -233,11 +233,22 @@ export class LivechatConversationsController {
     const msg = await this.livechat.getMessageById(id);
     if (!msg) throw new NotFoundException(`Message not found: ${id}`);
     if (msg.role !== 'agent') throw new BadRequestException('Only AI agent messages can be flagged');
+
+    const session = msg.sessionId ? await this.livechat.getSession(msg.sessionId) : null;
+    const siteKey = session
+      ? (await this.livechat.getSiteById(session.siteId)).key
+      : null;
+
+    const visitorQuestion = (msg.replyToContent?.trim()) || null;
+
     const result = await this.selfImprovement.proposeFromCorrection({
       agentKey: 'livechat',
       agentName: 'Live Chat',
+      visitorQuestion,
       aiMessage: msg.content,
       correction: body.correction.trim(),
+      siteKey,
+      sessionId: msg.sessionId ?? null,
     });
     return { ok: true, proposalId: result.proposalId };
   }
@@ -497,6 +508,12 @@ export class LivechatConversationsController {
   @Get('kb-gaps')
   listKbGaps(@Query('siteKey') siteKey?: string, @Query('limit') limit?: string) {
     return this.livechat.listKbGaps(siteKey, limit ? Math.min(parseInt(limit, 10), 200) : 100);
+  }
+
+  @Delete('kb-gaps/:id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async deleteKbGap(@Param('id') id: string) {
+    await this.livechat.deleteKbGap(id);
   }
 
   @Post('kb-flags')

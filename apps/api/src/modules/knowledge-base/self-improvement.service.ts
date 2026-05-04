@@ -19,7 +19,7 @@ export interface KbProposalNotifyEvent {
   text: string;
 }
 
-const PROPOSE_SYSTEM = `You are an AI knowledge base curator.
+const REJECTION_PROPOSE_SYSTEM = `You are an AI knowledge base curator.
 Given a rejected AI draft and the reason it was rejected, propose ONE knowledge base entry to prevent this mistake in future.
 
 Choose the most appropriate type:
@@ -30,10 +30,31 @@ Choose the most appropriate type:
 Return JSON only — no markdown, no explanation:
 {
   "entryType": "fact" | "blocklist" | "writing_sample",
+  "category": "general" | "product" | "policy" | "faq",
   "title": "short descriptive title (max 8 words)",
   "content": "the actual rule, fact, or example text",
   "polarity": "negative",
   "reasoning": "one sentence: why this entry prevents the mistake"
+}`;
+
+const CORRECTION_PROPOSE_SYSTEM = `You are an AI knowledge base curator for a live chat support system.
+An operator has corrected an AI response. Your job is to generate a clean, reusable Q&A knowledge base entry from this correction so the AI never makes the same mistake again.
+
+Rules:
+- Always use entryType "reference" with a Q&A format
+- The question should be a clean, generalized version of what the visitor asked (not word-for-word)
+- The answer must be accurate and complete — synthesize it from the operator's correction, not just copy it verbatim
+- If the operator correction is terse (e.g. "no, it's $29"), expand it into a full helpful answer
+- Choose the most accurate category: "faq", "product", "policy", "general"
+- Priority 80 — corrections are high-confidence entries
+
+Return JSON only — no markdown, no explanation:
+{
+  "entryType": "reference",
+  "category": "faq" | "product" | "policy" | "general",
+  "title": "short descriptive title (max 8 words)",
+  "content": "Q: [clean generalized visitor question]\\nA: [complete synthesized correct answer]",
+  "reasoning": "one sentence: what was wrong and what the correct information is"
 }`;
 
 @Injectable()
@@ -55,7 +76,7 @@ export class SelfImprovementService {
     try {
       const response = await this.llm.complete({
         messages: [
-          { role: 'system', content: PROPOSE_SYSTEM },
+          { role: 'system', content: REJECTION_PROPOSE_SYSTEM },
           {
             role: 'user',
             content: `Agent: ${agentKey}\n\nRejected draft:\n"${draft.slice(0, 500)}"\n\nRejection reason: "${reason.slice(0, 300)}"`,
@@ -63,11 +84,11 @@ export class SelfImprovementService {
         ],
         provider: 'auto',
         model: 'gpt-4o-mini',
-        maxTokens: 300,
+        maxTokens: 400,
         temperature: 0.3,
       });
 
-      let proposal: { entryType: string; title: string; content: string; polarity?: string; reasoning: string };
+      let proposal: { entryType: string; category?: string; title: string; content: string; polarity?: string; reasoning: string };
       try {
         const text = response.content.trim();
         const match = text.match(/\{[\s\S]*\}/);
@@ -87,6 +108,8 @@ export class SelfImprovementService {
           content: proposal.content,
           polarity: proposal.polarity ?? null,
           reasoning: proposal.reasoning ?? '',
+          category: proposal.category ?? 'general',
+          sourceType: 'rejection',
         })
         .returning();
 
@@ -112,29 +135,34 @@ export class SelfImprovementService {
   async proposeFromCorrection(opts: {
     agentKey: string;
     agentName: string;
+    visitorQuestion: string | null;
     aiMessage: string;
     correction: string;
+    siteKey?: string | null;
+    sessionId?: string | null;
   }): Promise<{ proposalId: string }> {
-    const { agentKey, agentName, aiMessage, correction } = opts;
+    const { agentKey, agentName, visitorQuestion, aiMessage, correction, siteKey, sessionId } = opts;
+
+    const userContent = [
+      visitorQuestion ? `Visitor asked: "${visitorQuestion.slice(0, 300)}"` : null,
+      `AI responded: "${aiMessage.slice(0, 500)}"`,
+      `Operator correction: "${correction.slice(0, 400)}"`,
+    ].filter(Boolean).join('\n\n');
 
     const response = await this.llm.complete({
       messages: [
-        { role: 'system', content: PROPOSE_SYSTEM },
-        {
-          role: 'user',
-          content: `Agent: ${agentKey}\n\nAI message that contained wrong information:\n"${aiMessage.slice(0, 500)}"\n\nOperator's correction: "${correction.slice(0, 300)}"`,
-        },
+        { role: 'system', content: CORRECTION_PROPOSE_SYSTEM },
+        { role: 'user', content: userContent },
       ],
       provider: 'auto',
       model: 'gpt-4o-mini',
-      maxTokens: 300,
-      temperature: 0.3,
+      maxTokens: 500,
+      temperature: 0.2,
     });
 
-    let proposal: { entryType: string; title: string; content: string; polarity?: string; reasoning: string };
     const raw = response.content.trim();
     const match = raw.match(/\{[\s\S]*\}/);
-    proposal = JSON.parse(match?.[0] ?? raw);
+    const proposal: { entryType: string; category?: string; title: string; content: string; reasoning: string } = JSON.parse(match?.[0] ?? raw);
     if (!proposal.entryType || !proposal.title || !proposal.content) throw new Error('LLM returned incomplete proposal');
 
     const [row] = await this.db.db
@@ -144,29 +172,34 @@ export class SelfImprovementService {
         proposedEntryType: proposal.entryType,
         title: proposal.title,
         content: proposal.content,
-        polarity: proposal.polarity ?? null,
+        polarity: null,
         reasoning: proposal.reasoning ?? '',
+        category: proposal.category ?? 'faq',
+        sourceType: 'correction',
+        siteKey: siteKey ?? null,
+        sessionId: sessionId ?? null,
       })
       .returning();
 
-    const typeLabel = { fact: 'Fact', blocklist: 'Blocklist rule', writing_sample: 'Negative example' }[proposal.entryType] ?? proposal.entryType;
+    const siteLabel = siteKey ? ` (site: \`${siteKey}\`)` : '';
     const text = [
       `*Operator Correction — KB Proposal*`,
-      `Agent: *${agentName}* (\`${agentKey}\`)`,
+      `Agent: *${agentName}* (\`${agentKey}\`)${siteLabel}`,
       ``,
-      `AI said: _"${aiMessage.slice(0, 150)}"_`,
-      `Correction: "${correction.slice(0, 150)}"`,
+      visitorQuestion ? `Visitor asked: _"${visitorQuestion.slice(0, 120)}"_` : null,
+      `AI said: _"${aiMessage.slice(0, 120)}"_`,
+      `Correction: "${correction.slice(0, 120)}"`,
       ``,
-      `Proposed ${typeLabel}: *${proposal.title}*`,
-      `_${proposal.content.slice(0, 250)}_`,
+      `Proposed Q&A entry: *${proposal.title}*`,
+      `_${proposal.content.slice(0, 300)}_`,
       ``,
       `Why: ${proposal.reasoning}`,
       ``,
       `Add this to the Knowledge Base?`,
-    ].join('\n');
+    ].filter(l => l !== null).join('\n');
 
     this.events.emit('telegram.kb_proposal', { proposalId: row.id, text } as KbProposalNotifyEvent);
-    this.logger.log(`Correction-based KB proposal created: ${row.id} for ${agentKey}`);
+    this.logger.log(`Correction-based KB proposal created: ${row.id} for ${agentKey}${siteKey ? ` site=${siteKey}` : ''}`);
     return { proposalId: row.id };
   }
 
@@ -178,20 +211,28 @@ export class SelfImprovementService {
 
     if (!proposal || proposal.status !== 'pending') return;
 
+    const category = proposal.category ?? 'general';
+    const siteKeys = proposal.siteKey ?? null;
+    const sourceType = proposal.sourceType ?? 'correction';
+
     if (proposal.proposedEntryType === 'writing_sample') {
       await this.kb.createSample({
         context: proposal.title,
         sampleText: proposal.content,
         polarity: proposal.polarity ?? 'negative',
         agentKeys: proposal.agentKey,
+        siteKeys,
       });
     } else {
       await this.kb.createEntry({
         title: proposal.title,
         content: proposal.content,
-        category: 'auto-learned',
+        category,
         entryType: proposal.proposedEntryType as 'fact' | 'blocklist' | 'reference' | 'voice_profile',
+        priority: sourceType === 'correction' ? 80 : 50,
         agentKeys: proposal.agentKey,
+        siteKeys,
+        sourceType,
       });
     }
 
@@ -200,7 +241,7 @@ export class SelfImprovementService {
       .set({ status: 'approved' })
       .where(eq(kbProposals.id, proposalId));
 
-    this.logger.log(`KB proposal approved and added: ${proposal.title} (${proposal.proposedEntryType}) for ${proposal.agentKey}`);
+    this.logger.log(`KB proposal approved: ${proposal.title} (${proposal.proposedEntryType}) agent=${proposal.agentKey} site=${proposal.siteKey ?? 'global'}`);
   }
 
   async rejectProposal(proposalId: string): Promise<void> {
