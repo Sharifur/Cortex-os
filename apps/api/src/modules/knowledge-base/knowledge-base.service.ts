@@ -44,9 +44,11 @@ export class KnowledgeBaseService {
   }
 
   // Livechat KB can be site-scoped via two CSV columns:
-  //   site_keys           — include list. Empty/null means "applies to all sites".
+  //   site_keys           — include list. Must be explicitly set; empty/null means the
+  //                         entry will NOT appear in any site-specific query (prevents
+  //                         cross-site KB contamination when multiple sites are registered).
   //   excluded_site_keys  — exclude list. Empty/null means "no exclusions".
-  // Pass siteKey to include only entries that apply to that session's site.
+  // Pass siteKey to include only entries explicitly tagged with that site.
   // Pass null to limit to entries with no site scoping at all (admin filter view).
   // Omit (undefined) to fetch every entry regardless of site.
   private siteKeyWhere(siteKey?: string | null) {
@@ -54,10 +56,10 @@ export class KnowledgeBaseService {
     if (siteKey === null) {
       return sql`(site_keys IS NULL OR site_keys = '') AND (excluded_site_keys IS NULL OR excluded_site_keys = '')`;
     }
+    // Strict: only entries that explicitly list this siteKey.
+    // Entries with empty/null site_keys are excluded — they must be tagged to appear.
     const inc = sql`(
-      site_keys IS NULL
-      OR site_keys = ''
-      OR site_keys = ${siteKey}
+      site_keys = ${siteKey}
       OR site_keys LIKE ${siteKey + ',%'}
       OR site_keys LIKE ${'%,' + siteKey}
       OR site_keys LIKE ${'%,' + siteKey + ',%'}

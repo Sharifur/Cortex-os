@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v3.6.2',
+    date: '2026-05-04',
+    entries: [
+      { tag: 'fix', scope: 'kb', description: 'Cross-site KB contamination — KB entries with no site_keys set were treated as "global" and returned for every livechat site, causing products from one site (e.g. Xilancer, Influstar) to appear in replies on unrelated sites; siteKeyWhere is now strict: only entries explicitly tagged with the queried site key are returned; entries must be tagged with a site key to appear in livechat' },
+    ],
+  },
+  {
     version: 'v3.6.1',
     date: '2026-05-04',
     entries: [
