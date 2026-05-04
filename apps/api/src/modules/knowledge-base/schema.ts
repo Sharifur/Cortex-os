@@ -36,6 +36,10 @@ export const kbProposals = pgTable('kb_proposals', {
   reasoning:          text('reasoning'),
   telegramMessageId:  text('telegram_message_id'),
   status:             text('status').notNull().default('pending'),
+  siteKey:            text('site_key'),
+  sessionId:          text('session_id'),
+  category:           text('category'),
+  sourceType:         text('source_type').notNull().default('correction'),
   createdAt:          timestamp('created_at').notNull().defaultNow(),
 });
 
