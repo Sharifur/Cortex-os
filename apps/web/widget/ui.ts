@@ -671,7 +671,7 @@ function buildPanel(shadow: ShadowRoot, cfg: WidgetConfig, state: any, render: (
           ? `<img class="lc-chip-thumb" src="${escapeHtml(previewUrl)}" alt="">`
           : '';
         const label = isUploading
-          ? `${thumb}<span class="lc-chip-label lc-chip-uploading">Uploading…</span>`
+          ? `${thumb}<span class="lc-chip-label lc-chip-uploading">Uploading…</span><span class="lc-spinner"></span>`
           : `${thumb}<span class="lc-chip-label">${escapeHtml(a.originalFilename)}</span><button data-i="${i}" aria-label="Remove">×</button>`;
         return `<span class="lc-chip${isUploading ? ' lc-chip--busy' : ''}">${label}</span>`;
       })
@@ -770,8 +770,8 @@ function buildPanel(shadow: ShadowRoot, cfg: WidgetConfig, state: any, render: (
     const content = textarea.value.trim();
     const stillUploading = pendingAttachments.some((a) => a.id.startsWith('pending-'));
     const readyAttachments = pendingAttachments.filter((a) => a.url && !a.id.startsWith('pending-'));
-    if (stillUploading && !content) {
-      showToast(panel, 'Your file is still uploading — please wait or add a message.');
+    if (stillUploading) {
+      showToast(panel, 'Your image is still uploading — please wait a moment.');
       return;
     }
     if (!content && !readyAttachments.length) return;

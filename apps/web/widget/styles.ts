@@ -511,12 +511,14 @@ export const WIDGET_STYLES = `
 }
 
 /* ── Pending attachments ── */
+@keyframes lc-spin { to { transform: rotate(360deg); } }
 .lc-pending { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px 12px 0 12px; background: #fff; flex-shrink: 0; }
 .lc-chip { display: inline-flex; align-items: center; gap: 6px; background: #f3f4f6; border: 1px solid #e5e7eb; border-radius: 10px; padding: 4px 8px; font-size: 12px; color: #1f2937; max-width: 240px; }
-.lc-chip--busy { opacity: 0.6; }
+.lc-chip--busy { opacity: 0.85; border-style: dashed; }
 .lc-chip-thumb { width: 36px; height: 36px; object-fit: cover; border-radius: 6px; flex-shrink: 0; }
 .lc-chip-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.lc-chip-uploading { color: #6b7280; font-style: italic; }
+.lc-chip-uploading { color: #6b7280; }
+.lc-spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid #e5e7eb; border-top-color: #6b7280; border-radius: 50%; flex-shrink: 0; animation: lc-spin 0.8s linear infinite; }
 .lc-chip button { background: transparent; border: 0; padding: 0 0 0 2px; cursor: pointer; color: #6b7280; font-size: 14px; line-height: 1; }
 .lc-chip button:hover { color: #1f2937; }
 
