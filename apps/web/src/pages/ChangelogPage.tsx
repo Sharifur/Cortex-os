@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v3.8.5',
+    date: '2026-05-04',
+    entries: [
+      { tag: 'fix', scope: 'livechat', description: 'Operator image paste progress — uploading chips now appear immediately on paste with a thumbnail preview and spinning indicator; "Uploading…" is no longer trapped inside the completed-attachments guard so the chip is visible from the first paste; send is blocked while any upload is in flight' },
+      { tag: 'fix', scope: 'livechat-widget', description: 'Visitor image paste progress — uploading chip now shows a CSS spinner alongside the "Uploading…" label; send is blocked (with a toast) while any upload is in progress, preventing duplicate pastes' },
+    ],
+  },
+  {
     version: 'v3.8.4',
     date: '2026-05-04',
     entries: [

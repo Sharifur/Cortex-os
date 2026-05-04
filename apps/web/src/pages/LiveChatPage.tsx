@@ -45,6 +45,7 @@ import {
   Languages,
   Flag,
   RefreshCw,
+  Loader2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -1892,10 +1893,11 @@ function SessionPane({
   });
 
   const [pendingAttachments, setPendingAttachments] = useState<AttachmentSummary[]>([]);
+  const [uploadingPreviews, setUploadingPreviews] = useState<{ id: string; name: string; objectUrl: string; mimeType: string }[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const uploadMut = useMutation({
-    mutationFn: async (file: File) => {
+    mutationFn: async ({ file }: { file: File; previewId: string }) => {
       const fd = new FormData();
       fd.append('file', file, file.name);
       const res = await fetch(`/agents/livechat/sessions/${sessionId}/upload`, {
@@ -1906,8 +1908,22 @@ function SessionPane({
       if (!res.ok) throw new Error(await res.text().catch(() => 'Upload failed'));
       return (await res.json()) as AttachmentSummary;
     },
-    onSuccess: (att) => setPendingAttachments((prev) => [...prev, att]),
-    onError: handleMutationError('Upload failed'),
+    onSuccess: (att, { previewId }) => {
+      setUploadingPreviews((prev) => {
+        const p = prev.find((x) => x.id === previewId);
+        if (p) URL.revokeObjectURL(p.objectUrl);
+        return prev.filter((x) => x.id !== previewId);
+      });
+      setPendingAttachments((prev) => [...prev, att]);
+    },
+    onError: (err: Error, { previewId }) => {
+      setUploadingPreviews((prev) => {
+        const p = prev.find((x) => x.id === previewId);
+        if (p) URL.revokeObjectURL(p.objectUrl);
+        return prev.filter((x) => x.id !== previewId);
+      });
+      handleMutationError('Upload failed')(err);
+    },
   });
 
   const [replyTo, setReplyTo] = useState<{ id: string; content: string; role: string } | null>(null);
@@ -1929,6 +1945,7 @@ function SessionPane({
     onSuccess: () => {
       if (composerRef.current) composerRef.current.value = '';
       setPendingAttachments([]);
+      setUploadingPreviews((prev) => { prev.forEach((p) => URL.revokeObjectURL(p.objectUrl)); return []; });
       setReplyTo(null);
       sockRef.current?.emit('livechat:typing', { sessionId, on: false });
       if (operatorTypingTimerRef.current) clearTimeout(operatorTypingTimerRef.current);
@@ -1956,6 +1973,10 @@ function SessionPane({
   const submitOperator = async () => {
     let content = composerRef.current?.value?.trim() ?? '';
     if (!content && pendingAttachments.length === 0) return;
+    if (uploadingPreviews.length > 0) {
+      showError('Wait for uploads to finish before sending');
+      return;
+    }
     const isNote = composerTab === 'note';
     if (!isNote && autoTranslate && language && !language.startsWith('en')) {
       try {
@@ -2341,12 +2362,26 @@ function SessionPane({
                   break;
                 }
                 const named = f.name ? f : new File([f], `pasted-${Date.now()}.png`, { type: f.type });
-                uploadMut.mutate(named);
+                const previewId = `upl-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+                const objectUrl = URL.createObjectURL(named);
+                setUploadingPreviews((prev) => [...prev, { id: previewId, name: named.name, objectUrl, mimeType: named.type }]);
+                uploadMut.mutate({ file: named, previewId });
               }
             }}
           />
-          {pendingAttachments.length > 0 && (
+          {(pendingAttachments.length > 0 || uploadingPreviews.length > 0) && (
             <div className="flex flex-wrap gap-2 px-4 pb-2">
+              {uploadingPreviews.map((p) => (
+                <span key={p.id} className="inline-flex items-center gap-1.5 bg-muted/50 text-xs rounded-full px-3 py-1 text-muted-foreground">
+                  {p.mimeType.startsWith('image/') ? (
+                    <img src={p.objectUrl} className="w-4 h-4 rounded-sm object-cover flex-shrink-0" alt="" />
+                  ) : (
+                    <FileText className="w-3 h-3 flex-shrink-0" />
+                  )}
+                  <span className="max-w-[120px] truncate">{p.name}</span>
+                  <Loader2 className="w-3 h-3 animate-spin flex-shrink-0" />
+                </span>
+              ))}
               {pendingAttachments.map((a) => (
                 <span key={a.id} className="inline-flex items-center gap-1.5 bg-muted text-xs rounded-full px-3 py-1">
                   {a.mimeType.startsWith('image/') ? <ImageIcon className="w-3 h-3" /> : <FileText className="w-3 h-3" />}
@@ -2359,11 +2394,6 @@ function SessionPane({
                   </button>
                 </span>
               ))}
-              {uploadMut.isPending && (
-                <span className="inline-flex items-center gap-1.5 bg-muted/50 text-xs rounded-full px-3 py-1 text-muted-foreground">
-                  Uploading…
-                </span>
-              )}
             </div>
           )}
           <div className="flex items-center justify-between px-4 pb-3">
@@ -2385,7 +2415,10 @@ function SessionPane({
                     alert('Up to 5 files per message');
                     return;
                   }
-                  uploadMut.mutate(file);
+                  const previewId = `upl-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+                  const objectUrl = URL.createObjectURL(file);
+                  setUploadingPreviews((prev) => [...prev, { id: previewId, name: file.name, objectUrl, mimeType: file.type }]);
+                  uploadMut.mutate({ file, previewId });
                 }}
               />
               <ToolbarButton title="Attach file" onClick={() => fileInputRef.current?.click()}>
