@@ -1306,6 +1306,10 @@ export class LivechatService implements OnModuleInit {
     return q;
   }
 
+  async deleteKbGap(id: string): Promise<void> {
+    await this.db.db.delete(livechatKbGaps).where(eq(livechatKbGaps.id, id));
+  }
+
   async flagKbSource(input: {
     kbEntryId: string;
     sessionId: string;
