@@ -16,6 +16,21 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v3.8.4',
+    date: '2026-05-04',
+    entries: [
+      { tag: 'feat', scope: 'kb', description: 'KB Framework moved into Knowledge Base page as a "Framework" tab — removed standalone /kb-framework route and nav link' },
+      { tag: 'fix', scope: 'kb', description: 'KB Gaps tab 404 — GapsTab was calling /api/agents/livechat/kb-gaps (wrong prefix); changed to apiFetch so it uses /agents/livechat/kb-gaps matching the controller route' },
+    ],
+  },
+  {
+    version: 'v3.8.3',
+    date: '2026-05-04',
+    entries: [
+      { tag: 'fix', scope: 'livechat-widget', description: 'Duplicate agent messages — when Socket.io falls back to HTTP polling, the POST response can arrive before WS stream_start; the 250ms HTTP fallback would fire and push the message, then agent_stream_end would swap the draft bubble to the same messageId creating two identical bubbles; fixed by checking in agent_stream_end whether the real messageId already exists in state and removing the orphaned draft instead of duplicating it; also cleans up orphaned streaming draft bubbles when an LLM-error fallback reply arrives via a plain message event' },
+    ],
+  },
+  {
     version: 'v3.8.2',
     date: '2026-05-04',
     entries: [

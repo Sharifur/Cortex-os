@@ -189,7 +189,6 @@ const NAV = [
   { to: '/agents', icon: <Bot className="w-4 h-4" />, label: 'Agents' },
   { to: '/livechat', icon: <MessageSquare className="w-4 h-4" />, label: 'Live Chat' },
   { to: '/knowledge-base', icon: <BookOpen className="w-4 h-4" />, label: 'Knowledge' },
-  { to: '/kb-framework', icon: <BookMarked className="w-4 h-4" />, label: 'KB Framework' },
   { to: '/tasks', icon: <CheckSquare className="w-4 h-4" />, label: 'Tasks' },
   { to: '/inbox', icon: <Mail className="w-4 h-4" />, label: 'Inbox' },
   { to: '/contacts', icon: <Users className="w-4 h-4" />, label: 'Contacts' },
@@ -316,7 +315,7 @@ function Sidebar({
           <>
             <Bot className="w-5 h-5 text-primary shrink-0" />
             <span className="font-semibold text-sm">Cortex OS</span>
-            <span className="text-muted-foreground text-xs">v3.8.2</span>
+            <span className="text-muted-foreground text-xs">v3.8.4</span>
             {onToggleCollapse && (
               <button
                 onClick={onToggleCollapse}
@@ -507,7 +506,7 @@ export default function AppLayout() {
           <div className="flex items-center gap-2">
             <Bot className="w-5 h-5 text-primary" />
             <span className="font-semibold text-sm">Cortex OS</span>
-            <span className="text-muted-foreground text-xs">v3.8.2</span>
+            <span className="text-muted-foreground text-xs">v3.8.4</span>
           </div>
           <button
             onClick={() => setDrawerOpen(false)}

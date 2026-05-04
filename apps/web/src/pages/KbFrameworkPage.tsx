@@ -60,9 +60,9 @@ function Badge({ color, children }: { color: string; children: React.ReactNode }
   );
 }
 
-export default function KbFrameworkPage() {
+export function KbFrameworkContent() {
   return (
-    <div className="p-6 max-w-4xl mx-auto space-y-10">
+    <div className="space-y-10">
       <div className="flex items-start gap-3">
         <BookMarked className="w-6 h-6 text-primary mt-0.5 shrink-0" />
         <div>
@@ -315,6 +315,14 @@ saveKbGap({
           ]}
         />
       </Section>
+    </div>
+  );
+}
+
+export default function KbFrameworkPage() {
+  return (
+    <div className="p-6 max-w-4xl mx-auto">
+      <KbFrameworkContent />
     </div>
   );
 }
