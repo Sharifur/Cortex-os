@@ -87,6 +87,16 @@ function detectBot(meta: MessageBody['meta'], isFirstMessage: boolean): string |
  * original IP in their own header instead — those are checked first so
  * GeoLite2 reads the visitor's IP, not the proxy's.
  */
+function extractRequestOrigin(req: FastifyRequest): string | null {
+  const origin = req.headers.origin;
+  if (typeof origin === 'string' && origin.trim()) return origin.trim();
+  const referer = req.headers.referer ?? req.headers.referrer;
+  if (typeof referer === 'string' && referer.trim()) {
+    try { return new URL(referer.trim()).origin; } catch { /* ignore */ }
+  }
+  return null;
+}
+
 function extractClientIp(req: FastifyRequest): string | null {
   const cf = req.headers['cf-connecting-ip'];
   if (typeof cf === 'string' && cf.trim()) return cf.trim();
@@ -131,8 +141,8 @@ export class LivechatPublicController {
   @Get('config')
   async config(@Req() req: FastifyRequest, @Query('siteKey') siteKey?: string): Promise<WidgetConfigResponse> {
     if (!siteKey) throw new BadRequestException('siteKey query param is required');
-    const origin = req.headers.origin as string | undefined;
-    const site = await this.livechat.resolveSiteForRequest(siteKey, origin ?? null);
+    const origin = extractRequestOrigin(req);
+    const site = await this.livechat.resolveSiteForRequest(siteKey, origin);
     const operators = await this.livechat.getOperatorsForSite(site.key);
     const defaultOperator = operators.find((op) => op.isDefault) ?? null;
     return {
@@ -155,8 +165,8 @@ export class LivechatPublicController {
     if (!body?.siteKey || !body?.visitorId || !body?.url) {
       throw new BadRequestException('siteKey, visitorId and url are required');
     }
-    const origin = req.headers.origin as string | undefined;
-    const site = await this.livechat.resolveSiteForRequest(body.siteKey, origin ?? null);
+    const origin = extractRequestOrigin(req);
+    const site = await this.livechat.resolveSiteForRequest(body.siteKey, origin);
     const safeVisitorId = String(body.visitorId).replace(/:/g, '_').slice(0, 128);
     await this.rateLimit.check('pageview', `${site.key}:${safeVisitorId}`, 60);
 
@@ -197,8 +207,8 @@ export class LivechatPublicController {
     if (!body?.siteKey || !body?.visitorId) {
       throw new BadRequestException('siteKey and visitorId are required');
     }
-    const origin = req.headers.origin as string | undefined;
-    const site = await this.livechat.resolveSiteForRequest(body.siteKey, origin ?? null);
+    const origin = extractRequestOrigin(req);
+    const site = await this.livechat.resolveSiteForRequest(body.siteKey, origin);
     const safeVisitorId = String(body.visitorId).replace(/:/g, '_').slice(0, 128);
     await this.rateLimit.check('heartbeat', `${site.key}:${safeVisitorId}`, 120);
     const { sessionId, previousUrl, previousTitle } = await this.livechat.heartbeatVisitor({
@@ -234,8 +244,8 @@ export class LivechatPublicController {
   @Post('track/leave')
   async leave(@Req() req: FastifyRequest, @Body() body: LeaveBody) {
     if (!body?.pageviewId) throw new BadRequestException('pageviewId is required');
-    const origin = req.headers.origin as string | undefined;
-    if (body.siteKey) await this.livechat.resolveSiteForRequest(body.siteKey, origin ?? null);
+    const origin = extractRequestOrigin(req);
+    if (body.siteKey) await this.livechat.resolveSiteForRequest(body.siteKey, origin);
     await this.livechat.recordPageviewLeave(body.pageviewId);
     return { ok: true };
   }
@@ -254,8 +264,8 @@ export class LivechatPublicController {
     if (!body?.siteKey || !body?.visitorId) {
       throw new BadRequestException('siteKey and visitorId are required');
     }
-    const origin = req.headers.origin as string | undefined;
-    const site = await this.livechat.resolveSiteForRequest(body.siteKey, origin ?? null);
+    const origin = extractRequestOrigin(req);
+    const site = await this.livechat.resolveSiteForRequest(body.siteKey, origin);
     const session = await this.livechat.getSession(sessionId);
     if (!session || session.siteId !== site.id || session.visitorId !== body.visitorId) {
       // Mirror the public widget's expectation: if it's not the visitor's
@@ -281,8 +291,8 @@ export class LivechatPublicController {
   ) {
     if (!body?.siteKey || !body?.visitorId) throw new BadRequestException('siteKey and visitorId are required');
     if (body.rating !== 'up' && body.rating !== 'down') throw new BadRequestException('rating must be "up" or "down"');
-    const origin = req.headers.origin as string | undefined;
-    const site = await this.livechat.resolveSiteForRequest(body.siteKey, origin ?? null);
+    const origin = extractRequestOrigin(req);
+    const site = await this.livechat.resolveSiteForRequest(body.siteKey, origin);
     const session = await this.livechat.getSession(sessionId);
     if (!session || session.siteId !== site.id || session.visitorId !== body.visitorId) {
       // Same opaque-failure pattern as session close.
@@ -306,8 +316,8 @@ export class LivechatPublicController {
   ) {
     if (!body?.siteKey || !body?.visitorId) throw new BadRequestException('siteKey and visitorId are required');
     if (body.rating !== 'up' && body.rating !== 'down') throw new BadRequestException('rating must be "up" or "down"');
-    const origin = req.headers.origin as string | undefined;
-    const site = await this.livechat.resolveSiteForRequest(body.siteKey, origin ?? null);
+    const origin = extractRequestOrigin(req);
+    const site = await this.livechat.resolveSiteForRequest(body.siteKey, origin);
     const session = await this.livechat.getSession(sessionId);
     if (!session || session.siteId !== site.id || session.visitorId !== body.visitorId) return { ok: true };
     await this.livechat.rateMessage(messageId, sessionId, body.rating);
@@ -324,8 +334,8 @@ export class LivechatPublicController {
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       throw new BadRequestException('Invalid email address');
     }
-    const origin = req.headers.origin as string | undefined;
-    const site = await this.livechat.resolveSiteForRequest(body.siteKey, origin ?? null);
+    const origin = extractRequestOrigin(req);
+    const site = await this.livechat.resolveSiteForRequest(body.siteKey, origin);
     await this.livechat.setVisitorIdentity({
       siteId: site.id,
       siteKey: site.key,
@@ -343,8 +353,8 @@ export class LivechatPublicController {
     if (!body?.siteKey || !body?.visitorId || (!body?.content?.trim() && !hasAttachments)) {
       throw new BadRequestException('siteKey, visitorId and content (or attachments) are required');
     }
-    const origin = req.headers.origin as string | undefined;
-    const site = await this.livechat.resolveSiteForRequest(body.siteKey, origin ?? null);
+    const origin = extractRequestOrigin(req);
+    const site = await this.livechat.resolveSiteForRequest(body.siteKey, origin);
     const safeVisitorId = String(body.visitorId).replace(/:/g, '_').slice(0, 128);
     await this.rateLimit.check('message', `${site.key}:${safeVisitorId}`, 30);
 
