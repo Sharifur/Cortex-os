@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v3.8.6',
+    date: '2026-05-04',
+    entries: [
+      { tag: 'feat', scope: 'livechat', description: 'Avatar name tooltip — hovering any visitor avatar in the operator panel now shows the visitor name via the native browser tooltip' },
+    ],
+  },
+  {
     version: 'v3.8.5',
     date: '2026-05-04',
     entries: [

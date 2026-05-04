@@ -1605,7 +1605,7 @@ function Avatar({ name, country, online, size = 'md' }: { name: string; country?
     .map((p) => p[0]?.toUpperCase() ?? '')
     .join('') || 'V';
   return (
-    <div className={`relative shrink-0 ${sizeMap[size]} rounded-full ${bg} flex items-center justify-center font-semibold text-white`}>
+    <div title={name} className={`relative shrink-0 ${sizeMap[size]} rounded-full ${bg} flex items-center justify-center font-semibold text-white`}>
       <span>{initials}</span>
       {country && (
         <span
