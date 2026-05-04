@@ -865,7 +865,7 @@ function EntriesTab({ token }: { token: string }) {
                       {entry.priority !== 50 && <span className="text-xs text-muted-foreground">p:{entry.priority}</span>}
                       <AgentPills csv={entry.agentKeys} fallback="all agents" />
                       <SiteScopeBadge siteKeys={entry.siteKeys} excludedSiteKeys={entry.excludedSiteKeys} siteLabel={siteLabel} />
-                      {!entry.siteKeys?.trim() && !entry.excludedSiteKeys?.trim() && entry.agentKeys && entry.agentKeys.split(',').map(s => s.trim()).includes('livechat') && (
+                      {!entry.siteKeys?.trim() && !entry.excludedSiteKeys?.trim() && entry.agentKeys && entry.agentKeys.split(',').map((s: string) => s.trim()).includes('livechat') && (
                         <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-yellow-500/15 text-yellow-400 border border-yellow-500/30" title="This entry has no site key and will not appear in any livechat session">
                           no site — inactive
                         </span>
