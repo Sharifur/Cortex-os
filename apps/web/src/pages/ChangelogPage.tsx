@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v3.5.4',
+    date: '2026-05-04',
+    entries: [
+      { tag: 'fix', scope: 'tasks', description: 'Task reminder Telegram message showed UTC time instead of configured timezone — toLocaleTimeString now passes the platform timezone from SettingsService so "runs in ~1 hour at 10:00 AM" reflects local time, not server UTC' },
+    ],
+  },
+  {
     version: 'v3.5.3',
     date: '2026-05-03',
     entries: [

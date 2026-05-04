@@ -4,6 +4,7 @@ import { Queue } from 'bullmq';
 import { DbModule } from '../../db/db.module';
 import { AgentRuntimeModule } from '../agents/runtime/agent-runtime.module';
 import { TelegramModule } from '../telegram/telegram.module';
+import { SettingsModule } from '../settings/settings.module';
 import { QUEUE_NAMES } from '../../common/queue/queue.constants';
 import { TasksService } from './tasks.service';
 import { TaskSweepProcessor } from './task-sweep.processor';
@@ -14,6 +15,7 @@ import { TasksController } from './tasks.controller';
     DbModule,
     AgentRuntimeModule,
     TelegramModule,
+    SettingsModule,
     BullModule.registerQueue({ name: QUEUE_NAMES.TASK_SWEEP }),
   ],
   providers: [TasksService, TaskSweepProcessor],
