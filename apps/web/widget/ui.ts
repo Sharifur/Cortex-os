@@ -1033,14 +1033,24 @@ function connectAndListen(cfg: WidgetConfig, state: any, render: () => void, sit
     }
     if (event.type === 'agent_stream_end' && event.draftId && event.messageId) {
       state.activeDraftId = null;
-      const idx = state.messages.findIndex((m: VisitorMessage) => m.id === event.draftId);
-      if (idx >= 0) {
-        // Final content beats accumulated deltas — self-critique may have rewritten.
-        state.messages[idx] = { ...state.messages[idx], id: event.messageId, content: event.content ?? state.messages[idx].content };
+      const draftIdx = state.messages.findIndex((m: VisitorMessage) => m.id === event.draftId);
+      // Guard: if HTTP fallback already delivered this messageId, remove the orphaned
+      // draft bubble instead of duplicating it. This handles the polling-transport race
+      // where the POST response arrives before the WS stream_start event.
+      if (state.messages.some((m: VisitorMessage) => m.id === event.messageId)) {
+        if (draftIdx >= 0) {
+          state.messages.splice(draftIdx, 1);
+          cacheMessages(state.messages);
+          render();
+        }
+        return;
+      }
+      if (draftIdx >= 0) {
+        state.messages[draftIdx] = { ...state.messages[draftIdx], id: event.messageId, content: event.content ?? state.messages[draftIdx].content };
         cacheMessages(state.messages);
         if (!state.open) { state.unread = (state.unread ?? 0) + 1; playNotificationSound(); }
         else markAgentMessagesSeen(state);
-        render(); // Full render applies markdown, rating buttons, etc.
+        render();
       }
       return;
     }
@@ -1056,6 +1066,13 @@ function connectAndListen(cfg: WidgetConfig, state: any, render: () => void, sit
     if (event.type !== 'message' || !event.messageId) return;
     if (event.role === 'visitor') return;
     if (state.messages.some((m: VisitorMessage) => m.id === event.messageId)) return;
+    // If a streaming draft is in-flight and a plain message arrives, the stream was
+    // abandoned (LLM error → fallback reply). Remove the orphaned draft bubble.
+    if (state.activeDraftId) {
+      const di = state.messages.findIndex((m: VisitorMessage) => m.id === state.activeDraftId);
+      if (di >= 0) state.messages.splice(di, 1);
+      state.activeDraftId = null;
+    }
     const opName: string | undefined = (event as any).operatorName ?? undefined;
     // Server resolves the default operator and ships the avatar URL on the
     // event itself; fall back to the operators roster from /livechat/config
