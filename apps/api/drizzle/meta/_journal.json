@@ -337,6 +337,27 @@
       "when": 1777400039000,
       "tag": "0047_tasks_reminder_sent_at",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "6",
+      "when": 1777400040000,
+      "tag": "0048_tasks_telegram_mode",
+      "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "6",
+      "when": 1777400041000,
+      "tag": "0049_livechat_require_email",
+      "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "6",
+      "when": 1777400042000,
+      "tag": "0050_livechat_message_reply",
+      "breakpoints": true
     }
   ]
 }
