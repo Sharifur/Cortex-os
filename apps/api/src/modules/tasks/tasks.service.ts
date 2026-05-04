@@ -3,6 +3,7 @@ import { eq, desc, lte, and, sql, isNull, between } from 'drizzle-orm';
 import { DbService } from '../../db/db.service';
 import { AgentRuntimeService } from '../agents/runtime/agent-runtime.service';
 import { TelegramService } from '../telegram/telegram.service';
+import { SettingsService } from '../settings/settings.service';
 import { tasks } from '../../db/schema';
 import { computeNextRunAt } from './task.utils';
 
@@ -37,6 +38,7 @@ export class TasksService {
     private db: DbService,
     private runtime: AgentRuntimeService,
     private telegram: TelegramService,
+    private settings: SettingsService,
   ) {}
 
   list() {
@@ -162,9 +164,10 @@ export class TasksService {
           between(tasks.nextRunAt, reminderFrom, reminderTo),
         ),
       );
+    const tz = (await this.settings.getDecrypted('timezone')) ?? 'UTC';
     for (const task of upcoming) {
       const when = task.nextRunAt
-        ? task.nextRunAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        ? task.nextRunAt.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: tz })
         : 'soon';
       await this.telegram.sendMessage(
         `Reminder: task "${task.title}" (${task.agentKey}) runs in ~1 hour at ${when}.`,
