@@ -1180,7 +1180,7 @@ function renderMessages(panel: HTMLDivElement, state: any) {
       if (m.role === 'operator') {
         const name = m.operatorName ?? 'Operator';
         const avatarEl = m.operatorAvatarUrl
-          ? `<img class="lc-msg-avatar lc-msg-avatar-img" src="${escapeAttr(m.operatorAvatarUrl)}" alt="${escapeHtml(name)}">`
+          ? `<img class="lc-msg-avatar lc-msg-avatar-img" src="${escapeAttr(m.operatorAvatarUrl)}" alt="${escapeHtml(name)}" title="${escapeHtml(name)}">`
           : `<div class="lc-msg-avatar lc-msg-avatar-op" title="${escapeHtml(name)}">${escapeHtml(getInitials(name))}</div>`;
         return `<div class="lc-msg-row lc-msg-row-agent">
           ${avatarEl}
