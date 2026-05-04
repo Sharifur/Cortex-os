@@ -16,6 +16,18 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v3.6.0',
+    date: '2026-05-04',
+    entries: [
+      { tag: 'feat', scope: 'email_manager', description: 'Full email-drafting rewrite — structured extraction with ExtractedEmail (latestMessage, threadContext, sender, subject, language, sentiment, confidence); dual KB search (15 semantic results + up to 5 per detected product name, deduplicated); thread context injected as conversation history; gpt-4o-mini sentiment/language analysis; stronger KB PRICING RULE and CRITICAL fallback guard; confidence gate rejects ambiguous images before drafting' },
+      { tag: 'feat', scope: 'email_manager', description: 'Product name extraction — capitalized words 4+ chars appearing 2+ times are detected as product names (e.g. Nazmart, Taskip); KB is searched separately for each product so product-specific entries are always included alongside semantic results' },
+      { tag: 'feat', scope: 'livechat', description: 'Homepage product-question rule — when a visitor asks about pricing, features, or buying from the site homepage without naming a product, the agent asks "Which product?" before proceeding; prevents generic replies when multiple products are on offer' },
+      { tag: 'feat', scope: 'widget', description: 'Operator avatar tooltip — hovering the operator avatar image in the chat widget now shows the operator name via a native title attribute' },
+      { tag: 'fix', scope: 'db', description: 'Drizzle migration journal gap — migrations 0048 (telegram_mode), 0049 (require_email), 0050 (reply_to_id) were present as SQL files but missing from _journal.json; Drizzle migrate() uses the journal to discover files, so all three columns were never applied on production; journal entries added, columns now created on next deploy startup' },
+      { tag: 'fix', scope: 'widget', description: 'Duplicate agent messages in chat widget — HTTP response handler and streaming path could both push the same message; fixed by checking activeDraftId (streaming in progress) before the push so the HTTP fallback skips the message while streaming is active' },
+    ],
+  },
+  {
     version: 'v3.5.6',
     date: '2026-05-04',
     entries: [
