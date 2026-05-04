@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v3.6.1',
+    date: '2026-05-04',
+    entries: [
+      { tag: 'fix', scope: 'widget', description: 'Duplicate agent messages — root cause was a browser event-loop race: fetch().then() is a microtask and resolves before WebSocket onmessage macrotasks, so the HTTP response could push the message before stream_start had processed; when socket is connected the HTTP push is now deferred 250ms so WS events drain first, with HTTP content as a fallback only if WS never delivers' },
+      { tag: 'fix', scope: 'widget', description: 'Widget message cache cleared (key bumped to v2) to purge any duplicate messages stored in visitor browsers from the previous race condition' },
+    ],
+  },
+  {
     version: 'v3.6.0',
     date: '2026-05-04',
     entries: [
