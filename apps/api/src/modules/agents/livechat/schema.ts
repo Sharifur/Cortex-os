@@ -131,6 +131,7 @@ export const livechatMessages = pgTable(
     seenAt: timestamp('seen_at'),
     replyToId: text('reply_to_id'),
     replyToContent: text('reply_to_content'),
+    metadata: jsonb('metadata'),
     createdAt: timestamp('created_at').notNull().defaultNow(),
   },
   (t) => ({

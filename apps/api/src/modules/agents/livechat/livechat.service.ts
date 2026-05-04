@@ -404,6 +404,7 @@ export class LivechatService implements OnModuleInit {
     pendingApproval?: boolean;
     replyToId?: string | null;
     replyToContent?: string | null;
+    metadata?: Record<string, unknown> | null;
   }): Promise<{ id: string; createdAt: Date; pendingApproval: boolean; duplicate?: boolean }> {
     // Dedupe identical visitor messages within a 5-second window.
     // Catches double-clicks, network retries, and the same content arriving
@@ -460,6 +461,7 @@ export class LivechatService implements OnModuleInit {
         pendingApproval: input.pendingApproval ?? false,
         replyToId: input.replyToId ?? null,
         replyToContent: input.replyToContent ?? null,
+        metadata: input.metadata ?? null,
       })
       .returning({ id: livechatMessages.id, createdAt: livechatMessages.createdAt, pendingApproval: livechatMessages.pendingApproval });
 

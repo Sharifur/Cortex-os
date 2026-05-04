@@ -27,7 +27,7 @@ interface VisitorMessage {
   suggestions?: string[];
 }
 
-const MESSAGES_KEY = 'livechat_messages_cache';
+const MESSAGES_KEY = 'livechat_messages_cache_v2';
 const SESSION_KEY = 'livechat_session_id';
 const IDENTIFY_DISMISSED_KEY = 'livechat_identify_dismissed'; // legacy, retained to not re-prompt loyal visitors
 const IDENTIFY_NAME_KEY = 'livechat_identify_name';            // 'saved' | 'skipped' | <stored name>
@@ -806,14 +806,25 @@ function buildPanel(shadow: ShadowRoot, cfg: WidgetConfig, state: any, render: (
       writeSessionId(res.sessionId);
       if ('content' in res.agent && res.agent.content) {
         const agentId = res.agent.id ?? '';
-        // Skip if the streaming path already added this message (activeDraftId
-        // means stream_start fired but stream_end hasn't yet — the bubble exists
-        // under its draftId, not the real messageId, so the id-check below would
-        // miss it and push a duplicate).
-        const streamingInProgress = !!state.activeDraftId;
-        const alreadyPresent = agentId && state.messages.some((m: VisitorMessage) => m.id === agentId);
-        if (!streamingInProgress && !alreadyPresent) {
+        if (!state.socket) {
+          // No WebSocket yet — HTTP is the only delivery path.
           pushAgent(state, res.agent.content, agentId);
+        } else {
+          // Socket is connected so WS stream events are the primary path.
+          // fetch().then() is a microtask and runs before WS onmessage macrotasks,
+          // so stream_start/end may not have processed yet even if they arrived.
+          // Defer 250ms to let the event loop drain WS tasks first, then fall back
+          // to HTTP content only if WS never delivered the message.
+          const capturedContent = res.agent.content;
+          setTimeout(() => {
+            const alreadyDelivered =
+              state.messages.some((m: VisitorMessage) => m.id === agentId) ||
+              !!state.activeDraftId;
+            if (!alreadyDelivered) {
+              pushAgent(state, capturedContent, agentId);
+              render();
+            }
+          }, 250);
         }
       }
       if (!state.socket) connectAndListen(cfg, state, render, siteConfig);
