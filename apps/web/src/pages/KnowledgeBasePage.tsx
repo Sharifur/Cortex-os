@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { BookOpen, Plus, Trash2, Edit2, X, Upload, Link, ChevronDown, ChevronRight, FileText, Globe, Code, Layers } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
+import { KbFrameworkContent } from './KbFrameworkPage';
 
 const KB_AGENTS = ['livechat', 'support', 'whatsapp', 'email_manager', 'linkedin', 'reddit', 'social', 'shorts'];
 const ENTRY_TYPES = ['reference', 'fact', 'voice_profile', 'blocklist', 'product', 'service', 'offer'];
@@ -1742,10 +1743,7 @@ function GapsTab({ token }: { token: string }) {
     queryKey: ['kb-gaps', siteFilter],
     queryFn: async () => {
       const qs = siteFilter ? `?siteKey=${encodeURIComponent(siteFilter)}` : '';
-      const res = await fetch(`/api/agents/livechat/kb-gaps${qs}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      return res.json() as Promise<{ id: string; siteKey: string; visitorQuestion: string; escalationReason: string; createdAt: string }[]>;
+      return apiFetch(token, `/agents/livechat/kb-gaps${qs}`) as Promise<{ id: string; siteKey: string; visitorQuestion: string; escalationReason: string; createdAt: string }[]>;
     },
     refetchInterval: 30_000,
   });
@@ -1818,6 +1816,7 @@ const TABS = [
   { id: 'templates', label: 'Prompt Templates' },
   { id: 'proposals', label: 'Proposals' },
   { id: 'gaps', label: 'KB Gaps' },
+  { id: 'framework', label: 'Framework' },
 ];
 
 export default function KnowledgeBasePage() {
@@ -1855,6 +1854,7 @@ export default function KnowledgeBasePage() {
       {tab === 'templates' && <TemplatesTab token={token} />}
       {tab === 'proposals' && <ProposalsTab token={token} />}
       {tab === 'gaps' && <GapsTab token={token} />}
+      {tab === 'framework' && <KbFrameworkContent />}
     </div>
   );
 }
