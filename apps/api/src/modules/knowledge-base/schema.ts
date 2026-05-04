@@ -21,8 +21,9 @@ export const knowledgeEntries = pgTable('knowledge_entries', {
   sourceType:  text('source_type').notNull().default('manual'), // manual|pdf|docx|md|link
   sourceUrl:   text('source_url'),     // MinIO path or original URL
   parentDocId: text('parent_doc_id'), // set on chunk entries; FK to parent entry id
-  createdAt:   timestamp('created_at').notNull().defaultNow(),
-  updatedAt:   timestamp('updated_at').notNull().defaultNow(),
+  createdAt:        timestamp('created_at').notNull().defaultNow(),
+  updatedAt:        timestamp('updated_at').notNull().defaultNow(),
+  lastRetrievedAt:  timestamp('last_retrieved_at'),
 });
 
 export const kbProposals = pgTable('kb_proposals', {

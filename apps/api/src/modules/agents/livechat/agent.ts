@@ -5,7 +5,7 @@ import { agents, agentRuns } from '../../../db/schema';
 import { AgentRegistryService } from '../runtime/agent-registry.service';
 import { AgentLogService } from '../runtime/agent-log.service';
 import { LlmRouterService } from '../../llm/llm-router.service';
-import { KnowledgeBaseService } from '../../knowledge-base/knowledge-base.service';
+import { KnowledgeBaseService, type KnowledgeEntry } from '../../knowledge-base/knowledge-base.service';
 import { agentLlmOpts } from '../runtime/llm-config.util';
 import { LivechatService } from './livechat.service';
 import { LivechatStreamService } from './livechat-stream.service';
@@ -270,12 +270,27 @@ export class LivechatAgent implements IAgent, OnModuleInit {
             (m.role === 'visitor' ? stripRolePrefixes(String(m.content)) : String(m.content)).slice(0, 240),
       }));
 
+    // Build a context-enriched retrieval query: combine the last 3 prior
+    // messages with the current message so short follow-ups like "yes" or
+    // "how much?" resolve against the relevant topic rather than matching nothing.
+    const priorContext = recentMessagesForIntent
+      .slice()
+      .reverse()
+      .filter((m) => m.role === 'visitor' || m.role === 'agent')
+      .slice(-3)
+      .map((m) => (typeof m.content === 'string' ? m.content : '').slice(0, 120))
+      .filter(Boolean)
+      .join(' ');
+    const retrievalQuery = priorContext
+      ? `${priorContext} ${safeVisitorMessage}`.trim().slice(0, 600)
+      : safeVisitorMessage;
+
     const [alwaysOn, samples, blocklist, rejections, references, recentMessages, recentPageviews, visitor, intentResult] = await Promise.all([
       this.kb.getAlwaysOnContext(this.key, siteKey),
       this.kb.getWritingSamples(this.key, siteKey),
       this.kb.getBlocklistRules(this.key, siteKey),
       this.kb.getRecentRejections(this.key, 3),
-      this.kb.searchEntries(safeVisitorMessage, this.key, 10, siteKey).catch((e: Error) => {
+      this.kb.searchEntries(retrievalQuery, this.key, 10, siteKey).catch((e: Error) => {
         this.logger.warn(`KB search failed: ${e.message}`);
         return [];
       }),
@@ -298,6 +313,19 @@ export class LivechatAgent implements IAgent, OnModuleInit {
     }).catch(() => null);
     if (escalation) {
       this.logger.log(`Escalating session ${input.sessionId}: ${escalation.reason}`);
+      const r = await this.postFallback(input.sessionId);
+      void finalizeRun(r);
+      return r;
+    }
+
+    // Pre-LLM KB coverage gate: if we have no product catalog AND no relevant
+    // references for a substantive question, skip the LLM entirely and escalate.
+    // Prevents the agent from hallucinating when the KB is empty or misconfigured.
+    const hasProductCatalog = alwaysOn.some((e) => ['product', 'service', 'offer'].includes(e.entryType));
+    const isSubstantiveQuestion = !(['greeting', 'thanks', 'leaving', 'affirmation'] as VisitorIntent[]).includes(intentResult.intent);
+    if (!hasProductCatalog && references.length === 0 && isSubstantiveQuestion) {
+      this.logger.log(`session ${input.sessionId}: no KB coverage (intent: ${intentResult.intent}) — escalating`);
+      void this.livechat.saveKbGap({ siteKey: siteKey ?? 'unknown', visitorQuestion: safeVisitorMessage, escalationReason: 'no_references', sessionId: input.sessionId }).catch(() => undefined);
       const r = await this.postFallback(input.sessionId);
       void finalizeRun(r);
       return r;
@@ -486,6 +514,21 @@ export class LivechatAgent implements IAgent, OnModuleInit {
     const violation = blocklist.find((p) => draft.toLowerCase().includes(p.toLowerCase()));
     if (violation) {
       this.logger.warn(`Live chat blocklist hit: "${violation}" — escalating to needs_human`);
+      const r = await this.postFallback(input.sessionId);
+      void finalizeRun(r);
+      return r;
+    }
+
+    // Post-draft grounding check: verify the draft doesn't contain specific facts
+    // not found in the KB entries. Catches hallucinations on sparse-coverage topics.
+    const groundingResult = await this.groundingCheck(
+      draft,
+      references,
+      alwaysOn.filter((e) => ['product', 'service', 'offer', 'fact'].includes(e.entryType)),
+    ).catch(() => ({ grounded: true as const }));
+    if (!groundingResult.grounded) {
+      this.logger.warn(`session ${input.sessionId}: grounding check failed — claim: "${groundingResult.claim}" — escalating`);
+      void this.livechat.saveKbGap({ siteKey: siteKey ?? 'unknown', visitorQuestion: safeVisitorMessage, escalationReason: 'grounding_failed', sessionId: input.sessionId }).catch(() => undefined);
       const r = await this.postFallback(input.sessionId);
       void finalizeRun(r);
       return r;
@@ -721,6 +764,36 @@ If not, rewrite and return: {"ok":false,"revised":"improved reply here"}`,
       // fail-open: use original draft
     }
     return draft;
+  }
+
+  private async groundingCheck(
+    draft: string,
+    references: KnowledgeEntry[],
+    catalog: KnowledgeEntry[],
+  ): Promise<{ grounded: true } | { grounded: false; claim: string }> {
+    const allEntries = [...references, ...catalog];
+    // If there are no KB entries at all, skip — T4 gate handles the empty case.
+    if (!allEntries.length) return { grounded: true };
+    const kbSummary = allEntries
+      .slice(0, 12)
+      .map((e) => `- ${e.title}: ${e.content.slice(0, 100)}`)
+      .join('\n');
+    const res = await this.llm.complete({
+      messages: [
+        { role: 'system', content: 'You are a fact-checker. Reply ONLY with valid JSON, no markdown.' },
+        {
+          role: 'user',
+          content: `KB entries:\n${kbSummary}\n\nAgent draft: "${draft.slice(0, 500)}"\n\nDoes this draft state any specific claim (price, feature name, URL, availability, version number, or capability) that is NOT supported by the KB entries above?\nReply: {"grounded":true} or {"grounded":false,"claim":"<the unsupported claim, max 60 chars>"}`,
+        },
+      ],
+      agentKey: this.key,
+      maxTokens: 60,
+    });
+    const parsed = JSON.parse(res.content.trim().replace(/^```[a-z]*\n?/i, '').replace(/```$/,''));
+    if (parsed.grounded === false && typeof parsed.claim === 'string') {
+      return { grounded: false, claim: parsed.claim };
+    }
+    return { grounded: true };
   }
 
   /**

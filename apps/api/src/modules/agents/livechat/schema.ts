@@ -177,3 +177,37 @@ export const livechatSessionFeedback = pgTable('livechat_session_feedback', {
   comment: text('comment'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 });
+
+// Questions the agent could not answer due to missing KB coverage or grounding failures.
+export const livechatKbGaps = pgTable(
+  'livechat_kb_gaps',
+  {
+    id: text('id').primaryKey().$defaultFn(() => createId()),
+    siteKey: text('site_key').notNull(),
+    sessionId: text('session_id').notNull(),
+    visitorQuestion: text('visitor_question').notNull(),
+    escalationReason: text('escalation_reason').notNull(),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    siteKeyIdx: index('livechat_kb_gaps_site_key_idx').on(t.siteKey),
+    createdAtIdx: index('livechat_kb_gaps_created_at_idx').on(t.createdAt),
+  }),
+);
+
+// Operator flags on KB entries that produced a bad AI response.
+export const livechatKbFlags = pgTable(
+  'livechat_kb_flags',
+  {
+    id: text('id').primaryKey().$defaultFn(() => createId()),
+    kbEntryId: text('kb_entry_id').notNull(),
+    sessionId: text('session_id').notNull(),
+    messageId: text('message_id').notNull(),
+    siteKey: text('site_key').notNull(),
+    note: text('note'),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    entryIdx: index('livechat_kb_flags_entry_idx').on(t.kbEntryId),
+  }),
+);

@@ -16,6 +16,22 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v3.8.0',
+    date: '2026-05-04',
+    entries: [
+      { tag: 'feat', scope: 'kb', description: 'KB character count + quality warning — content textarea in the entry editor now shows live char and token estimates; entries under 80 chars get an amber "too short" warning; high comma density triggers a "keyword list" warning since sentences retrieve better than comma-separated terms' },
+      { tag: 'feat', scope: 'kb', description: 'AI preview block in entry editor — collapsible section below the form shows how the AI will see the entry after truncation (500 chars for products/services/offers, 800 chars for references) with an amber warning if content exceeds the limit' },
+      { tag: 'feat', scope: 'livechat', description: 'Thread-context retrieval — KB search now prepends the last 3 visitor messages to the current query so follow-up questions like "yes" or "how much?" resolve against the topic under discussion, not just the one-word utterance' },
+      { tag: 'feat', scope: 'livechat', description: 'Pre-LLM empty-KB gate — if no product/service/offer catalog entries exist for the site AND no references were retrieved for a substantive question, the agent skips the LLM entirely and escalates to human support; prevents hallucinated answers on sites with missing KB coverage' },
+      { tag: 'feat', scope: 'livechat', description: 'Post-draft grounding check — after generating a reply draft, a fast secondary LLM call verifies that all specific factual claims in the draft are supported by retrieved KB entries; ungrounded drafts are discarded and escalated rather than delivered to the visitor' },
+      { tag: 'feat', scope: 'livechat', description: 'KB source flag and improve buttons — the KB sources panel now shows a flag icon per entry row (marks the entry as inaccurate, persisted to livechat_kb_flags) and an edit link that navigates to the KB editor for that entry and auto-opens the edit modal' },
+      { tag: 'feat', scope: 'kb', description: 'Never-retrieved entry tracking — knowledge_entries now records last_retrieved_at; reference entries that have never been fetched by the AI show an orange "never used" badge; entries unused for >30 days show a yellow "stale" badge; a filter toggle in the Entries tab shows only unused entries' },
+      { tag: 'feat', scope: 'kb', description: 'KB Gaps tab — new sixth tab in the Knowledge Base page lists questions that escalated because of missing KB coverage or grounding failures; columns: site, visitor question, reason (no references / grounding failed), time; auto-refreshes every 30 s; filterable by site key' },
+      { tag: 'fix', scope: 'kb', description: 'Increased KB context limits — product/service/offer content truncation 220 → 500 chars, reference content 600 → 800 chars, references injected 3 → 8; vector similarity threshold (cosine <= 0.40) added to filter low-relevance results' },
+      { tag: 'chore', scope: 'db', description: 'Migrations 0052–0054: livechat_kb_gaps table, livechat_kb_flags table, knowledge_entries.last_retrieved_at column' },
+    ],
+  },
+  {
     version: 'v3.7.0',
     date: '2026-05-04',
     entries: [

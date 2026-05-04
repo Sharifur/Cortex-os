@@ -144,8 +144,16 @@ export class KnowledgeBaseService {
     });
 
     const [fts, vec] = await Promise.all([ftsPromise, vectorPromise]);
-    if (!vec.length) return fts.slice(0, limit);
-    return reciprocalRankFusion(fts, vec, limit);
+    const results = !vec.length ? fts.slice(0, limit) : reciprocalRankFusion(fts, vec, limit);
+    if (results.length > 0) {
+      const ids = results.map((r) => r.id);
+      void this.db.db
+        .update(knowledgeEntries)
+        .set({ lastRetrievedAt: new Date() })
+        .where(inArray(knowledgeEntries.id, ids))
+        .catch(() => undefined);
+    }
+    return results;
   }
 
   /**
@@ -163,6 +171,8 @@ export class KnowledgeBaseService {
     const embedding = await this.llm.embed(query);
     if (!embedding) return [];
     const literal = `[${embedding.join(',')}]`;
+    // Cosine distance threshold: 0.40 = similarity ≥ 0.60. Filters out
+    // semantically unrelated entries that would otherwise pollute the prompt.
     const rows = await this.db.db
       .select()
       .from(knowledgeEntries)
@@ -170,7 +180,8 @@ export class KnowledgeBaseService {
         sql`${this.agentKeyWhere(agentKey)}
           AND ${this.siteKeyWhere(siteKey)}
           AND entry_type = 'reference'
-          AND embedding IS NOT NULL`,
+          AND embedding IS NOT NULL
+          AND embedding <=> ${literal}::vector <= 0.40`,
       )
       .orderBy(sql`embedding <=> ${literal}::vector`)
       .limit(limit);
@@ -323,6 +334,15 @@ export class KnowledgeBaseService {
       void this.embedEntry(row.id, `${row.title}\n${row.content}`);
     }
     return row;
+  }
+
+  async getEntry(id: string) {
+    const [row] = await this.db.db
+      .select()
+      .from(knowledgeEntries)
+      .where(eq(knowledgeEntries.id, id))
+      .limit(1);
+    return row ?? null;
   }
 
   async updateEntry(id: string, dto: Partial<{
@@ -545,13 +565,13 @@ export class KnowledgeBaseService {
       }
       const sections: string[] = [];
       if (grouped.product.length) {
-        sections.push(`### Products\n${grouped.product.map(p => `- **${p.title}**: ${trunc(p.content, 220)}`).join('\n')}`);
+        sections.push(`### Products\n${grouped.product.map(p => `- **${p.title}**: ${trunc(p.content, 500)}`).join('\n')}`);
       }
       if (grouped.service.length) {
-        sections.push(`### Services\n${grouped.service.map(s => `- **${s.title}**: ${trunc(s.content, 220)}`).join('\n')}`);
+        sections.push(`### Services\n${grouped.service.map(s => `- **${s.title}**: ${trunc(s.content, 500)}`).join('\n')}`);
       }
       if (grouped.offer.length) {
-        sections.push(`### Active Offers\n${grouped.offer.map(o => `- **${o.title}**: ${trunc(o.content, 220)}`).join('\n')}`);
+        sections.push(`### Active Offers\n${grouped.offer.map(o => `- **${o.title}**: ${trunc(o.content, 500)}`).join('\n')}`);
       }
       if (sections.length) {
         parts.push(`\n\n## What You Can Pitch\n${sections.join('\n\n')}\nMention these only when the visitor's question is relevant — never force a pitch.`);
@@ -559,8 +579,8 @@ export class KnowledgeBaseService {
     }
 
     if (references.length) {
-      const refText = references.slice(0, 3)
-        .map(r => `### ${r.title}\n${trunc(r.content, 600)}`)
+      const refText = references.slice(0, 8)
+        .map(r => `### ${r.title}\n${trunc(r.content, 800)}`)
         .join('\n\n');
       parts.push(`\n\n## Relevant Knowledge\n${refText}`);
     }

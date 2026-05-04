@@ -43,6 +43,7 @@ import {
   CheckCheck,
   CornerUpLeft,
   Languages,
+  Flag,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -1977,6 +1978,7 @@ function SessionPane({
                     message={m}
                     visitorName={visitorName}
                     country={detail.visitor?.ipCountry ?? null}
+                    siteKey={sessionSiteKey}
                     onApprove={() => approveMut.mutate(m.id)}
                     onReject={() => rejectMut.mutate(m.id)}
                     onEditApprove={(content) => editApproveMut.mutate({ messageId: m.id, content })}
@@ -2417,13 +2419,37 @@ function ComposerTab({ active, disabled, onClick, children }: { active?: boolean
   );
 }
 
-function KbSourcesPanel({ sources }: { sources: KbSource[] }) {
+function KbSourcesPanel({
+  sources,
+  sessionId,
+  messageId,
+  siteKey,
+}: {
+  sources: KbSource[];
+  sessionId: string;
+  messageId: string;
+  siteKey: string;
+}) {
   const [open, setOpen] = useState(false);
+  const [flagged, setFlagged] = useState<Set<string>>(new Set());
+  const { token } = useAuthStore();
+
   const entryColor = (t: string) => {
     if (t === 'product' || t === 'service' || t === 'offer') return 'text-cyan-400';
     if (t === 'fact') return 'text-purple-400';
     return 'text-blue-400';
   };
+
+  const flag = (entryId: string) => {
+    if (flagged.has(entryId) || !token) return;
+    setFlagged((prev) => new Set([...prev, entryId]));
+    void apiFetch(token, '/api/agents/livechat/kb-flags', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kbEntryId: entryId, sessionId, messageId, siteKey }),
+    }).catch(() => undefined);
+  };
+
   return (
     <div className="mt-1 text-right">
       <button
@@ -2434,11 +2460,27 @@ function KbSourcesPanel({ sources }: { sources: KbSource[] }) {
         {open ? 'hide kb sources' : `kb: ${sources.length} source${sources.length === 1 ? '' : 's'}`}
       </button>
       {open && (
-        <div className="mt-1 rounded-lg border border-border bg-muted/20 px-2.5 py-2 text-left space-y-1">
+        <div className="mt-1 rounded-lg border border-border bg-muted/20 px-2.5 py-2 text-left space-y-1.5">
           {sources.map((s) => (
             <div key={s.id} className="flex items-center gap-1.5 text-[11px]">
               <span className={`shrink-0 font-medium ${entryColor(s.entryType)}`}>[{s.entryType}]</span>
-              <span className="text-muted-foreground truncate">{s.title}</span>
+              <span className="text-muted-foreground truncate flex-1">{s.title}</span>
+              <button
+                onClick={() => flag(s.id)}
+                title={flagged.has(s.id) ? 'Flagged' : 'Flag as inaccurate'}
+                className={`shrink-0 p-0.5 rounded transition-colors ${flagged.has(s.id) ? 'text-orange-400' : 'text-muted-foreground/40 hover:text-orange-400'}`}
+              >
+                <Flag size={10} />
+              </button>
+              <a
+                href={`/knowledge-base?edit=${s.id}`}
+                target="_blank"
+                rel="noreferrer"
+                title="Improve this entry"
+                className="shrink-0 text-[10px] text-muted-foreground/40 hover:text-primary transition-colors"
+              >
+                edit
+              </a>
             </div>
           ))}
         </div>
@@ -2451,6 +2493,7 @@ function MessageBubble({
   message,
   visitorName,
   country,
+  siteKey,
   onApprove,
   onReject,
   onEditApprove,
@@ -2465,6 +2508,7 @@ function MessageBubble({
   message: MessageRow;
   visitorName: string;
   country: string | null;
+  siteKey?: string;
   onApprove?: () => void;
   onReject?: () => void;
   onEditApprove?: (content: string) => void;
@@ -2666,7 +2710,12 @@ function MessageBubble({
           </div>
         )}
         {isAi && message.metadata?.kbSources && message.metadata.kbSources.length > 0 && (
-          <KbSourcesPanel sources={message.metadata.kbSources} />
+          <KbSourcesPanel
+            sources={message.metadata.kbSources}
+            sessionId={message.sessionId}
+            messageId={message.id}
+            siteKey={siteKey ?? ''}
+          />
         )}
         {isPending && (
           <div className="flex items-center justify-end gap-1.5 mt-1.5 text-xs">
