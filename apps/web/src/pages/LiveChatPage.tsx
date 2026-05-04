@@ -1772,6 +1772,7 @@ function SessionPane({
   });
 
   const [replyTo, setReplyTo] = useState<{ id: string; content: string; role: string } | null>(null);
+  useEffect(() => { setReplyTo(null); }, [sessionId]);
 
   const sendMut = useMutation({
     mutationFn: (payload: { content: string; attachmentIds: string[]; operatorId?: string; internal?: boolean; replyToId?: string; replyToContent?: string }) =>
