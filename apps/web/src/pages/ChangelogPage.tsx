@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v3.5.6',
+    date: '2026-05-04',
+    entries: [
+      { tag: 'fix', scope: 'livechat', description: 'Reply-to quote persisted across conversation switches — switching to a different chat while a reply was queued kept the banner visible; replyTo state now resets whenever the active sessionId changes' },
+    ],
+  },
+  {
     version: 'v3.5.5',
     date: '2026-05-04',
     entries: [
