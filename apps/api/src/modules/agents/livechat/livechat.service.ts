@@ -8,6 +8,8 @@ import {
   livechatSessions,
   livechatMessages,
   livechatOperators,
+  livechatKbGaps,
+  livechatKbFlags,
 } from './schema';
 import { EnrichmentService, EnrichedVisitor } from '../../../common/visitor-enrichment/enrichment.service';
 import { LivechatOriginCache } from './livechat-origin.cache';
@@ -1267,6 +1269,52 @@ export class LivechatService implements OnModuleInit {
         .where(eq(livechatVisitors.id, row.id));
     }
     this.logger.log(`GeoIP backfill complete — updated ${rows.length} visitor(s)`);
+  }
+
+  async saveKbGap(input: {
+    siteKey: string;
+    sessionId: string;
+    visitorQuestion: string;
+    escalationReason: string;
+  }): Promise<void> {
+    await this.db.db.insert(livechatKbGaps).values({
+      siteKey: input.siteKey,
+      sessionId: input.sessionId,
+      visitorQuestion: input.visitorQuestion,
+      escalationReason: input.escalationReason,
+    });
+  }
+
+  async listKbGaps(siteKey?: string, limit = 100): Promise<typeof livechatKbGaps.$inferSelect[]> {
+    const q = this.db.db
+      .select()
+      .from(livechatKbGaps)
+      .orderBy(desc(livechatKbGaps.createdAt))
+      .limit(limit);
+    if (siteKey) {
+      return q.where(eq(livechatKbGaps.siteKey, siteKey));
+    }
+    return q;
+  }
+
+  async flagKbSource(input: {
+    kbEntryId: string;
+    sessionId: string;
+    messageId: string;
+    siteKey: string;
+    note?: string;
+  }): Promise<{ id: string }> {
+    const [row] = await this.db.db
+      .insert(livechatKbFlags)
+      .values({
+        kbEntryId: input.kbEntryId,
+        sessionId: input.sessionId,
+        messageId: input.messageId,
+        siteKey: input.siteKey,
+        note: input.note ?? null,
+      })
+      .returning({ id: livechatKbFlags.id });
+    return row;
   }
 
   private toSiteRow(r: typeof livechatSites.$inferSelect): LivechatSiteRow {

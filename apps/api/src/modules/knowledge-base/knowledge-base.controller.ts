@@ -65,6 +65,13 @@ export class KnowledgeBaseController {
     return this.kb.createEntry(body);
   }
 
+  @Get('entries/:id')
+  async getEntry(@Param('id') id: string) {
+    const row = await this.kb.getEntry(id);
+    if (!row) throw new NotFoundException('Entry not found');
+    return row;
+  }
+
   @Patch('entries/:id')
   async updateEntry(@Param('id') id: string, @Body() body: {
     title?: string;

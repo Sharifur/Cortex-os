@@ -493,4 +493,21 @@ export class LivechatConversationsController {
 
     return { translated: res.content.trim() };
   }
+
+  @Get('kb-gaps')
+  listKbGaps(@Query('siteKey') siteKey?: string, @Query('limit') limit?: string) {
+    return this.livechat.listKbGaps(siteKey, limit ? Math.min(parseInt(limit, 10), 200) : 100);
+  }
+
+  @Post('kb-flags')
+  @HttpCode(HttpStatus.CREATED)
+  flagKbSource(
+    @Body() body: { kbEntryId: string; sessionId: string; messageId: string; siteKey: string; note?: string },
+  ) {
+    if (!body?.kbEntryId?.trim()) throw new BadRequestException('kbEntryId is required');
+    if (!body?.sessionId?.trim()) throw new BadRequestException('sessionId is required');
+    if (!body?.messageId?.trim()) throw new BadRequestException('messageId is required');
+    if (!body?.siteKey?.trim()) throw new BadRequestException('siteKey is required');
+    return this.livechat.flagKbSource(body);
+  }
 }

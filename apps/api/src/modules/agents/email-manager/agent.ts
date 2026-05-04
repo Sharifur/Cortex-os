@@ -21,6 +21,7 @@ import type {
 import { agentLlmOpts } from '../runtime/llm-config.util';
 
 type Classification = 'must-reply' | 'nice-to-reply' | 'newsletter' | 'spam';
+type Sentiment = 'positive' | 'neutral' | 'frustrated' | 'demanding';
 
 interface EmailManagerConfig {
   maxEmailsPerRun: number;
@@ -43,6 +44,17 @@ interface EmailSnapshot {
   taskMode?: boolean;
   instructions?: string;
   imageData?: { base64: string; mimeType: string };
+}
+
+// Result from image extraction — structured so thread context and latest message are separate
+interface ExtractedEmail {
+  latestMessage: string;
+  threadContext: string;
+  sender: string;
+  subject: string;
+  language: string;
+  sentiment: Sentiment;
+  confidence: number; // 0–1: how confident we are this is actually an email
 }
 
 const CLASSIFY_SYSTEM = `You are an email classifier for Sharifur Rahman, founder of Taskip and Xgenious.
@@ -71,24 +83,71 @@ Taskip / Xgenious
 
 Rules:
 - Lead directly with the answer. No "Thank you for reaching out", no filler opening.
-- CRITICAL: Search the Knowledge Base sections below (Products, Key Facts, Relevant Knowledge) before saying anything about a product. If the KB contains information about the product the client is asking about, USE that information to answer their questions. Never say a product is "not in our lineup" or "not listed" if it appears anywhere in the Knowledge Base.
-- Use facts from the Knowledge Base for pricing, features, timelines, and technical details. Do not guess or fabricate details not found in the KB.
-- Only say "I will confirm that and get back to you shortly" for specific details (exact numbers, edge-case configs) that are genuinely absent from the KB — not for the product itself.
-- If the client asks multiple questions, answer each one directly using KB facts. Do not skip questions.
-- Keep the body between 100 and 250 words. Longer for complex multi-question emails, shorter for simple ones.
-- Match the client's language (Bangla, English, etc.).
+- CRITICAL: Before saying anything about a product, check the Knowledge Base sections below (Products, Key Facts, Relevant Knowledge). If the KB has information about the product, use it to answer every question. Never say a product is "not in our lineup" or "not listed" if it appears in the KB.
+- PRICING RULE: If pricing is present in the KB, quote the exact figure. Never redirect to a pricing page or say "pricing varies" when the number is in the KB.
+- Use KB facts for features, timelines, tech stack, and technical details. Do not guess or fabricate.
+- Only say "I will confirm and get back to you shortly" for details genuinely absent from the KB — never for the product itself.
+- If the client asks multiple questions, answer each one in order using KB facts. Do not skip any question.
+- Keep the body 100–250 words. Longer for complex multi-question emails, shorter for simple ones.
+- Match the client's language (English, Bangla, Arabic, etc.) — the language note in the prompt tells you which one.
 - End with one clear next step or action for the client.`;
 
+// Improved heuristic — covers pre-sale, technical, forwarded, and non-English emails
 function looksLikeClientEmail(text: string): boolean {
   if (text.length < 60) return false;
   const lower = text.toLowerCase();
-  const hasEmailHeaders = /^from:\s/im.test(text) || /^subject:\s/im.test(text);
-  const hasConversationStructure = (text.match(/\n/g) ?? []).length >= 3;
-  const hasClientSignals = lower.includes('purchase') || lower.includes('license') ||
+  const lineCount = (text.match(/\n/g) ?? []).length;
+  const hasEmailHeaders = /^from:\s/im.test(text) || /^subject:\s/im.test(text) || /^date:\s/im.test(text);
+  const isForwarded = /\bfwd?:\s|------\s*forwarded|begin forwarded/i.test(text);
+  const hasGreeting = /\b(dear|hello|hi|greetings|assalamu|salam)\s+\w/i.test(text);
+  const hasSenderIntro = /\bmy name is\b|\bi am from\b|\bi'm from\b|\bour company\b|\bwe are\b|\bour firm\b|\bour team\b/i.test(text);
+  const hasClientSignals =
+    lower.includes('purchase') || lower.includes('license') ||
     lower.includes('envato') || lower.includes('codecanyon') || lower.includes('support') ||
     lower.includes('install') || lower.includes('price') || lower.includes('refund') ||
-    lower.includes('invoice') || lower.includes('order') || lower.includes('payment');
-  return hasEmailHeaders || (hasConversationStructure && hasClientSignals) || (text.match(/\n/g) ?? []).length >= 5;
+    lower.includes('invoice') || lower.includes('order') || lower.includes('payment') ||
+    lower.includes('interested in') || lower.includes('planning to') || lower.includes('before purchasing') ||
+    lower.includes('before proceeding') || lower.includes('self-host') || lower.includes('white-label') ||
+    lower.includes('whitelabel') || lower.includes('reskin') || lower.includes('technical question') ||
+    lower.includes('integration') || lower.includes('buy') || lower.includes('demo') ||
+    lower.includes('trial') || lower.includes('looking forward') || lower.includes('database') ||
+    lower.includes('multi-tenancy') || lower.includes('saas') || lower.includes('flutter') ||
+    lower.includes('mobile app') || lower.includes('api') || lower.includes('documentation');
+  return hasEmailHeaders || isForwarded ||
+    (lineCount >= 5 && (hasClientSignals || hasGreeting || hasSenderIntro)) ||
+    (lineCount >= 3 && hasClientSignals);
+}
+
+// Extract likely product names from email — capitalized words (4+ chars) that appear 2+ times
+// and are not common English words. Catches "Nazmart", "Taskip", "Xgenious", "Intoday", etc.
+function extractProductNames(text: string): string[] {
+  const SKIP = new Set([
+    'From', 'Subject', 'Date', 'Dear', 'Hello', 'Best', 'Thanks', 'Thank', 'Please', 'Just',
+    'Also', 'Very', 'Your', 'Their', 'This', 'That', 'With', 'Have', 'Been', 'Will', 'Would',
+    'Could', 'Should', 'Must', 'Such', 'Each', 'Some', 'Into', 'Over', 'Upon', 'Before', 'After',
+    'Looking', 'Forward', 'Hearing', 'Regards', 'Sincerely', 'Team', 'Company', 'Platform',
+    'Service', 'Support', 'Email', 'Reply', 'Message', 'Client', 'Product', 'Project', 'Google',
+    'Store', 'AppStore', 'Play', 'Flutter', 'Laravel', 'WordPress', 'Database', 'Server',
+  ]);
+  const matches = text.match(/\b[A-Z][a-zA-Z]{3,}\b/g) ?? [];
+  const freq = new Map<string, number>();
+  for (const w of matches) {
+    if (!SKIP.has(w)) freq.set(w, (freq.get(w) ?? 0) + 1);
+  }
+  return Array.from(freq.entries())
+    .filter(([, count]) => count >= 2)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([word]) => word);
+}
+
+function buildSentimentNote(sentiment: Sentiment): string {
+  switch (sentiment) {
+    case 'frustrated': return '\nTone note: client appears frustrated — acknowledge their concern briefly in the first sentence before answering.';
+    case 'demanding': return '\nTone note: client is demanding/urgent — be concise and action-oriented; avoid anything that sounds dismissive.';
+    case 'positive': return '\nTone note: client is enthusiastic — match their energy; be warm and forward-moving.';
+    default: return '';
+  }
 }
 
 @Injectable()
@@ -124,7 +183,6 @@ export class EmailManagerAgent implements IAgent, OnModuleInit {
         followups: [],
       };
     }
-    // Chat messages from AgentChatPage arrive with source:'chat' and a query field.
     if (payload?.query) {
       const imageData = payload.imageData as { base64: string; mimeType: string } | undefined;
       return {
@@ -159,9 +217,7 @@ export class EmailManagerAgent implements IAgent, OnModuleInit {
     const existingSet = new Set(existing.map((r) => r.externalMsgId));
     const newMessages = messages.filter((m) => !existingSet.has(m.id));
 
-    this.logger.log(
-      `buildContext: ${messages.length} unread, ${newMessages.length} new`,
-    );
+    this.logger.log(`buildContext: ${messages.length} unread, ${newMessages.length} new`);
 
     const snapshot: EmailSnapshot = {
       newMessages: newMessages.map((m) => ({
@@ -241,17 +297,10 @@ export class EmailManagerAgent implements IAgent, OnModuleInit {
         actions.push({
           type: 'send_reply',
           summary: `Reply to "${msg.subject}" from ${msg.from}${violation ? ` - Blocklist: "${violation}"` : ''}`,
-          payload: {
-            messageId: msg.id,
-            threadId: msg.threadId,
-            from: msg.from,
-            subject: msg.subject,
-            draft,
-          },
+          payload: { messageId: msg.id, threadId: msg.threadId, from: msg.from, subject: msg.subject, draft },
           riskLevel: violation ? 'high' : 'medium',
         });
       } else {
-        // nice-to-reply — notify only
         actions.push({
           type: 'notify_email',
           summary: `Notify: new email from ${msg.from} — "${msg.subject}"`,
@@ -271,14 +320,11 @@ export class EmailManagerAgent implements IAgent, OnModuleInit {
   async execute(action: ProposedAction): Promise<ActionResult> {
     switch (action.type) {
       case 'notify_result':
-        // Draft shown in agent chat — no side effects needed.
         return { success: true, data: { draft: (action.payload as { message?: string }).message } };
 
       case 'archive_email': {
         const { messageId, externalMsgId, classification } = action.payload as {
-          messageId: string;
-          externalMsgId: string;
-          classification: string;
+          messageId: string; externalMsgId: string; classification: string;
         };
         await this.gmail.archiveMessage(messageId);
         await this.gmail.markRead(messageId);
@@ -291,10 +337,7 @@ export class EmailManagerAgent implements IAgent, OnModuleInit {
 
       case 'notify_email': {
         const { from, subject, snippet } = action.payload as {
-          messageId: string;
-          from: string;
-          subject: string;
-          snippet: string;
+          messageId: string; from: string; subject: string; snippet: string;
         };
         await this.telegram.sendMessage(
           `New email (nice-to-reply)\nFrom: ${from}\nSubject: ${subject}\n\n${snippet}`,
@@ -308,29 +351,21 @@ export class EmailManagerAgent implements IAgent, OnModuleInit {
 
       case 'send_reply': {
         const { messageId, threadId, from, subject, draft } = action.payload as {
-          messageId: string;
-          threadId: string;
-          from: string;
-          subject: string;
-          draft: string;
+          messageId: string; threadId: string; from: string; subject: string; draft: string;
         };
-        const config = await this.getConfig();
         const toAddress = from.match(/<(.+)>/)?.[1] ?? from;
         const replySubject = subject.startsWith('Re:') ? subject : `Re: ${subject}`;
-
         await this.gmail.sendEmail({
           to: toAddress,
           from: await this.gmail.getFromAddress(),
           subject: replySubject,
           textBody: draft,
         });
-
         await this.gmail.markRead(messageId);
         await this.db.db
           .update(emailItems)
           .set({ status: 'sent', processedAt: new Date() })
           .where(eq(emailItems.externalMsgId, messageId));
-
         return { success: true, data: { sent: true, to: toAddress } };
       }
 
@@ -344,10 +379,7 @@ export class EmailManagerAgent implements IAgent, OnModuleInit {
       {
         name: 'list_unread',
         description: 'List unread emails from Gmail inbox',
-        inputSchema: {
-          type: 'object',
-          properties: { maxResults: { type: 'number', default: 10 } },
-        },
+        inputSchema: { type: 'object', properties: { maxResults: { type: 'number', default: 10 } } },
         handler: async (input) => {
           const { maxResults = 10 } = input as { maxResults?: number };
           return this.gmail.listUnread(maxResults);
@@ -356,11 +388,7 @@ export class EmailManagerAgent implements IAgent, OnModuleInit {
       {
         name: 'get_thread',
         description: 'Fetch a full Gmail thread by thread ID',
-        inputSchema: {
-          type: 'object',
-          properties: { threadId: { type: 'string' } },
-          required: ['threadId'],
-        },
+        inputSchema: { type: 'object', properties: { threadId: { type: 'string' } }, required: ['threadId'] },
         handler: async (input) => {
           const { threadId } = input as { threadId: string };
           return this.gmail.getThread(threadId);
@@ -369,11 +397,7 @@ export class EmailManagerAgent implements IAgent, OnModuleInit {
       {
         name: 'draft_reply',
         description: 'LLM-draft a reply for an email by its external message ID',
-        inputSchema: {
-          type: 'object',
-          properties: { messageId: { type: 'string' } },
-          required: ['messageId'],
-        },
+        inputSchema: { type: 'object', properties: { messageId: { type: 'string' } }, required: ['messageId'] },
         handler: async (input) => {
           const { messageId } = input as { messageId: string };
           const msg = await this.gmail.getMessage(messageId);
@@ -388,11 +412,7 @@ export class EmailManagerAgent implements IAgent, OnModuleInit {
       {
         name: 'archive',
         description: 'Archive an email by message ID',
-        inputSchema: {
-          type: 'object',
-          properties: { messageId: { type: 'string' } },
-          required: ['messageId'],
-        },
+        inputSchema: { type: 'object', properties: { messageId: { type: 'string' } }, required: ['messageId'] },
         handler: async (input) => {
           const { messageId } = input as { messageId: string };
           await this.gmail.archiveMessage(messageId);
@@ -459,23 +479,59 @@ export class EmailManagerAgent implements IAgent, OnModuleInit {
       ? `${instructions}\n\nAdditional note: ${followupNote}`
       : instructions;
 
-    // If an image was pasted, extract email text from it first via vision.
-    let resolvedText = effectiveInstructions;
+    // --- Image path ---
     if (imageData) {
-      resolvedText = await this.extractEmailFromImage(imageData, effectiveInstructions);
+      const extracted = await this.extractEmailFromImage(imageData, effectiveInstructions);
+
+      // Confidence check: if gpt-4o isn't sure this is an email, tell the user
+      if (extracted.confidence < 0.5) {
+        return [{
+          type: 'notify_result',
+          summary: 'Could not identify a clear email in the image. Please paste the email as text instead.',
+          payload: { message: 'Could not identify a clear email in the image. Please paste the email as text instead.' },
+          riskLevel: 'low',
+        }];
+      }
+
+      // Vision extracted a real email — route to client reply
+      return this.draftClientReply(
+        extracted.latestMessage,
+        extracted.threadContext,
+        extracted.language,
+        extracted.sentiment,
+        config,
+        alwaysOn,
+        samples,
+        blocklist,
+        rejections,
+      );
     }
 
-    // Route: if the input looks like a client email, draft a reply.
-    // Otherwise treat as a compose instruction.
-    if (looksLikeClientEmail(resolvedText)) {
-      return this.draftClientReply(resolvedText, config, alwaysOn, samples, blocklist, rejections);
+    // --- Text path ---
+    if (looksLikeClientEmail(effectiveInstructions)) {
+      // Detect language and sentiment with a fast single call
+      const analysis = await this.analyzeEmailText(effectiveInstructions).catch(() => ({
+        language: 'en', sentiment: 'neutral' as Sentiment,
+      }));
+      return this.draftClientReply(
+        effectiveInstructions,
+        '',
+        analysis.language,
+        analysis.sentiment,
+        config,
+        alwaysOn,
+        samples,
+        blocklist,
+        rejections,
+      );
     }
 
-    // Compose path — general email writing from instructions.
+    // Compose path — general email writing from instructions
     const template = await this.kb.getPromptTemplate(this.key);
     const kbBlock = this.kb.buildKbPromptBlock({
       voiceProfile: alwaysOn.find(e => e.entryType === 'voice_profile') ?? null,
       facts: alwaysOn.filter(e => e.entryType === 'fact'),
+      catalog: alwaysOn.filter(e => e.entryType === 'product' || e.entryType === 'service' || e.entryType === 'offer'),
       references: [],
       positiveSamples: samples.filter(s => s.polarity === 'positive'),
       negativeSamples: samples.filter(s => s.polarity === 'negative'),
@@ -485,7 +541,7 @@ export class EmailManagerAgent implements IAgent, OnModuleInit {
     const response = await this.llm.complete({
       messages: [
         { role: 'system', content: (template?.system ?? defaultSystem) + kbBlock },
-        { role: 'user', content: resolvedText },
+        { role: 'user', content: effectiveInstructions },
       ],
       ...agentLlmOpts(config),
       agentKey: this.key,
@@ -495,37 +551,69 @@ export class EmailManagerAgent implements IAgent, OnModuleInit {
     let draft = response.content.trim();
     if (!draft) return [{ type: 'noop', summary: 'No draft generated.', payload: {}, riskLevel: 'low' }];
     draft = await this.selfCritique(draft, alwaysOn.find(e => e.entryType === 'voice_profile')?.content, blocklist);
-    return [{
-      type: 'notify_result',
-      summary: draft,
-      payload: { message: draft },
-      riskLevel: 'low',
-    }];
+    return [{ type: 'notify_result', summary: draft, payload: { message: draft }, riskLevel: 'low' }];
   }
 
   private async draftClientReply(
     emailText: string,
+    threadContext: string,
+    language: string,
+    sentiment: Sentiment,
     config: EmailManagerConfig,
     alwaysOn: Awaited<ReturnType<KnowledgeBaseService['getAlwaysOnContext']>>,
     samples: Awaited<ReturnType<KnowledgeBaseService['getWritingSamples']>>,
     blocklist: string[],
     rejections: Awaited<ReturnType<KnowledgeBaseService['getRecentRejections']>>,
   ): Promise<ProposedAction[]> {
-    const references = await this.kb.searchEntries(emailText.slice(0, 1200), this.key, 15).catch(() => []);
+    // Primary semantic search on first 1200 chars
+    const semanticRefs = await this.kb.searchEntries(emailText.slice(0, 1200), this.key, 15).catch(() => []);
+
+    // Product-name targeted search: extract names like "Nazmart", "Taskip" from the email
+    // and do an additional search per product so those KB entries always rank in
+    const productNames = extractProductNames(emailText);
+    const productRefs = await Promise.all(
+      productNames.map(name => this.kb.searchEntries(name, this.key, 5).catch(() => [])),
+    );
+    // Merge, deduplicate by entry id
+    const seenIds = new Set(semanticRefs.map((r: any) => r.id));
+    const allRefs = [...semanticRefs];
+    for (const batch of productRefs) {
+      for (const ref of batch) {
+        if (!seenIds.has((ref as any).id)) {
+          seenIds.add((ref as any).id);
+          allRefs.push(ref);
+        }
+      }
+    }
+
     const kbBlock = this.kb.buildKbPromptBlock({
       voiceProfile: alwaysOn.find(e => e.entryType === 'voice_profile') ?? null,
       facts: alwaysOn.filter(e => e.entryType === 'fact'),
       catalog: alwaysOn.filter(e => e.entryType === 'product' || e.entryType === 'service' || e.entryType === 'offer'),
-      references,
+      references: allRefs,
       positiveSamples: samples.filter(s => s.polarity === 'positive'),
       negativeSamples: samples.filter(s => s.polarity === 'negative'),
       rejections,
     });
+
+    const sentimentNote = buildSentimentNote(sentiment);
+    const languageNote = language && language !== 'en'
+      ? `\nLanguage note: the client wrote in ${language} — draft your reply in ${language}.`
+      : '';
+    const systemContent = CLIENT_REPLY_SYSTEM + sentimentNote + languageNote + kbBlock;
+
+    // Build messages: if we have thread context (from image extraction), include it
+    const messages: { role: 'system' | 'user' | 'assistant'; content: string }[] = [
+      { role: 'system', content: systemContent },
+    ];
+    if (threadContext.trim()) {
+      messages.push({ role: 'user', content: `Thread context (earlier messages — for background only):\n${threadContext.slice(0, 1500)}` });
+      messages.push({ role: 'assistant', content: 'Understood. I have read the thread context.' });
+    }
+    messages.push({ role: 'user', content: emailText.slice(0, 3000) });
+
     const response = await this.llm.complete({
-      messages: [
-        { role: 'system', content: CLIENT_REPLY_SYSTEM + kbBlock },
-        { role: 'user', content: emailText.slice(0, 3000) },
-      ],
+      messages,
       ...agentLlmOpts(config),
       provider: 'openai',
       model: 'gpt-4o',
@@ -536,40 +624,102 @@ export class EmailManagerAgent implements IAgent, OnModuleInit {
     let draft = response.content.trim();
     if (!draft) return [{ type: 'noop', summary: 'No draft generated.', payload: {}, riskLevel: 'low' }];
     draft = await this.selfCritique(draft, alwaysOn.find(e => e.entryType === 'voice_profile')?.content, blocklist);
-    return [{
-      type: 'notify_result',
-      summary: draft,
-      payload: { message: draft },
-      riskLevel: 'low',
-    }];
+    return [{ type: 'notify_result', summary: draft, payload: { message: draft }, riskLevel: 'low' }];
   }
 
+  // Extract structured email data from an image screenshot
   private async extractEmailFromImage(
     imageData: { base64: string; mimeType: string },
     fallbackText: string,
-  ): Promise<string> {
+  ): Promise<ExtractedEmail> {
+    const fallback: ExtractedEmail = {
+      latestMessage: fallbackText,
+      threadContext: '',
+      sender: '',
+      subject: '',
+      language: 'en',
+      sentiment: 'neutral',
+      confidence: 0.3,
+    };
     try {
       const response = await this.llm.complete({
         provider: 'openai',
         model: 'gpt-4o',
         agentKey: this.key,
-        maxTokens: 800,
+        maxTokens: 1200,
         temperature: 0,
         imageBase64: imageData.base64,
         imageMimeType: imageData.mimeType,
         messages: [
           {
             role: 'system',
-            content: 'Extract the full email conversation from this image exactly as written. Preserve From, Subject, dates, and all message bodies. Return plain text only — no markdown, no commentary.',
+            content: `You are an email content extractor. Your job is to read an image and return a JSON object.
+
+IMPORTANT:
+- Focus ONLY on the email message content. Ignore browser chrome, sidebar navigation, labels, toolbar buttons, and any UI elements.
+- If the image shows a thread (multiple messages), separate the LATEST (most recent) message from earlier messages.
+- Detect the language the client is writing in (use ISO 639-1 code: en, ar, bn, fr, etc.).
+- Rate your confidence that this image contains an actual email (0.0 = definitely not an email, 1.0 = clearly an email).
+- Classify the client's emotional tone: positive / neutral / frustrated / demanding.
+
+Return ONLY valid JSON in this exact format:
+{
+  "latestMessage": "the most recent client message, full text",
+  "threadContext": "any earlier messages in the thread, or empty string",
+  "sender": "sender name and/or email if visible",
+  "subject": "email subject if visible",
+  "language": "en",
+  "sentiment": "neutral",
+  "confidence": 0.95
+}`,
           },
-          { role: 'user', content: 'Extract the email conversation from this image.' },
+          { role: 'user', content: 'Extract the email data from this image.' },
         ],
       });
-      const extracted = response.content.trim();
-      return extracted || fallbackText;
+      const raw = response.content.trim().replace(/^```json\s*/i, '').replace(/```$/, '');
+      const parsed = JSON.parse(raw) as Partial<ExtractedEmail>;
+      if (!parsed.latestMessage || parsed.latestMessage.length < 20) return fallback;
+      return {
+        latestMessage: parsed.latestMessage ?? fallbackText,
+        threadContext: parsed.threadContext ?? '',
+        sender: parsed.sender ?? '',
+        subject: parsed.subject ?? '',
+        language: parsed.language ?? 'en',
+        sentiment: (['positive', 'neutral', 'frustrated', 'demanding'].includes(parsed.sentiment ?? ''))
+          ? (parsed.sentiment as Sentiment) : 'neutral',
+        confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 0.8,
+      };
     } catch (err) {
       this.logger.warn(`Image email extraction failed: ${(err as Error).message}`);
-      return fallbackText;
+      return fallback;
+    }
+  }
+
+  // Quick language + sentiment analysis for text-path emails (single LLM call, cheap)
+  private async analyzeEmailText(text: string): Promise<{ language: string; sentiment: Sentiment }> {
+    const res = await this.llm.complete({
+      provider: 'openai',
+      model: 'gpt-4o-mini',
+      agentKey: this.key,
+      maxTokens: 30,
+      temperature: 0,
+      messages: [
+        {
+          role: 'system',
+          content: 'Return JSON only: {"language":"ISO-639-1 code","sentiment":"positive|neutral|frustrated|demanding"}',
+        },
+        { role: 'user', content: text.slice(0, 500) },
+      ],
+    });
+    try {
+      const parsed = JSON.parse(res.content.trim().replace(/^```json\s*/i, '').replace(/```$/, ''));
+      return {
+        language: typeof parsed.language === 'string' ? parsed.language : 'en',
+        sentiment: (['positive', 'neutral', 'frustrated', 'demanding'].includes(parsed.sentiment))
+          ? parsed.sentiment as Sentiment : 'neutral',
+      };
+    } catch {
+      return { language: 'en', sentiment: 'neutral' };
     }
   }
 
@@ -578,26 +728,19 @@ export class EmailManagerAgent implements IAgent, OnModuleInit {
     config: EmailManagerConfig,
   ): Promise<Classification> {
     const fromLower = msg.from.toLowerCase();
+    if (config.importantSenders?.some((s) => fromLower.includes(s.toLowerCase()))) return 'must-reply';
+    if (config.autoArchiveDomains?.some((d) => fromLower.includes(d.toLowerCase()))) return 'newsletter';
 
-    if (config.importantSenders?.some((s) => fromLower.includes(s.toLowerCase()))) {
-      return 'must-reply';
-    }
-    if (config.autoArchiveDomains?.some((d) => fromLower.includes(d.toLowerCase()))) {
-      return 'newsletter';
-    }
-
-    const prompt = `From: ${msg.from}\nSubject: ${msg.subject}\n\n${msg.snippet}`;
     const res = await this.llm.complete({
       ...agentLlmOpts(config),
       agentKey: this.key,
       messages: [
         { role: 'system', content: CLASSIFY_SYSTEM },
-        { role: 'user', content: prompt },
+        { role: 'user', content: `From: ${msg.from}\nSubject: ${msg.subject}\n\n${msg.snippet}` },
       ],
       maxTokens: 20,
       temperature: 0,
     });
-
     const raw = res.content.trim().toLowerCase();
     if (raw.includes('must-reply')) return 'must-reply';
     if (raw.includes('nice-to-reply')) return 'nice-to-reply';
@@ -616,10 +759,7 @@ export class EmailManagerAgent implements IAgent, OnModuleInit {
       agentKey: this.key,
       messages: [
         { role: 'system', content: (customSystem ?? DRAFT_SYSTEM) + kbBlock },
-        {
-          role: 'user',
-          content: `From: ${msg.from}\nSubject: ${msg.subject}\n\n${msg.body || msg.snippet}`,
-        },
+        { role: 'user', content: `From: ${msg.from}\nSubject: ${msg.subject}\n\n${msg.body || msg.snippet}` },
       ],
       maxTokens: 300,
       temperature: 0.7,
@@ -657,15 +797,10 @@ If not, rewrite and return: {"ok":false,"revised":"improved reply here"}`,
       .select({ config: agents.config })
       .from(agents)
       .where(eq(agents.key, this.key));
-
     return (row?.config as EmailManagerConfig) ?? this.defaultConfig();
   }
 
   private defaultConfig(): EmailManagerConfig {
-    return {
-      maxEmailsPerRun: 20,
-      importantSenders: [],
-      autoArchiveDomains: [],
-    };
+    return { maxEmailsPerRun: 20, importantSenders: [], autoArchiveDomains: [] };
   }
 }

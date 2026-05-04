@@ -250,6 +250,40 @@ function sourceBadge(type: string) {
   return map[type] ?? 'bg-muted text-muted-foreground';
 }
 
+// ─── AI Preview Block ─────────────────────────────────────────────────────
+
+function AiPreviewBlock({ content, entryType }: { content: string; entryType: string }) {
+  const [open, setOpen] = useState(false);
+  const isAlwaysOn = ['product', 'service', 'offer'].includes(entryType);
+  const limit = isAlwaysOn ? 500 : 800;
+  const preview = content.slice(0, limit);
+  const truncated = content.length > limit;
+  return (
+    <div className="border border-dashed border-border rounded-lg overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between px-3 py-2 text-xs text-muted-foreground hover:text-foreground transition-colors"
+      >
+        <span>How AI reads this entry</span>
+        <span className="text-[10px]">{open ? 'hide' : 'show'} preview (first {limit} chars)</span>
+      </button>
+      {open && (
+        <div className="px-3 pb-3">
+          <pre className="text-[11px] font-mono text-muted-foreground whitespace-pre-wrap break-words bg-muted/20 rounded p-2 leading-relaxed">
+            {preview}
+          </pre>
+          {truncated && (
+            <p className="text-[10px] text-amber-400 mt-1">
+              Entry is {content.length} chars — AI only sees the first {limit}. Consider trimming.
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Entry Modal ───────────────────────────────────────────────────────────
 
 function EntryModal({ entry, onClose, onSave, token }: {
@@ -296,6 +330,23 @@ function EntryModal({ entry, onClose, onSave, token }: {
               onChange={e => setForm(f => ({ ...f, content: e.target.value }))}
               placeholder="Enter the knowledge content..."
             />
+            <div className="flex items-center justify-between mt-1 min-h-[16px]">
+              <div className="flex items-center gap-2">
+                {form.content.trim().length > 0 && form.content.trim().length < 80 && (
+                  <span className="text-[10px] text-amber-400">Too short — add more detail for accurate retrieval</span>
+                )}
+                {form.content.trim().length >= 80 && (() => {
+                  const commas = (form.content.match(/,/g) || []).length;
+                  const nonSpace = form.content.replace(/\s/g, '').length;
+                  return nonSpace > 0 && commas / nonSpace > 0.12;
+                })() && (
+                  <span className="text-[10px] text-amber-400">Looks like a keyword list — sentences work better for AI retrieval</span>
+                )}
+              </div>
+              <span className={`text-[10px] tabular-nums shrink-0 ${form.content.length > 5000 ? 'text-red-400' : form.content.length > 2000 ? 'text-amber-400' : 'text-muted-foreground/60'}`}>
+                {form.content.length} chars · ~{Math.round(form.content.length / 4)} tokens
+              </span>
+            </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -361,6 +412,9 @@ function EntryModal({ entry, onClose, onSave, token }: {
                 onChange={(next) => setForm((f) => ({ ...f, ...next }))}
               />
             </div>
+          )}
+          {form.content.trim().length > 0 && (
+            <AiPreviewBlock content={form.content} entryType={form.entryType} />
           )}
         </div>
         <div className="flex justify-end gap-2 p-4 border-t border-border">
@@ -543,6 +597,7 @@ function EntriesTab({ token }: { token: string }) {
   const [agentFilter, setAgentFilter] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
   const [siteFilter, setSiteFilter] = useState('');
+  const [neverUsedFilter, setNeverUsedFilter] = useState(false);
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [modal, setModal] = useState<null | 'add' | any>(null);
@@ -645,7 +700,11 @@ function EntriesTab({ token }: { token: string }) {
     }
   }
   const presentIds = new Set((entries as any[]).map((e) => e.id));
-  const topLevel = (entries as any[]).filter((e) => !e.parentDocId || !presentIds.has(e.parentDocId));
+  const topLevel = (entries as any[]).filter((e) => {
+    if (e.parentDocId && presentIds.has(e.parentDocId)) return false;
+    if (neverUsedFilter && e.lastRetrievedAt != null) return false;
+    return true;
+  });
   const toggleExpanded = (id: string) => {
     setExpanded((prev) => {
       const next = new Set(prev);
@@ -653,6 +712,18 @@ function EntriesTab({ token }: { token: string }) {
       return next;
     });
   };
+
+  // Auto-open edit modal when ?edit=<id> is in the URL (e.g. from KbSourcesPanel "edit" link).
+  useEffect(() => {
+    const editId = new URLSearchParams(window.location.search).get('edit');
+    if (!editId || !token) return;
+    apiFetch(token, `/knowledge-base/entries/${editId}`)
+      .then((entry: any) => { if (entry?.id) setModal(entry); })
+      .catch(() => undefined);
+    // Clean the URL without a page reload so the param doesn't persist.
+    const clean = window.location.pathname + window.location.hash;
+    window.history.replaceState(null, '', clean);
+  }, [token]);
 
   return (
     <div>
@@ -691,6 +762,18 @@ function EntriesTab({ token }: { token: string }) {
             {sites.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
           </select>
         )}
+        <button
+          type="button"
+          onClick={() => setNeverUsedFilter((v) => !v)}
+          className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border transition-colors ${
+            neverUsedFilter
+              ? 'bg-orange-500/15 border-orange-500/40 text-orange-400'
+              : 'border-border text-muted-foreground hover:text-foreground'
+          }`}
+          title="Show only entries never retrieved by the AI"
+        >
+          Never used
+        </button>
         <button
           onClick={() => setModal('add')}
           className="ml-auto flex items-center gap-1.5 px-3 py-1.5 bg-primary text-primary-foreground text-sm rounded-lg hover:opacity-90"
@@ -785,6 +868,19 @@ function EntriesTab({ token }: { token: string }) {
                       {!entry.siteKeys?.trim() && !entry.excludedSiteKeys?.trim() && entry.agentKeys && entry.agentKeys.split(',').map(s => s.trim()).includes('livechat') && (
                         <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-yellow-500/15 text-yellow-400 border border-yellow-500/30" title="This entry has no site key and will not appear in any livechat session">
                           no site — inactive
+                        </span>
+                      )}
+                      {!entry.lastRetrievedAt && entry.entryType === 'reference' && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-orange-500/10 text-orange-400 border border-orange-500/20" title="This reference entry has never been retrieved by the AI">
+                          never used
+                        </span>
+                      )}
+                      {entry.lastRetrievedAt && (() => {
+                        const daysSince = (Date.now() - new Date(entry.lastRetrievedAt).getTime()) / 86_400_000;
+                        return daysSince > 30;
+                      })() && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-yellow-500/10 text-yellow-400/70 border border-yellow-500/20" title={`Last used ${Math.round((Date.now() - new Date(entry.lastRetrievedAt).getTime()) / 86_400_000)} days ago`}>
+                          stale
                         </span>
                       )}
                     </div>
@@ -1638,6 +1734,81 @@ function ProposalsTab({ token }: { token: string }) {
   );
 }
 
+// ─── Tab 6: KB Gaps ───────────────────────────────────────────────────────
+
+function GapsTab({ token }: { token: string }) {
+  const [siteFilter, setSiteFilter] = useState('');
+  const { data: gaps = [], isLoading } = useQuery({
+    queryKey: ['kb-gaps', siteFilter],
+    queryFn: async () => {
+      const qs = siteFilter ? `?siteKey=${encodeURIComponent(siteFilter)}` : '';
+      const res = await fetch(`/api/agents/livechat/kb-gaps${qs}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      return res.json() as Promise<{ id: string; siteKey: string; visitorQuestion: string; escalationReason: string; createdAt: string }[]>;
+    },
+    refetchInterval: 30_000,
+  });
+
+  const reasonBadge = (r: string) => {
+    if (r === 'grounding_failed') return 'bg-red-500/15 text-red-400 border-red-500/30';
+    return 'bg-orange-500/15 text-orange-400 border-orange-500/30';
+  };
+  const reasonLabel = (r: string) => (r === 'grounding_failed' ? 'grounding failed' : 'no references');
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-sm font-medium">Unanswered Questions</p>
+          <p className="text-xs text-muted-foreground mt-0.5">Questions escalated to human because the KB lacked coverage or the draft failed grounding check.</p>
+        </div>
+        <input
+          type="text"
+          placeholder="Filter by site key..."
+          value={siteFilter}
+          onChange={e => setSiteFilter(e.target.value)}
+          className="text-sm bg-background border border-border rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary w-48"
+        />
+      </div>
+      {isLoading ? (
+        <div className="text-sm text-muted-foreground">Loading...</div>
+      ) : gaps.length === 0 ? (
+        <div className="text-sm text-muted-foreground py-8 text-center">No gaps recorded yet.</div>
+      ) : (
+        <div className="rounded-lg border border-border overflow-hidden">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border bg-muted/30">
+                <th className="text-left px-3 py-2 text-xs text-muted-foreground font-medium">Site</th>
+                <th className="text-left px-3 py-2 text-xs text-muted-foreground font-medium">Visitor Question</th>
+                <th className="text-left px-3 py-2 text-xs text-muted-foreground font-medium">Reason</th>
+                <th className="text-left px-3 py-2 text-xs text-muted-foreground font-medium">Time</th>
+              </tr>
+            </thead>
+            <tbody>
+              {gaps.map((g) => (
+                <tr key={g.id} className="border-b border-border last:border-0 hover:bg-muted/10">
+                  <td className="px-3 py-2.5 text-xs font-mono text-muted-foreground whitespace-nowrap">{g.siteKey}</td>
+                  <td className="px-3 py-2.5 text-xs max-w-xs truncate" title={g.visitorQuestion}>{g.visitorQuestion}</td>
+                  <td className="px-3 py-2.5">
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded border ${reasonBadge(g.escalationReason)}`}>
+                      {reasonLabel(g.escalationReason)}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2.5 text-xs text-muted-foreground whitespace-nowrap">
+                    {new Date(g.createdAt).toLocaleString()}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Main Page ─────────────────────────────────────────────────────────────
 
 const TABS = [
@@ -1646,6 +1817,7 @@ const TABS = [
   { id: 'import', label: 'Import' },
   { id: 'templates', label: 'Prompt Templates' },
   { id: 'proposals', label: 'Proposals' },
+  { id: 'gaps', label: 'KB Gaps' },
 ];
 
 export default function KnowledgeBasePage() {
@@ -1682,6 +1854,7 @@ export default function KnowledgeBasePage() {
       {tab === 'import' && <ImportTab token={token} />}
       {tab === 'templates' && <TemplatesTab token={token} />}
       {tab === 'proposals' && <ProposalsTab token={token} />}
+      {tab === 'gaps' && <GapsTab token={token} />}
     </div>
   );
 }
