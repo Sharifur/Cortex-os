@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v3.5.5',
+    date: '2026-05-04',
+    entries: [
+      { tag: 'fix', scope: 'livechat', description: 'Clicking the reply button broke the page layout — long message content in the reply-to banner caused the flex container to grow beyond its allocated width, squeezing the sidebar; fixed by adding min-w-0 + overflow-hidden to the session pane wrapper and overflow-hidden to the banner strip' },
+    ],
+  },
+  {
     version: 'v3.5.4',
     date: '2026-05-04',
     entries: [
