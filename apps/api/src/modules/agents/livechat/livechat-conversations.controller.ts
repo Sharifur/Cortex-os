@@ -491,6 +491,6 @@ export class LivechatConversationsController {
       maxTokens: 1000,
     });
 
-    return { translated: res.text.trim() };
+    return { translated: res.content.trim() };
   }
 }
