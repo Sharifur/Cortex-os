@@ -1737,16 +1737,111 @@ function ProposalsTab({ token }: { token: string }) {
 
 // ─── Tab 6: KB Gaps ───────────────────────────────────────────────────────
 
+type KbGap = { id: string; siteKey: string; visitorQuestion: string; escalationReason: string; createdAt: string };
+
+function AnswerGapModal({
+  gap,
+  token,
+  onClose,
+  onSaved,
+}: {
+  gap: KbGap;
+  token: string;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [title, setTitle] = useState(gap.visitorQuestion);
+  const [answer, setAnswer] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  async function handleSave() {
+    if (!answer.trim()) { setError('Answer is required.'); return; }
+    setSaving(true);
+    setError('');
+    try {
+      await apiFetch(token, '/knowledge-base/entries', {
+        method: 'POST',
+        body: JSON.stringify({
+          title: title.trim(),
+          content: answer.trim(),
+          category: 'faq',
+          entryType: 'reference',
+          priority: 50,
+          siteKeys: gap.siteKey,
+        }),
+      });
+      await apiFetch(token, `/agents/livechat/kb-gaps/${gap.id}`, { method: 'DELETE' });
+      onSaved();
+    } catch {
+      setError('Failed to save. Please try again.');
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+      <div className="bg-background border border-border rounded-xl shadow-xl w-full max-w-lg mx-4 p-5 space-y-4">
+        <div className="flex items-center justify-between">
+          <p className="text-sm font-semibold">Answer Gap — add to KB</p>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="w-4 h-4" /></button>
+        </div>
+        <div className="space-y-1">
+          <label className="text-xs text-muted-foreground">Question / Title</label>
+          <input
+            value={title}
+            onChange={e => setTitle(e.target.value)}
+            className="w-full text-sm bg-muted/30 border border-border rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary"
+          />
+        </div>
+        <div className="space-y-1">
+          <label className="text-xs text-muted-foreground">Answer (saved as KB entry content)</label>
+          <textarea
+            rows={5}
+            value={answer}
+            onChange={e => setAnswer(e.target.value)}
+            placeholder="Write the correct answer..."
+            className="w-full text-sm bg-muted/30 border border-border rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary resize-none"
+          />
+        </div>
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <span>Site:</span>
+          <span className="font-mono">{gap.siteKey}</span>
+          <span className="ml-auto">Category: faq</span>
+        </div>
+        {error && <p className="text-xs text-red-400">{error}</p>}
+        <div className="flex justify-end gap-2">
+          <button onClick={onClose} className="px-3 py-1.5 text-sm border border-border rounded-lg hover:bg-muted/30">Cancel</button>
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded-lg hover:opacity-90 disabled:opacity-50"
+          >
+            {saving ? 'Saving...' : 'Save to KB'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function GapsTab({ token }: { token: string }) {
+  const qc = useQueryClient();
   const [siteFilter, setSiteFilter] = useState('');
+  const [answering, setAnswering] = useState<KbGap | null>(null);
   const { data: gaps = [], isLoading } = useQuery({
     queryKey: ['kb-gaps', siteFilter],
     queryFn: async () => {
       const qs = siteFilter ? `?siteKey=${encodeURIComponent(siteFilter)}` : '';
-      return apiFetch(token, `/agents/livechat/kb-gaps${qs}`) as Promise<{ id: string; siteKey: string; visitorQuestion: string; escalationReason: string; createdAt: string }[]>;
+      return apiFetch(token, `/agents/livechat/kb-gaps${qs}`) as Promise<KbGap[]>;
     },
     refetchInterval: 30_000,
   });
+
+  async function dismiss(id: string) {
+    await apiFetch(token, `/agents/livechat/kb-gaps/${id}`, { method: 'DELETE' });
+    qc.invalidateQueries({ queryKey: ['kb-gaps'] });
+  }
 
   const reasonBadge = (r: string) => {
     if (r === 'grounding_failed') return 'bg-red-500/15 text-red-400 border-red-500/30';
@@ -1756,6 +1851,18 @@ function GapsTab({ token }: { token: string }) {
 
   return (
     <div className="space-y-4">
+      {answering && (
+        <AnswerGapModal
+          gap={answering}
+          token={token}
+          onClose={() => setAnswering(null)}
+          onSaved={() => {
+            setAnswering(null);
+            qc.invalidateQueries({ queryKey: ['kb-gaps'] });
+            qc.invalidateQueries({ queryKey: ['kb-entries'] });
+          }}
+        />
+      )}
       <div className="flex items-center justify-between">
         <div>
           <p className="text-sm font-medium">Unanswered Questions</p>
@@ -1782,6 +1889,7 @@ function GapsTab({ token }: { token: string }) {
                 <th className="text-left px-3 py-2 text-xs text-muted-foreground font-medium">Visitor Question</th>
                 <th className="text-left px-3 py-2 text-xs text-muted-foreground font-medium">Reason</th>
                 <th className="text-left px-3 py-2 text-xs text-muted-foreground font-medium">Time</th>
+                <th className="text-left px-3 py-2 text-xs text-muted-foreground font-medium">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -1796,6 +1904,22 @@ function GapsTab({ token }: { token: string }) {
                   </td>
                   <td className="px-3 py-2.5 text-xs text-muted-foreground whitespace-nowrap">
                     {new Date(g.createdAt).toLocaleString()}
+                  </td>
+                  <td className="px-3 py-2.5 whitespace-nowrap">
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => setAnswering(g)}
+                        className="text-[11px] px-2 py-0.5 rounded border border-primary/40 text-primary hover:bg-primary/10"
+                      >
+                        Answer
+                      </button>
+                      <button
+                        onClick={() => dismiss(g.id)}
+                        className="text-[11px] px-2 py-0.5 rounded border border-border text-muted-foreground hover:bg-muted/30"
+                      >
+                        Dismiss
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
