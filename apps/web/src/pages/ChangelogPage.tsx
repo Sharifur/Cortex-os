@@ -16,6 +16,20 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v3.8.8',
+    date: '2026-05-04',
+    entries: [
+      { tag: 'fix', scope: 'livechat', description: 'Origin check — fall back to Referer header when Origin is absent (fixes 403 for SSR pages and Safari privacy mode on taskip site)' },
+    ],
+  },
+  {
+    version: 'v3.8.7',
+    date: '2026-05-04',
+    entries: [
+      { tag: 'feat', scope: 'kb', description: 'KB Gaps — Answer and Dismiss actions per row; Answer opens a modal pre-filled with the visitor question, lets you write a reply, and saves it as a KB entry (category: faq, scoped to site key) then removes the gap; Dismiss deletes the gap without creating an entry' },
+    ],
+  },
+  {
     version: 'v3.8.6',
     date: '2026-05-04',
     entries: [
