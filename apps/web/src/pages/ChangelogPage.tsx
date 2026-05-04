@@ -16,6 +16,15 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v3.8.1',
+    date: '2026-05-04',
+    entries: [
+      { tag: 'feat', scope: 'docs', description: 'KB Framework doc page — new admin panel page at /kb-framework explaining the mandatory 9-step agent contract, layer model, retrieval protocol, prompt block format, security scoping rules, quality gate pipeline, metadata contract, failure/fallback protocol, and health indicators' },
+      { tag: 'feat', scope: 'livechat', description: 'Clear widget cache — each site in the Live Chat settings now has a refresh button that sets a cache-bust token on the site record; the widget compares this token on every page load and clears its localStorage message cache when it changes, forcing all visitors to re-fetch conversation state' },
+      { tag: 'chore', scope: 'db', description: 'Migration 0055: widget_cache_bust column on livechat_sites' },
+    ],
+  },
+  {
     version: 'v3.8.0',
     date: '2026-05-04',
     entries: [

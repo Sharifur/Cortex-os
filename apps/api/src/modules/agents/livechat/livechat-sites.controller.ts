@@ -10,6 +10,7 @@ import {
   UseGuards,
   HttpCode,
   HttpStatus,
+  NotFoundException,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { LivechatService, CreateSiteDto, UpdateSiteDto } from './livechat.service';
@@ -54,5 +55,11 @@ export class LivechatSitesController {
   metricsForSite(@Param('id') id: string, @Query('days') days?: string) {
     const window = days ? Math.max(1, Math.min(90, Number(days))) : 7;
     return this.metrics.forSite(id, window);
+  }
+
+  @Post(':id/clear-cache')
+  @HttpCode(HttpStatus.OK)
+  clearWidgetCache(@Param('id') id: string) {
+    return this.livechat.clearWidgetCache(id);
   }
 }

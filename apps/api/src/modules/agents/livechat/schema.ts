@@ -27,6 +27,7 @@ export const livechatSites = pgTable(
     transcriptFrom: text('transcript_from'),
     topicHandlingRules: text('topic_handling_rules'),
     requireEmail: boolean('require_email').notNull().default(false),
+    widgetCacheBust: text('widget_cache_bust'),
     createdAt: timestamp('created_at').notNull().defaultNow(),
   },
   (t) => ({

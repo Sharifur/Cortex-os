@@ -44,6 +44,7 @@ import {
   CornerUpLeft,
   Languages,
   Flag,
+  RefreshCw,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -371,6 +372,17 @@ function SitesTab() {
 
   const [editing, setEditing] = useState<Partial<Site> | null>(null);
   const [installing, setInstalling] = useState<Site | null>(null);
+  const [clearedSiteId, setClearedSiteId] = useState<string | null>(null);
+
+  const clearCacheMut = useMutation({
+    mutationFn: (siteId: string) =>
+      apiFetch(token, `/agents/livechat/sites/${siteId}/clear-cache`, { method: 'POST' }),
+    onSuccess: (_data, siteId) => {
+      qc.invalidateQueries({ queryKey: ['livechat-sites'] });
+      setClearedSiteId(siteId);
+      setTimeout(() => setClearedSiteId(null), 2500);
+    },
+  });
 
   const saveMut = useMutation({
     mutationFn: async (s: Partial<Site>) => {
@@ -462,6 +474,18 @@ function SitesTab() {
                   </div>
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => clearCacheMut.mutate(s.id)}
+                    disabled={clearCacheMut.isPending}
+                    title="Clear widget cache — forces all visitors to reload their conversation on next page visit"
+                  >
+                    {clearedSiteId === s.id
+                      ? <Check className="w-4 h-4 text-emerald-500" />
+                      : <RefreshCw className={`w-4 h-4 ${clearCacheMut.isPending ? 'animate-spin' : ''}`} />
+                    }
+                  </Button>
                   <Button size="sm" variant="ghost" onClick={() => setInstalling(s)} title="Install instructions">
                     <Code2 className="w-4 h-4" />
                   </Button>
@@ -2829,16 +2853,62 @@ function Linkified({ text, dark }: { text: string; dark: boolean }) {
   );
 }
 
+function ImageLightbox({ src, alt, onClose }: { src: string; alt: string; onClose: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+  return (
+    <div
+      className="fixed inset-0 z-[9999] bg-black/80 flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <button
+        className="absolute top-4 right-4 text-white/70 hover:text-white p-2 rounded-full bg-black/40 hover:bg-black/60 transition-colors"
+        onClick={onClose}
+        aria-label="Close"
+      >
+        <X className="w-5 h-5" />
+      </button>
+      <img
+        src={src}
+        alt={alt}
+        className="max-w-full max-h-[90vh] rounded-xl shadow-2xl object-contain"
+        onClick={(e) => e.stopPropagation()}
+      />
+      <a
+        href={src}
+        target="_blank"
+        rel="noreferrer"
+        className="absolute bottom-4 right-4 text-xs text-white/60 hover:text-white underline"
+        onClick={(e) => e.stopPropagation()}
+      >
+        open original
+      </a>
+    </div>
+  );
+}
+
 function AttachmentView({ attachment, dark }: { attachment: AttachmentSummary; dark: boolean }) {
+  const [lightbox, setLightbox] = useState(false);
   if (attachment.mimeType.startsWith('image/') && attachment.url) {
     return (
-      <a href={attachment.url} target="_blank" rel="noreferrer">
+      <>
         <img
           src={attachment.url}
           alt={attachment.originalFilename}
           className="max-w-[280px] max-h-[260px] rounded-xl border border-border cursor-zoom-in"
+          onClick={() => setLightbox(true)}
         />
-      </a>
+        {lightbox && (
+          <ImageLightbox
+            src={attachment.url}
+            alt={attachment.originalFilename}
+            onClose={() => setLightbox(false)}
+          />
+        )}
+      </>
     );
   }
   return (

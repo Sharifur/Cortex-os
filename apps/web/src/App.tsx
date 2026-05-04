@@ -24,6 +24,7 @@ import LlmUsagePage from '@/pages/LlmUsagePage';
 import OpsPage from '@/pages/OpsPage';
 import ContactsPage from '@/pages/ContactsPage';
 import ChangelogPage from '@/pages/ChangelogPage';
+import KbFrameworkPage from '@/pages/KbFrameworkPage';
 import NotFoundPage from '@/pages/NotFoundPage';
 import AppLayout from '@/components/AppLayout';
 import { useAuthStore } from '@/stores/authStore';
@@ -72,6 +73,7 @@ export default function App() {
             <Route path="/health" element={<HealthPage />} />
             <Route path="/llm-usage" element={<LlmUsagePage />} />
             <Route path="/changelog" element={<ChangelogPage />} />
+            <Route path="/kb-framework" element={<KbFrameworkPage />} />
             <Route path="/profile" element={<ProfilePage />} />
             <Route path="/change-password" element={<ChangePasswordPage />} />
             <Route path="*" element={<NotFoundPage />} />

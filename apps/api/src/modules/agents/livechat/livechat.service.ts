@@ -48,6 +48,7 @@ export interface LivechatSiteRow {
   transcriptFrom: string | null;
   topicHandlingRules: string | null;
   requireEmail: boolean;
+  widgetCacheBust: string | null;
   createdAt: Date;
 }
 
@@ -1179,6 +1180,14 @@ export class LivechatService implements OnModuleInit {
     await this.originCache.refresh().catch(() => undefined);
   }
 
+  async clearWidgetCache(id: string): Promise<{ cacheBust: string }> {
+    const [existing] = await this.db.db.select().from(livechatSites).where(eq(livechatSites.id, id));
+    if (!existing) throw new NotFoundException(`Live chat site not found: ${id}`);
+    const cacheBust = new Date().toISOString();
+    await this.db.db.update(livechatSites).set({ widgetCacheBust: cacheBust }).where(eq(livechatSites.id, id));
+    return { cacheBust };
+  }
+
   private normalizeOrigin(origin: string | undefined | null): string | null {
     if (!origin) return null;
     try {
@@ -1342,6 +1351,7 @@ export class LivechatService implements OnModuleInit {
       transcriptFrom: r.transcriptFrom,
       topicHandlingRules: r.topicHandlingRules ?? null,
       requireEmail: r.requireEmail,
+      widgetCacheBust: r.widgetCacheBust ?? null,
       createdAt: r.createdAt,
     };
   }
