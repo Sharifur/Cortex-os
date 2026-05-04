@@ -71,9 +71,11 @@ Taskip / Xgenious
 
 Rules:
 - Lead directly with the answer. No "Thank you for reaching out", no filler opening.
-- Use facts from the Knowledge Base below for pricing, features, timelines, and technical details. Do not guess.
-- If the client asks about a price or feature not in the KB, say: "I will confirm that and get back to you shortly."
-- Keep the body between 100 and 200 words. Longer for complex onboarding questions, shorter for simple ones.
+- CRITICAL: Search the Knowledge Base sections below (Products, Key Facts, Relevant Knowledge) before saying anything about a product. If the KB contains information about the product the client is asking about, USE that information to answer their questions. Never say a product is "not in our lineup" or "not listed" if it appears anywhere in the Knowledge Base.
+- Use facts from the Knowledge Base for pricing, features, timelines, and technical details. Do not guess or fabricate details not found in the KB.
+- Only say "I will confirm that and get back to you shortly" for specific details (exact numbers, edge-case configs) that are genuinely absent from the KB — not for the product itself.
+- If the client asks multiple questions, answer each one directly using KB facts. Do not skip questions.
+- Keep the body between 100 and 250 words. Longer for complex multi-question emails, shorter for simple ones.
 - Match the client's language (Bangla, English, etc.).
 - End with one clear next step or action for the client.`;
 
@@ -509,10 +511,11 @@ export class EmailManagerAgent implements IAgent, OnModuleInit {
     blocklist: string[],
     rejections: Awaited<ReturnType<KnowledgeBaseService['getRecentRejections']>>,
   ): Promise<ProposedAction[]> {
-    const references = await this.kb.searchEntries(emailText.slice(0, 600), this.key, 8).catch(() => []);
+    const references = await this.kb.searchEntries(emailText.slice(0, 1200), this.key, 15).catch(() => []);
     const kbBlock = this.kb.buildKbPromptBlock({
       voiceProfile: alwaysOn.find(e => e.entryType === 'voice_profile') ?? null,
       facts: alwaysOn.filter(e => e.entryType === 'fact'),
+      catalog: alwaysOn.filter(e => e.entryType === 'product' || e.entryType === 'service' || e.entryType === 'offer'),
       references,
       positiveSamples: samples.filter(s => s.polarity === 'positive'),
       negativeSamples: samples.filter(s => s.polarity === 'negative'),
@@ -527,7 +530,7 @@ export class EmailManagerAgent implements IAgent, OnModuleInit {
       provider: 'openai',
       model: 'gpt-4o',
       agentKey: this.key,
-      maxTokens: 600,
+      maxTokens: 900,
       temperature: 0.6,
     });
     let draft = response.content.trim();
