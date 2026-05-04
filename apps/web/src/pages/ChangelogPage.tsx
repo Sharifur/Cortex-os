@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v3.8.2',
+    date: '2026-05-04',
+    entries: [
+      { tag: 'feat', scope: 'livechat', description: 'Human-attention toasts — when a visitor sends a new message or a session escalates to needs_human, a small toast appears bottom-right; clicking it navigates directly to that conversation; toasts auto-dismiss after 6s and stack up to 4' },
+    ],
+  },
+  {
     version: 'v3.8.1',
     date: '2026-05-04',
     entries: [

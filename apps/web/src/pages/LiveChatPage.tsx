@@ -1009,6 +1009,14 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
 // Conversations tab — Crisp-style 3-column layout
 // ─────────────────────────────────────────────────────────────────────────────
 
+interface ChatToast {
+  id: string;
+  sessionId: string;
+  visitorName: string;
+  snippet: string;
+  reason: 'needs_human' | 'new_message';
+}
+
 interface InboxFilter {
   key: string;
   label: string;
@@ -1073,6 +1081,10 @@ function ConversationsTab() {
   const [advFilterOpen, setAdvFilterOpen] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showVisitors, setShowVisitors] = useState(true);
+  const [toasts, setToasts] = useState<ChatToast[]>([]);
+  const prevSessionsRef = useRef<Map<string, { status: string; lastMsgAt: string | null }>>(new Map());
+  const isInitializedRef = useRef(false);
+  const pendingDiffRef = useRef(false);
 
   const filter = STATUS_FILTERS.find((f) => f.key === filterKey)!;
 
@@ -1137,6 +1149,15 @@ function ConversationsTab() {
     staleTime: 5_000,
   });
 
+  // Unfiltered sessions — used only for toast diff detection.
+  const notifKey = ['livechat-sessions-notif'] as const;
+  const { data: allForNotif = [] } = useQuery<SessionRow[]>({
+    queryKey: notifKey,
+    queryFn: () => apiFetch(token, '/agents/livechat/sessions'),
+    staleTime: Infinity,
+    refetchInterval: false,
+  });
+
   // Operator socket: subscribes to session_upserted + visitor_activity events to
   // surgically refresh the inbox & live list without polling.
   useEffect(() => {
@@ -1152,7 +1173,11 @@ function ConversationsTab() {
       if (event.type === 'session_upserted' || event.type === 'inbox_dirty') {
         qc.invalidateQueries({ queryKey: ['livechat-sessions'] });
         qc.invalidateQueries({ queryKey: pendingCountKey });
-        if (event.type === 'session_upserted') playNotificationSound();
+        if (event.type === 'session_upserted') {
+          pendingDiffRef.current = true;
+          qc.invalidateQueries({ queryKey: notifKey });
+          playNotificationSound();
+        }
       }
       if (event.type === 'visitor_activity' || event.type === 'visitor_offline') {
         qc.invalidateQueries({ queryKey: liveKey });
@@ -1162,6 +1187,50 @@ function ConversationsTab() {
       sock.disconnect();
     };
   }, [token, qc]);
+
+  const dismissToast = (id: string) => setToasts((prev) => prev.filter((t) => t.id !== id));
+
+  useEffect(() => {
+    const prev = prevSessionsRef.current;
+    if (!isInitializedRef.current) {
+      for (const s of allForNotif) {
+        prev.set(s.id, { status: s.status, lastMsgAt: s.lastMessage?.createdAt ?? null });
+      }
+      isInitializedRef.current = true;
+      return;
+    }
+    if (!pendingDiffRef.current) return;
+    pendingDiffRef.current = false;
+
+    const toAdd: ChatToast[] = [];
+    for (const s of allForNotif) {
+      const p = prev.get(s.id);
+      const lastMsgAt = s.lastMessage?.createdAt ?? null;
+      const name = s.visitorName ?? s.visitorEmail ?? 'Visitor';
+
+      if (!p) {
+        if (s.status === 'needs_human') {
+          toAdd.push({ id: `${s.id}-h-${Date.now()}`, sessionId: s.id, visitorName: name, snippet: s.lastMessage?.content.slice(0, 70) ?? 'Needs human attention', reason: 'needs_human' });
+        } else if (s.lastMessage?.role === 'visitor' && s.status !== 'closed') {
+          toAdd.push({ id: `${s.id}-m-${Date.now()}`, sessionId: s.id, visitorName: name, snippet: s.lastMessage.content.slice(0, 70), reason: 'new_message' });
+        }
+      } else {
+        if (s.status === 'needs_human' && p.status !== 'needs_human') {
+          toAdd.push({ id: `${s.id}-h-${Date.now()}`, sessionId: s.id, visitorName: name, snippet: s.lastMessage?.content.slice(0, 70) ?? 'Needs human attention', reason: 'needs_human' });
+        } else if (s.lastMessage?.role === 'visitor' && lastMsgAt !== null && lastMsgAt !== p.lastMsgAt && s.status !== 'closed') {
+          toAdd.push({ id: `${s.id}-m-${Date.now()}`, sessionId: s.id, visitorName: name, snippet: s.lastMessage.content.slice(0, 70), reason: 'new_message' });
+        }
+      }
+      prev.set(s.id, { status: s.status, lastMsgAt });
+    }
+
+    if (toAdd.length > 0) {
+      setToasts((cur) => [...cur, ...toAdd].slice(-4));
+      for (const t of toAdd) {
+        setTimeout(() => dismissToast(t.id), 6_000);
+      }
+    }
+  }, [allForNotif]);
 
   // On mobile (<md), show one column at a time: inbox by default, session pane
   // when a session is selected (with a back button to return to the inbox).
@@ -1313,6 +1382,44 @@ function ConversationsTab() {
       </section>
 
       {/* RIGHT panel renders inside SessionPane to share data */}
+
+      {/* Chat attention toasts — fixed bottom-right */}
+      <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 w-80 pointer-events-none">
+        {toasts.map((t) => (
+          <div
+            key={t.id}
+            className={`pointer-events-auto flex items-start gap-3 rounded-lg border p-3 shadow-lg cursor-pointer transition-all ${
+              t.reason === 'needs_human'
+                ? 'bg-orange-500/10 border-orange-500/30'
+                : 'bg-primary/10 border-primary/30'
+            }`}
+            onClick={() => {
+              setSelectedId(t.sessionId);
+              setFilterKey('all');
+              dismissToast(t.id);
+            }}
+          >
+            <div
+              className={`mt-1 shrink-0 w-2 h-2 rounded-full ${
+                t.reason === 'needs_human' ? 'bg-orange-500' : 'bg-primary'
+              }`}
+            />
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-semibold text-foreground truncate">{t.visitorName}</p>
+              <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">{t.snippet}</p>
+              {t.reason === 'needs_human' && (
+                <p className="text-xs text-orange-500 font-medium mt-1">Needs human attention</p>
+              )}
+            </div>
+            <button
+              className="shrink-0 text-muted-foreground hover:text-foreground mt-0.5"
+              onClick={(e) => { e.stopPropagation(); dismissToast(t.id); }}
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
