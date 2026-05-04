@@ -806,7 +806,13 @@ function buildPanel(shadow: ShadowRoot, cfg: WidgetConfig, state: any, render: (
       writeSessionId(res.sessionId);
       if ('content' in res.agent && res.agent.content) {
         const agentId = res.agent.id ?? '';
-        if (!state.messages.some((m: VisitorMessage) => m.id === agentId && agentId)) {
+        // Skip if the streaming path already added this message (activeDraftId
+        // means stream_start fired but stream_end hasn't yet — the bubble exists
+        // under its draftId, not the real messageId, so the id-check below would
+        // miss it and push a duplicate).
+        const streamingInProgress = !!state.activeDraftId;
+        const alreadyPresent = agentId && state.messages.some((m: VisitorMessage) => m.id === agentId);
+        if (!streamingInProgress && !alreadyPresent) {
           pushAgent(state, res.agent.content, agentId);
         }
       }
