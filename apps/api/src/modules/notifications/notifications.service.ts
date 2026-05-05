@@ -34,17 +34,23 @@ export class NotificationsService {
       SELECT COUNT(*)::int AS count FROM kb_proposals WHERE status = 'pending'
     `);
 
+    const [gaps] = await this.db.db.execute(sql`
+      SELECT COUNT(*)::int AS count FROM livechat_kb_gaps
+    `);
+
     const waitingChats = Number((waiting as any)?.count ?? 0);
     const pendingApprovals = Number((approvals as any)?.count ?? 0);
     const agentFailures = Number((failures as any)?.count ?? 0);
     const kbProposals = Number((proposals as any)?.count ?? 0);
+    const kbGaps = Number((gaps as any)?.count ?? 0);
 
     return {
       waitingChats,
       pendingApprovals,
       agentFailures,
       kbProposals,
-      total: waitingChats + pendingApprovals + agentFailures + kbProposals,
+      kbGaps,
+      total: waitingChats + pendingApprovals + agentFailures + kbProposals + kbGaps,
     };
   }
 }
