@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { Bot, LogOut, LayoutDashboard, Settings, Activity, User, KeyRound, ChevronDown, AlertTriangle, Plug, Cable, BookOpen, CheckSquare, HeartPulse, Radio, Mail, Bug, Users, Bell, DollarSign, MessageSquare, Menu, X, ScrollText, MessageCircleQuestion, ShieldAlert, BookMarked } from 'lucide-react';
+import { Bot, LogOut, LayoutDashboard, Settings, Activity, User, KeyRound, ChevronDown, AlertTriangle, Plug, Cable, BookOpen, CheckSquare, HeartPulse, Radio, Mail, Bug, Users, Bell, DollarSign, MessageSquare, Menu, X, ScrollText, MessageCircleQuestion, ShieldAlert, BookMarked, HelpCircle } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getRealtimeSocket } from '@/lib/realtime';
@@ -24,6 +24,7 @@ interface NotifSummary {
   pendingApprovals: number;
   agentFailures: number;
   kbProposals: number;
+  kbGaps: number;
   total: number;
 }
 
@@ -53,7 +54,7 @@ function NotificationBell({ token }: { token: string }) {
     queryFn: async () => {
       const since = getFailuresSince();
       const res = await fetch(`/notifications/summary?failuresSince=${encodeURIComponent(since)}`, { headers: { Authorization: `Bearer ${token}` } });
-      if (!res.ok) return { waitingChats: 0, pendingApprovals: 0, agentFailures: 0, kbProposals: 0, total: 0 };
+      if (!res.ok) return { waitingChats: 0, pendingApprovals: 0, agentFailures: 0, kbProposals: 0, kbGaps: 0, total: 0 };
       return res.json();
     },
     refetchInterval: 15_000,
@@ -134,6 +135,12 @@ function NotificationBell({ token }: { token: string }) {
       icon: <BookMarked className="w-4 h-4 text-violet-400" />,
       label: 'KB proposals pending',
       count: data?.kbProposals ?? 0,
+      to: '/knowledge-base',
+    },
+    {
+      icon: <HelpCircle className="w-4 h-4 text-orange-400" />,
+      label: 'KB gaps unanswered',
+      count: data?.kbGaps ?? 0,
       to: '/knowledge-base',
     },
   ];
@@ -315,7 +322,7 @@ function Sidebar({
           <>
             <Bot className="w-5 h-5 text-primary shrink-0" />
             <span className="font-semibold text-sm">Cortex OS</span>
-            <span className="text-muted-foreground text-xs">v3.9.2</span>
+            <span className="text-muted-foreground text-xs">v3.9.3</span>
             {onToggleCollapse && (
               <button
                 onClick={onToggleCollapse}
@@ -506,7 +513,7 @@ export default function AppLayout() {
           <div className="flex items-center gap-2">
             <Bot className="w-5 h-5 text-primary" />
             <span className="font-semibold text-sm">Cortex OS</span>
-            <span className="text-muted-foreground text-xs">v3.9.2</span>
+            <span className="text-muted-foreground text-xs">v3.9.3</span>
           </div>
           <button
             onClick={() => setDrawerOpen(false)}

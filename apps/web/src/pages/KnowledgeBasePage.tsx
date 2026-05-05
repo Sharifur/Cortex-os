@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { BookOpen, Plus, Trash2, Edit2, X, Upload, Link, ChevronDown, ChevronRight, FileText, Globe, Code, Layers } from 'lucide-react';
+import { BookOpen, Plus, Trash2, Edit2, X, Upload, Link, ChevronDown, ChevronRight, FileText, Globe, Code, Layers, Loader2 } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 import { KbFrameworkContent } from './KbFrameworkPage';
 
@@ -1771,7 +1771,10 @@ function AnswerGapModal({
           siteKeys: gap.siteKey,
         }),
       });
-      await apiFetch(token, `/agents/livechat/kb-gaps/${gap.id}`, { method: 'DELETE' });
+      // Gap deletion is best-effort — KB entry is already saved at this point
+      try {
+        await apiFetch(token, `/agents/livechat/kb-gaps/${gap.id}`, { method: 'DELETE' });
+      } catch { /* gap may already be gone */ }
       onSaved();
     } catch {
       setError('Failed to save. Please try again.');
@@ -1829,6 +1832,7 @@ function GapsTab({ token }: { token: string }) {
   const qc = useQueryClient();
   const [siteFilter, setSiteFilter] = useState('');
   const [answering, setAnswering] = useState<KbGap | null>(null);
+  const [dismissingId, setDismissingId] = useState<string | null>(null);
   const { data: gaps = [], isLoading } = useQuery({
     queryKey: ['kb-gaps', siteFilter],
     queryFn: async () => {
@@ -1839,8 +1843,13 @@ function GapsTab({ token }: { token: string }) {
   });
 
   async function dismiss(id: string) {
-    await apiFetch(token, `/agents/livechat/kb-gaps/${id}`, { method: 'DELETE' });
-    qc.invalidateQueries({ queryKey: ['kb-gaps'] });
+    setDismissingId(id);
+    try {
+      await apiFetch(token, `/agents/livechat/kb-gaps/${id}`, { method: 'DELETE' });
+      qc.invalidateQueries({ queryKey: ['kb-gaps'] });
+    } finally {
+      setDismissingId(null);
+    }
   }
 
   const reasonBadge = (r: string) => {
@@ -1915,8 +1924,10 @@ function GapsTab({ token }: { token: string }) {
                       </button>
                       <button
                         onClick={() => dismiss(g.id)}
-                        className="text-[11px] px-2 py-0.5 rounded border border-border text-muted-foreground hover:bg-muted/30"
+                        disabled={dismissingId === g.id}
+                        className="text-[11px] px-2 py-0.5 rounded border border-border text-muted-foreground hover:bg-muted/30 disabled:opacity-50 flex items-center gap-1"
                       >
+                        {dismissingId === g.id ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : null}
                         Dismiss
                       </button>
                     </div>

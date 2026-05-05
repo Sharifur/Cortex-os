@@ -16,6 +16,15 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v3.9.3',
+    date: '2026-05-05',
+    entries: [
+      { tag: 'fix', scope: 'kb', description: 'KB gap save no longer shows "Failed to save" when the entry saved but the gap deletion errored — gap deletion is now best-effort' },
+      { tag: 'feat', scope: 'kb', description: 'Dismiss button shows spinner while deleting a KB gap so the action feels responsive' },
+      { tag: 'feat', scope: 'notifications', description: 'KB gaps unanswered count added to notification bell so gaps are visible without navigating to the KB page' },
+    ],
+  },
+  {
     version: 'v3.9.2',
     date: '2026-05-05',
     entries: [
