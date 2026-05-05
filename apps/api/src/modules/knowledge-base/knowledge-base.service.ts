@@ -132,7 +132,7 @@ export class KnowledgeBaseService {
       .where(
         sql`${this.agentKeyWhere(agentKey)}
           AND ${this.siteKeyWhere(siteKey)}
-          AND entry_type = 'reference'
+          AND entry_type IN ('reference', 'service', 'product', 'offer')
           AND to_tsvector('english', title || ' ' || content) @@ plainto_tsquery('english', ${q})`,
       )
       .orderBy(desc(knowledgeEntries.priority))
@@ -179,7 +179,7 @@ export class KnowledgeBaseService {
       .where(
         sql`${this.agentKeyWhere(agentKey)}
           AND ${this.siteKeyWhere(siteKey)}
-          AND entry_type = 'reference'
+          AND entry_type IN ('reference', 'service', 'product', 'offer')
           AND embedding IS NOT NULL
           AND embedding <=> ${literal}::vector <= 0.40`,
       )
@@ -543,6 +543,8 @@ export class KnowledgeBaseService {
   buildKbPromptBlock(params: KbPromptBlockParams): string {
     const { voiceProfile, facts, catalog, references, positiveSamples, negativeSamples, rejections, threadHistory } = params;
     const parts: string[] = [];
+    const catalogIds = new Set((catalog ?? []).map((e) => e.id));
+    const dedupedReferences = references.filter((r) => !catalogIds.has(r.id));
 
     if (voiceProfile) {
       parts.push(`\n\n## Your Voice & Style\n${trunc(voiceProfile.content, 600)}`);
@@ -578,8 +580,8 @@ export class KnowledgeBaseService {
       }
     }
 
-    if (references.length) {
-      const refText = references.slice(0, 8)
+    if (dedupedReferences.length) {
+      const refText = dedupedReferences.slice(0, 8)
         .map(r => `### ${r.title}\n${trunc(r.content, 800)}`)
         .join('\n\n');
       parts.push(`\n\n## Relevant Knowledge\n${refText}`);
