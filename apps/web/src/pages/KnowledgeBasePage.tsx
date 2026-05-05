@@ -6,7 +6,7 @@ import { KbFrameworkContent } from './KbFrameworkPage';
 
 const KB_AGENTS = ['livechat', 'support', 'whatsapp', 'email_manager', 'linkedin', 'reddit', 'social', 'shorts'];
 const ENTRY_TYPES = ['reference', 'fact', 'voice_profile', 'blocklist', 'product', 'service', 'offer'];
-const CATEGORIES = ['general', 'product', 'policy', 'faq', 'document', 'webpage', 'other'];
+const CATEGORIES = ['general', 'product', 'service', 'policy', 'faq', 'document', 'webpage', 'other'];
 
 function parseAgentKeys(csv: string): string[] {
   return csv.split(',').map((s) => s.trim()).filter(Boolean);
