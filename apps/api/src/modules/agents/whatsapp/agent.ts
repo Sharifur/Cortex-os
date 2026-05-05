@@ -123,6 +123,7 @@ export class WhatsAppAgent implements IAgent, OnModuleInit {
         const kbBlock = this.kb.buildKbPromptBlock({
           voiceProfile: alwaysOn.find(e => e.entryType === 'voice_profile') ?? null,
           facts: alwaysOn.filter(e => e.entryType === 'fact'),
+          catalog: alwaysOn.filter(e => e.entryType === 'product' || e.entryType === 'service' || e.entryType === 'offer'),
           references,
           positiveSamples: samples.filter(s => s.polarity === 'positive'),
           negativeSamples: samples.filter(s => s.polarity === 'negative'),

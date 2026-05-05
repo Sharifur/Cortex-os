@@ -16,6 +16,20 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v3.9.2',
+    date: '2026-05-05',
+    entries: [
+      { tag: 'fix', scope: 'agents', description: 'Pass catalog (product/service/offer) to buildKbPromptBlock in support, whatsapp, linkedin, reddit, social, shorts agents — service entries were fetched but silently dropped from LLM prompts' },
+    ],
+  },
+  {
+    version: 'v3.9.1',
+    date: '2026-05-05',
+    entries: [
+      { tag: 'fix', scope: 'kb', description: 'Add "service" to Category dropdown in Add Entry modal so service KB entries can be categorised correctly' },
+    ],
+  },
+  {
     version: 'v3.9.0',
     date: '2026-05-05',
     entries: [
