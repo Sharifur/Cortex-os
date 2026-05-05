@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "if": "Bash(git push*)",
+            "statusMessage": "Checking version bump and changelog...",
+            "command": "cmd=$(jq -r '.tool_input.command'); if ! echo \"$cmd\" | grep -q 'git push'; then exit 0; fi; missing=\"\"; if ! git diff origin/dev..HEAD --name-only 2>/dev/null | grep -q 'apps/web/src/components/AppLayout.tsx'; then if ! git diff --name-only 2>/dev/null | grep -q 'apps/web/src/components/AppLayout.tsx'; then missing=\"$missing AppLayout.tsx\"; fi; fi; if ! git diff origin/dev..HEAD --name-only 2>/dev/null | grep -q 'apps/web/src/pages/ChangelogPage.tsx'; then if ! git diff --name-only 2>/dev/null | grep -q 'apps/web/src/pages/ChangelogPage.tsx'; then missing=\"$missing ChangelogPage.tsx\"; fi; fi; if [ -n \"$missing\" ]; then echo '{\"stopReason\": \"Version bump or changelog missing — bump version in AppLayout.tsx and update ChangelogPage.tsx before pushing\"}'; exit 1; fi"
+          }
+        ]
+      }
+    ]
+  }
+}

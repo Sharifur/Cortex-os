@@ -16,6 +16,16 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v3.9.0',
+    date: '2026-05-05',
+    entries: [
+      { tag: 'feat', scope: 'kb', description: 'Extend FTS and vector search to include service, product, and offer entry types — visitors asking about customisation or services now get contextual answers from matching KB entries' },
+      { tag: 'fix', scope: 'kb', description: 'Deduplicate catalog entries from Relevant Knowledge section in buildKbPromptBlock so service/product/offer entries do not render twice when found by search and always-on' },
+      { tag: 'chore', scope: 'dev', description: 'Add PreToolUse hook in .claude/settings.json to block git push when AppLayout.tsx or ChangelogPage.tsx have not been updated' },
+      { tag: 'fix', scope: 'livechat', description: 'Commit rebuilt widget bundle from deleteKbGap fix' },
+    ],
+  },
+  {
     version: 'v3.8.10',
     date: '2026-05-04',
     entries: [
