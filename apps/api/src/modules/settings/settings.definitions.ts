@@ -2,7 +2,7 @@ export interface SettingDefinition {
   label: string;
   description?: string;
   isSecret: boolean;
-  group: 'general' | 'llm' | 'telegram' | 'ses' | 'gmail' | 'whatsapp' | 'linkedin' | 'reddit' | 'license' | 'storage' | 'insight' | 'safety' | 'hr' | 'geoip';
+  group: 'general' | 'llm' | 'telegram' | 'ses' | 'gmail' | 'whatsapp' | 'linkedin' | 'reddit' | 'license' | 'storage' | 'insight' | 'safety' | 'hr' | 'geoip' | 'support';
   defaultValue?: string;
   provider?: 'openai' | 'gemini' | 'deepseek' | 'general';
 }
@@ -461,5 +461,26 @@ export const SETTING_DEFINITIONS: Record<string, SettingDefinition> = {
     isSecret: false,
     group: 'hr',
     defaultValue: '25',
+  },
+
+  // Support Ticket Manager Agent
+  support_crm_base_url: {
+    label: 'CRM Base URL',
+    description: 'Base URL of crm.xgenious.com, e.g. https://crm.xgenious.com',
+    isSecret: false,
+    group: 'support',
+    defaultValue: '',
+  },
+  support_crm_api_key: {
+    label: 'CRM API Key',
+    description: 'X-Secret-Key header value for the Taskip public API.',
+    isSecret: true,
+    group: 'support',
+  },
+  support_webhook_secret: {
+    label: 'Webhook Secret',
+    description: 'Shared secret crm.xgenious.com sends as X-Webhook-Secret on each ticket webhook.',
+    isSecret: true,
+    group: 'support',
   },
 };
