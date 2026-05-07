@@ -7,6 +7,7 @@ import {
   Mail, Cpu, Layers, Info, BookOpen,
   CheckCircle2, Circle, MessageSquare,
   Bug, AlertTriangle, AlertCircle,
+  Plus, Loader2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -3004,7 +3005,7 @@ function AgentDetailSkeleton() {
 
 // ─── Canva Agent Page (T17, T18, T19, T28, T29) ────────────────────────────
 
-type CanvaTab = 'chat' | 'calendar' | 'candidates' | 'brands' | 'settings' | 'setup';
+type CanvaTab = 'candidates' | 'brands' | 'settings' | 'setup';
 
 interface CanvaCandidate {
   id: string;
@@ -3039,26 +3040,14 @@ interface CanvaBrand {
 }
 
 function CanvaAgentPage({ agent, token }: { agent: AgentDetail; token: string }) {
-  const navigate = useNavigate();
-  type NonChatTab = Exclude<CanvaTab, 'chat'>;
-  const [tab, setTab] = useState<NonChatTab>('calendar');
+  const [tab, setTab] = useState<CanvaTab>('candidates');
 
   const tabs: { key: CanvaTab; label: string }[] = [
-    { key: 'chat', label: 'Chat' },
-    { key: 'calendar', label: 'Calendar' },
     { key: 'candidates', label: 'Candidates' },
     { key: 'brands', label: 'Brands' },
     { key: 'settings', label: 'Settings' },
     { key: 'setup', label: 'Setup' },
   ];
-
-  function handleTab(key: CanvaTab) {
-    if (key === 'chat') {
-      navigate(`/agents/${agent.key}/chat`);
-    } else {
-      setTab(key as NonChatTab);
-    }
-  }
 
   return (
     <div className="space-y-4">
@@ -3066,7 +3055,7 @@ function CanvaAgentPage({ agent, token }: { agent: AgentDetail; token: string })
         {tabs.map((t) => (
           <button
             key={t.key}
-            onClick={() => handleTab(t.key)}
+            onClick={() => setTab(t.key)}
             className={`px-3.5 py-1.5 rounded-md text-sm font-medium transition-colors ${
               tab === t.key ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
             }`}
@@ -3076,7 +3065,6 @@ function CanvaAgentPage({ agent, token }: { agent: AgentDetail; token: string })
         ))}
       </div>
 
-      {tab === 'calendar' && <CanvaCalendarTab token={token} />}
       {tab === 'candidates' && <CanvaCandidatesTab token={token} />}
       {tab === 'brands' && <CanvaBrandsTab token={token} />}
       {tab === 'settings' && <CanvaSettingsTab agent={agent} token={token} />}
@@ -3281,11 +3269,17 @@ function CanvaCalendarTab({ token }: { token: string }) {
   );
 }
 
-// T29: Brands tab — per-brand identity management
+const EMPTY_BRAND_FORM = { name: '', displayName: '', voiceProfile: '', canvaKitId: '', palette: '', fonts: '', platforms: '' };
+
+// T29: Brands tab — per-brand identity management with website URL import
 function CanvaBrandsTab({ token }: { token: string }) {
   const qc = useQueryClient();
   const [editing, setEditing] = useState<CanvaBrand | null>(null);
-  const [form, setForm] = useState({ name: '', displayName: '', voiceProfile: '', canvaKitId: '', palette: '', fonts: '', platforms: '' });
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState(EMPTY_BRAND_FORM);
+  const [websiteUrl, setWebsiteUrl] = useState('');
+  const [importing, setImporting] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
 
   const { data: brands, isLoading } = useQuery<CanvaBrand[]>({
     queryKey: ['canva-brands'],
@@ -3293,12 +3287,29 @@ function CanvaBrandsTab({ token }: { token: string }) {
   });
 
   const saveMut = useMutation({
-    mutationFn: (data: any) => apiFetch(token, '/canva/brands', { method: 'POST', body: JSON.stringify(data) }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['canva-brands'] }); setEditing(null); setForm({ name: '', displayName: '', voiceProfile: '', canvaKitId: '', palette: '', fonts: '', platforms: '' }); },
+    mutationFn: (data: any) => {
+      const url = editing ? `/canva/brands/${editing.name}` : '/canva/brands';
+      const method = editing ? 'PATCH' : 'POST';
+      return apiFetch(token, url, { method, body: JSON.stringify(data) });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['canva-brands'] });
+      setEditing(null);
+      setShowForm(false);
+      setForm(EMPTY_BRAND_FORM);
+      setWebsiteUrl('');
+      setImportError(null);
+    },
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: (name: string) => apiFetch(token, `/canva/brands/${name}`, { method: 'DELETE' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['canva-brands'] }),
   });
 
   const startEdit = (b: CanvaBrand) => {
     setEditing(b);
+    setShowForm(true);
     setForm({
       name: b.name,
       displayName: b.displayName,
@@ -3308,7 +3319,48 @@ function CanvaBrandsTab({ token }: { token: string }) {
       fonts: b.fonts.join(', '),
       platforms: b.platforms.join(', '),
     });
+    setWebsiteUrl('');
+    setImportError(null);
   };
+
+  const startAdd = () => {
+    setEditing(null);
+    setShowForm(true);
+    setForm(EMPTY_BRAND_FORM);
+    setWebsiteUrl('');
+    setImportError(null);
+  };
+
+  const cancelForm = () => {
+    setEditing(null);
+    setShowForm(false);
+    setForm(EMPTY_BRAND_FORM);
+    setWebsiteUrl('');
+    setImportError(null);
+  };
+
+  async function importFromUrl() {
+    if (!websiteUrl.trim()) return;
+    setImporting(true);
+    setImportError(null);
+    try {
+      const res = await apiFetch(token, '/canva/brands/import-from-url', {
+        method: 'POST',
+        body: JSON.stringify({ url: websiteUrl.trim() }),
+      });
+      setForm((prev) => ({
+        ...prev,
+        displayName: res.displayName ?? prev.displayName,
+        voiceProfile: res.voiceProfile ?? prev.voiceProfile,
+        palette: res.palette?.join(', ') ?? prev.palette,
+        fonts: res.fonts?.join(', ') ?? prev.fonts,
+      }));
+    } catch (e: any) {
+      setImportError(e?.message ?? 'Failed to import from URL');
+    } finally {
+      setImporting(false);
+    }
+  }
 
   const handleSave = () => {
     saveMut.mutate({
@@ -3323,79 +3375,144 @@ function CanvaBrandsTab({ token }: { token: string }) {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 max-w-2xl">
       {isLoading && <p className="text-sm text-muted-foreground">Loading brands...</p>}
+
+      {brands && brands.length === 0 && !showForm && (
+        <div className="bg-card border border-dashed border-border rounded-xl p-8 text-center">
+          <p className="text-sm text-muted-foreground mb-3">No brands yet. Add one to give the agent a voice and visual identity.</p>
+        </div>
+      )}
 
       {brands && brands.map((b) => (
         <div key={b.name} className="bg-card border border-border rounded-xl p-4">
-          <div className="flex items-start justify-between">
-            <div>
-              <p className="font-medium">{b.displayName}</p>
-              <p className="text-xs text-muted-foreground">{b.name}</p>
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <p className="font-medium text-sm">{b.displayName}</p>
+                <code className="text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded">{b.name}</code>
+                {b.active && <span className="text-[10px] bg-green-500/15 text-green-400 px-1.5 py-0.5 rounded-full font-medium">active</span>}
+              </div>
+              {b.voiceProfile && <p className="mt-1 text-xs text-muted-foreground line-clamp-2">{b.voiceProfile}</p>}
+              <div className="flex items-center gap-3 mt-2 flex-wrap">
+                {b.palette.length > 0 && (
+                  <div className="flex gap-1">
+                    {b.palette.map((c) => (
+                      <div key={c} className="w-3.5 h-3.5 rounded-full border border-border/50" style={{ backgroundColor: c }} title={c} />
+                    ))}
+                  </div>
+                )}
+                {b.fonts.length > 0 && <span className="text-xs text-muted-foreground">{b.fonts.join(', ')}</span>}
+                {b.platforms.length > 0 && <span className="text-xs text-muted-foreground">{b.platforms.join(', ')}</span>}
+                {b.canvaKitId && <span className="text-xs text-muted-foreground">Kit: {b.canvaKitId.slice(0, 12)}…</span>}
+              </div>
             </div>
-            <div className="flex gap-1.5">
-              {b.palette.map((c) => (
-                <div key={c} className="w-4 h-4 rounded-full border border-border/50" style={{ backgroundColor: c }} title={c} />
-              ))}
+            <div className="flex items-center gap-1 shrink-0">
+              <button onClick={() => startEdit(b)} className="text-xs text-primary hover:underline px-1">Edit</button>
+              <button
+                onClick={() => { if (confirm(`Delete brand "${b.displayName}"?`)) deleteMut.mutate(b.name); }}
+                className="text-xs text-muted-foreground hover:text-destructive px-1"
+              >
+                Delete
+              </button>
             </div>
-          </div>
-          {b.voiceProfile && <p className="mt-2 text-sm text-muted-foreground line-clamp-2">{b.voiceProfile}</p>}
-          <div className="flex items-center gap-3 mt-3">
-            {b.canvaKitId && <span className="text-xs text-muted-foreground">Kit: {b.canvaKitId.slice(0, 12)}...</span>}
-            <span className="text-xs text-muted-foreground">{b.platforms.join(', ')}</span>
-            <button onClick={() => startEdit(b)} className="ml-auto text-xs text-primary hover:underline">Edit</button>
           </div>
         </div>
       ))}
 
-      <div className="bg-card border border-border rounded-xl p-4 space-y-3">
-        <p className="text-sm font-medium">{editing ? `Edit ${editing.displayName}` : 'Add / update brand'}</p>
-        <div className="grid grid-cols-2 gap-2">
+      {!showForm && (
+        <button
+          onClick={startAdd}
+          className="flex items-center gap-1.5 px-4 py-2 text-sm border border-dashed border-border rounded-xl text-muted-foreground hover:text-foreground hover:border-border/80 transition-colors w-full justify-center"
+        >
+          <Plus className="w-3.5 h-3.5" /> Add brand
+        </button>
+      )}
+
+      {showForm && (
+        <div className="bg-card border border-border rounded-xl p-5 space-y-4">
+          <p className="text-sm font-semibold">{editing ? `Edit: ${editing.displayName}` : 'New brand'}</p>
+
+          {/* Website URL import */}
           <div>
-            <label className="text-xs text-muted-foreground block mb-1">Brand key (e.g. taskip)</label>
-            <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="taskip" disabled={!!editing} />
+            <label className="text-xs text-muted-foreground block mb-1">Import from website (optional)</label>
+            <div className="flex gap-2">
+              <Input
+                value={websiteUrl}
+                onChange={(e) => setWebsiteUrl(e.target.value)}
+                placeholder="https://taskip.com"
+                className="text-sm flex-1"
+              />
+              <Button size="sm" variant="outline" onClick={importFromUrl} disabled={!websiteUrl.trim() || importing}>
+                {importing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Import'}
+              </Button>
+            </div>
+            <p className="text-[11px] text-muted-foreground mt-1">The agent will scrape the site and pre-fill voice profile, colors, and fonts below.</p>
+            {importError && <p className="text-xs text-destructive mt-1">{importError}</p>}
           </div>
-          <div>
-            <label className="text-xs text-muted-foreground block mb-1">Display name</label>
-            <Input value={form.displayName} onChange={(e) => setForm({ ...form, displayName: e.target.value })} placeholder="Taskip" />
+
+          <div className="border-t border-border pt-4 space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs text-muted-foreground block mb-1">Brand key <span className="text-destructive">*</span></label>
+                <Input
+                  value={form.name}
+                  onChange={(e) => setForm({ ...form, name: e.target.value.toLowerCase().replace(/\s+/g, '-') })}
+                  placeholder="taskip"
+                  disabled={!!editing}
+                  className="text-sm"
+                />
+                <p className="text-[11px] text-muted-foreground mt-0.5">Lowercase, no spaces. Used internally.</p>
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground block mb-1">Display name <span className="text-destructive">*</span></label>
+                <Input value={form.displayName} onChange={(e) => setForm({ ...form, displayName: e.target.value })} placeholder="Taskip" className="text-sm" />
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs text-muted-foreground block mb-1">Voice &amp; tone profile</label>
+              <textarea
+                value={form.voiceProfile}
+                onChange={(e) => setForm({ ...form, voiceProfile: e.target.value })}
+                placeholder="Educational, relatable, and slightly witty — for SaaS founders who want actionable insights without the hype..."
+                className="w-full text-sm border border-border rounded-lg p-2.5 bg-background resize-none h-24 focus:outline-none focus:ring-1 focus:ring-ring"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs text-muted-foreground block mb-1">Color palette (hex, comma-separated)</label>
+                <Input value={form.palette} onChange={(e) => setForm({ ...form, palette: e.target.value })} placeholder="#6366f1, #4f46e5, #f5f5f5" className="text-sm" />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground block mb-1">Fonts (comma-separated)</label>
+                <Input value={form.fonts} onChange={(e) => setForm({ ...form, fonts: e.target.value })} placeholder="Inter, Geist" className="text-sm" />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs text-muted-foreground block mb-1">Canva Brand Kit ID (optional)</label>
+                <Input value={form.canvaKitId} onChange={(e) => setForm({ ...form, canvaKitId: e.target.value })} placeholder="kit_xxxxxx" className="text-sm font-mono" />
+                <p className="text-[11px] text-muted-foreground mt-0.5">From Canva Brand Hub → Kit settings URL.</p>
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground block mb-1">Platforms (comma-separated)</label>
+                <Input value={form.platforms} onChange={(e) => setForm({ ...form, platforms: e.target.value })} placeholder="instagram, linkedin, facebook" className="text-sm" />
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 pt-1">
+            <Button onClick={handleSave} disabled={!form.name || !form.displayName || saveMut.isPending}>
+              {saveMut.isPending ? 'Saving...' : editing ? 'Update brand' : 'Add brand'}
+            </Button>
+            <Button variant="outline" onClick={cancelForm}>Cancel</Button>
+            {saveMut.isError && <span className="text-xs text-destructive">Save failed</span>}
           </div>
         </div>
-        <div>
-          <label className="text-xs text-muted-foreground block mb-1">Voice profile</label>
-          <textarea
-            value={form.voiceProfile}
-            onChange={(e) => setForm({ ...form, voiceProfile: e.target.value })}
-            placeholder="Educational, relatable, and slightly witty — for SaaS founders..."
-            className="w-full text-sm border border-border rounded-lg p-2 bg-background resize-none h-20"
-          />
-        </div>
-        <div className="grid grid-cols-2 gap-2">
-          <div>
-            <label className="text-xs text-muted-foreground block mb-1">Palette (hex, comma-separated)</label>
-            <Input value={form.palette} onChange={(e) => setForm({ ...form, palette: e.target.value })} placeholder="#6366f1, #4f46e5" />
-          </div>
-          <div>
-            <label className="text-xs text-muted-foreground block mb-1">Fonts (comma-separated)</label>
-            <Input value={form.fonts} onChange={(e) => setForm({ ...form, fonts: e.target.value })} placeholder="Inter, Geist" />
-          </div>
-        </div>
-        <div className="grid grid-cols-2 gap-2">
-          <div>
-            <label className="text-xs text-muted-foreground block mb-1">Canva Kit ID (optional)</label>
-            <Input value={form.canvaKitId} onChange={(e) => setForm({ ...form, canvaKitId: e.target.value })} placeholder="kit_xxxxxx" />
-          </div>
-          <div>
-            <label className="text-xs text-muted-foreground block mb-1">Platforms (comma-separated)</label>
-            <Input value={form.platforms} onChange={(e) => setForm({ ...form, platforms: e.target.value })} placeholder="instagram, linkedin" />
-          </div>
-        </div>
-        <div className="flex gap-2">
-          <Button onClick={handleSave} disabled={!form.name || !form.displayName || saveMut.isPending}>
-            {saveMut.isPending ? 'Saving...' : 'Save brand'}
-          </Button>
-          {editing && <Button variant="outline" onClick={() => { setEditing(null); setForm({ name: '', displayName: '', voiceProfile: '', canvaKitId: '', palette: '', fonts: '', platforms: '' }); }}>Cancel</Button>}
-        </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -3576,8 +3693,9 @@ function CanvaSettingsTab({ agent, token }: { agent: AgentDetail; token: string 
   );
 }
 
-// T19: Setup tab — Canva MCP connection guide + verification
+// Setup tab — OAuth-based Canva MCP connection guide
 function CanvaSetupTab({ agent, token }: { agent: AgentDetail; token: string }) {
+  const navigate = useNavigate();
   const [verifyResult, setVerifyResult] = useState<any>(null);
   const [verifying, setVerifying] = useState(false);
 
@@ -3595,85 +3713,85 @@ function CanvaSetupTab({ agent, token }: { agent: AgentDetail; token: string }) 
 
   return (
     <div className="space-y-4 max-w-2xl">
-      <div className="bg-muted/40 border border-border rounded-xl p-3 text-sm text-muted-foreground">
-        Note: LLM provider, Telegram bot, and database are platform-wide — configure them in Settings, not here.
+      <div className="bg-muted/40 border border-border rounded-xl p-3 text-xs text-muted-foreground">
+        LLM provider, Telegram bot, and database are platform-wide — configure them in Settings, not here.
       </div>
 
       <div className="space-y-3">
 
-        {/* Step 1: MCP page */}
-        <SetupStep n={1} title="Add Canva MCP server" done={false}>
-          <p>Go to the <strong>MCP</strong> page and add a new external server:</p>
-          <div className="mt-2 bg-muted rounded-lg px-3 py-2 text-xs font-mono space-y-1">
-            <div><span className="text-muted-foreground">Name:</span> canva</div>
-            <div><span className="text-muted-foreground">URL: </span> https://mcp.canva.com/mcp</div>
-          </div>
-          <p className="mt-2 text-xs text-muted-foreground">Enable it after saving. The agent calls this server for all Canva operations.</p>
+        <SetupStep n={1} title="Register a Canva OAuth app">
+          <p>Go to <a href="https://www.canva.com/developers/apps" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">canva.com/developers/apps</a> → <strong>Create an app</strong>.</p>
+          <p className="mt-1">In <strong>Configure → OAuth 2.0</strong>, add this redirect URI:</p>
+          <code className="block bg-muted px-2 py-1 rounded text-xs break-all mt-1">
+            https://cortex-api.xgenious.com/integrations/oauth/callback/canva
+          </code>
+          <p className="mt-1">Enable all required scopes: <code className="bg-muted px-1 rounded">design:content:read/write</code>, <code className="bg-muted px-1 rounded">asset:read/write</code>, <code className="bg-muted px-1 rounded">profile:read</code>, and brand template scopes.</p>
         </SetupStep>
 
-        {/* Step 2: OAuth */}
-        <SetupStep n={2} title="Connect your Canva account (OAuth)" done={false}>
-          <p className="font-medium text-sm mb-2">Option A — Claude Desktop / Claude.ai (easiest)</p>
-          <ol className="list-decimal list-inside space-y-1 text-sm ml-1">
-            <li>Open Claude Desktop → Settings → Connectors</li>
-            <li>Find <strong>Canva</strong> and click Connect</li>
-            <li>Sign in to Canva and approve the OAuth request</li>
-            <li>Token is shared with the agent automatically</li>
-          </ol>
-
-          <p className="font-medium text-sm mt-4 mb-2">Option B — Server CLI (for headless/VPS)</p>
-          <p className="text-sm mb-1">Run once on the server. A browser link appears — open it and approve:</p>
-          <pre className="bg-muted rounded-lg px-3 py-2 text-xs font-mono overflow-x-auto">npx -y mcp-remote https://mcp.canva.com/mcp</pre>
-          <p className="mt-1 text-xs text-muted-foreground">Token is cached under <code className="bg-muted px-1 rounded">~/.mcp-auth/</code> and reused on every restart.</p>
-
-          <div className="mt-3 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-800">
-            You need a Canva account with MCP access enabled. Free accounts have access; team plans include brand kit features.
-          </div>
-        </SetupStep>
-
-        {/* Step 3: AI image keys */}
-        <SetupStep n={3} title="Add AI image provider keys (for image generation)" done={false}>
-          <p>In <strong>Settings → Secrets</strong>, add:</p>
-          <div className="mt-2 space-y-1">
+        <SetupStep n={2} title="Add credentials to Settings">
+          <p>Copy the <strong>Client ID</strong> and <strong>Client Secret</strong> from your Canva app, then go to <strong>Settings → Secrets</strong> and add:</p>
+          <div className="mt-2 space-y-1.5">
             {[
-              { key: 'openai_api_key', label: 'OpenAI', note: 'DALL-E 3 — primary image generator ($0.04/image)' },
-              { key: 'stability_api_key', label: 'Stability AI', note: 'Fallback when OpenAI quota is exceeded' },
+              { key: 'canva_oauth_client_id', note: 'Client ID from your Canva app' },
+              { key: 'canva_oauth_client_secret', note: 'Client Secret — shown once, copy immediately' },
             ].map((item) => (
-              <div key={item.key} className="flex items-start gap-2 text-sm">
-                <code className="bg-muted px-1.5 py-0.5 rounded text-xs shrink-0 mt-0.5">{item.key}</code>
-                <span className="text-muted-foreground">{item.note}</span>
+              <div key={item.key} className="flex items-center gap-2">
+                <code className="bg-muted px-1.5 py-0.5 rounded text-xs shrink-0">{item.key}</code>
+                <span className="text-muted-foreground text-xs">{item.note}</span>
               </div>
             ))}
           </div>
-          <p className="mt-2 text-xs text-muted-foreground">Skip this step if you only need Canva template-based designs (no AI image generation).</p>
         </SetupStep>
 
-        {/* Step 4: Brands */}
-        <SetupStep n={4} title="Set up brand identities" done={false}>
-          <p>Go to the <strong>Brands</strong> tab and fill in voice profile, color palette, fonts, and Canva Kit ID for each brand.</p>
-          <p className="mt-1 text-xs text-muted-foreground">The agent uses the brand's voice and palette automatically when you mention the brand name in the chat.</p>
+        <SetupStep n={3} title="Connect Canva via OAuth">
+          <p>Go to <strong>Integrations → OAuth Apps</strong> and click <strong>Connect</strong> next to Canva.</p>
+          <p className="mt-1">You will be redirected to Canva to approve access. After approval the token is stored encrypted and auto-refreshes.</p>
+          <div className="mt-2">
+            <button
+              onClick={() => navigate('/integrations')}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs bg-primary text-primary-foreground rounded-lg hover:opacity-90"
+            >
+              Go to Integrations
+            </button>
+          </div>
         </SetupStep>
 
-        {/* Step 5: Verify */}
-        <SetupStep n={5} title="Verify connection" done={agent.enabled}>
-          <p>Click Verify to check all systems. Then go to the <strong>Chat</strong> tab and type a concept to generate your first design.</p>
-          <p className="mt-1 text-sm text-muted-foreground">Example: <em>"Create an Instagram post for taskip spring sale, playful tone"</em></p>
-          <div className="mt-3">
+        <SetupStep n={4} title="Add Canva MCP server">
+          <p>Go to the <strong>MCP</strong> page and add:</p>
+          <div className="mt-2 bg-muted rounded-lg px-3 py-2 text-xs font-mono space-y-1">
+            <div><span className="text-muted-foreground">Name: </span>canva</div>
+            <div><span className="text-muted-foreground">URL: </span>https://mcp.canva.com/mcp</div>
+          </div>
+          <p className="mt-1.5">After saving, use the <strong>OAuth Integration</strong> dropdown on the server row to link it to the Canva OAuth app you just connected. Enable it.</p>
+        </SetupStep>
+
+        <SetupStep n={5} title="Add brand identities">
+          <p>Go to the <strong>Brands</strong> tab and add at least one brand. Paste your website URL to auto-fill voice profile, colors, and fonts.</p>
+          <p className="mt-1 text-muted-foreground">The agent uses the brand's identity automatically when you request a design in the chat.</p>
+        </SetupStep>
+
+        <SetupStep n={6} title="Verify and test" done={agent.enabled}>
+          <p>Click <strong>Verify</strong> to confirm the MCP connection. Then open the <strong>Chat</strong> page for this agent and type a concept.</p>
+          <p className="mt-1 text-muted-foreground">Example: <em>"Create an Instagram carousel for Taskip's spring launch, bold and modern"</em></p>
+          <div className="mt-3 flex items-center gap-3 flex-wrap">
             <Button size="sm" onClick={verify} disabled={verifying}>
               {verifying ? 'Verifying...' : 'Verify Canva MCP'}
             </Button>
+            <button
+              onClick={() => navigate(`/agents/${agent.key}/chat`)}
+              className="text-xs text-primary hover:underline"
+            >
+              Open chat
+            </button>
           </div>
           {verifyResult && (
-            <div className={`mt-3 p-3 rounded-lg text-sm font-mono border ${verifyResult.ok ? 'bg-green-50 border-green-200 text-green-800' : 'bg-destructive/10 border-destructive/20 text-destructive'}`}>
+            <div className={`mt-3 p-3 rounded-lg text-xs font-mono border ${verifyResult.ok ? 'bg-green-500/10 border-green-500/30 text-green-400' : 'bg-destructive/10 border-destructive/20 text-destructive'}`}>
               <div>Status: {verifyResult.ok ? 'OK' : 'FAILED'}</div>
               <div>Tools: {verifyResult.toolsFound ?? 0}/{verifyResult.toolsExpected ?? 32}</div>
               {verifyResult.latencyMs && <div>Latency: {verifyResult.latencyMs}ms</div>}
               {verifyResult.error && <div>Error: {verifyResult.error}</div>}
               {verifyResult.missingTools?.length > 0 && (
                 <div className="mt-1">Missing: {verifyResult.missingTools.slice(0, 5).join(', ')}{verifyResult.missingTools.length > 5 ? ` +${verifyResult.missingTools.length - 5} more` : ''}</div>
-              )}
-              {verifyResult.ok && (
-                <div className="mt-1 text-green-700">Canva MCP is connected and ready.</div>
               )}
             </div>
           )}

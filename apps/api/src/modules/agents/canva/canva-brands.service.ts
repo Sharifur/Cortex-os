@@ -74,6 +74,10 @@ export class CanvaBrandsService {
     return (await this.getByName(data.name))!;
   }
 
+  async delete(name: string): Promise<void> {
+    await this.db.db.delete(canvaBrands).where(eq(canvaBrands.name, name));
+  }
+
   private map(row: typeof canvaBrands.$inferSelect): CanvaBrand {
     return {
       id: row.id,

@@ -512,7 +512,96 @@ Return ONLY a JSON array (no markdown):
           return this.brands.upsert({ name, ...data });
         },
       },
+      {
+        method: 'DELETE',
+        path: '/canva/brands/:name',
+        requiresAuth: true,
+        handler: async (body) => {
+          const { name } = body as any;
+          await this.brands.delete(name);
+          return { ok: true };
+        },
+      },
+      {
+        method: 'POST',
+        path: '/canva/brands/import-from-url',
+        requiresAuth: true,
+        handler: async (body) => {
+          const { url } = body as any;
+          if (!url) throw new Error('url is required');
+          return this.importBrandFromUrl(url);
+        },
+      },
     ];
+  }
+
+  private async importBrandFromUrl(url: string): Promise<{
+    displayName: string | null;
+    voiceProfile: string | null;
+    palette: string[];
+    fonts: string[];
+  }> {
+    const cheerio = await import('cheerio');
+    const axios = (await import('axios')).default;
+
+    const res = await axios.get(url, {
+      timeout: 10_000,
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; CortexBot/1.0)' },
+      maxRedirects: 5,
+    });
+    const $ = cheerio.load(res.data as string);
+
+    const displayName =
+      $('meta[property="og:site_name"]').attr('content') ||
+      $('meta[name="application-name"]').attr('content') ||
+      $('title').text().split(/[-|]/)[0]?.trim() ||
+      null;
+
+    const descriptionText =
+      $('meta[property="og:description"]').attr('content') ||
+      $('meta[name="description"]').attr('content') ||
+      '';
+
+    // Extract hex colors from inline styles and CSS
+    const colorSet = new Set<string>();
+    const hexRe = /#([0-9a-fA-F]{6})\b/g;
+    const html = res.data as string;
+    let m: RegExpExecArray | null;
+    // eslint-disable-next-line no-cond-assign
+    while ((m = hexRe.exec(html)) !== null) {
+      colorSet.add(`#${m[1].toLowerCase()}`);
+      if (colorSet.size >= 6) break;
+    }
+
+    // Extract fonts from Google Fonts CDN links
+    const fontSet = new Set<string>();
+    $('link[href*="fonts.googleapis.com"]').each((_, el) => {
+      const href = $(el).attr('href') ?? '';
+      const match = href.match(/family=([^&:]+)/);
+      if (match) {
+        match[1].split('|').forEach((f) => fontSet.add(decodeURIComponent(f.replace(/\+/g, ' '))));
+      }
+    });
+
+    let voiceProfile: string | null = null;
+    if (descriptionText) {
+      const llmRes = await this.llm.complete({
+        messages: [
+          { role: 'system', content: 'You extract brand voice profiles. Given a website description, write 1-2 sentences describing the brand tone, audience, and personality. Be concise and specific.' },
+          { role: 'user', content: `Website: ${url}\nDescription: ${descriptionText}\n\nWrite a voice profile:` },
+        ],
+        agentKey: this.key,
+        maxTokens: 120,
+      });
+      voiceProfile = llmRes.content.trim();
+    }
+
+    return {
+      displayName,
+      voiceProfile,
+      palette: [...colorSet].slice(0, 5),
+      fonts: [...fontSet].slice(0, 3),
+    };
   }
 
   private async getConfig(): Promise<CanvaConfig> {
