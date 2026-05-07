@@ -3,7 +3,8 @@ import * as crypto from 'crypto';
 import { LlmRouterService } from '../../llm/llm-router.service';
 import { CanvaBrandsService } from './canva-brands.service';
 import { CanvaDebugService } from './canva-debug.service';
-import type { DesignBrief, DesignIntent, OutputFormat } from './adapters/types';
+import type { DesignBrief, DesignIntent, OutputFormat, CarouselSlide } from './adapters/types';
+import { CONTENT_CATEGORIES, detectCategory } from '../content-categories';
 
 const INTENT_KEYWORDS: Record<DesignIntent, string[]> = {
   social_post: ['post', 'instagram', 'facebook', 'tweet', 'x post', 'story', 'reel', 'tiktok', 'social'],
@@ -26,29 +27,82 @@ const DIMENSION_PRESETS: Record<string, { width: number; height: number }> = {
   '1280x720':  { width: 1280, height: 720 },
 };
 
-const PARSE_SYSTEM = `You extract a structured design brief from a user's concept text.
+const PARSE_SYSTEM = `You are a senior creative director and Canva design specialist. Your job is to extract a deeply detailed design brief from a user's concept text that will be passed directly to Canva's AI design system. The more detail you provide, the better the output design.
 
 Return ONLY valid JSON with this exact shape (no markdown, no explanation):
 {
   "intent": "social_post|presentation|marketing_banner|logo|infographic|print|illustration|custom",
-  "subject": "what the design is about",
-  "audience": "target audience (optional)",
-  "tone": ["array", "of", "tones"],
+  "subject": "specific, detailed description of what the design is about",
+  "audience": "precise target audience with demographics and context",
+  "tone": ["array", "of", "emotional", "tones"],
   "dimensions": { "width": 1080, "height": 1080, "unit": "px" },
   "format": "png|pdf|svg|jpg",
   "brandName": "detected brand name or null",
-  "copy": { "headline": "optional", "subheadline": "optional", "cta": "optional" },
-  "constraints": ["optional list of constraints"],
-  "nCandidates": 3
+  "copy": {
+    "headline": "exact headline text — make it punchy and specific",
+    "subheadline": "supporting text below headline",
+    "body": "any body paragraph text if needed",
+    "cta": "exact call-to-action button text",
+    "disclaimer": "any fine print or disclaimer text",
+    "hashtags": ["#relevant", "#hashtags", "#for", "#platform"],
+    "facebook": {
+      "primaryText": "main post copy shown above the image — 125 chars optimal, written for FB news feed — hook in first 3 words",
+      "headline": "bold text in the link preview or ad card — 40 chars max, benefit-driven",
+      "description": "secondary line below headline — 30 chars max",
+      "cta": "Shop Now|Learn More|Sign Up|Get Offer|Book Now — pick the most relevant",
+      "offerDetails": "specific offer text if applicable, e.g. '50% off this week — code LAUNCH50'",
+      "socialProof": "trust signal if applicable, e.g. 'Trusted by 10,000+ teams'",
+      "urgency": "urgency line if applicable, e.g. 'Offer ends Sunday midnight'",
+      "targetingNote": "copy angle, e.g. 'speaking to pain of manual reporting for SMB owners'"
+    }
+  },
+  "visualStyle": "2–3 sentence description of the visual aesthetic, e.g. 'Clean minimalist layout with bold sans-serif typography. Heavy use of negative space. Single dominant accent color on white background.'",
+  "layoutDescription": "Step-by-step layout description, e.g. 'Full-bleed background image with 40% dark overlay. Brand logo top-left corner. Large bold headline centered at 60% height. Subheadline directly below in lighter weight. CTA button bottom-center with 16px padding.'",
+  "elements": ["list", "every", "specific", "visual", "element", "to", "include", "e.g.", "product mockup", "star rating badge", "price tag", "brand logo", "background texture", "icon set"],
+  "colorDirections": "Specific hex colors and usage rules, e.g. 'Primary: #4F46E5 indigo for backgrounds and buttons. Accent: #F59E0B amber for highlights. Text: #FFFFFF white on dark, #1F2937 dark gray on light. Avoid red entirely.'",
+  "typographySuggestions": "Font weight, size hierarchy, and style instructions, e.g. 'Headline: bold/black weight, 52–64px, uppercase tracking. Subheadline: medium weight, 20–24px. Body: regular, 14–16px, line-height 1.6. Prefer geometric sans-serif like Inter, Poppins, or Montserrat.'",
+  "backgroundDescription": "Detailed background description, e.g. 'Deep navy (#0F172A) to indigo (#4F46E5) diagonal gradient. Subtle geometric mesh pattern at 8% opacity. No photography.'",
+  "compositionNotes": "Layout composition rules, e.g. 'Apply rule of thirds. Product image occupies left two-thirds. Text stack right third with generous padding. Bottom strip in accent color for CTA. Ensure 64px safe margin from all edges for social cropping.'",
+  "moodKeywords": ["premium", "trustworthy", "energetic", "list", "3–6", "mood", "words"],
+  "platformContext": "Where this will appear and what it must achieve, e.g. 'Instagram feed post — must stop scroll within 0.5 seconds. Will compete with high-production brand content. Viewer is a 25–40 year old SaaS founder on mobile.'",
+  "designDirections": ["explicit do/dont rules", "e.g. no clipart or stock illustrations", "real product screenshots only", "keep text under 20 words total", "use only 2 fonts max"],
+  "constraints": ["hard constraints the design must respect"],
+  "nCandidates": 3,
+  "category": "business|marketing|infographic|announcement|educational|social_proof|product|seasonal|null",
+  "isCarousel": false,
+  "carouselSlides": [
+    {
+      "slideNumber": 1,
+      "role": "cover|content|cta",
+      "label": "Cover: Hook headline",
+      "headline": "exact headline text for this slide",
+      "body": "supporting body text for this slide (optional)",
+      "cta": "CTA button text if this is a cta slide",
+      "visualFocus": "what Canva should visually show on this slide — be specific",
+      "elements": ["list", "of", "visual", "elements", "specific", "to", "this", "slide"],
+      "colorAccent": "#hexcolor if this slide needs a unique accent"
+    }
+  ]
 }
 
-Rules:
+Critical rules:
 - intent: classify based on the concept text
-- dimensions: infer from context (Instagram=1080x1080, LinkedIn banner=1200x628, story=1080x1920). Default 1080x1080
+- dimensions: infer precisely from platform (Instagram square=1080x1080, story/reel=1080x1920, LinkedIn post=1200x627, LinkedIn banner=1584x396, Twitter/X post=1200x675, Facebook cover=820x312, YouTube thumbnail=1280x720, Pinterest=1000x1500). Default 1080x1080
 - format: default png unless print context → pdf
-- tone: extract from adjectives (playful, professional, bold, minimal, etc.)
-- brandName: extract "taskip" or "xgenious" or any other brand name mentioned
-- nCandidates: default 3, honor if user specified a number`;
+- tone: extract emotional descriptors (playful, professional, bold, minimal, urgent, aspirational, friendly, authoritative)
+- brandName: detect "taskip", "xgenious", or any other brand name in the text
+- copy: write the ACTUAL text content — do not leave placeholders. If user only gave a topic, invent specific high-quality copy appropriate for the brand and platform
+- copy.facebook: populate this sub-object ONLY when intent is social_post or marketing_banner AND the platform is Facebook or the user did not specify a platform (default to Facebook-ready copy). Leave null otherwise.
+- visualStyle: be specific about design school/movement (flat design, neo-brutalism, glassmorphism, material design, Swiss grid, etc.)
+- layoutDescription: describe exactly where each element sits on the canvas
+- elements: be exhaustive — list every single visual component that should appear
+- colorDirections: always provide specific hex codes when brand colors are known
+- nCandidates: default 3, honor if user specified a number
+- category: classify into business|marketing|infographic|announcement|educational|social_proof|product|seasonal. Null only if truly none applies.
+- isCarousel: set true when user mentions "carousel", "swipe", "slides", or for educational tips and infographic content (these always perform better as carousels).
+- carouselSlides: populate ONLY when isCarousel is true. Write 5–6 slides with REAL copy per slide — no placeholders. Cover slide = scroll-stopping hook. Last slide = CTA (save/follow/link).
+- copy.facebook: populate when intent is social_post or marketing_banner. Leave null otherwise.
+- NEVER leave fields empty — always provide your best creative direction even when user input is sparse`;
 
 @Injectable()
 export class ConceptParserService {
@@ -74,7 +128,7 @@ export class ConceptParserService {
         { role: 'user', content: conceptText },
       ],
       agentKey: 'canva',
-      maxTokens: 600,
+      maxTokens: 1800,
     });
 
     let raw: any;
@@ -114,11 +168,50 @@ export class ConceptParserService {
       }
     }
 
+    // Detect content category and apply preset design system
+    const category = raw.category && CONTENT_CATEGORIES[raw.category as keyof typeof CONTENT_CATEGORIES]
+      ? raw.category
+      : detectCategory(conceptText);
+    const preset = category ? CONTENT_CATEGORIES[category] : null;
+
+    // Detect carousel intent
+    const isCarousel = Boolean(raw.isCarousel) || /carousel|swipe|slide[s]?/i.test(conceptText);
+
+    // Build carousel slides — from LLM output or from category preset template
+    let carouselSlides: CarouselSlide[] | undefined;
+    if (isCarousel) {
+      const rawSlides: any[] = Array.isArray(raw.carouselSlides) ? raw.carouselSlides : [];
+      if (rawSlides.length > 0) {
+        carouselSlides = rawSlides.map((s: any, idx: number) => ({
+          slideNumber: idx + 1,
+          role: s.role ?? (idx === 0 ? 'cover' : idx === rawSlides.length - 1 ? 'cta' : 'content'),
+          label: s.label ?? `Slide ${idx + 1}`,
+          headline: s.headline ?? '',
+          body: s.body ?? undefined,
+          cta: s.cta ?? undefined,
+          visualFocus: s.visualFocus ?? '',
+          elements: Array.isArray(s.elements) ? s.elements : [],
+          colorAccent: s.colorAccent ?? undefined,
+        }));
+      } else if (preset) {
+        // Fall back to category preset slide structure
+        carouselSlides = preset.carouselStructure.map((tmpl, idx) => ({
+          slideNumber: idx + 1,
+          role: tmpl.role,
+          label: tmpl.label,
+          headline: tmpl.copyHint,
+          visualFocus: `${tmpl.label} — ${preset.visualStyle}`,
+          elements: preset.mustHaveElements,
+        }));
+      }
+    }
+
     const brief: DesignBrief = {
       intent,
       subject: String(raw.subject ?? conceptText.slice(0, 200)),
       audience: raw.audience || undefined,
-      tone: Array.isArray(raw.tone) ? raw.tone : ['professional'],
+      // Merge category defaults with user-extracted tone
+      tone: Array.isArray(raw.tone) && raw.tone.length > 0 ? raw.tone : (preset?.defaultTone ?? ['professional']),
       dimensions: dims,
       format: this.validFormat(raw.format) ? raw.format : 'png',
       brand: {
@@ -127,7 +220,26 @@ export class ConceptParserService {
       },
       copy: raw.copy || undefined,
       constraints: Array.isArray(raw.constraints) ? raw.constraints : [],
-      nCandidates: Math.min(Math.max(Number(raw.nCandidates) || 3, 1), 6),
+      nCandidates: isCarousel ? 1 : Math.min(Math.max(Number(raw.nCandidates) || 3, 1), 6),
+      // Rich Canva-specific fields — category preset fills gaps where LLM left blanks
+      visualStyle: raw.visualStyle || preset?.visualStyle || undefined,
+      layoutDescription: raw.layoutDescription || undefined,
+      elements: Array.isArray(raw.elements) && raw.elements.length > 0
+        ? raw.elements
+        : preset?.mustHaveElements,
+      colorDirections: raw.colorDirections || preset?.colorMood || undefined,
+      typographySuggestions: raw.typographySuggestions || preset?.typographyStyle || undefined,
+      backgroundDescription: raw.backgroundDescription || preset?.backgroundDescription || undefined,
+      compositionNotes: raw.compositionNotes || preset?.compositionNotes || undefined,
+      moodKeywords: Array.isArray(raw.moodKeywords) ? raw.moodKeywords : undefined,
+      platformContext: raw.platformContext || undefined,
+      designDirections: Array.isArray(raw.designDirections) && raw.designDirections.length > 0
+        ? raw.designDirections
+        : preset?.avoidElements.map((e) => `avoid: ${e}`),
+      // Category & carousel
+      category: category ?? undefined,
+      isCarousel,
+      carouselSlides,
     };
 
     // Compute brief hash for dedup/audit

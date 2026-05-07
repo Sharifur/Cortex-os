@@ -1,92 +1,86 @@
 import { Injectable } from '@nestjs/common';
 import { createId } from '@paralleldrive/cuid2';
-import type { DesignBrief, DesignIntent, GenerationPlan, GenerationTask, BackendType } from './adapters/types';
+import type { DesignBrief, DesignIntent, GenerationPlan, GenerationTask } from './adapters/types';
 
 interface BackendSelection {
-  primary: BackendType;
-  secondary?: BackendType;
+  primary: 'canva';
   notes: string;
 }
 
 const BACKEND_MATRIX: Record<DesignIntent, BackendSelection> = {
-  social_post:       { primary: 'canva', secondary: 'ai_image', notes: 'Brand kit honored; composite variant uses AI illustration' },
-  presentation:      { primary: 'canva',                        notes: 'generate-design-structured + outline review' },
-  marketing_banner:  { primary: 'canva', secondary: 'ai_image', notes: 'Composite when illustration is needed' },
-  logo:              { primary: 'ai_image', secondary: 'local', notes: 'Vectorize via downstream tool if needed' },
-  infographic:       { primary: 'canva', secondary: 'local',   notes: 'Data overlays via Pillow' },
-  print:             { primary: 'canva',                        notes: 'Exported as PDF' },
-  illustration:      { primary: 'ai_image', secondary: 'local', notes: 'Photo-real or stylized' },
-  custom:            { primary: 'canva', secondary: 'ai_image', notes: 'Ask clarifying question first' },
+  social_post:      { primary: 'canva', notes: 'Brand kit applied; detailed brief drives template selection' },
+  presentation:     { primary: 'canva', notes: 'generate-design-structured + outline review' },
+  marketing_banner: { primary: 'canva', notes: 'Rich layout description passed to Canva structured generation' },
+  logo:             { primary: 'canva', notes: 'Canva brand kit + logo template with detailed style directions' },
+  infographic:      { primary: 'canva', notes: 'Data visualization template; elements list drives content' },
+  print:            { primary: 'canva', notes: 'Exported as PDF with full brand kit' },
+  illustration:     { primary: 'canva', notes: 'Canva illustration template with mood and style directions' },
+  custom:           { primary: 'canva', notes: 'Detailed brief drives best-fit template selection' },
 };
 
 @Injectable()
 export class PlannerService {
   plan(sessionId: string, brief: DesignBrief, matchedSkills: string[]): GenerationPlan {
     const selection = BACKEND_MATRIX[brief.intent];
+    const skill = matchedSkills[0] ?? this.defaultSkill(brief.intent);
     const tasks: GenerationTask[] = [];
 
-    const primarySkill = matchedSkills[0] ?? this.defaultSkill(brief.intent, selection.primary);
-
-    // Always produce at least one primary backend task per candidate
-    const canvaCount = selection.primary === 'canva' ? brief.nCandidates : Math.ceil(brief.nCandidates / 2);
-    const aiCount = selection.secondary === 'ai_image' ? Math.floor(brief.nCandidates / 2) : 0;
-    const localCount = selection.secondary === 'local' ? 1 : 0;
-
-    for (let i = 0; i < canvaCount && selection.primary === 'canva'; i++) {
-      tasks.push({
-        id: createId(),
-        backend: 'canva',
-        skill: primarySkill,
-        brief,
-        variant: String.fromCharCode(65 + i), // A, B, C
-        rationale: `${selection.notes} — variant ${String.fromCharCode(65 + i)}`,
-      });
+    if (brief.isCarousel && brief.carouselSlides?.length) {
+      // One task per carousel slide — each gets its own slide-specific brief
+      for (const slide of brief.carouselSlides) {
+        const slideBrief: DesignBrief = {
+          ...brief,
+          isCarousel: false, // individual slide is not itself a carousel
+          subject: slide.headline || brief.subject,
+          copy: {
+            headline: slide.headline,
+            body: slide.body,
+            cta: slide.cta,
+          },
+          elements: slide.elements.length > 0 ? slide.elements : brief.elements,
+          layoutDescription: slide.visualFocus,
+          colorDirections: slide.colorAccent
+            ? `Accent: ${slide.colorAccent}. Base: ${brief.colorDirections ?? ''}`
+            : brief.colorDirections,
+          platformContext: `Carousel slide ${slide.slideNumber} of ${brief.carouselSlides!.length} — role: ${slide.role}. ${brief.platformContext ?? ''}`,
+        };
+        tasks.push({
+          id: createId(),
+          backend: 'canva',
+          skill,
+          brief: slideBrief,
+          variant: `S${slide.slideNumber}`,
+          rationale: `${slide.label} — ${selection.notes}`,
+        });
+      }
+    } else {
+      // Standard multi-candidate generation
+      for (let i = 0; i < brief.nCandidates; i++) {
+        tasks.push({
+          id: createId(),
+          backend: 'canva',
+          skill,
+          brief,
+          variant: String.fromCharCode(65 + i), // A, B, C …
+          rationale: `${selection.notes} — variant ${String.fromCharCode(65 + i)}`,
+        });
+      }
     }
 
-    for (let i = 0; i < (selection.primary === 'ai_image' ? brief.nCandidates : aiCount); i++) {
-      const aiSkill = matchedSkills.find((s) => s.startsWith('ai-')) ?? this.defaultSkill(brief.intent, 'ai_image');
-      tasks.push({
-        id: createId(),
-        backend: 'ai_image',
-        skill: aiSkill,
-        brief,
-        variant: String.fromCharCode(65 + (canvaCount > 0 ? canvaCount : 0) + i),
-        rationale: selection.primary === 'ai_image' ? selection.notes : `Composite: AI illustration layer — ${selection.notes}`,
-      });
-    }
-
-    for (let i = 0; i < localCount; i++) {
-      tasks.push({
-        id: createId(),
-        backend: 'local',
-        skill: 'local-text-overlay',
-        brief,
-        variant: String.fromCharCode(65 + canvaCount + aiCount + i),
-        rationale: 'Quick local render for text-on-image overlay',
-      });
-    }
-
-    // Trim to requested candidate count
-    const finalTasks = tasks.slice(0, brief.nCandidates);
-
-    return { sessionId, brief, tasks: finalTasks };
+    return { sessionId, brief, tasks };
   }
 
-  private defaultSkill(intent: DesignIntent, backend: BackendType): string {
-    if (backend === 'canva') {
-      const map: Partial<Record<DesignIntent, string>> = {
-        social_post: 'canva-social-post',
-        presentation: 'canva-presentation',
-        marketing_banner: 'canva-marketing-banner',
-        infographic: 'canva-marketing-banner',
-        print: 'canva-marketing-banner',
-        custom: 'canva-social-post',
-      };
-      return map[intent] ?? 'canva-social-post';
-    }
-    if (backend === 'ai_image') {
-      return intent === 'illustration' ? 'ai-illustration' : 'ai-photo-realistic';
-    }
-    return 'local-text-overlay';
+  private defaultSkill(intent: DesignIntent): string {
+    const map: Record<DesignIntent, string> = {
+      social_post:      'canva-social-post',
+      presentation:     'canva-presentation',
+      marketing_banner: 'canva-marketing-banner',
+      logo:             'canva-social-post',
+      infographic:      'canva-marketing-banner',
+      print:            'canva-marketing-banner',
+      illustration:     'canva-social-post',
+      custom:           'canva-social-post',
+    };
+    return map[intent];
   }
 }

@@ -45,15 +45,34 @@ export class CanvaAdapter implements BackendAdapter {
         brandKitId = matched?.id;
       }
 
-      // 2. Generate design
-      const briefPayload = {
-        intent: task.brief.intent,
-        subject: task.brief.subject,
-        tone: task.brief.tone,
-        dimensions: task.brief.dimensions,
-        copy: task.brief.copy,
-        constraints: task.brief.constraints,
+      // 2. Build rich brief payload for Canva MCP
+      const b = task.brief;
+      const briefPayload: Record<string, unknown> = {
+        intent: b.intent,
+        subject: b.subject,
+        audience: b.audience,
+        tone: b.tone,
+        dimensions: b.dimensions,
+        copy: b.copy,
+        constraints: b.constraints,
         variant: task.variant,
+        // Rich design directions passed directly to Canva
+        ...(b.visualStyle          && { visualStyle: b.visualStyle }),
+        ...(b.layoutDescription    && { layoutDescription: b.layoutDescription }),
+        ...(b.elements?.length     && { elements: b.elements }),
+        ...(b.colorDirections      && { colorDirections: b.colorDirections }),
+        ...(b.typographySuggestions && { typographySuggestions: b.typographySuggestions }),
+        ...(b.backgroundDescription && { backgroundDescription: b.backgroundDescription }),
+        ...(b.compositionNotes     && { compositionNotes: b.compositionNotes }),
+        ...(b.moodKeywords?.length && { moodKeywords: b.moodKeywords }),
+        ...(b.platformContext      && { platformContext: b.platformContext }),
+        ...(b.designDirections?.length && { designDirections: b.designDirections }),
+        // Brand identity fields
+        ...(b.brand.voiceProfile   && { brandVoice: b.brand.voiceProfile }),
+        ...(b.brand.palette?.length && { brandPalette: b.brand.palette }),
+        ...(b.brand.fonts?.length  && { brandFonts: b.brand.fonts }),
+        // Category context
+        ...(b.category && { contentCategory: b.category }),
       };
 
       const { designId: did } = await this.withRetry(() =>
