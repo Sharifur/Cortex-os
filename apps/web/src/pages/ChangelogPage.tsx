@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.1.2',
+    date: '2026-05-07',
+    entries: [
+      { tag: 'fix', scope: 'nav', description: 'Admin and Settings sidebar items hidden when role is null (migration not yet run on production): treat null/unknown role as super_admin so the items remain visible' },
+    ],
+  },
+  {
     version: 'v4.1.1',
     date: '2026-05-07',
     entries: [
