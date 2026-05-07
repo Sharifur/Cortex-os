@@ -4,7 +4,7 @@ import { LlmRouterService } from '../../llm/llm-router.service';
 import { CanvaBrandsService } from './canva-brands.service';
 import { CanvaDebugService } from './canva-debug.service';
 import type { DesignBrief, DesignIntent, OutputFormat, CarouselSlide } from './adapters/types';
-import { CONTENT_CATEGORIES, detectCategory } from '../content-categories';
+import { CONTENT_CATEGORIES, detectCategory } from './content-categories';
 
 const INTENT_KEYWORDS: Record<DesignIntent, string[]> = {
   social_post: ['post', 'instagram', 'facebook', 'tweet', 'x post', 'story', 'reel', 'tiktok', 'social'],
@@ -195,7 +195,7 @@ export class ConceptParserService {
         }));
       } else if (preset) {
         // Fall back to category preset slide structure
-        carouselSlides = preset.carouselStructure.map((tmpl, idx) => ({
+        carouselSlides = preset.carouselStructure.map((tmpl: { role: 'cover' | 'content' | 'cta'; label: string; copyHint: string }, idx: number) => ({
           slideNumber: idx + 1,
           role: tmpl.role,
           label: tmpl.label,
@@ -235,7 +235,7 @@ export class ConceptParserService {
       platformContext: raw.platformContext || undefined,
       designDirections: Array.isArray(raw.designDirections) && raw.designDirections.length > 0
         ? raw.designDirections
-        : preset?.avoidElements.map((e) => `avoid: ${e}`),
+        : preset?.avoidElements.map((e: string) => `avoid: ${e}`),
       // Category & carousel
       category: category ?? undefined,
       isCarousel,
