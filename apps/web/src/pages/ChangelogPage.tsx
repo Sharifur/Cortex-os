@@ -16,6 +16,26 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v3.10.1',
+    date: '2026-05-07',
+    entries: [
+      { tag: 'feat', scope: 'support', description: 'New Support Tickets page at /support — table view of all tickets with contact name, email, phone, priority and status badges, created/replied timestamps, expandable rows showing ticket body and draft reply' },
+      { tag: 'feat', scope: 'support', description: 'Filter by status (All / Open / Replied / Escalated / Closed) and search by subject, email, name or ticket number; stats strip shows live open/replied/escalated counts' },
+      { tag: 'feat', scope: 'support', description: 'GET /support/tickets API endpoint with status filter, full-text search, limit/offset pagination' },
+    ],
+  },
+  {
+    version: 'v3.10.0',
+    date: '2026-05-07',
+    entries: [
+      { tag: 'feat', scope: 'support', description: 'Support Ticket Manager now receives tickets via crm.xgenious.com webhook (X-Webhook-Secret verification); fetches full ticket description from CRM API before processing' },
+      { tag: 'feat', scope: 'support', description: 'After Telegram approval, approved reply is posted back to crm.xgenious.com via POST /api/public-v1/support-ticket/reply/{id}' },
+      { tag: 'feat', scope: 'support', description: 'CRM API exposed as 3 MCP tools: crm_get_ticket, crm_list_tickets, crm_post_reply — LLM can call them directly during decision making' },
+      { tag: 'feat', scope: 'support', description: 'Setup sub-tab in agent detail page for CRM base URL, API key, and webhook secret configuration with copy-to-clipboard webhook URL' },
+      { tag: 'chore', scope: 'db', description: 'Migration 0057: add ticket_no, contact_name, contact_phone, replied_at columns to support_tickets; drop NOT NULL on body' },
+    ],
+  },
+  {
     version: 'v3.9.3',
     date: '2026-05-05',
     entries: [

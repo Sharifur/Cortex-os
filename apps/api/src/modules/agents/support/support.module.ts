@@ -4,10 +4,11 @@ import { LlmModule } from '../../llm/llm.module';
 import { TelegramModule } from '../../telegram/telegram.module';
 import { KnowledgeBaseModule } from '../../knowledge-base/knowledge-base.module';
 import { PurchaseVerifyModule } from '../purchase-verify/purchase-verify.module';
+import { SettingsModule } from '../../settings/settings.module';
 import { SupportAgent } from './agent';
 
 @Module({
-  imports: [AgentsModule, LlmModule, TelegramModule, KnowledgeBaseModule, PurchaseVerifyModule],
+  imports: [AgentsModule, LlmModule, TelegramModule, KnowledgeBaseModule, PurchaseVerifyModule, SettingsModule],
   providers: [SupportAgent],
   exports: [SupportAgent],
 })

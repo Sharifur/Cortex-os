@@ -1919,23 +1919,7 @@ function SettingsTab({ agent, token }: { agent: AgentDetail; token: string }) {
 
   if (agent.key === 'support') return (
     <Phase4SettingsTab agent={agent} token={token} setupContent={
-      <Phase4SetupSubTab
-        agent={agent}
-        title="Support Ticket Manager — Setup Checklist"
-        description="Ingests support tickets via webhook or sweeps open tickets every 30 min. Classifies, sets priority, drafts a reply, and sends it via Telegram for approval before posting."
-        steps={<>
-          <SetupStep n={1} title="Push tickets via webhook" done={agent.registered}>
-            <p>POST to <code className="bg-muted px-1 rounded">/support/ingest-ticket</code> from your helpdesk/CRM (or any HTTP integration).</p>
-            <p className="mt-1">Body: <code className="bg-muted px-1 rounded">{`{ "subject": "...", "body": "...", "userEmail": "...", "externalId": "..." }`}</code></p>
-          </SetupStep>
-          <SetupStep n={2} title="Set escalation keywords" done={false}>
-            <p>In the Config JSON below, set <code className="bg-muted px-1 rounded">escalateKeywords</code> — any ticket body containing these words triggers an escalation action (requires approval).</p>
-          </SetupStep>
-          <SetupStep n={3} title="Enable and test" done={agent.enabled}>
-            <p>Enable the agent and push a test ticket. A Telegram message will arrive with the drafted reply asking for approval.</p>
-          </SetupStep>
-        </>}
-      />
+      <SupportSetupSubTab agent={agent} token={token} />
     } />
   );
 
@@ -2340,6 +2324,114 @@ function LivechatSetupSubTab({ agent }: { agent: AgentDetail }) {
         </SetupStep>
       </>}
     />
+  );
+}
+
+function SupportSetupSubTab({ agent, token }: { agent: AgentDetail; token: string }) {
+  const qc = useQueryClient();
+
+  const { data: settings = [] } = useQuery<{ key: string; value: string | null; stored: boolean }[]>({
+    queryKey: ['settings'],
+    queryFn: async () => {
+      const res = await fetch('/settings', { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) throw new Error('Failed');
+      const all: { key: string; value: string | null; stored: boolean }[] = await res.json();
+      return all.filter((s) => s.key.startsWith('support_'));
+    },
+    staleTime: 30_000,
+    select: (all) => all.filter((s) => s.key.startsWith('support_')),
+  });
+
+  const getSetting = (key: string) => settings.find((s) => s.key === key);
+
+  const saveSetting = async (key: string, value: string) => {
+    await fetch(`/settings/${key}`, {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ value }),
+    });
+    qc.invalidateQueries({ queryKey: ['settings'] });
+  };
+
+  const webhookUrl = `${window.location.origin}/support/ingest-ticket`;
+  const [copied, setCopied] = useState(false);
+
+  function copyWebhookUrl() {
+    navigator.clipboard.writeText(webhookUrl).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-5 space-y-5">
+      <div>
+        <h3 className="text-sm font-semibold mb-1">Support Ticket Manager — Setup</h3>
+        <p className="text-xs text-muted-foreground">Connects to crm.xgenious.com via webhook. When a new ticket arrives, the AI drafts a reply and sends it to Telegram for approval — then posts it back to the CRM automatically.</p>
+      </div>
+
+      <div className="rounded-lg bg-muted/40 border border-border px-4 py-3 text-xs text-muted-foreground">
+        <p className="font-medium text-foreground mb-1">Prerequisites</p>
+        <p>Telegram bot and owner chat ID must be configured in Settings (platform-wide). The CRM API key is issued from <span className="font-mono">crm.xgenious.com → Settings → Public API</span>.</p>
+      </div>
+
+      <SetupStep n={1} title="Configure CRM API credentials" done={getSetting('support_crm_base_url')?.stored === true && getSetting('support_crm_api_key')?.stored === true}>
+        <div className="space-y-3">
+          <HrmSettingField
+            label="CRM Base URL"
+            settingKey="support_crm_base_url"
+            placeholder="https://crm.xgenious.com"
+            token={token}
+            onSave={saveSetting}
+            stored={getSetting('support_crm_base_url')?.stored}
+          />
+          <HrmSettingField
+            label="CRM API Key"
+            settingKey="support_crm_api_key"
+            placeholder="X-Secret-Key value from CRM"
+            token={token}
+            onSave={saveSetting}
+            stored={getSetting('support_crm_api_key')?.stored}
+            isSecret
+          />
+        </div>
+      </SetupStep>
+
+      <SetupStep n={2} title="Configure webhook security" done={getSetting('support_webhook_secret')?.stored === true}>
+        <div className="space-y-3">
+          <p className="text-xs text-muted-foreground">Set a shared secret. Configure crm.xgenious.com to POST to the webhook URL below with the header <code className="bg-muted px-1 rounded">X-Webhook-Secret: &lt;your-secret&gt;</code>.</p>
+          <HrmSettingField
+            label="Webhook Secret"
+            settingKey="support_webhook_secret"
+            placeholder="any strong random string"
+            token={token}
+            onSave={saveSetting}
+            stored={getSetting('support_webhook_secret')?.stored}
+            isSecret
+          />
+          <div>
+            <label className="text-xs font-medium text-muted-foreground block mb-1">Webhook URL (paste into crm.xgenious.com)</label>
+            <div className="flex items-center gap-2">
+              <code className="flex-1 text-xs bg-background border border-border rounded-md px-3 py-2 truncate">{webhookUrl}</code>
+              <button
+                onClick={copyWebhookUrl}
+                className="shrink-0 text-xs px-3 py-2 rounded-md bg-primary text-primary-foreground"
+              >
+                {copied ? 'Copied' : 'Copy'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </SetupStep>
+
+      <SetupStep n={3} title="Set escalation keywords" done={false}>
+        <p className="text-xs text-muted-foreground">In the Config JSON tab, set <code className="bg-muted px-1 rounded">escalateKeywords</code> — tickets containing these words are escalated instead of auto-replied. Default: urgent, lawsuit, refund, legal, fraud.</p>
+      </SetupStep>
+
+      <SetupStep n={4} title="Enable and test" done={agent.enabled}>
+        <p className="text-xs text-muted-foreground">Enable the agent. Send a test webhook from crm.xgenious.com or use curl. A Telegram message should arrive with the drafted reply and Approve / Reject buttons.</p>
+      </SetupStep>
+    </div>
   );
 }
 
