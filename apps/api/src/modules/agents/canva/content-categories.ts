@@ -1,12 +1,6 @@
-export type ContentCategory =
-  | 'business'
-  | 'marketing'
-  | 'infographic'
-  | 'announcement'
-  | 'educational'
-  | 'social_proof'
-  | 'product'
-  | 'seasonal';
+import type { ContentCategory } from './adapters/types';
+
+export type { ContentCategory };
 
 export interface CategoryPreset {
   displayName: string;
