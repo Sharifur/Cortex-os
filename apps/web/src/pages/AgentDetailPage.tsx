@@ -3004,7 +3004,7 @@ function AgentDetailSkeleton() {
 
 // ─── Canva Agent Page (T17, T18, T19, T28, T29) ────────────────────────────
 
-type CanvaTab = 'chat' | 'calendar' | 'candidates' | 'brands' | 'setup';
+type CanvaTab = 'chat' | 'calendar' | 'candidates' | 'brands' | 'settings' | 'setup';
 
 interface CanvaCandidate {
   id: string;
@@ -3046,6 +3046,7 @@ function CanvaAgentPage({ agent, token }: { agent: AgentDetail; token: string })
     { key: 'calendar', label: 'Calendar' },
     { key: 'candidates', label: 'Candidates' },
     { key: 'brands', label: 'Brands' },
+    { key: 'settings', label: 'Settings' },
     { key: 'setup', label: 'Setup' },
   ];
 
@@ -3069,6 +3070,7 @@ function CanvaAgentPage({ agent, token }: { agent: AgentDetail; token: string })
       {tab === 'calendar' && <CanvaCalendarTab token={token} />}
       {tab === 'candidates' && <CanvaCandidatesTab token={token} />}
       {tab === 'brands' && <CanvaBrandsTab token={token} />}
+      {tab === 'settings' && <CanvaSettingsTab agent={agent} token={token} />}
       {tab === 'setup' && <CanvaSetupTab agent={agent} token={token} />}
     </div>
   );
@@ -3511,7 +3513,183 @@ function CanvaBrandsTab({ token }: { token: string }) {
   );
 }
 
-// T19: Setup tab — prerequisites, steps, Canva verify
+// Settings tab — dedicated fields, no raw JSON
+const CANVA_FORMATS = ['carousel', 'reel', 'post', 'story', 'youtube'] as const;
+
+function CanvaSettingsTab({ agent, token }: { agent: AgentDetail; token: string }) {
+  const qc = useQueryClient();
+  const navigate = useNavigate();
+  const cfg = (agent.config ?? {}) as Record<string, unknown>;
+  const { llm: initialLlm } = stripLlm(cfg);
+
+  const [targetCount, setTargetCount] = useState(String(cfg.targetCount ?? 30));
+  const [formats, setFormats] = useState<string[]>((cfg.formats as string[]) ?? ['carousel', 'reel', 'post', 'story', 'youtube']);
+  const [debugMode, setDebugMode] = useState(!!(cfg.debugMode));
+  const [maxCostUsd, setMaxCostUsd] = useState(String(cfg.maxCostUsd ?? 5.0));
+  const [overrideLlm, setOverrideLlm] = useState(!!(initialLlm?.provider || initialLlm?.model));
+  const [llmProvider, setLlmProvider] = useState(initialLlm?.provider ?? 'auto');
+  const [llmModel, setLlmModel] = useState(initialLlm?.model ?? '');
+
+  const { data: brands } = useQuery<CanvaBrand[]>({
+    queryKey: ['canva-brands'],
+    queryFn: () => apiFetch(token, '/canva/brands'),
+  });
+
+  const saveMut = useMutation({
+    mutationFn: (config: Record<string, unknown>) =>
+      apiFetch(token, `/agents/${agent.key}`, { method: 'PATCH', body: JSON.stringify({ config }) }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['agent', agent.key] }),
+  });
+
+  const toggleMut = useMutation({
+    mutationFn: () =>
+      apiFetch(token, `/agents/${agent.key}`, { method: 'PATCH', body: JSON.stringify({ enabled: !agent.enabled }) }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['agent', agent.key] }),
+  });
+
+  const triggerMut = useMutation({
+    mutationFn: () =>
+      apiFetch(token, `/agents/${agent.key}/trigger`, { method: 'POST', body: JSON.stringify({ triggerType: 'MANUAL' }) }),
+    onSuccess: (run: { id: string }) => navigate(`/runs/${run.id}`),
+  });
+
+  const toggleFormat = (f: string) =>
+    setFormats((prev) => prev.includes(f) ? prev.filter((x) => x !== f) : [...prev, f]);
+
+  const handleSave = () => {
+    const config: Record<string, unknown> = {
+      targetCount: parseInt(targetCount) || 30,
+      formats,
+      brands: brands?.filter((b) => b.active).map((b) => b.name) ?? (cfg.brands as string[] ?? ['taskip', 'xgenious']),
+      debugMode,
+      maxCostUsd: parseFloat(maxCostUsd) || 5.0,
+    };
+    if (overrideLlm && (llmProvider !== 'auto' || llmModel)) {
+      config.llm = { ...(llmProvider ? { provider: llmProvider } : {}), ...(llmModel ? { model: llmModel } : {}) };
+    }
+    saveMut.mutate(config);
+  };
+
+  return (
+    <div className="space-y-5 max-w-xl">
+      {/* Enable / disable */}
+      <div className="bg-card border border-border rounded-xl p-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm font-medium">Agent enabled</p>
+            <p className="text-xs text-muted-foreground mt-0.5">Allow this agent to run on schedule (1st of month at 08:00)</p>
+          </div>
+          <BigToggle enabled={agent.enabled} onClick={() => toggleMut.mutate()} disabled={toggleMut.isPending} />
+        </div>
+      </div>
+
+      {/* Calendar settings */}
+      <div className="bg-card border border-border rounded-xl p-4 space-y-4">
+        <p className="text-sm font-semibold">Calendar settings</p>
+
+        <div>
+          <label className="text-xs text-muted-foreground block mb-1">Ideas per month (target count)</label>
+          <Input
+            type="number"
+            value={targetCount}
+            onChange={(e) => setTargetCount(e.target.value)}
+            min={5}
+            max={100}
+            className="w-28 text-sm"
+          />
+        </div>
+
+        <div>
+          <label className="text-xs text-muted-foreground block mb-2">Content formats</label>
+          <div className="flex flex-wrap gap-2">
+            {CANVA_FORMATS.map((f) => (
+              <button
+                key={f}
+                onClick={() => toggleFormat(f)}
+                className={`px-3 py-1 text-xs rounded-full border transition-colors ${formats.includes(f) ? 'bg-primary text-primary-foreground border-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}
+              >
+                {f}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <label className="text-xs text-muted-foreground block mb-1">Active brands</label>
+          {brands && brands.length > 0 ? (
+            <div className="flex flex-wrap gap-1.5">
+              {brands.filter((b) => b.active).map((b) => (
+                <span key={b.name} className="px-2.5 py-0.5 text-xs bg-muted rounded-full">{b.displayName}</span>
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">No brands configured — add them in the Brands tab.</p>
+          )}
+          <p className="text-xs text-muted-foreground mt-1">Manage brands and their voice profiles in the Brands tab.</p>
+        </div>
+      </div>
+
+      {/* Design generation settings */}
+      <div className="bg-card border border-border rounded-xl p-4 space-y-4">
+        <p className="text-sm font-semibold">Design generation</p>
+
+        <div>
+          <label className="text-xs text-muted-foreground block mb-1">Max cost per session (USD)</label>
+          <div className="flex items-center gap-2">
+            <Input
+              type="number"
+              value={maxCostUsd}
+              onChange={(e) => setMaxCostUsd(e.target.value)}
+              min={0.5}
+              max={50}
+              step={0.5}
+              className="w-24 text-sm"
+            />
+            <span className="text-xs text-muted-foreground">Agent switches from DALL-E to Stability AI when this is exceeded</span>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between py-0.5">
+          <div>
+            <p className="text-sm">Debug mode</p>
+            <p className="text-xs text-muted-foreground">Log each pipeline step to database (viewable via Sessions tab)</p>
+          </div>
+          <BigToggle enabled={debugMode} onClick={() => setDebugMode(!debugMode)} />
+        </div>
+      </div>
+
+      {/* LLM override */}
+      <LlmOverrideCard
+        initialLlm={initialLlm}
+        overrideLlm={overrideLlm}
+        setOverrideLlm={setOverrideLlm}
+        llmProvider={llmProvider}
+        setLlmProvider={setLlmProvider}
+        llmModel={llmModel}
+        setLlmModel={setLlmModel}
+      />
+
+      <div className="flex items-center gap-3">
+        <Button onClick={handleSave} disabled={saveMut.isPending}>
+          {saveMut.isPending ? 'Saving...' : 'Save settings'}
+        </Button>
+        {saveMut.isSuccess && <span className="text-xs text-green-600">Saved</span>}
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => triggerMut.mutate()}
+          disabled={!agent.enabled || !agent.registered || triggerMut.isPending}
+          className="ml-auto gap-1.5"
+        >
+          <Play className="w-3.5 h-3.5" />
+          {triggerMut.isPending ? 'Starting...' : 'Run now'}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// T19: Setup tab — Canva MCP connection guide + verification
 function CanvaSetupTab({ agent, token }: { agent: AgentDetail; token: string }) {
   const [verifyResult, setVerifyResult] = useState<any>(null);
   const [verifying, setVerifying] = useState(false);
@@ -3531,52 +3709,89 @@ function CanvaSetupTab({ agent, token }: { agent: AgentDetail; token: string }) 
   return (
     <div className="space-y-4 max-w-2xl">
       <div className="bg-muted/40 border border-border rounded-xl p-3 text-sm text-muted-foreground">
-        Note: LLM provider, Telegram bot, and database connection are platform-wide settings — configure them in Settings, not here.
+        Note: LLM provider, Telegram bot, and database are platform-wide — configure them in Settings, not here.
       </div>
 
       <div className="space-y-3">
-        <SetupStep n={1} title="Canva MCP — authenticate" done={false}>
-          <p>Run this once on the server to complete OAuth and cache the token:</p>
-          <pre className="mt-1 bg-muted rounded-lg px-3 py-2 text-xs font-mono overflow-x-auto">npx -y mcp-remote https://mcp.canva.com/mcp</pre>
-          <p className="mt-1">A browser window opens. Sign in to Canva and approve. Token is cached under <code className="bg-muted px-1 rounded">~/.mcp-auth/</code>.</p>
-          <p className="mt-1">Then add the Canva server in MCP Settings with URL <code className="bg-muted px-1 rounded">https://mcp.canva.com/mcp</code> and name <code className="bg-muted px-1 rounded">canva</code>.</p>
+
+        {/* Step 1: MCP page */}
+        <SetupStep n={1} title="Add Canva MCP server" done={false}>
+          <p>Go to the <strong>MCP</strong> page and add a new external server:</p>
+          <div className="mt-2 bg-muted rounded-lg px-3 py-2 text-xs font-mono space-y-1">
+            <div><span className="text-muted-foreground">Name:</span> canva</div>
+            <div><span className="text-muted-foreground">URL: </span> https://mcp.canva.com/mcp</div>
+          </div>
+          <p className="mt-2 text-xs text-muted-foreground">Enable it after saving. The agent calls this server for all Canva operations.</p>
         </SetupStep>
 
-        <SetupStep n={2} title="AI image provider keys" done={false}>
-          <p>Add to Settings (encrypted secrets):</p>
-          <ul className="mt-1 space-y-0.5 text-sm list-disc list-inside">
-            <li><code className="bg-muted px-1 rounded">openai_api_key</code> — DALL-E 3 (primary)</li>
-            <li><code className="bg-muted px-1 rounded">stability_api_key</code> — Stability AI (fallback)</li>
-          </ul>
+        {/* Step 2: OAuth */}
+        <SetupStep n={2} title="Connect your Canva account (OAuth)" done={false}>
+          <p className="font-medium text-sm mb-2">Option A — Claude Desktop / Claude.ai (easiest)</p>
+          <ol className="list-decimal list-inside space-y-1 text-sm ml-1">
+            <li>Open Claude Desktop → Settings → Connectors</li>
+            <li>Find <strong>Canva</strong> and click Connect</li>
+            <li>Sign in to Canva and approve the OAuth request</li>
+            <li>Token is shared with the agent automatically</li>
+          </ol>
+
+          <p className="font-medium text-sm mt-4 mb-2">Option B — Server CLI (for headless/VPS)</p>
+          <p className="text-sm mb-1">Run once on the server. A browser link appears — open it and approve:</p>
+          <pre className="bg-muted rounded-lg px-3 py-2 text-xs font-mono overflow-x-auto">npx -y mcp-remote https://mcp.canva.com/mcp</pre>
+          <p className="mt-1 text-xs text-muted-foreground">Token is cached under <code className="bg-muted px-1 rounded">~/.mcp-auth/</code> and reused on every restart.</p>
+
+          <div className="mt-3 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-800">
+            You need a Canva account with MCP access enabled. Free accounts have access; team plans include brand kit features.
+          </div>
         </SetupStep>
 
-        <SetupStep n={3} title="Approval folder" done={false}>
-          <p>Generated designs are saved to <code className="bg-muted px-1 rounded">~/Designs/AI-Agent/Approvals/</code> by default. Override with env var <code className="bg-muted px-1 rounded">CANVA_APPROVAL_FOLDER</code>.</p>
+        {/* Step 3: AI image keys */}
+        <SetupStep n={3} title="Add AI image provider keys (for image generation)" done={false}>
+          <p>In <strong>Settings → Secrets</strong>, add:</p>
+          <div className="mt-2 space-y-1">
+            {[
+              { key: 'openai_api_key', label: 'OpenAI', note: 'DALL-E 3 — primary image generator ($0.04/image)' },
+              { key: 'stability_api_key', label: 'Stability AI', note: 'Fallback when OpenAI quota is exceeded' },
+            ].map((item) => (
+              <div key={item.key} className="flex items-start gap-2 text-sm">
+                <code className="bg-muted px-1.5 py-0.5 rounded text-xs shrink-0 mt-0.5">{item.key}</code>
+                <span className="text-muted-foreground">{item.note}</span>
+              </div>
+            ))}
+          </div>
+          <p className="mt-2 text-xs text-muted-foreground">Skip this step if you only need Canva template-based designs (no AI image generation).</p>
         </SetupStep>
 
-        <SetupStep n={4} title="Brand identities" done={false}>
-          <p>Go to the Brands tab and add voice profiles, palette, fonts, and Canva kit ID for each brand (taskip, xgenious, etc.). The agent uses these when generating designs.</p>
+        {/* Step 4: Brands */}
+        <SetupStep n={4} title="Set up brand identities" done={false}>
+          <p>Go to the <strong>Brands</strong> tab and fill in voice profile, color palette, fonts, and Canva Kit ID for each brand.</p>
+          <p className="mt-1 text-xs text-muted-foreground">The agent uses the brand's voice and palette automatically when you mention the brand name in the chat.</p>
         </SetupStep>
 
-        <SetupStep n={5} title="Verify connection and test" done={agent.enabled}>
-          <p>Click Verify to check the Canva MCP connection, then use the Chat tab to test design generation.</p>
-          <div className="mt-2">
+        {/* Step 5: Verify */}
+        <SetupStep n={5} title="Verify connection" done={agent.enabled}>
+          <p>Click Verify to check all systems. Then go to the <strong>Chat</strong> tab and type a concept to generate your first design.</p>
+          <p className="mt-1 text-sm text-muted-foreground">Example: <em>"Create an Instagram post for taskip spring sale, playful tone"</em></p>
+          <div className="mt-3">
             <Button size="sm" onClick={verify} disabled={verifying}>
               {verifying ? 'Verifying...' : 'Verify Canva MCP'}
             </Button>
           </div>
           {verifyResult && (
-            <div className={`mt-2 p-3 rounded-lg text-sm font-mono border ${verifyResult.ok ? 'bg-green-50 border-green-200 text-green-800' : 'bg-destructive/10 border-destructive/20 text-destructive'}`}>
+            <div className={`mt-3 p-3 rounded-lg text-sm font-mono border ${verifyResult.ok ? 'bg-green-50 border-green-200 text-green-800' : 'bg-destructive/10 border-destructive/20 text-destructive'}`}>
               <div>Status: {verifyResult.ok ? 'OK' : 'FAILED'}</div>
-              <div>Tools: {verifyResult.toolsFound}/{verifyResult.toolsExpected}</div>
+              <div>Tools: {verifyResult.toolsFound ?? 0}/{verifyResult.toolsExpected ?? 32}</div>
               {verifyResult.latencyMs && <div>Latency: {verifyResult.latencyMs}ms</div>}
               {verifyResult.error && <div>Error: {verifyResult.error}</div>}
               {verifyResult.missingTools?.length > 0 && (
-                <div>Missing: {verifyResult.missingTools.join(', ')}</div>
+                <div className="mt-1">Missing: {verifyResult.missingTools.slice(0, 5).join(', ')}{verifyResult.missingTools.length > 5 ? ` +${verifyResult.missingTools.length - 5} more` : ''}</div>
+              )}
+              {verifyResult.ok && (
+                <div className="mt-1 text-green-700">Canva MCP is connected and ready.</div>
               )}
             </div>
           )}
         </SetupStep>
+
       </div>
     </div>
   );
