@@ -90,9 +90,14 @@ export const AGENT_TASK_SUGGESTIONS: Record<string, string[]> = {
   ],
 
   canva: [
-    'Generate next month\'s social calendar',
-    'List upcoming designs in this month\'s calendar',
-    'Suggest a carousel layout for our pricing announcement',
+    'Create an Instagram post for our spring sale',
+    'Generate a LinkedIn carousel about our latest feature',
+    'Design a YouTube thumbnail for our new tutorial',
+    'Make a Facebook banner for our product launch',
+    'Suggest an idea for a short-form Reel about productivity',
+    'Generate next month\'s social content calendar',
+    'Create a story slide for our brand announcement',
+    'Design an infographic about our pricing tiers',
   ],
 };
 

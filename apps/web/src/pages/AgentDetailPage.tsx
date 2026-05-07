@@ -3039,7 +3039,9 @@ interface CanvaBrand {
 }
 
 function CanvaAgentPage({ agent, token }: { agent: AgentDetail; token: string }) {
-  const [tab, setTab] = useState<CanvaTab>('chat');
+  const navigate = useNavigate();
+  type NonChatTab = Exclude<CanvaTab, 'chat'>;
+  const [tab, setTab] = useState<NonChatTab>('calendar');
 
   const tabs: { key: CanvaTab; label: string }[] = [
     { key: 'chat', label: 'Chat' },
@@ -3050,13 +3052,21 @@ function CanvaAgentPage({ agent, token }: { agent: AgentDetail; token: string })
     { key: 'setup', label: 'Setup' },
   ];
 
+  function handleTab(key: CanvaTab) {
+    if (key === 'chat') {
+      navigate(`/agents/${agent.key}/chat`);
+    } else {
+      setTab(key as NonChatTab);
+    }
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-1 border border-border rounded-lg p-1 bg-muted/30 w-fit">
         {tabs.map((t) => (
           <button
             key={t.key}
-            onClick={() => setTab(t.key)}
+            onClick={() => handleTab(t.key)}
             className={`px-3.5 py-1.5 rounded-md text-sm font-medium transition-colors ${
               tab === t.key ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
             }`}
@@ -3066,134 +3076,11 @@ function CanvaAgentPage({ agent, token }: { agent: AgentDetail; token: string })
         ))}
       </div>
 
-      {tab === 'chat' && <CanvaChatTab token={token} agent={agent} />}
       {tab === 'calendar' && <CanvaCalendarTab token={token} />}
       {tab === 'candidates' && <CanvaCandidatesTab token={token} />}
       {tab === 'brands' && <CanvaBrandsTab token={token} />}
       {tab === 'settings' && <CanvaSettingsTab agent={agent} token={token} />}
       {tab === 'setup' && <CanvaSetupTab agent={agent} token={token} />}
-    </div>
-  );
-}
-
-// T28: Chat tab — generate designs or ideas, show Edit in Canva
-function CanvaChatTab({ token, agent }: { agent: AgentDetail; token: string }) {
-  const [message, setMessage] = useState('');
-  const [mode, setMode] = useState<'design' | 'idea'>('design');
-  const [brand, setBrand] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<any>(null);
-  const [error, setError] = useState('');
-
-  const { data: brands } = useQuery<CanvaBrand[]>({
-    queryKey: ['canva-brands'],
-    queryFn: () => apiFetch(token, '/canva/brands'),
-  });
-
-  const send = async () => {
-    if (!message.trim() || loading) return;
-    setLoading(true);
-    setError('');
-    setResult(null);
-    try {
-      const res = await apiFetch(token, '/canva/chat', {
-        method: 'POST',
-        body: JSON.stringify({ message, brand: brand || undefined, mode }),
-      });
-      setResult(res);
-    } catch (e) {
-      setError('Request failed. Check API connection.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div className="space-y-4">
-      <div className="bg-card border border-border rounded-xl p-4 space-y-3">
-        <div className="flex gap-2">
-          <button
-            onClick={() => setMode('design')}
-            className={`px-3 py-1.5 text-sm rounded-md border transition-colors ${mode === 'design' ? 'bg-primary text-primary-foreground border-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}
-          >
-            Generate Design
-          </button>
-          <button
-            onClick={() => setMode('idea')}
-            className={`px-3 py-1.5 text-sm rounded-md border transition-colors ${mode === 'idea' ? 'bg-primary text-primary-foreground border-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}
-          >
-            Generate Idea
-          </button>
-          {brands && brands.length > 0 && (
-            <select
-              value={brand}
-              onChange={(e) => setBrand(e.target.value)}
-              className="ml-auto px-3 py-1.5 text-sm rounded-md border border-border bg-background text-foreground"
-            >
-              <option value="">Any brand</option>
-              {brands.map((b) => (
-                <option key={b.name} value={b.name}>{b.displayName}</option>
-              ))}
-            </select>
-          )}
-        </div>
-
-        <div className="flex gap-2">
-          <Input
-            value={message}
-            onChange={(e) => setMessage(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && send()}
-            placeholder={mode === 'design' ? 'Create an Instagram post for our spring sale...' : 'Generate an idea about productivity tips...'}
-            className="flex-1"
-            disabled={loading}
-          />
-          <Button onClick={send} disabled={loading || !message.trim()}>
-            {loading ? 'Generating...' : 'Send'}
-          </Button>
-        </div>
-
-        {error && <p className="text-sm text-destructive">{error}</p>}
-      </div>
-
-      {result && result.type === 'design' && (
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <p className="text-sm font-medium">
-              {result.candidates?.length ?? 0} candidate(s) — session <code className="bg-muted px-1 rounded text-xs">{result.sessionId?.slice(0, 8)}</code>
-            </p>
-            {result.brief && (
-              <span className="text-xs text-muted-foreground">
-                {result.brief.intent} · {result.brief.dimensions?.width}x{result.brief.dimensions?.height}
-              </span>
-            )}
-          </div>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {result.candidates?.map((c: any) => (
-              <CanvaCandidateCard key={c.id} candidate={c} sessionId={result.sessionId} token={token} />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {result && result.type === 'idea' && result.idea && (
-        <div className="bg-card border border-border rounded-xl p-4 space-y-2">
-          <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Generated Idea</p>
-          {result.idea.hook && <p className="font-medium">{result.idea.hook}</p>}
-          {result.idea.body && <p className="text-sm text-muted-foreground">{result.idea.body}</p>}
-          {result.idea.cta && <p className="text-sm"><span className="font-medium">CTA:</span> {result.idea.cta}</p>}
-          {result.idea.platform && <p className="text-xs text-muted-foreground">Platform: {result.idea.platform}</p>}
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => {
-              setMode('design');
-              setMessage(result.idea.hook + ' — ' + result.idea.body);
-            }}
-          >
-            Turn into Design
-          </Button>
-        </div>
-      )}
     </div>
   );
 }
