@@ -1,5 +1,27 @@
 export type BackendType = 'canva' | 'ai_image' | 'local';
 
+export type ContentCategory =
+  | 'business'
+  | 'marketing'
+  | 'infographic'
+  | 'announcement'
+  | 'educational'
+  | 'social_proof'
+  | 'product'
+  | 'seasonal';
+
+export interface CarouselSlide {
+  slideNumber: number;
+  role: 'cover' | 'content' | 'cta';
+  label: string;            // e.g. "Cover: Bold claim"
+  headline: string;         // exact headline text for this slide
+  body?: string;            // supporting text for this slide
+  cta?: string;             // CTA text (on cta slides)
+  visualFocus: string;      // what Canva should show visually on this slide
+  elements: string[];       // specific visual elements for this slide
+  colorAccent?: string;     // per-slide accent color override if needed
+}
+
 export type DesignIntent =
   | 'social_post'
   | 'presentation'
@@ -65,6 +87,10 @@ export interface DesignBrief {
   moodKeywords?: string[];        // e.g. ["energetic", "trustworthy", "premium", "approachable"]
   platformContext?: string;       // e.g. "Instagram feed — needs to stop scroll in 0.5s"
   designDirections?: string[];    // explicit rules: ["no stock photo clipart", "use geometric shapes"]
+  // Category & carousel
+  category?: ContentCategory;
+  isCarousel?: boolean;
+  carouselSlides?: CarouselSlide[];
 }
 
 export interface GenerationTask {

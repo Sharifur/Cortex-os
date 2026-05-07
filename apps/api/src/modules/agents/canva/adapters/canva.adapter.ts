@@ -71,6 +71,8 @@ export class CanvaAdapter implements BackendAdapter {
         ...(b.brand.voiceProfile   && { brandVoice: b.brand.voiceProfile }),
         ...(b.brand.palette?.length && { brandPalette: b.brand.palette }),
         ...(b.brand.fonts?.length  && { brandFonts: b.brand.fonts }),
+        // Category context
+        ...(b.category && { contentCategory: b.category }),
       };
 
       const { designId: did } = await this.withRetry(() =>

@@ -23,17 +23,48 @@ export class PlannerService {
   plan(sessionId: string, brief: DesignBrief, matchedSkills: string[]): GenerationPlan {
     const selection = BACKEND_MATRIX[brief.intent];
     const skill = matchedSkills[0] ?? this.defaultSkill(brief.intent);
-
     const tasks: GenerationTask[] = [];
-    for (let i = 0; i < brief.nCandidates; i++) {
-      tasks.push({
-        id: createId(),
-        backend: 'canva',
-        skill,
-        brief,
-        variant: String.fromCharCode(65 + i), // A, B, C …
-        rationale: `${selection.notes} — variant ${String.fromCharCode(65 + i)}`,
-      });
+
+    if (brief.isCarousel && brief.carouselSlides?.length) {
+      // One task per carousel slide — each gets its own slide-specific brief
+      for (const slide of brief.carouselSlides) {
+        const slideBrief: DesignBrief = {
+          ...brief,
+          isCarousel: false, // individual slide is not itself a carousel
+          subject: slide.headline || brief.subject,
+          copy: {
+            headline: slide.headline,
+            body: slide.body,
+            cta: slide.cta,
+          },
+          elements: slide.elements.length > 0 ? slide.elements : brief.elements,
+          layoutDescription: slide.visualFocus,
+          colorDirections: slide.colorAccent
+            ? `Accent: ${slide.colorAccent}. Base: ${brief.colorDirections ?? ''}`
+            : brief.colorDirections,
+          platformContext: `Carousel slide ${slide.slideNumber} of ${brief.carouselSlides!.length} — role: ${slide.role}. ${brief.platformContext ?? ''}`,
+        };
+        tasks.push({
+          id: createId(),
+          backend: 'canva',
+          skill,
+          brief: slideBrief,
+          variant: `S${slide.slideNumber}`,
+          rationale: `${slide.label} — ${selection.notes}`,
+        });
+      }
+    } else {
+      // Standard multi-candidate generation
+      for (let i = 0; i < brief.nCandidates; i++) {
+        tasks.push({
+          id: createId(),
+          backend: 'canva',
+          skill,
+          brief,
+          variant: String.fromCharCode(65 + i), // A, B, C …
+          rationale: `${selection.notes} — variant ${String.fromCharCode(65 + i)}`,
+        });
+      }
     }
 
     return { sessionId, brief, tasks };
