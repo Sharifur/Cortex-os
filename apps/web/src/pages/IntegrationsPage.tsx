@@ -4,7 +4,7 @@ import {
   Cable, Save, Trash2, Eye, EyeOff, Key, Send, Mail, Copy, Check,
   ExternalLink, MessageSquare, Linkedin, Hash, Bot, FlaskConical,
   CheckCircle2, XCircle, Loader2, Plus, Globe, ToggleLeft, ToggleRight, Database, Sparkles, Shield, Pencil,
-  Link2,
+  Link2, ChevronDown, ChevronUp,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -1168,6 +1168,79 @@ function StorageTab({ rows, token }: { rows: SettingRow[]; token: string }) {
   );
 }
 
+const PROVIDER_DOCS: Record<string, React.ReactNode> = {
+  canva: (
+    <div className="space-y-4">
+      <SetupStep n={1} title="Create a Canva integration">
+        <p>Go to <a href="https://www.canva.com/developers/apps" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">canva.com/developers/apps</a> and sign in.</p>
+        <p>Click <strong>Create an app</strong>, give it a name (e.g. "Cortex OS"), and click <strong>Create</strong>.</p>
+      </SetupStep>
+      <SetupStep n={2} title="Configure OAuth 2.0">
+        <p>In your app, go to <strong>Configure → OAuth 2.0</strong>.</p>
+        <p>Under <strong>Redirect URIs</strong>, add exactly:</p>
+        <code className="block bg-muted px-2 py-1 rounded text-xs break-all mt-1">
+          https://cortex-api.xgenious.com/integrations/oauth/callback/canva
+        </code>
+        <p className="mt-1">Replace the domain with your own API domain if different.</p>
+      </SetupStep>
+      <SetupStep n={3} title="Enable required scopes">
+        <p>Under <strong>Scopes</strong>, enable all of the following:</p>
+        <ul className="list-disc list-inside space-y-0.5 mt-1">
+          <li><code className="bg-muted px-1 rounded">design:content:read</code> / <code className="bg-muted px-1 rounded">design:content:write</code></li>
+          <li><code className="bg-muted px-1 rounded">design:meta:read</code></li>
+          <li><code className="bg-muted px-1 rounded">asset:read</code> / <code className="bg-muted px-1 rounded">asset:write</code></li>
+          <li><code className="bg-muted px-1 rounded">brandtemplate:content:read</code> / <code className="bg-muted px-1 rounded">brandtemplate:meta:read</code></li>
+          <li><code className="bg-muted px-1 rounded">profile:read</code></li>
+        </ul>
+      </SetupStep>
+      <SetupStep n={4} title="Copy credentials">
+        <p>Still in <strong>Configure → OAuth 2.0</strong>, copy your <strong>Client ID</strong>.</p>
+        <p>Click <strong>Generate new secret</strong> to create a <strong>Client Secret</strong> — copy it immediately, it is shown only once.</p>
+      </SetupStep>
+      <SetupStep n={5} title="Add credentials to Settings">
+        <p>Go to <strong>Settings → Secrets</strong> and add:</p>
+        <ul className="list-disc list-inside space-y-0.5 mt-1">
+          <li><code className="bg-muted px-1 rounded">canva_oauth_client_id</code> → paste Client ID</li>
+          <li><code className="bg-muted px-1 rounded">canva_oauth_client_secret</code> → paste Client Secret</li>
+        </ul>
+      </SetupStep>
+      <SetupStep n={6} title="Connect">
+        <p>Come back here and click <strong>Connect</strong>. You will be redirected to Canva to approve access.</p>
+        <p>After approval, you are redirected back and the status changes to <strong>connected</strong>.</p>
+      </SetupStep>
+    </div>
+  ),
+  github: (
+    <div className="space-y-4">
+      <SetupStep n={1} title="Register a GitHub OAuth App">
+        <p>Go to <a href="https://github.com/settings/developers" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">github.com/settings/developers</a> → <strong>OAuth Apps → New OAuth App</strong>.</p>
+        <p>Fill in Application name (e.g. "Cortex OS") and Homepage URL.</p>
+      </SetupStep>
+      <SetupStep n={2} title="Set the callback URL">
+        <p>Under <strong>Authorization callback URL</strong>, enter:</p>
+        <code className="block bg-muted px-2 py-1 rounded text-xs break-all mt-1">
+          https://cortex-api.xgenious.com/integrations/oauth/callback/github
+        </code>
+      </SetupStep>
+      <SetupStep n={3} title="Copy credentials">
+        <p>After creating the app, copy the <strong>Client ID</strong>.</p>
+        <p>Click <strong>Generate a new client secret</strong> — copy it immediately.</p>
+      </SetupStep>
+      <SetupStep n={4} title="Add credentials to Settings">
+        <p>Go to <strong>Settings → Secrets</strong> and add:</p>
+        <ul className="list-disc list-inside space-y-0.5 mt-1">
+          <li><code className="bg-muted px-1 rounded">github_oauth_client_id</code> → paste Client ID</li>
+          <li><code className="bg-muted px-1 rounded">github_oauth_client_secret</code> → paste Client Secret</li>
+        </ul>
+      </SetupStep>
+      <SetupStep n={5} title="Connect">
+        <p>Click <strong>Connect</strong>. GitHub will ask you to authorize the app.</p>
+        <p>After approval the status changes to <strong>connected</strong>.</p>
+      </SetupStep>
+    </div>
+  ),
+};
+
 interface OAuthProvider {
   provider: string;
   displayName: string;
@@ -1184,6 +1257,7 @@ function OAuthAppsTab({ token }: { token: string }) {
   const qc = useQueryClient();
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; provider: string; message: string } | null>(null);
   const [connecting, setConnecting] = useState<string | null>(null);
+  const [expandedDocs, setExpandedDocs] = useState<string | null>(null);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -1331,6 +1405,24 @@ function OAuthAppsTab({ token }: { token: string }) {
                   <Globe className="w-3 h-3 shrink-0" />
                   <code className="font-mono truncate">{p.mcpServerUrl}</code>
                 </div>
+              )}
+              {PROVIDER_DOCS[p.provider] && (
+                <>
+                  <button
+                    onClick={() => setExpandedDocs(expandedDocs === p.provider ? null : p.provider)}
+                    className="mt-3 flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    {expandedDocs === p.provider
+                      ? <ChevronUp className="w-3 h-3" />
+                      : <ChevronDown className="w-3 h-3" />}
+                    {expandedDocs === p.provider ? 'Hide setup guide' : 'How to get credentials'}
+                  </button>
+                  {expandedDocs === p.provider && (
+                    <div className="mt-3 pt-3 border-t border-border text-xs text-muted-foreground">
+                      {PROVIDER_DOCS[p.provider]}
+                    </div>
+                  )}
+                </>
               )}
             </div>
           ))}
