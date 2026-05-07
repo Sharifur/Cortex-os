@@ -215,15 +215,21 @@ export class LivechatService implements OnModuleInit {
   }
 
   /** Validate that the request's Origin header matches the site row, then return the site.
-   * Comparison is hostname-only so http:// and https:// variants of the same domain both pass. */
+   * Comparison is hostname-only so http:// and https:// variants of the same domain both pass.
+   * When no origin/referer header is present (GET requests, proxies that strip headers), the
+   * check is skipped — siteKey alone is treated as sufficient. */
   async resolveSiteForRequest(siteKey: string, requestOrigin: string | null | undefined): Promise<LivechatSiteRow> {
     const site = await this.getSiteByKey(siteKey);
     if (!site) throw new NotFoundException(`Unknown site: ${siteKey}`);
     if (!site.enabled) throw new ForbiddenException(`Site disabled: ${siteKey}`);
     const requestHostname = this.extractHostname(requestOrigin ?? null);
-    const siteHostname = this.extractHostname(site.origin);
-    if (!requestHostname || requestHostname !== siteHostname) {
-      throw new ForbiddenException(`Origin not allowed for site ${siteKey}`);
+    if (requestHostname) {
+      const siteHostname = this.extractHostname(site.origin);
+      if (requestHostname !== siteHostname) {
+        throw new ForbiddenException(
+          `Origin not allowed for site ${siteKey}: received '${requestOrigin}', expected '${site.origin}'`,
+        );
+      }
     }
     return site;
   }

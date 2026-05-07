@@ -487,12 +487,22 @@ Return ONLY a JSON array (no markdown):
         requiresAuth: true,
         handler: async () => this.canvaMcp.verify(),
       },
-      // Brand management (T29)
+      // Brand management (T29) — static paths before :name param routes
       {
         method: 'GET',
         path: '/canva/brands',
         requiresAuth: true,
         handler: async () => this.brands.list(),
+      },
+      {
+        method: 'POST',
+        path: '/canva/brands/import-from-url',
+        requiresAuth: true,
+        handler: async (body) => {
+          const { url } = body as any;
+          if (!url) throw new Error('url is required');
+          return this.importBrandFromUrl(url);
+        },
       },
       {
         method: 'POST',
@@ -520,16 +530,6 @@ Return ONLY a JSON array (no markdown):
           const { name } = body as any;
           await this.brands.delete(name);
           return { ok: true };
-        },
-      },
-      {
-        method: 'POST',
-        path: '/canva/brands/import-from-url',
-        requiresAuth: true,
-        handler: async (body) => {
-          const { url } = body as any;
-          if (!url) throw new Error('url is required');
-          return this.importBrandFromUrl(url);
         },
       },
     ];
