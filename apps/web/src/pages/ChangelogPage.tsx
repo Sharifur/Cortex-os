@@ -16,6 +16,15 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v3.10.2',
+    date: '2026-05-07',
+    entries: [
+      { tag: 'feat', scope: 'admin', description: 'New Admin page at /admin — manage users with Super Admin and Agent Operator roles; create, edit role, and delete users with safety guards (cannot remove last super admin or self)' },
+      { tag: 'feat', scope: 'auth', description: 'Role-based access control: agent_operator users cannot access Settings or Admin pages; sidebar hides superAdminOnly nav items for non-admins' },
+      { tag: 'chore', scope: 'db', description: 'Migration 0058: add role column (default super_admin) to users table' },
+    ],
+  },
+  {
     version: 'v3.10.1',
     date: '2026-05-07',
     entries: [

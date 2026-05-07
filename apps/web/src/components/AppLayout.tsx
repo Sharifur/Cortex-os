@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { Bot, LogOut, LayoutDashboard, Settings, Activity, User, KeyRound, ChevronDown, AlertTriangle, Plug, Cable, BookOpen, CheckSquare, HeartPulse, Radio, Mail, Bug, Users, Bell, DollarSign, MessageSquare, Menu, X, ScrollText, MessageCircleQuestion, ShieldAlert, BookMarked, HelpCircle, Ticket } from 'lucide-react';
+import { Bot, LogOut, LayoutDashboard, Settings, Activity, User, KeyRound, ChevronDown, AlertTriangle, Plug, Cable, BookOpen, CheckSquare, HeartPulse, Radio, Mail, Bug, Users, Bell, DollarSign, MessageSquare, Menu, X, ScrollText, MessageCircleQuestion, ShieldAlert, BookMarked, HelpCircle, Ticket, ShieldCheck } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getRealtimeSocket } from '@/lib/realtime';
@@ -208,7 +208,8 @@ const NAV = [
   { to: '/llm-usage', icon: <DollarSign className="w-4 h-4" />, label: 'LLM Usage' },
   { to: '/health', icon: <HeartPulse className="w-4 h-4" />, label: 'Health' },
   { to: '/debug-logs', icon: <Bug className="w-4 h-4" />, label: 'Debug Logs' },
-  { to: '/settings', icon: <Settings className="w-4 h-4" />, label: 'Settings' },
+  { to: '/admin', icon: <ShieldCheck className="w-4 h-4" />, label: 'Admin', superAdminOnly: true },
+  { to: '/settings', icon: <Settings className="w-4 h-4" />, label: 'Settings', superAdminOnly: true },
 ];
 
 function UserMenu() {
@@ -308,6 +309,9 @@ function Sidebar({
   collapsed?: boolean;
   onToggleCollapse?: () => void;
 }) {
+  const role = useAuthStore((s) => s.role);
+  const visibleNav = NAV.filter((item) => !(item as any).superAdminOnly || role === 'super_admin');
+
   return (
     <>
       <div className="h-12 px-3 border-b border-border flex items-center gap-2 shrink-0">
@@ -323,7 +327,7 @@ function Sidebar({
           <>
             <Bot className="w-5 h-5 text-primary shrink-0" />
             <span className="font-semibold text-sm">Cortex OS</span>
-            <span className="text-muted-foreground text-xs">v3.10.1</span>
+            <span className="text-muted-foreground text-xs">v3.10.2</span>
             {onToggleCollapse && (
               <button
                 onClick={onToggleCollapse}
@@ -337,7 +341,7 @@ function Sidebar({
         )}
       </div>
       <nav className="flex-1 p-3 space-y-0.5 overflow-y-auto">
-        {NAV.map((item) => (
+        {visibleNav.map((item) => (
           <NavLink
             key={item.to}
             to={item.to}

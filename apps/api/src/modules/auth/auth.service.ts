@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException, ConflictException, HttpException, HttpStatus } from '@nestjs/common';
+import { Injectable, UnauthorizedException, ConflictException, NotFoundException, ForbiddenException, HttpException, HttpStatus } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { eq } from 'drizzle-orm';
@@ -62,7 +62,7 @@ export class AuthService {
     }
 
     const token = this.jwt.sign(
-      { sub: user.id, email: user.email },
+      { sub: user.id, email: user.email, role: user.role },
       { expiresIn, jwtid: session.jti },
     );
     return { access_token: token, expires_in: expiresIn };
@@ -86,6 +86,7 @@ export class AuthService {
         id: users.id,
         email: users.email,
         name: users.name,
+        role: users.role,
         telegramChatId: users.telegramChatId,
         createdAt: users.createdAt,
       })
@@ -93,6 +94,69 @@ export class AuthService {
       .where(eq(users.id, userId));
 
     return user ?? null;
+  }
+
+  async listUsers() {
+    return this.db.db
+      .select({
+        id: users.id,
+        email: users.email,
+        name: users.name,
+        role: users.role,
+        createdAt: users.createdAt,
+      })
+      .from(users)
+      .orderBy(users.createdAt);
+  }
+
+  async createUser(email: string, name: string | undefined, password: string, role: string) {
+    const [existing] = await this.db.db.select({ id: users.id }).from(users).where(eq(users.email, email));
+    if (existing) throw new ConflictException('Email already in use');
+    const hashed = await bcrypt.hash(password, 12);
+    const [row] = await this.db.db
+      .insert(users)
+      .values({ email, name: name?.trim() || null, password: hashed, role })
+      .returning({ id: users.id, email: users.email, name: users.name, role: users.role, createdAt: users.createdAt });
+    return row;
+  }
+
+  async updateUser(requesterId: string, targetId: string, patch: { name?: string; email?: string; role?: string }) {
+    const [target] = await this.db.db.select().from(users).where(eq(users.id, targetId));
+    if (!target) throw new NotFoundException('User not found');
+
+    if (patch.email && patch.email !== target.email) {
+      const [conflict] = await this.db.db.select({ id: users.id }).from(users).where(eq(users.email, patch.email));
+      if (conflict) throw new ConflictException('Email already in use');
+    }
+
+    if (patch.role && patch.role !== target.role && target.role === 'super_admin') {
+      const allAdmins = await this.db.db.select({ id: users.id }).from(users).where(eq(users.role, 'super_admin'));
+      if (allAdmins.length <= 1) throw new ForbiddenException('Cannot demote the last Super Admin');
+    }
+
+    const update: Partial<typeof users.$inferInsert> = {};
+    if (patch.name !== undefined) update.name = patch.name.trim() || null;
+    if (patch.email) update.email = patch.email;
+    if (patch.role) update.role = patch.role;
+
+    const [updated] = await this.db.db
+      .update(users)
+      .set(update)
+      .where(eq(users.id, targetId))
+      .returning({ id: users.id, email: users.email, name: users.name, role: users.role, createdAt: users.createdAt });
+    return updated;
+  }
+
+  async deleteUser(requesterId: string, targetId: string) {
+    if (requesterId === targetId) throw new ForbiddenException('Cannot delete your own account');
+    const [target] = await this.db.db.select({ id: users.id, role: users.role }).from(users).where(eq(users.id, targetId));
+    if (!target) throw new NotFoundException('User not found');
+    if (target.role === 'super_admin') {
+      const allAdmins = await this.db.db.select({ id: users.id }).from(users).where(eq(users.role, 'super_admin'));
+      if (allAdmins.length <= 1) throw new ForbiddenException('Cannot delete the last Super Admin');
+    }
+    await this.sessions.revokeAllForUser(targetId);
+    await this.db.db.delete(users).where(eq(users.id, targetId));
   }
 
   async changePassword(userId: string, _currentPassword: string | undefined, newPassword: string) {

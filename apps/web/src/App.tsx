@@ -24,6 +24,7 @@ import LlmUsagePage from '@/pages/LlmUsagePage';
 import OpsPage from '@/pages/OpsPage';
 import ContactsPage from '@/pages/ContactsPage';
 import SupportTicketsPage from '@/pages/SupportTicketsPage';
+import AdminPage from '@/pages/AdminPage';
 import ChangelogPage from '@/pages/ChangelogPage';
 import NotFoundPage from '@/pages/NotFoundPage';
 import AppLayout from '@/components/AppLayout';
@@ -36,6 +37,12 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const hydrated = useAuthStore((s) => s._hydrated);
   if (!hydrated) return null;
   return token ? <>{children}</> : <Navigate to="/login" replace />;
+}
+
+function SuperAdminRoute({ children }: { children: React.ReactNode }) {
+  const role = useAuthStore((s) => s.role);
+  if (role && role !== 'super_admin') return <Navigate to="/dashboard" replace />;
+  return <>{children}</>;
 }
 
 export default function App() {
@@ -69,7 +76,8 @@ export default function App() {
             <Route path="/mcp" element={<McpPage />} />
             <Route path="/activity" element={<ActivityPage />} />
             <Route path="/ops" element={<OpsPage />} />
-            <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/settings" element={<SuperAdminRoute><SettingsPage /></SuperAdminRoute>} />
+            <Route path="/admin" element={<SuperAdminRoute><AdminPage /></SuperAdminRoute>} />
             <Route path="/integrations" element={<IntegrationsPage />} />
             <Route path="/health" element={<HealthPage />} />
             <Route path="/llm-usage" element={<LlmUsagePage />} />

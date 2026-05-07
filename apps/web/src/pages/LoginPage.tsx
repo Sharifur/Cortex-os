@@ -10,6 +10,7 @@ import { cn } from '@/lib/utils';
 export default function LoginPage() {
   const navigate = useNavigate();
   const setToken = useAuthStore((s) => s.setToken);
+  const setRole = useAuthStore((s) => s.setRole);
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -38,6 +39,11 @@ export default function LoginPage() {
 
       const { access_token } = await res.json();
       setToken(access_token);
+      const me = await fetch('/auth/me', { headers: { Authorization: `Bearer ${access_token}` } });
+      if (me.ok) {
+        const profile = await me.json();
+        setRole(profile.role ?? 'super_admin');
+      }
       navigate('/dashboard');
     } catch {
       setError('Unable to connect to server');
