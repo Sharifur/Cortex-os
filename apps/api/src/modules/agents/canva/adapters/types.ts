@@ -21,6 +21,17 @@ export interface DesignBrand {
   voiceProfile?: string;
 }
 
+export interface FacebookMarketingCopy {
+  primaryText: string;         // main post copy shown above the image (125 chars optimal)
+  headline: string;            // bold text in the link preview / ad card (40 chars max)
+  description?: string;        // secondary line below headline (30 chars max)
+  cta?: string;                // button label: "Shop Now" | "Learn More" | "Sign Up" | "Get Offer" | "Book Now"
+  offerDetails?: string;       // e.g. "50% off this week only — use code LAUNCH50"
+  socialProof?: string;        // e.g. "Trusted by 10,000+ teams"
+  urgency?: string;            // e.g. "Offer ends Sunday"
+  targetingNote?: string;      // copy angle hint, e.g. "speaking to pain of manual reporting"
+}
+
 export interface DesignBrief {
   intent: DesignIntent;
   subject: string;
@@ -29,11 +40,31 @@ export interface DesignBrief {
   dimensions: { width: number; height: number; unit: 'px' };
   format: OutputFormat;
   brand: DesignBrand;
-  copy?: { headline?: string; subheadline?: string; cta?: string };
+  copy?: {
+    headline?: string;
+    subheadline?: string;
+    body?: string;
+    cta?: string;
+    disclaimer?: string;
+    hashtags?: string[];
+    // Facebook-specific copy fields
+    facebook?: FacebookMarketingCopy;
+  };
   references?: Array<{ type: 'image' | 'url' | 'design_id'; value: string }>;
   constraints?: string[];
   nCandidates: number;
   briefHash?: string;
+  // Canva-specific rich design directions
+  visualStyle?: string;           // e.g. "minimalist bold typography", "vibrant gradient"
+  layoutDescription?: string;     // e.g. "hero image top half, headline centered, CTA bottom"
+  elements?: string[];            // specific visual items: ["product mockup", "price badge", "star rating"]
+  colorDirections?: string;       // e.g. "dominant #4F46E5 indigo, accent #F59E0B amber, white text"
+  typographySuggestions?: string; // e.g. "bold 48px headline, regular 16px body, avoid serif"
+  backgroundDescription?: string; // e.g. "dark navy gradient top-left to bottom-right"
+  compositionNotes?: string;      // e.g. "rule of thirds, product left, text right, breathing room"
+  moodKeywords?: string[];        // e.g. ["energetic", "trustworthy", "premium", "approachable"]
+  platformContext?: string;       // e.g. "Instagram feed — needs to stop scroll in 0.5s"
+  designDirections?: string[];    // explicit rules: ["no stock photo clipart", "use geometric shapes"]
 }
 
 export interface GenerationTask {
