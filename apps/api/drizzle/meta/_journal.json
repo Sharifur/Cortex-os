@@ -393,6 +393,41 @@
       "when": 1777400047000,
       "tag": "0055_livechat_cache_bust",
       "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "6",
+      "when": 1777400048000,
+      "tag": "0056_kb_proposal_context",
+      "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "6",
+      "when": 1777400049000,
+      "tag": "0057_support_crm_columns",
+      "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "6",
+      "when": 1777400050000,
+      "tag": "0058_canva_sessions",
+      "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "6",
+      "when": 1777400051000,
+      "tag": "0059_oauth_integrations",
+      "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "6",
+      "when": 1777400052000,
+      "tag": "0060_users_role",
+      "breakpoints": true
     }
   ]
 }

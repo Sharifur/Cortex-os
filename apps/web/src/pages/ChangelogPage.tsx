@@ -16,6 +16,15 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.1.1',
+    date: '2026-05-07',
+    entries: [
+      { tag: 'fix', scope: 'canva', description: 'POST /canva/brands/import-from-url returning 404: static route must be registered before :name param routes in Fastify; moved import-from-url first in apiRoutes()' },
+      { tag: 'fix', scope: 'livechat', description: 'Origin check throwing 403 for xgenious: relax validation to skip when no Origin/Referer header is present (GET requests and proxies that strip headers); include received vs expected origins in error message for debugging' },
+      { tag: 'fix', scope: 'mcp', description: 'GET /mcp/servers 500 (column oauth_integration_id does not exist): migrations 0056-0060 were not in _journal.json so the migrator never ran them; added all missing entries; renamed duplicate 0058_users_role.sql to 0060_users_role.sql' },
+    ],
+  },
+  {
     version: 'v4.1.0',
     date: '2026-05-07',
     entries: [
