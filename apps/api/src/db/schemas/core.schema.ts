@@ -119,6 +119,24 @@ export const agentLogs = pgTable('agent_logs', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
+export const oauthIntegrations = pgTable('oauth_integrations', {
+  id:              text('id').primaryKey().$defaultFn(() => createId()),
+  provider:        text('provider').notNull().unique(),   // 'canva' | 'github' | 'notion'
+  displayName:     text('display_name').notNull(),
+  status:          text('status').notNull().default('disconnected'), // 'connected'|'disconnected'|'expired'|'error'
+  accessToken:     text('access_token'),                 // encrypted
+  refreshToken:    text('refresh_token'),                // encrypted
+  tokenType:       text('token_type').default('Bearer'),
+  scope:           text('scope'),
+  expiresAt:       timestamp('expires_at', { withTimezone: true }),
+  connectedAt:     timestamp('connected_at', { withTimezone: true }),
+  lastRefreshedAt: timestamp('last_refreshed_at', { withTimezone: true }),
+  errorMessage:    text('error_message'),
+  metadata:        jsonb('metadata').default({}),
+  createdAt:       timestamp('created_at').defaultNow().notNull(),
+  updatedAt:       timestamp('updated_at').defaultNow().notNull(),
+});
+
 export const mcpServers = pgTable('mcp_servers', {
   id: text('id')
     .primaryKey()
@@ -126,6 +144,7 @@ export const mcpServers = pgTable('mcp_servers', {
   name: text('name').notNull().unique(),
   url: text('url').notNull(),
   enabled: boolean('enabled').notNull().default(true),
+  oauthIntegrationId: text('oauth_integration_id').references(() => oauthIntegrations.id, { onDelete: 'set null' }),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
