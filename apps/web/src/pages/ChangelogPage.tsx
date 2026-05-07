@@ -16,6 +16,20 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.1.3',
+    date: '2026-05-07',
+    entries: [
+      { tag: 'fix', scope: 'auth', description: 'Role syncs from /auth/me on every app load so super_admin status persists across refreshes without re-login; nav filter keeps Admin+Settings visible while role is loading (null)' },
+    ],
+  },
+  {
+    version: 'v4.1.2',
+    date: '2026-05-07',
+    entries: [
+      { tag: 'fix', scope: 'nav', description: 'Admin and Settings sidebar items hidden when role is null (migration not yet run on production): treat null/unknown role as super_admin so the items remain visible' },
+    ],
+  },
+  {
     version: 'v4.1.1',
     date: '2026-05-07',
     entries: [

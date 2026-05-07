@@ -310,7 +310,7 @@ function Sidebar({
   onToggleCollapse?: () => void;
 }) {
   const role = useAuthStore((s) => s.role);
-  const visibleNav = NAV.filter((item) => !(item as any).superAdminOnly || role === 'super_admin');
+  const visibleNav = NAV.filter((item) => !(item as any).superAdminOnly || !role || role === 'super_admin');
 
   return (
     <>
@@ -327,7 +327,7 @@ function Sidebar({
           <>
             <Bot className="w-5 h-5 text-primary shrink-0" />
             <span className="font-semibold text-sm">Cortex OS</span>
-            <span className="text-muted-foreground text-xs">v4.1.1</span>
+            <span className="text-muted-foreground text-xs">v4.1.3</span>
             {onToggleCollapse && (
               <button
                 onClick={onToggleCollapse}
@@ -456,10 +456,21 @@ function InstallPwaBanner() {
 
 export default function AppLayout() {
   const token = useAuthStore((s) => s.token)!;
+  const setRole = useAuthStore((s) => s.setRole);
   const navigate = useNavigate();
   const approvalCount = useApprovalCount(token);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const location = useLocation();
+
+  // Sync role from server on every app load so it's always current after
+  // migrations run or role changes — no need to log out and back in.
+  useEffect(() => {
+    if (!token) return;
+    fetch('/auth/me', { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((profile) => { if (profile) setRole(profile.role ?? 'super_admin'); })
+      .catch(() => { /* ignore — store keeps last known role */ });
+  }, [token, setRole]);
 
   // Desktop sidebar collapse state — persisted. Auto-collapses on the first
   // visit to /livechat in this session (operators want horizontal space for
@@ -518,7 +529,7 @@ export default function AppLayout() {
           <div className="flex items-center gap-2">
             <Bot className="w-5 h-5 text-primary" />
             <span className="font-semibold text-sm">Cortex OS</span>
-            <span className="text-muted-foreground text-xs">v4.1.1</span>
+            <span className="text-muted-foreground text-xs">v4.1.3</span>
           </div>
           <button
             onClick={() => setDrawerOpen(false)}
