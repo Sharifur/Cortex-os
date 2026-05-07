@@ -16,6 +16,15 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v3.10.1',
+    date: '2026-05-07',
+    entries: [
+      { tag: 'feat', scope: 'support', description: 'New Support Tickets page at /support — table view of all tickets with contact name, email, phone, priority and status badges, created/replied timestamps, expandable rows showing ticket body and draft reply' },
+      { tag: 'feat', scope: 'support', description: 'Filter by status (All / Open / Replied / Escalated / Closed) and search by subject, email, name or ticket number; stats strip shows live open/replied/escalated counts' },
+      { tag: 'feat', scope: 'support', description: 'GET /support/tickets API endpoint with status filter, full-text search, limit/offset pagination' },
+    ],
+  },
+  {
     version: 'v3.10.0',
     date: '2026-05-07',
     entries: [

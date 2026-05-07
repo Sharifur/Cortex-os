@@ -1,5 +1,5 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { eq, desc, sql, and } from 'drizzle-orm';
+import { eq, desc, sql, and, ilike, or } from 'drizzle-orm';
 import { DbService } from '../../../db/db.service';
 import { agents } from '../../../db/schema';
 import { supportTickets } from './schema';
@@ -324,6 +324,12 @@ export class SupportAgent implements IAgent, OnModuleInit {
       },
       {
         method: 'GET',
+        path: '/support/tickets',
+        requiresAuth: true,
+        handler: async (query) => this.listTickets(query as any),
+      },
+      {
+        method: 'GET',
         path: '/support/tickets/:id',
         requiresAuth: true,
         handler: async (params) => this.getTicket((params as any).id),
@@ -348,11 +354,20 @@ export class SupportAgent implements IAgent, OnModuleInit {
   private async ingestWebhook(payload: any) {
     const { ticket, contact } = payload ?? {};
     if (!ticket?.id || !ticket?.subject) {
+      this.logger.warn(`ingestWebhook: missing ticket.id or ticket.subject in payload`);
       return { ok: false, error: 'Missing ticket.id or ticket.subject' };
     }
 
+    this.logger.log(`Webhook received: ticket #${ticket.id} "${ticket.subject}" from ${contact?.email ?? '(no contact)'}`);
+
     const priority = PRIORITY_MAP[ticket.priority as number] ?? 'medium';
     const body = await this.fetchCrmTicket(ticket.id);
+
+    if (body) {
+      this.logger.log(`CRM fetch OK for ticket #${ticket.id} (${body.length} chars)`);
+    } else {
+      this.logger.warn(`CRM fetch returned empty body for ticket #${ticket.id} — proceeding with subject only`);
+    }
 
     const [row] = await this.db.db
       .insert(supportTickets)
@@ -368,6 +383,12 @@ export class SupportAgent implements IAgent, OnModuleInit {
       })
       .onConflictDoNothing()
       .returning();
+
+    if (row) {
+      this.logger.log(`Ticket stored: internal id=${row.id} external=${ticket.id} priority=${priority}`);
+    } else {
+      this.logger.warn(`Ticket #${ticket.id} already exists (onConflictDoNothing) — skipped`);
+    }
 
     return { ok: true, id: row?.id ?? null };
   }
@@ -422,13 +443,41 @@ export class SupportAgent implements IAgent, OnModuleInit {
         body: JSON.stringify({ description: message }),
         signal: AbortSignal.timeout(10000),
       });
-      if (!res.ok) {
+      if (res.ok) {
+        this.logger.log(`CRM reply posted for ticket #${crmTicketId}`);
+      } else {
         const body = await res.text().catch(() => '');
         this.logger.warn(`postCrmReply(${crmTicketId}) failed: HTTP ${res.status} — ${body}`);
       }
     } catch (err) {
       this.logger.warn(`postCrmReply(${crmTicketId}) error: ${err}`);
     }
+  }
+
+  async listTickets(query: { status?: string; q?: string; limit?: string; offset?: string }) {
+    const limit = Math.min(Number(query.limit ?? 50), 200);
+    const offset = Number(query.offset ?? 0);
+    const filters: ReturnType<typeof eq>[] = [];
+    if (query.status) filters.push(eq(supportTickets.status, query.status));
+    if (query.q) {
+      const like = `%${query.q}%`;
+      filters.push(
+        or(
+          ilike(supportTickets.subject, like),
+          ilike(supportTickets.userEmail, like),
+          ilike(supportTickets.contactName, like),
+          ilike(supportTickets.ticketNo, like),
+        ) as ReturnType<typeof eq>,
+      );
+    }
+    const rows = await this.db.db
+      .select()
+      .from(supportTickets)
+      .where(filters.length ? and(...filters) : undefined)
+      .orderBy(desc(supportTickets.createdAt))
+      .limit(limit)
+      .offset(offset);
+    return { data: rows, limit, offset };
   }
 
   async getTicket(id: string) {

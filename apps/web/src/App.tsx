@@ -23,6 +23,7 @@ import HealthPage from '@/pages/HealthPage';
 import LlmUsagePage from '@/pages/LlmUsagePage';
 import OpsPage from '@/pages/OpsPage';
 import ContactsPage from '@/pages/ContactsPage';
+import SupportTicketsPage from '@/pages/SupportTicketsPage';
 import ChangelogPage from '@/pages/ChangelogPage';
 import NotFoundPage from '@/pages/NotFoundPage';
 import AppLayout from '@/components/AppLayout';
@@ -61,6 +62,7 @@ export default function App() {
             <Route path="/tasks" element={<TasksPage />} />
             <Route path="/inbox" element={<InboxPage />} />
             <Route path="/contacts" element={<ContactsPage />} />
+            <Route path="/support" element={<SupportTicketsPage />} />
             <Route path="/debug-logs" element={<DebugLogsPage />} />
             <Route path="/approvals" element={<ApprovalsPage />} />
             <Route path="/runs/:id" element={<RunDetailPage />} />
