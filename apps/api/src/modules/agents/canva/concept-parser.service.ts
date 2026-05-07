@@ -3,7 +3,7 @@ import * as crypto from 'crypto';
 import { LlmRouterService } from '../../llm/llm-router.service';
 import { CanvaBrandsService } from './canva-brands.service';
 import { CanvaDebugService } from './canva-debug.service';
-import type { DesignBrief, DesignIntent, OutputFormat, CarouselSlide } from './adapters/types';
+import type { DesignBrief, DesignIntent, OutputFormat, CarouselSlide, ContentCategory } from './adapters/types';
 import { CONTENT_CATEGORIES, detectCategory } from './content-categories';
 
 const INTENT_KEYWORDS: Record<DesignIntent, string[]> = {
@@ -169,8 +169,8 @@ export class ConceptParserService {
     }
 
     // Detect content category and apply preset design system
-    const category = raw.category && CONTENT_CATEGORIES[raw.category as keyof typeof CONTENT_CATEGORIES]
-      ? raw.category
+    const category: ContentCategory | null = raw.category && CONTENT_CATEGORIES[raw.category as ContentCategory]
+      ? (raw.category as ContentCategory)
       : detectCategory(conceptText);
     const preset = category ? CONTENT_CATEGORIES[category] : null;
 
