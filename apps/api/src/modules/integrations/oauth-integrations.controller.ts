@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Query, Res, Delete, UseGuards, Logger } from '@nestjs/common';
+import { Controller, Get, Post, Param, Query, Res, Delete, UseGuards, Logger } from '@nestjs/common';
 import { Response } from 'express';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { OAuthIntegrationsService } from './oauth-integrations.service';
@@ -41,25 +41,25 @@ export class OAuthIntegrationsController {
     });
   }
 
-  // ─── Start OAuth flow — redirect browser to provider ────────────────────────
-  @Get('connect/:provider')
+  // ─── Start OAuth flow — return auth URL for frontend redirect ───────────────
+  @Post('connect/:provider')
   @UseGuards(JwtAuthGuard)
-  async connect(@Param('provider') provider: string, @Res() res: Response) {
+  async connect(@Param('provider') provider: string) {
     const config = this.oauth.getProvider(provider);
-    if (!config) return res.status(404).json({ error: `Unknown provider: ${provider}` });
+    if (!config) return { error: `Unknown provider: ${provider}` };
 
     const clientId = await this.settings.getDecrypted(config.clientIdKey);
     if (!clientId) {
-      return res.status(400).json({
-        error: `Client ID not configured. Add "${config.clientIdKey}" in Settings → Secrets.`,
-      });
+      return {
+        error: `Client ID not configured. Add "${config.clientIdKey}" in Settings.`,
+      };
     }
 
-    const state        = crypto.randomBytes(16).toString('hex');
-    const baseUrl      = await this.settings.getDecrypted('app_base_url')
-                          ?? process.env.COOLIFY_URL
-                          ?? 'http://localhost:3000';
-    const redirectUri  = `${baseUrl}/integrations/oauth/callback/${provider}`;
+    const state       = crypto.randomBytes(16).toString('hex');
+    const baseUrl     = await this.settings.getDecrypted('app_base_url')
+                         ?? process.env.COOLIFY_URL
+                         ?? 'http://localhost:3000';
+    const redirectUri = `${baseUrl}/integrations/oauth/callback/${provider}`;
 
     pendingStates.set(state, { provider, createdAt: Date.now() });
 
@@ -72,8 +72,8 @@ export class OAuthIntegrationsController {
     });
 
     const authUrl = `${config.authUrl}?${params.toString()}`;
-    this.logger.log(`OAuth connect initiated for ${provider} → ${authUrl}`);
-    res.redirect(authUrl);
+    this.logger.log(`OAuth connect initiated for ${provider}`);
+    return { authUrl };
   }
 
   // ─── OAuth callback — exchange code for token ───────────────────────────────

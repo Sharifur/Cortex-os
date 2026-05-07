@@ -39,6 +39,14 @@ export class OAuthIntegrationsService {
     return this.db.db.select().from(oauthIntegrations).orderBy(oauthIntegrations.provider);
   }
 
+  async findById(id: string) {
+    const [row] = await this.db.db
+      .select()
+      .from(oauthIntegrations)
+      .where(eq(oauthIntegrations.id, id));
+    return row ?? null;
+  }
+
   async findByProvider(provider: string) {
     const [row] = await this.db.db
       .select()

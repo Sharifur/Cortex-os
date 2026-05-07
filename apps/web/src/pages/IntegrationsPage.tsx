@@ -4,6 +4,7 @@ import {
   Cable, Save, Trash2, Eye, EyeOff, Key, Send, Mail, Copy, Check,
   ExternalLink, MessageSquare, Linkedin, Hash, Bot, FlaskConical,
   CheckCircle2, XCircle, Loader2, Plus, Globe, ToggleLeft, ToggleRight, Database, Sparkles, Shield, Pencil,
+  Link2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -22,6 +23,7 @@ interface SettingRow {
 }
 
 const TABS = [
+  { key: 'oauth', label: 'OAuth Apps', icon: <Link2 className="w-4 h-4" /> },
   { key: 'whatsapp', label: 'WhatsApp', icon: <MessageSquare className="w-4 h-4" /> },
   { key: 'linkedin', label: 'LinkedIn', icon: <Linkedin className="w-4 h-4" /> },
   { key: 'reddit', label: 'Reddit', icon: <Hash className="w-4 h-4" /> },
@@ -1166,9 +1168,181 @@ function StorageTab({ rows, token }: { rows: SettingRow[]; token: string }) {
   );
 }
 
+interface OAuthProvider {
+  provider: string;
+  displayName: string;
+  description: string;
+  status: 'connected' | 'disconnected' | 'expired' | 'error';
+  connectedAt: string | null;
+  expiresAt: string | null;
+  scope: string | null;
+  errorMessage: string | null;
+  mcpServerUrl: string | null;
+}
+
+function OAuthAppsTab({ token }: { token: string }) {
+  const qc = useQueryClient();
+  const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; provider: string; message: string } | null>(null);
+  const [connecting, setConnecting] = useState<string | null>(null);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const connected = params.get('connected');
+    const error = params.get('error');
+    const provider = params.get('provider');
+    if (connected) {
+      setFeedback({ type: 'success', provider: connected, message: `${connected} connected successfully.` });
+      qc.invalidateQueries({ queryKey: ['oauth-providers'] });
+      window.history.replaceState({}, '', window.location.pathname);
+    } else if (error && provider) {
+      setFeedback({ type: 'error', provider, message: `OAuth error: ${error}` });
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, [qc]);
+
+  const { data: providers = [], isLoading } = useQuery<OAuthProvider[]>({
+    queryKey: ['oauth-providers'],
+    queryFn: async () => {
+      const res = await fetch('/integrations/oauth/providers', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error('Failed to load');
+      return res.json();
+    },
+  });
+
+  const disconnectMut = useMutation({
+    mutationFn: async (provider: string) => {
+      const res = await fetch(`/integrations/oauth/disconnect/${provider}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error('Failed to disconnect');
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['oauth-providers'] }),
+  });
+
+  async function handleConnect(provider: string) {
+    setConnecting(provider);
+    try {
+      const res = await fetch(`/integrations/oauth/connect/${provider}`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (data.error) {
+        setFeedback({ type: 'error', provider, message: data.error });
+        return;
+      }
+      window.location.href = data.authUrl;
+    } catch {
+      setFeedback({ type: 'error', provider, message: 'Failed to start OAuth flow.' });
+    } finally {
+      setConnecting(null);
+    }
+  }
+
+  const STATUS_BADGE: Record<string, string> = {
+    connected:    'bg-green-500/15 text-green-400',
+    disconnected: 'bg-muted text-muted-foreground',
+    expired:      'bg-yellow-500/15 text-yellow-400',
+    error:        'bg-red-500/15 text-red-400',
+  };
+
+  return (
+    <div className="space-y-4">
+      {feedback && (
+        <div className={`flex items-center gap-2 rounded-lg px-4 py-3 text-sm border ${
+          feedback.type === 'success'
+            ? 'bg-green-500/10 border-green-500/30 text-green-400'
+            : 'bg-red-500/10 border-red-500/30 text-red-400'
+        }`}>
+          {feedback.type === 'success'
+            ? <CheckCircle2 className="w-4 h-4 shrink-0" />
+            : <XCircle className="w-4 h-4 shrink-0" />}
+          {feedback.message}
+          <button onClick={() => setFeedback(null)} className="ml-auto text-current opacity-60 hover:opacity-100">
+            <XCircle className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
+      <div className="rounded-xl border border-border bg-card p-5 mb-2">
+        <h2 className="text-sm font-semibold mb-1">OAuth MCP Integrations</h2>
+        <p className="text-xs text-muted-foreground">
+          Connect these providers once. Tokens are stored encrypted and auto-refreshed. MCP servers linked to a connected provider use the token automatically.
+        </p>
+      </div>
+
+      {isLoading ? (
+        <div className="space-y-3">
+          {[1, 2].map((i) => <Skeleton key={i} className="h-24 w-full rounded-xl" />)}
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {providers.map((p) => (
+            <div key={p.provider} className="rounded-xl border border-border bg-card px-5 py-4">
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <span className="text-sm font-medium">{p.displayName}</span>
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${STATUS_BADGE[p.status] ?? STATUS_BADGE.disconnected}`}>
+                      {p.status}
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">{p.description}</p>
+                  {p.status === 'connected' && p.connectedAt && (
+                    <p className="text-[11px] text-muted-foreground mt-1">
+                      Connected {new Date(p.connectedAt).toLocaleDateString()}
+                      {p.expiresAt && ` · expires ${new Date(p.expiresAt).toLocaleDateString()}`}
+                    </p>
+                  )}
+                  {p.status === 'error' && p.errorMessage && (
+                    <p className="text-[11px] text-red-400 mt-1">{p.errorMessage}</p>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  {p.status === 'connected' ? (
+                    <button
+                      onClick={() => disconnectMut.mutate(p.provider)}
+                      disabled={disconnectMut.isPending}
+                      className="px-3 py-1.5 text-xs border border-border rounded-lg text-muted-foreground hover:text-destructive hover:border-destructive/50 transition-colors disabled:opacity-50"
+                    >
+                      {disconnectMut.isPending && disconnectMut.variables === p.provider
+                        ? <Loader2 className="w-3 h-3 animate-spin inline" />
+                        : 'Disconnect'}
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => handleConnect(p.provider)}
+                      disabled={connecting === p.provider}
+                      className="px-3 py-1.5 text-xs bg-primary text-primary-foreground rounded-lg hover:opacity-90 disabled:opacity-50"
+                    >
+                      {connecting === p.provider
+                        ? <Loader2 className="w-3 h-3 animate-spin inline mr-1" />
+                        : null}
+                      Connect
+                    </button>
+                  )}
+                </div>
+              </div>
+              {p.mcpServerUrl && (
+                <div className="mt-3 flex items-center gap-2 text-[11px] text-muted-foreground">
+                  <Globe className="w-3 h-3 shrink-0" />
+                  <code className="font-mono truncate">{p.mcpServerUrl}</code>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function IntegrationsPage() {
   const token = useAuthStore((s) => s.token)!;
-  const [activeTab, setActiveTab] = useState('whatsapp');
+  const [activeTab, setActiveTab] = useState('oauth');
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['settings'],
@@ -1209,7 +1383,7 @@ export default function IntegrationsPage() {
         ))}
       </div>
 
-      {isLoading && (
+      {activeTab !== 'oauth' && isLoading && (
         <div className="rounded-xl border border-border bg-card">
           <div className="px-5 divide-y divide-border">
             {Array.from({ length: 4 }).map((_, i) => (
@@ -1225,10 +1399,11 @@ export default function IntegrationsPage() {
           </div>
         </div>
       )}
-      {isError && <p className="text-sm text-destructive">Failed to load settings.</p>}
+      {activeTab !== 'oauth' && isError && <p className="text-sm text-destructive">Failed to load settings.</p>}
 
-      {!isLoading && !isError && (
+      {(activeTab === 'oauth' || (!isLoading && !isError)) && (
         <>
+          {activeTab === 'oauth' && <OAuthAppsTab token={token} />}
           {activeTab === 'whatsapp' && <WhatsAppTab rows={grouped['whatsapp'] ?? []} token={token} />}
           {activeTab === 'linkedin' && <LinkedInTab rows={grouped['linkedin'] ?? []} token={token} />}
           {activeTab === 'reddit' && <RedditTab rows={grouped['reddit'] ?? []} token={token} />}
