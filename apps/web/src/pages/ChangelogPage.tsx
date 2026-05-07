@@ -16,6 +16,29 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.0.0',
+    date: '2026-05-07',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'Full AI Design Agent: Canva MCP integration, DALL-E 3 + Stability AI image generation, local Pillow render, 6-sprint implementation (T1-T29)' },
+      { tag: 'feat', scope: 'canva', description: 'Agent chat page: interactive design generation from text, Edit in Canva deep-link per candidate, approve/reject/revise actions' },
+      { tag: 'feat', scope: 'canva', description: 'Multi-brand identity: canva_brands table, per-brand voice profile, palette, fonts, Canva kit ID; Brands management tab' },
+      { tag: 'feat', scope: 'canva', description: 'Approval folder workflow: manifest.json + candidate sidecars + append-only audit.jsonl with chained hashes' },
+      { tag: 'feat', scope: 'canva', description: 'Skill loading subsystem: 8 built-in SKILL.md skills, intent-based matching, zero-code extensibility' },
+      { tag: 'feat', scope: 'canva', description: 'Debug log mode: per-step traces to canva_debug_log table, toggleable via debugMode in agent config' },
+      { tag: 'feat', scope: 'canva', description: 'Token + cost tracking: AI image cost per candidate, session total_cost_usd accumulator' },
+      { tag: 'chore', scope: 'db', description: 'Migration 0058: canva_brands, canva_sessions, canva_candidates, canva_debug_log tables; default brand seeds' },
+    ],
+  },
+  {
+    version: 'v3.10.2',
+    date: '2026-05-07',
+    entries: [
+      { tag: 'feat', scope: 'admin', description: 'New Admin page at /admin — manage users with Super Admin and Agent Operator roles; create, edit role, and delete users with safety guards (cannot remove last super admin or self)' },
+      { tag: 'feat', scope: 'auth', description: 'Role-based access control: agent_operator users cannot access Settings or Admin pages; sidebar hides superAdminOnly nav items for non-admins' },
+      { tag: 'chore', scope: 'db', description: 'Migration 0058: add role column (default super_admin) to users table' },
+    ],
+  },
+  {
     version: 'v3.10.1',
     date: '2026-05-07',
     entries: [

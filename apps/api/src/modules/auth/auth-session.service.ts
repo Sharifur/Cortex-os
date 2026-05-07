@@ -93,6 +93,13 @@ export class AuthSessionService {
       .where(eq(authSessions.jti, jti));
   }
 
+  async revokeAllForUser(userId: string): Promise<void> {
+    await this.db.db
+      .update(authSessions)
+      .set({ revokedAt: new Date() })
+      .where(and(eq(authSessions.userId, userId), isNull(authSessions.revokedAt)));
+  }
+
   async sweepExpired(): Promise<number> {
     const result = await this.db.db
       .update(authSessions)

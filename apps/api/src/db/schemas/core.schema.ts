@@ -51,6 +51,7 @@ export const users = pgTable('users', {
   email: text('email').notNull().unique(),
   name: text('name'),
   password: text('password').notNull(),
+  role: text('role').notNull().default('super_admin'), // super_admin | agent_operator
   telegramChatId: text('telegram_chat_id'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });

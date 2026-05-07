@@ -2035,26 +2035,7 @@ function SettingsTab({ agent, token }: { agent: AgentDetail; token: string }) {
     } />
   );
 
-  if (agent.key === 'canva') return (
-    <Phase4SettingsTab agent={agent} token={token} setupContent={
-      <Phase4SetupSubTab
-        agent={agent}
-        title="Canva + Social Content Agent — Setup Checklist"
-        description="Generates a 30-idea monthly content calendar on the 1st of each month. Approved ideas can be turned into Canva designs and reel scripts."
-        steps={<>
-          <SetupStep n={1} title="Set brand voice and targets" done={false}>
-            <p>In Config JSON set <code className="bg-muted px-1 rounded">brandVoice</code> (how your brand sounds), <code className="bg-muted px-1 rounded">brands</code> (array), <code className="bg-muted px-1 rounded">formats</code> (carousel, reel, post, etc.), and <code className="bg-muted px-1 rounded">targetCount</code> (default 30).</p>
-          </SetupStep>
-          <SetupStep n={2} title="Enable and test" done={agent.enabled}>
-            <p>Enable and trigger manually. The agent generates a full calendar and sends it to Telegram as a single batch approval.</p>
-          </SetupStep>
-          <SetupStep n={3} title="Design approved ideas" done={false}>
-            <p>After approving the calendar, use the MCP tool <code className="bg-muted px-1 rounded">draft_reel_script</code> to generate scripts, or connect Canva via the MCP page to auto-create designs.</p>
-          </SetupStep>
-        </>}
-      />
-    } />
-  );
+  if (agent.key === 'canva') return <CanvaAgentPage agent={agent} token={token} />;
 
   if (agent.key === 'shorts') return <ShortsSettingsTab agent={agent} token={token} />;
 
@@ -3020,6 +3001,803 @@ function AgentDetailSkeleton() {
     </div>
   );
 }
+
+// ─── Canva Agent Page (T17, T18, T19, T28, T29) ────────────────────────────
+
+type CanvaTab = 'chat' | 'calendar' | 'candidates' | 'brands' | 'settings' | 'setup';
+
+interface CanvaCandidate {
+  id: string;
+  sessionId: string;
+  status: string;
+  backend: string;
+  tool: string | null;
+  filePath: string | null;
+  format: string | null;
+  width: number | null;
+  height: number | null;
+  costUsd: number;
+  rationale: string | null;
+  canvaDesignId: string | null;
+  canvaEditUrl: string | null;
+  thumbnailPath: string | null;
+  error?: string | null;
+  createdAt: string;
+}
+
+interface CanvaBrand {
+  id: string;
+  name: string;
+  displayName: string;
+  voiceProfile: string;
+  palette: string[];
+  fonts: string[];
+  canvaKitId: string | null;
+  platforms: string[];
+  logoUrl: string | null;
+  active: boolean;
+}
+
+function CanvaAgentPage({ agent, token }: { agent: AgentDetail; token: string }) {
+  const [tab, setTab] = useState<CanvaTab>('chat');
+
+  const tabs: { key: CanvaTab; label: string }[] = [
+    { key: 'chat', label: 'Chat' },
+    { key: 'calendar', label: 'Calendar' },
+    { key: 'candidates', label: 'Candidates' },
+    { key: 'brands', label: 'Brands' },
+    { key: 'settings', label: 'Settings' },
+    { key: 'setup', label: 'Setup' },
+  ];
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-1 border border-border rounded-lg p-1 bg-muted/30 w-fit">
+        {tabs.map((t) => (
+          <button
+            key={t.key}
+            onClick={() => setTab(t.key)}
+            className={`px-3.5 py-1.5 rounded-md text-sm font-medium transition-colors ${
+              tab === t.key ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'chat' && <CanvaChatTab token={token} agent={agent} />}
+      {tab === 'calendar' && <CanvaCalendarTab token={token} />}
+      {tab === 'candidates' && <CanvaCandidatesTab token={token} />}
+      {tab === 'brands' && <CanvaBrandsTab token={token} />}
+      {tab === 'settings' && <CanvaSettingsTab agent={agent} token={token} />}
+      {tab === 'setup' && <CanvaSetupTab agent={agent} token={token} />}
+    </div>
+  );
+}
+
+// T28: Chat tab — generate designs or ideas, show Edit in Canva
+function CanvaChatTab({ token, agent }: { agent: AgentDetail; token: string }) {
+  const [message, setMessage] = useState('');
+  const [mode, setMode] = useState<'design' | 'idea'>('design');
+  const [brand, setBrand] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<any>(null);
+  const [error, setError] = useState('');
+
+  const { data: brands } = useQuery<CanvaBrand[]>({
+    queryKey: ['canva-brands'],
+    queryFn: () => apiFetch(token, '/canva/brands'),
+  });
+
+  const send = async () => {
+    if (!message.trim() || loading) return;
+    setLoading(true);
+    setError('');
+    setResult(null);
+    try {
+      const res = await apiFetch(token, '/canva/chat', {
+        method: 'POST',
+        body: JSON.stringify({ message, brand: brand || undefined, mode }),
+      });
+      setResult(res);
+    } catch (e) {
+      setError('Request failed. Check API connection.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-card border border-border rounded-xl p-4 space-y-3">
+        <div className="flex gap-2">
+          <button
+            onClick={() => setMode('design')}
+            className={`px-3 py-1.5 text-sm rounded-md border transition-colors ${mode === 'design' ? 'bg-primary text-primary-foreground border-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}
+          >
+            Generate Design
+          </button>
+          <button
+            onClick={() => setMode('idea')}
+            className={`px-3 py-1.5 text-sm rounded-md border transition-colors ${mode === 'idea' ? 'bg-primary text-primary-foreground border-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}
+          >
+            Generate Idea
+          </button>
+          {brands && brands.length > 0 && (
+            <select
+              value={brand}
+              onChange={(e) => setBrand(e.target.value)}
+              className="ml-auto px-3 py-1.5 text-sm rounded-md border border-border bg-background text-foreground"
+            >
+              <option value="">Any brand</option>
+              {brands.map((b) => (
+                <option key={b.name} value={b.name}>{b.displayName}</option>
+              ))}
+            </select>
+          )}
+        </div>
+
+        <div className="flex gap-2">
+          <Input
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && send()}
+            placeholder={mode === 'design' ? 'Create an Instagram post for our spring sale...' : 'Generate an idea about productivity tips...'}
+            className="flex-1"
+            disabled={loading}
+          />
+          <Button onClick={send} disabled={loading || !message.trim()}>
+            {loading ? 'Generating...' : 'Send'}
+          </Button>
+        </div>
+
+        {error && <p className="text-sm text-destructive">{error}</p>}
+      </div>
+
+      {result && result.type === 'design' && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-medium">
+              {result.candidates?.length ?? 0} candidate(s) — session <code className="bg-muted px-1 rounded text-xs">{result.sessionId?.slice(0, 8)}</code>
+            </p>
+            {result.brief && (
+              <span className="text-xs text-muted-foreground">
+                {result.brief.intent} · {result.brief.dimensions?.width}x{result.brief.dimensions?.height}
+              </span>
+            )}
+          </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {result.candidates?.map((c: any) => (
+              <CanvaCandidateCard key={c.id} candidate={c} sessionId={result.sessionId} token={token} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {result && result.type === 'idea' && result.idea && (
+        <div className="bg-card border border-border rounded-xl p-4 space-y-2">
+          <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Generated Idea</p>
+          {result.idea.hook && <p className="font-medium">{result.idea.hook}</p>}
+          {result.idea.body && <p className="text-sm text-muted-foreground">{result.idea.body}</p>}
+          {result.idea.cta && <p className="text-sm"><span className="font-medium">CTA:</span> {result.idea.cta}</p>}
+          {result.idea.platform && <p className="text-xs text-muted-foreground">Platform: {result.idea.platform}</p>}
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              setMode('design');
+              setMessage(result.idea.hook + ' — ' + result.idea.body);
+            }}
+          >
+            Turn into Design
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// T18: Single candidate card with Edit in Canva, approve/reject/revise
+function CanvaCandidateCard({ candidate, sessionId, token }: { candidate: any; sessionId: string; token: string }) {
+  const qc = useQueryClient();
+  const [reviseText, setReviseText] = useState('');
+  const [showRevise, setShowRevise] = useState(false);
+
+  const approveMut = useMutation({
+    mutationFn: () => apiFetch(token, `/canva/candidates/${candidate.id}/approve`, {
+      method: 'POST',
+      body: JSON.stringify({ id: candidate.id, sessionId }),
+    }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['canva-candidates'] }),
+  });
+
+  const rejectMut = useMutation({
+    mutationFn: () => apiFetch(token, `/canva/candidates/${candidate.id}/reject`, {
+      method: 'POST',
+      body: JSON.stringify({ id: candidate.id, sessionId }),
+    }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['canva-candidates'] }),
+  });
+
+  const reviseMut = useMutation({
+    mutationFn: () => apiFetch(token, `/canva/candidates/${candidate.id}/revise`, {
+      method: 'POST',
+      body: JSON.stringify({ id: candidate.id, sessionId, feedback: reviseText }),
+    }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['canva-candidates'] }); setShowRevise(false); setReviseText(''); },
+  });
+
+  const status = candidate.status ?? 'pending';
+  const statusColor = status === 'approved' ? 'text-green-600 bg-green-50' : status === 'rejected' ? 'text-muted-foreground bg-muted/50' : 'text-amber-600 bg-amber-50';
+
+  return (
+    <div className={`bg-card border border-border rounded-xl p-3 space-y-2 ${status === 'rejected' ? 'opacity-50' : ''}`}>
+      <div className="flex items-center justify-between">
+        <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${statusColor}`}>{status}</span>
+        <span className="text-xs text-muted-foreground">{candidate.backend}</span>
+      </div>
+
+      {candidate.thumbnailPath && (
+        <div className="aspect-square bg-muted rounded-lg overflow-hidden">
+          <img src={`/canva/thumbnail/${candidate.id}`} alt="candidate" className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+        </div>
+      )}
+
+      {!candidate.thumbnailPath && (
+        <div className="aspect-square bg-muted/30 rounded-lg flex items-center justify-center">
+          <span className="text-xs text-muted-foreground">{candidate.format?.toUpperCase() ?? 'PNG'} · {candidate.width}x{candidate.height}</span>
+        </div>
+      )}
+
+      {candidate.rationale && (
+        <p className="text-xs text-muted-foreground line-clamp-2">{candidate.rationale}</p>
+      )}
+
+      {candidate.error && (
+        <p className="text-xs text-destructive">{candidate.error}</p>
+      )}
+
+      {candidate.costUsd > 0 && (
+        <p className="text-xs text-muted-foreground">${candidate.costUsd.toFixed(4)}</p>
+      )}
+
+      <div className="flex flex-wrap gap-1.5">
+        {candidate.canvaEditUrl && (
+          <a
+            href={candidate.canvaEditUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="px-2.5 py-1 text-xs bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors"
+          >
+            Edit in Canva
+          </a>
+        )}
+        {candidate.filePath && !candidate.canvaEditUrl && (
+          <a
+            href={`file://${candidate.filePath}`}
+            className="px-2.5 py-1 text-xs border border-border rounded-md hover:bg-muted/50 transition-colors"
+          >
+            Download
+          </a>
+        )}
+        {status === 'pending' && (
+          <>
+            <button
+              onClick={() => approveMut.mutate()}
+              disabled={approveMut.isPending}
+              className="px-2.5 py-1 text-xs bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors disabled:opacity-50"
+            >
+              Approve
+            </button>
+            <button
+              onClick={() => rejectMut.mutate()}
+              disabled={rejectMut.isPending}
+              className="px-2.5 py-1 text-xs border border-border rounded-md hover:bg-muted/50 transition-colors disabled:opacity-50"
+            >
+              Reject
+            </button>
+            <button
+              onClick={() => setShowRevise(!showRevise)}
+              className="px-2.5 py-1 text-xs border border-border rounded-md hover:bg-muted/50 transition-colors"
+            >
+              Revise
+            </button>
+          </>
+        )}
+      </div>
+
+      {showRevise && (
+        <div className="space-y-1.5">
+          <Input
+            value={reviseText}
+            onChange={(e) => setReviseText(e.target.value)}
+            placeholder="What to change?"
+            className="text-xs h-8"
+          />
+          <Button size="sm" onClick={() => reviseMut.mutate()} disabled={!reviseText.trim() || reviseMut.isPending} className="h-7 text-xs">
+            Submit revision
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// T18: Candidates tab — session list and candidate gallery
+function CanvaCandidatesTab({ token }: { token: string }) {
+  const [sessionId, setSessionId] = useState('');
+
+  const { data: candidates, isLoading } = useQuery<CanvaCandidate[]>({
+    queryKey: ['canva-candidates', sessionId],
+    queryFn: () => apiFetch(token, `/canva/sessions/${sessionId}/candidates`),
+    enabled: !!sessionId,
+  });
+
+  return (
+    <div className="space-y-4">
+      <div className="flex gap-2">
+        <Input
+          value={sessionId}
+          onChange={(e) => setSessionId(e.target.value)}
+          placeholder="Session ID (from chat response or Telegram)"
+          className="max-w-xs"
+        />
+      </div>
+
+      {isLoading && <p className="text-sm text-muted-foreground">Loading candidates...</p>}
+
+      {candidates && candidates.length === 0 && (
+        <p className="text-sm text-muted-foreground">No candidates found for this session.</p>
+      )}
+
+      {candidates && candidates.length > 0 && (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {candidates.map((c) => (
+            <CanvaCandidateCard key={c.id} candidate={c} sessionId={sessionId} token={token} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// T28: Calendar tab — existing content ideas
+function CanvaCalendarTab({ token }: { token: string }) {
+  const month = new Date().toISOString().slice(0, 7);
+  const { data: ideas, isLoading } = useQuery<any[]>({
+    queryKey: ['canva-calendar', month],
+    queryFn: () => apiFetch(token, `/canva/calendar/${month}`),
+  });
+
+  return (
+    <div className="space-y-3">
+      <p className="text-sm text-muted-foreground">Content ideas for {month}</p>
+      {isLoading && <p className="text-sm text-muted-foreground">Loading...</p>}
+      {ideas && ideas.length === 0 && <p className="text-sm text-muted-foreground">No ideas yet. Trigger the agent to generate this month's calendar.</p>}
+      {ideas && ideas.length > 0 && (
+        <div className="space-y-2">
+          {ideas.map((idea: any) => (
+            <div key={idea.id} className="bg-card border border-border rounded-lg p-3 space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-medium bg-muted px-1.5 py-0.5 rounded">{idea.format}</span>
+                <span className="text-xs text-muted-foreground">{idea.platform} · {idea.brand}</span>
+                <span className={`ml-auto text-xs px-1.5 py-0.5 rounded ${idea.status === 'published' ? 'bg-green-100 text-green-700' : 'bg-muted text-muted-foreground'}`}>{idea.status}</span>
+              </div>
+              <p className="text-sm font-medium">{idea.hook}</p>
+              <p className="text-xs text-muted-foreground">{idea.body}</p>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// T29: Brands tab — per-brand identity management
+function CanvaBrandsTab({ token }: { token: string }) {
+  const qc = useQueryClient();
+  const [editing, setEditing] = useState<CanvaBrand | null>(null);
+  const [form, setForm] = useState({ name: '', displayName: '', voiceProfile: '', canvaKitId: '', palette: '', fonts: '', platforms: '' });
+
+  const { data: brands, isLoading } = useQuery<CanvaBrand[]>({
+    queryKey: ['canva-brands'],
+    queryFn: () => apiFetch(token, '/canva/brands'),
+  });
+
+  const saveMut = useMutation({
+    mutationFn: (data: any) => apiFetch(token, '/canva/brands', { method: 'POST', body: JSON.stringify(data) }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['canva-brands'] }); setEditing(null); setForm({ name: '', displayName: '', voiceProfile: '', canvaKitId: '', palette: '', fonts: '', platforms: '' }); },
+  });
+
+  const startEdit = (b: CanvaBrand) => {
+    setEditing(b);
+    setForm({
+      name: b.name,
+      displayName: b.displayName,
+      voiceProfile: b.voiceProfile,
+      canvaKitId: b.canvaKitId ?? '',
+      palette: b.palette.join(', '),
+      fonts: b.fonts.join(', '),
+      platforms: b.platforms.join(', '),
+    });
+  };
+
+  const handleSave = () => {
+    saveMut.mutate({
+      name: form.name,
+      displayName: form.displayName,
+      voiceProfile: form.voiceProfile,
+      canvaKitId: form.canvaKitId || undefined,
+      palette: form.palette.split(',').map((s) => s.trim()).filter(Boolean),
+      fonts: form.fonts.split(',').map((s) => s.trim()).filter(Boolean),
+      platforms: form.platforms.split(',').map((s) => s.trim()).filter(Boolean),
+    });
+  };
+
+  return (
+    <div className="space-y-4">
+      {isLoading && <p className="text-sm text-muted-foreground">Loading brands...</p>}
+
+      {brands && brands.map((b) => (
+        <div key={b.name} className="bg-card border border-border rounded-xl p-4">
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="font-medium">{b.displayName}</p>
+              <p className="text-xs text-muted-foreground">{b.name}</p>
+            </div>
+            <div className="flex gap-1.5">
+              {b.palette.map((c) => (
+                <div key={c} className="w-4 h-4 rounded-full border border-border/50" style={{ backgroundColor: c }} title={c} />
+              ))}
+            </div>
+          </div>
+          {b.voiceProfile && <p className="mt-2 text-sm text-muted-foreground line-clamp-2">{b.voiceProfile}</p>}
+          <div className="flex items-center gap-3 mt-3">
+            {b.canvaKitId && <span className="text-xs text-muted-foreground">Kit: {b.canvaKitId.slice(0, 12)}...</span>}
+            <span className="text-xs text-muted-foreground">{b.platforms.join(', ')}</span>
+            <button onClick={() => startEdit(b)} className="ml-auto text-xs text-primary hover:underline">Edit</button>
+          </div>
+        </div>
+      ))}
+
+      <div className="bg-card border border-border rounded-xl p-4 space-y-3">
+        <p className="text-sm font-medium">{editing ? `Edit ${editing.displayName}` : 'Add / update brand'}</p>
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1">Brand key (e.g. taskip)</label>
+            <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="taskip" disabled={!!editing} />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1">Display name</label>
+            <Input value={form.displayName} onChange={(e) => setForm({ ...form, displayName: e.target.value })} placeholder="Taskip" />
+          </div>
+        </div>
+        <div>
+          <label className="text-xs text-muted-foreground block mb-1">Voice profile</label>
+          <textarea
+            value={form.voiceProfile}
+            onChange={(e) => setForm({ ...form, voiceProfile: e.target.value })}
+            placeholder="Educational, relatable, and slightly witty — for SaaS founders..."
+            className="w-full text-sm border border-border rounded-lg p-2 bg-background resize-none h-20"
+          />
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1">Palette (hex, comma-separated)</label>
+            <Input value={form.palette} onChange={(e) => setForm({ ...form, palette: e.target.value })} placeholder="#6366f1, #4f46e5" />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1">Fonts (comma-separated)</label>
+            <Input value={form.fonts} onChange={(e) => setForm({ ...form, fonts: e.target.value })} placeholder="Inter, Geist" />
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1">Canva Kit ID (optional)</label>
+            <Input value={form.canvaKitId} onChange={(e) => setForm({ ...form, canvaKitId: e.target.value })} placeholder="kit_xxxxxx" />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1">Platforms (comma-separated)</label>
+            <Input value={form.platforms} onChange={(e) => setForm({ ...form, platforms: e.target.value })} placeholder="instagram, linkedin" />
+          </div>
+        </div>
+        <div className="flex gap-2">
+          <Button onClick={handleSave} disabled={!form.name || !form.displayName || saveMut.isPending}>
+            {saveMut.isPending ? 'Saving...' : 'Save brand'}
+          </Button>
+          {editing && <Button variant="outline" onClick={() => { setEditing(null); setForm({ name: '', displayName: '', voiceProfile: '', canvaKitId: '', palette: '', fonts: '', platforms: '' }); }}>Cancel</Button>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Settings tab — dedicated fields, no raw JSON
+const CANVA_FORMATS = ['carousel', 'reel', 'post', 'story', 'youtube'] as const;
+
+function CanvaSettingsTab({ agent, token }: { agent: AgentDetail; token: string }) {
+  const qc = useQueryClient();
+  const navigate = useNavigate();
+  const cfg = (agent.config ?? {}) as Record<string, unknown>;
+  const { llm: initialLlm } = stripLlm(cfg);
+
+  const [targetCount, setTargetCount] = useState(String(cfg.targetCount ?? 30));
+  const [formats, setFormats] = useState<string[]>((cfg.formats as string[]) ?? ['carousel', 'reel', 'post', 'story', 'youtube']);
+  const [debugMode, setDebugMode] = useState(!!(cfg.debugMode));
+  const [maxCostUsd, setMaxCostUsd] = useState(String(cfg.maxCostUsd ?? 5.0));
+  const [overrideLlm, setOverrideLlm] = useState(!!(initialLlm?.provider || initialLlm?.model));
+  const [llmProvider, setLlmProvider] = useState(initialLlm?.provider ?? 'auto');
+  const [llmModel, setLlmModel] = useState(initialLlm?.model ?? '');
+
+  const { data: brands } = useQuery<CanvaBrand[]>({
+    queryKey: ['canva-brands'],
+    queryFn: () => apiFetch(token, '/canva/brands'),
+  });
+
+  const saveMut = useMutation({
+    mutationFn: (config: Record<string, unknown>) =>
+      apiFetch(token, `/agents/${agent.key}`, { method: 'PATCH', body: JSON.stringify({ config }) }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['agent', agent.key] }),
+  });
+
+  const toggleMut = useMutation({
+    mutationFn: () =>
+      apiFetch(token, `/agents/${agent.key}`, { method: 'PATCH', body: JSON.stringify({ enabled: !agent.enabled }) }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['agent', agent.key] }),
+  });
+
+  const triggerMut = useMutation({
+    mutationFn: () =>
+      apiFetch(token, `/agents/${agent.key}/trigger`, { method: 'POST', body: JSON.stringify({ triggerType: 'MANUAL' }) }),
+    onSuccess: (run: { id: string }) => navigate(`/runs/${run.id}`),
+  });
+
+  const toggleFormat = (f: string) =>
+    setFormats((prev) => prev.includes(f) ? prev.filter((x) => x !== f) : [...prev, f]);
+
+  const handleSave = () => {
+    const config: Record<string, unknown> = {
+      targetCount: parseInt(targetCount) || 30,
+      formats,
+      brands: brands?.filter((b) => b.active).map((b) => b.name) ?? (cfg.brands as string[] ?? ['taskip', 'xgenious']),
+      debugMode,
+      maxCostUsd: parseFloat(maxCostUsd) || 5.0,
+    };
+    if (overrideLlm && (llmProvider !== 'auto' || llmModel)) {
+      config.llm = { ...(llmProvider ? { provider: llmProvider } : {}), ...(llmModel ? { model: llmModel } : {}) };
+    }
+    saveMut.mutate(config);
+  };
+
+  return (
+    <div className="space-y-5 max-w-xl">
+      {/* Enable / disable */}
+      <div className="bg-card border border-border rounded-xl p-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm font-medium">Agent enabled</p>
+            <p className="text-xs text-muted-foreground mt-0.5">Allow this agent to run on schedule (1st of month at 08:00)</p>
+          </div>
+          <BigToggle enabled={agent.enabled} onClick={() => toggleMut.mutate()} disabled={toggleMut.isPending} />
+        </div>
+      </div>
+
+      {/* Calendar settings */}
+      <div className="bg-card border border-border rounded-xl p-4 space-y-4">
+        <p className="text-sm font-semibold">Calendar settings</p>
+
+        <div>
+          <label className="text-xs text-muted-foreground block mb-1">Ideas per month (target count)</label>
+          <Input
+            type="number"
+            value={targetCount}
+            onChange={(e) => setTargetCount(e.target.value)}
+            min={5}
+            max={100}
+            className="w-28 text-sm"
+          />
+        </div>
+
+        <div>
+          <label className="text-xs text-muted-foreground block mb-2">Content formats</label>
+          <div className="flex flex-wrap gap-2">
+            {CANVA_FORMATS.map((f) => (
+              <button
+                key={f}
+                onClick={() => toggleFormat(f)}
+                className={`px-3 py-1 text-xs rounded-full border transition-colors ${formats.includes(f) ? 'bg-primary text-primary-foreground border-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}
+              >
+                {f}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <label className="text-xs text-muted-foreground block mb-1">Active brands</label>
+          {brands && brands.length > 0 ? (
+            <div className="flex flex-wrap gap-1.5">
+              {brands.filter((b) => b.active).map((b) => (
+                <span key={b.name} className="px-2.5 py-0.5 text-xs bg-muted rounded-full">{b.displayName}</span>
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">No brands configured — add them in the Brands tab.</p>
+          )}
+          <p className="text-xs text-muted-foreground mt-1">Manage brands and their voice profiles in the Brands tab.</p>
+        </div>
+      </div>
+
+      {/* Design generation settings */}
+      <div className="bg-card border border-border rounded-xl p-4 space-y-4">
+        <p className="text-sm font-semibold">Design generation</p>
+
+        <div>
+          <label className="text-xs text-muted-foreground block mb-1">Max cost per session (USD)</label>
+          <div className="flex items-center gap-2">
+            <Input
+              type="number"
+              value={maxCostUsd}
+              onChange={(e) => setMaxCostUsd(e.target.value)}
+              min={0.5}
+              max={50}
+              step={0.5}
+              className="w-24 text-sm"
+            />
+            <span className="text-xs text-muted-foreground">Agent switches from DALL-E to Stability AI when this is exceeded</span>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between py-0.5">
+          <div>
+            <p className="text-sm">Debug mode</p>
+            <p className="text-xs text-muted-foreground">Log each pipeline step to database (viewable via Sessions tab)</p>
+          </div>
+          <BigToggle enabled={debugMode} onClick={() => setDebugMode(!debugMode)} />
+        </div>
+      </div>
+
+      {/* LLM override */}
+      <LlmOverrideCard
+        initialLlm={initialLlm}
+        overrideLlm={overrideLlm}
+        setOverrideLlm={setOverrideLlm}
+        llmProvider={llmProvider}
+        setLlmProvider={setLlmProvider}
+        llmModel={llmModel}
+        setLlmModel={setLlmModel}
+      />
+
+      <div className="flex items-center gap-3">
+        <Button onClick={handleSave} disabled={saveMut.isPending}>
+          {saveMut.isPending ? 'Saving...' : 'Save settings'}
+        </Button>
+        {saveMut.isSuccess && <span className="text-xs text-green-600">Saved</span>}
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => triggerMut.mutate()}
+          disabled={!agent.enabled || !agent.registered || triggerMut.isPending}
+          className="ml-auto gap-1.5"
+        >
+          <Play className="w-3.5 h-3.5" />
+          {triggerMut.isPending ? 'Starting...' : 'Run now'}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// T19: Setup tab — Canva MCP connection guide + verification
+function CanvaSetupTab({ agent, token }: { agent: AgentDetail; token: string }) {
+  const [verifyResult, setVerifyResult] = useState<any>(null);
+  const [verifying, setVerifying] = useState(false);
+
+  const verify = async () => {
+    setVerifying(true);
+    try {
+      const res = await apiFetch(token, '/canva/verify');
+      setVerifyResult(res);
+    } catch {
+      setVerifyResult({ ok: false, error: 'Request failed — check API connection' });
+    } finally {
+      setVerifying(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4 max-w-2xl">
+      <div className="bg-muted/40 border border-border rounded-xl p-3 text-sm text-muted-foreground">
+        Note: LLM provider, Telegram bot, and database are platform-wide — configure them in Settings, not here.
+      </div>
+
+      <div className="space-y-3">
+
+        {/* Step 1: MCP page */}
+        <SetupStep n={1} title="Add Canva MCP server" done={false}>
+          <p>Go to the <strong>MCP</strong> page and add a new external server:</p>
+          <div className="mt-2 bg-muted rounded-lg px-3 py-2 text-xs font-mono space-y-1">
+            <div><span className="text-muted-foreground">Name:</span> canva</div>
+            <div><span className="text-muted-foreground">URL: </span> https://mcp.canva.com/mcp</div>
+          </div>
+          <p className="mt-2 text-xs text-muted-foreground">Enable it after saving. The agent calls this server for all Canva operations.</p>
+        </SetupStep>
+
+        {/* Step 2: OAuth */}
+        <SetupStep n={2} title="Connect your Canva account (OAuth)" done={false}>
+          <p className="font-medium text-sm mb-2">Option A — Claude Desktop / Claude.ai (easiest)</p>
+          <ol className="list-decimal list-inside space-y-1 text-sm ml-1">
+            <li>Open Claude Desktop → Settings → Connectors</li>
+            <li>Find <strong>Canva</strong> and click Connect</li>
+            <li>Sign in to Canva and approve the OAuth request</li>
+            <li>Token is shared with the agent automatically</li>
+          </ol>
+
+          <p className="font-medium text-sm mt-4 mb-2">Option B — Server CLI (for headless/VPS)</p>
+          <p className="text-sm mb-1">Run once on the server. A browser link appears — open it and approve:</p>
+          <pre className="bg-muted rounded-lg px-3 py-2 text-xs font-mono overflow-x-auto">npx -y mcp-remote https://mcp.canva.com/mcp</pre>
+          <p className="mt-1 text-xs text-muted-foreground">Token is cached under <code className="bg-muted px-1 rounded">~/.mcp-auth/</code> and reused on every restart.</p>
+
+          <div className="mt-3 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-800">
+            You need a Canva account with MCP access enabled. Free accounts have access; team plans include brand kit features.
+          </div>
+        </SetupStep>
+
+        {/* Step 3: AI image keys */}
+        <SetupStep n={3} title="Add AI image provider keys (for image generation)" done={false}>
+          <p>In <strong>Settings → Secrets</strong>, add:</p>
+          <div className="mt-2 space-y-1">
+            {[
+              { key: 'openai_api_key', label: 'OpenAI', note: 'DALL-E 3 — primary image generator ($0.04/image)' },
+              { key: 'stability_api_key', label: 'Stability AI', note: 'Fallback when OpenAI quota is exceeded' },
+            ].map((item) => (
+              <div key={item.key} className="flex items-start gap-2 text-sm">
+                <code className="bg-muted px-1.5 py-0.5 rounded text-xs shrink-0 mt-0.5">{item.key}</code>
+                <span className="text-muted-foreground">{item.note}</span>
+              </div>
+            ))}
+          </div>
+          <p className="mt-2 text-xs text-muted-foreground">Skip this step if you only need Canva template-based designs (no AI image generation).</p>
+        </SetupStep>
+
+        {/* Step 4: Brands */}
+        <SetupStep n={4} title="Set up brand identities" done={false}>
+          <p>Go to the <strong>Brands</strong> tab and fill in voice profile, color palette, fonts, and Canva Kit ID for each brand.</p>
+          <p className="mt-1 text-xs text-muted-foreground">The agent uses the brand's voice and palette automatically when you mention the brand name in the chat.</p>
+        </SetupStep>
+
+        {/* Step 5: Verify */}
+        <SetupStep n={5} title="Verify connection" done={agent.enabled}>
+          <p>Click Verify to check all systems. Then go to the <strong>Chat</strong> tab and type a concept to generate your first design.</p>
+          <p className="mt-1 text-sm text-muted-foreground">Example: <em>"Create an Instagram post for taskip spring sale, playful tone"</em></p>
+          <div className="mt-3">
+            <Button size="sm" onClick={verify} disabled={verifying}>
+              {verifying ? 'Verifying...' : 'Verify Canva MCP'}
+            </Button>
+          </div>
+          {verifyResult && (
+            <div className={`mt-3 p-3 rounded-lg text-sm font-mono border ${verifyResult.ok ? 'bg-green-50 border-green-200 text-green-800' : 'bg-destructive/10 border-destructive/20 text-destructive'}`}>
+              <div>Status: {verifyResult.ok ? 'OK' : 'FAILED'}</div>
+              <div>Tools: {verifyResult.toolsFound ?? 0}/{verifyResult.toolsExpected ?? 32}</div>
+              {verifyResult.latencyMs && <div>Latency: {verifyResult.latencyMs}ms</div>}
+              {verifyResult.error && <div>Error: {verifyResult.error}</div>}
+              {verifyResult.missingTools?.length > 0 && (
+                <div className="mt-1">Missing: {verifyResult.missingTools.slice(0, 5).join(', ')}{verifyResult.missingTools.length > 5 ? ` +${verifyResult.missingTools.length - 5} more` : ''}</div>
+              )}
+              {verifyResult.ok && (
+                <div className="mt-1 text-green-700">Canva MCP is connected and ready.</div>
+              )}
+            </div>
+          )}
+        </SetupStep>
+
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 export default function AgentDetailPage() {
   const { key } = useParams<{ key: string }>();

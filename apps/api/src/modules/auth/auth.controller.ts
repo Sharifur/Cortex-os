@@ -1,10 +1,12 @@
-import { Body, Controller, Delete, Get, Ip, Param, Post, Put, Req, UseGuards, HttpCode } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Ip, Param, Patch, Post, Put, Req, UseGuards, HttpCode } from '@nestjs/common';
 import type { FastifyRequest } from 'fastify';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { RolesGuard } from '../../common/guards/roles.guard';
+import { Roles } from '../../common/decorators/roles.decorator';
 import {
   CurrentUser,
   type JwtPayload,
@@ -68,6 +70,41 @@ export class AuthController {
     @Body() dto: ChangePasswordDto,
   ) {
     await this.auth.changePassword(user.sub, dto.currentPassword, dto.newPassword);
+    return { ok: true };
+  }
+
+  // Admin — super_admin only
+  @Get('admin/users')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('super_admin')
+  listUsers() {
+    return this.auth.listUsers();
+  }
+
+  @Post('admin/users')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('super_admin')
+  createUser(@Body() body: { email: string; name?: string; password: string; role: string }) {
+    return this.auth.createUser(body.email, body.name, body.password, body.role);
+  }
+
+  @Patch('admin/users/:id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('super_admin')
+  updateUser(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Body() body: { name?: string; email?: string; role?: string },
+  ) {
+    return this.auth.updateUser(user.sub, id, body);
+  }
+
+  @Delete('admin/users/:id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('super_admin')
+  @HttpCode(200)
+  async deleteUser(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
+    await this.auth.deleteUser(user.sub, id);
     return { ok: true };
   }
 }
