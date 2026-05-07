@@ -16,6 +16,15 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.1.0',
+    date: '2026-05-07',
+    entries: [
+      { tag: 'feat', scope: 'integrations', description: 'OAuth Integration Hub: server-side OAuth 2.0 token storage for MCP providers (Canva, GitHub); one-click Connect from admin UI, tokens encrypted in DB, auto-refresh on expiry' },
+      { tag: 'feat', scope: 'integrations', description: 'OAuth provider registry (oauth-providers.ts): Canva + GitHub configs with scopes, auth/token URLs, and settings key references' },
+      { tag: 'chore', scope: 'db', description: 'Migration 0059: oauth_integrations table; oauth_integration_id FK added to mcp_servers' },
+    ],
+  },
+  {
     version: 'v4.0.0',
     date: '2026-05-07',
     entries: [

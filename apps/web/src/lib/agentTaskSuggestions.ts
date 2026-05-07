@@ -90,14 +90,29 @@ export const AGENT_TASK_SUGGESTIONS: Record<string, string[]> = {
   ],
 
   canva: [
-    'Create an Instagram post for our spring sale',
-    'Generate a LinkedIn carousel about our latest feature',
-    'Design a YouTube thumbnail for our new tutorial',
-    'Make a Facebook banner for our product launch',
-    'Suggest an idea for a short-form Reel about productivity',
-    'Generate next month\'s social content calendar',
-    'Create a story slide for our brand announcement',
-    'Design an infographic about our pricing tiers',
+    // Marketing
+    'Create a Facebook banner carousel for our product launch',
+    'Design a promotional Instagram post — 50% off sale this week',
+    // Business
+    'Make a LinkedIn carousel: 5 business growth tips for SaaS founders',
+    'Create a corporate LinkedIn banner showing our Q1 milestone',
+    // Infographic
+    'Generate a 6-slide infographic carousel: how our product works step by step',
+    'Create an infographic comparing our 3 pricing plans',
+    // Announcement
+    'Design an announcement post: we just launched a new feature',
+    'Create a "We\'re hiring" announcement banner',
+    // Educational
+    'Make a 5-tip carousel: productivity tips for remote teams',
+    'Create an educational carousel: common mistakes founders make',
+    // Social Proof
+    'Design a testimonial carousel with 3 customer quotes',
+    'Create a social proof post: we just hit 10,000 customers',
+    // Product
+    'Generate a product showcase carousel for Taskip dashboard',
+    'Create a pricing comparison post for our 3 plans',
+    // Seasonal
+    'Design a festive Eid sale banner with our latest offer',
   ],
 };
 
