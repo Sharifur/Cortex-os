@@ -1,14 +1,18 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { eq } from 'drizzle-orm';
+import { and, asc, desc, eq } from 'drizzle-orm';
 import { DbService } from '../../../db/db.service';
-import { agents, taskipInternalOps } from '../../../db/schema';
+import { agents, taskipInternalOps, taskipInternalSuggestions, taskipInternalWorkspaceActivity } from '../../../db/schema';
 import { AgentRegistryService } from '../runtime/agent-registry.service';
 import { LlmRouterService } from '../../llm/llm-router.service';
 import { TelegramService } from '../../telegram/telegram.service';
 import { TaskipInternalDbService } from './taskip-internal-db.service';
 import { TaskipInsightService, type InsightCohort, type InsightMarketingSuggestion, type InsightSubmitMessage } from './taskip-insight.service';
 import { TaskipInternalEmailService, type TaskipEmailPurpose } from './taskip-internal-email.service';
+import { TaskipInternalSuggestionSweepService } from './taskip-internal-suggestion-sweep.service';
+import { TASKIP_SUGGESTION_SWEEP_QUEUE } from './taskip-internal-suggestion-sweep.processor';
 import { KillSwitchService, type KillSwitchAction } from '../../safety/kill-switch.service';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 import type { LlmToolMessage, ToolDefinition } from '../../llm/llm.types';
 import type {
   IAgent,
@@ -84,8 +88,10 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
     private taskipDb: TaskipInternalDbService,
     private insight: TaskipInsightService,
     private emails: TaskipInternalEmailService,
+    private suggestionSweep: TaskipInternalSuggestionSweepService,
     private killSwitch: KillSwitchService,
     private registry: AgentRegistryService,
+    @InjectQueue(TASKIP_SUGGESTION_SWEEP_QUEUE) private readonly suggestionSweepQueue: Queue,
   ) {}
 
   onModuleInit() {
@@ -517,7 +523,237 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
           return this.emails.syncReplies(id);
         },
       },
+
+      // Suggestion sweep routes
+      {
+        method: 'GET',
+        path: '/taskip-internal/suggestions',
+        requiresAuth: true,
+        handler: async (params) => {
+          const { status } = params as { status?: string };
+          const rows = await this.db.db
+            .select()
+            .from(taskipInternalSuggestions)
+            .where(status && status !== 'all' ? eq(taskipInternalSuggestions.status, status) : undefined)
+            .orderBy(desc(taskipInternalSuggestions.createdAt))
+            .limit(100);
+
+          const withActivity = await Promise.all(
+            rows.map(async (row) => {
+              const activity = await this.db.db
+                .select()
+                .from(taskipInternalWorkspaceActivity)
+                .where(eq(taskipInternalWorkspaceActivity.workspaceUuid, row.workspaceUuid))
+                .orderBy(desc(taskipInternalWorkspaceActivity.createdAt))
+                .limit(3);
+              return { ...row, recentActivity: activity };
+            }),
+          );
+          return withActivity;
+        },
+      },
+      {
+        method: 'PATCH',
+        path: '/taskip-internal/suggestions/:id',
+        requiresAuth: true,
+        handler: async (params) => {
+          const { id, subject, bodyMd, ctaText, ctaUrl } = params as {
+            id: string;
+            subject?: string;
+            bodyMd?: string;
+            ctaText?: string;
+            ctaUrl?: string;
+          };
+          const [row] = await this.db.db
+            .select({ status: taskipInternalSuggestions.status })
+            .from(taskipInternalSuggestions)
+            .where(eq(taskipInternalSuggestions.id, id))
+            .limit(1);
+          if (!row) throw new Error('Suggestion not found');
+          if (row.status !== 'pending') throw new Error('Only pending suggestions can be edited');
+
+          const updates: Partial<typeof taskipInternalSuggestions.$inferInsert> = {};
+          if (subject !== undefined) updates.subject = subject;
+          if (bodyMd !== undefined) updates.bodyMd = bodyMd;
+          if (ctaText !== undefined) updates.ctaText = ctaText;
+          if (ctaUrl !== undefined) updates.ctaUrl = ctaUrl;
+
+          const [updated] = await this.db.db
+            .update(taskipInternalSuggestions)
+            .set(updates)
+            .where(eq(taskipInternalSuggestions.id, id))
+            .returning();
+          return updated;
+        },
+      },
+      {
+        method: 'POST',
+        path: '/taskip-internal/suggestions/:id/approve',
+        requiresAuth: true,
+        handler: async (params) => {
+          const { id } = params as { id: string };
+          return this.approveSuggestion(id);
+        },
+      },
+      {
+        method: 'POST',
+        path: '/taskip-internal/suggestions/:id/skip',
+        requiresAuth: true,
+        handler: async (params) => {
+          const { id, reason } = params as { id: string; reason?: string };
+          return this.skipSuggestion(id, reason);
+        },
+      },
+      {
+        method: 'POST',
+        path: '/taskip-internal/suggestions/sweep',
+        requiresAuth: true,
+        handler: async () => {
+          await this.suggestionSweepQueue.add('sweep', {}, { jobId: `manual-sweep-${Date.now()}` });
+          return { queued: true };
+        },
+      },
+      {
+        method: 'GET',
+        path: '/taskip-internal/workspace/:uuid/activity',
+        requiresAuth: true,
+        handler: async (params) => {
+          const { uuid } = params as { uuid: string };
+          return this.db.db
+            .select()
+            .from(taskipInternalWorkspaceActivity)
+            .where(eq(taskipInternalWorkspaceActivity.workspaceUuid, uuid))
+            .orderBy(desc(taskipInternalWorkspaceActivity.createdAt))
+            .limit(100);
+        },
+      },
     ];
+  }
+
+  private async approveSuggestion(id: string): Promise<{ ok: boolean; channel: string }> {
+    const [row] = await this.db.db
+      .select()
+      .from(taskipInternalSuggestions)
+      .where(eq(taskipInternalSuggestions.id, id))
+      .limit(1);
+    if (!row) throw new Error('Suggestion not found');
+    if (row.status !== 'pending') throw new Error(`Cannot approve suggestion with status: ${row.status}`);
+
+    await this.db.db
+      .update(taskipInternalSuggestions)
+      .set({ status: 'approved', approvedAt: new Date() })
+      .where(eq(taskipInternalSuggestions.id, id));
+
+    try {
+      if (row.channel === 'gmail') {
+        const result = await this.emails.send({
+          purpose: 'followup',
+          recipient: row.ownerEmail,
+          subject: row.subject,
+          body: row.bodyMd,
+          workspaceUuid: row.workspaceUuid,
+          metadata: { suggestionId: id, cohort: row.cohort, scenarioKey: row.scenarioKey },
+        });
+
+        await this.db.db
+          .update(taskipInternalSuggestions)
+          .set({ status: 'sent', sentEmailId: result.id, sentAt: new Date() })
+          .where(eq(taskipInternalSuggestions.id, id));
+
+        await this.db.db.insert(taskipInternalWorkspaceActivity).values({
+          workspaceUuid: row.workspaceUuid,
+          activityType: 'email_sent',
+          suggestionId: id,
+          emailId: result.id,
+          score: row.score,
+          cohort: row.cohort,
+        });
+      } else {
+        const result = await this.insight.submitMessage(row.workspaceUuid, {
+          scenario_key: row.scenarioKey,
+          channel: 'both',
+          subject: row.subject,
+          body_md: row.bodyMd,
+          cta_text: row.ctaText ?? undefined,
+          cta_url: row.ctaUrl ?? undefined,
+        });
+
+        const finalStatus = result.status === 'suppressed_cooldown' ? 'skipped' : 'sent';
+        await this.db.db
+          .update(taskipInternalSuggestions)
+          .set({
+            status: finalStatus,
+            insightMessageId: result.id,
+            sentAt: finalStatus === 'sent' ? new Date() : undefined,
+            skippedAt: finalStatus === 'skipped' ? new Date() : undefined,
+            failedReason: finalStatus === 'skipped' ? result.status : null,
+          })
+          .where(eq(taskipInternalSuggestions.id, id));
+
+        await this.db.db.insert(taskipInternalWorkspaceActivity).values({
+          workspaceUuid: row.workspaceUuid,
+          activityType: 'insight_message_sent',
+          suggestionId: id,
+          score: row.score,
+          cohort: row.cohort,
+          notes: result.status,
+        });
+      }
+    } catch (err) {
+      const msg = (err as Error).message;
+      await this.db.db
+        .update(taskipInternalSuggestions)
+        .set({ status: 'failed', failedReason: msg })
+        .where(eq(taskipInternalSuggestions.id, id));
+      throw err;
+    }
+
+    return { ok: true, channel: row.channel };
+  }
+
+  private async skipSuggestion(id: string, reason?: string): Promise<{ ok: boolean; suppressed: boolean }> {
+    const [row] = await this.db.db
+      .select()
+      .from(taskipInternalSuggestions)
+      .where(eq(taskipInternalSuggestions.id, id))
+      .limit(1);
+    if (!row) throw new Error('Suggestion not found');
+    if (row.status !== 'pending') throw new Error(`Cannot skip suggestion with status: ${row.status}`);
+
+    await this.db.db
+      .update(taskipInternalSuggestions)
+      .set({ status: 'skipped', skippedAt: new Date() })
+      .where(eq(taskipInternalSuggestions.id, id));
+
+    await this.db.db.insert(taskipInternalWorkspaceActivity).values({
+      workspaceUuid: row.workspaceUuid,
+      activityType: 'suggestion_skipped',
+      suggestionId: id,
+      score: row.score,
+      cohort: row.cohort,
+      notes: reason ?? null,
+    });
+
+    // check for 3-consecutive-skip suppression
+    const recent = await this.db.db
+      .select({ activityType: taskipInternalWorkspaceActivity.activityType })
+      .from(taskipInternalWorkspaceActivity)
+      .where(eq(taskipInternalWorkspaceActivity.workspaceUuid, row.workspaceUuid))
+      .orderBy(desc(taskipInternalWorkspaceActivity.createdAt))
+      .limit(3);
+
+    const suppressed = recent.length === 3 && recent.every((r) => r.activityType === 'suggestion_skipped');
+    if (suppressed) {
+      await this.db.db.insert(taskipInternalWorkspaceActivity).values({
+        workspaceUuid: row.workspaceUuid,
+        activityType: 'sweep_ignored',
+        score: row.score,
+        cohort: row.cohort,
+        notes: '3 consecutive skips',
+      });
+    }
+
+    return { ok: true, suppressed };
   }
 
   private async executeReadTool(name: string, args: Record<string, unknown>): Promise<unknown> {

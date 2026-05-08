@@ -1570,6 +1570,7 @@ function EmailManagerSettingsTab({ agent, token }: { agent: AgentDetail; token: 
 // ─── Taskip Internal sub-tabs ─────────────────────────────────────────────────
 
 const TASKIP_INTERNAL_TABS = [
+  { key: 'suggestions', label: 'Suggestions', icon: Mail },
   { key: 'setup', label: 'Setup', icon: BookOpen },
   { key: 'llm', label: 'LLM', icon: Cpu },
   { key: 'runtime', label: 'Runtime', icon: List },
@@ -1587,20 +1588,53 @@ function TaskipInternalSetupSubTab({ agent }: { agent: AgentDetail }) {
       <div className="rounded-xl border border-border bg-card p-5">
         <h3 className="text-sm font-semibold mb-1">Taskip Internal — Setup Checklist</h3>
         <p className="text-xs text-muted-foreground mb-5">
-          On-demand assistant for internal Taskip ops. Ask in plain English — it looks up users, subscriptions,
-          and invoices, then proposes write actions (extend trial, mark refund, marketing suggestion) for your Telegram approval.
+          Two modes in one agent: (1) on-demand chat assistant — ask in plain English to look up users, subscriptions,
+          invoices, or propose write actions; (2) proactive suggestion sweep — runs every 6 hours, scans Insight cohorts,
+          generates LLM draft emails, and queues them here for your approval before anything is sent.
         </p>
         <div className="space-y-5">
 
-          <SetupStep n={1} title="Test with the Chat page" done={agent.enabled}>
-            <p>Open the <strong>Chat</strong> page for this agent and type a question, for example:</p>
+          <SetupStep n={1} title="Configure Insight API credentials" done={agent.enabled}>
+            <p>
+              Go to <a href="/integrations" className="text-primary hover:underline"><strong>Integrations → Taskip Insight</strong></a> and set:
+            </p>
+            <ul className="list-disc list-inside ml-1 mt-1 space-y-0.5">
+              <li><code className="bg-muted px-1 rounded text-xs">insight_base_url</code> — base URL of your Taskip Insight API (no trailing slash)</li>
+              <li><code className="bg-muted px-1 rounded text-xs">insight_agent_key_primary</code> — primary agent key (X-Insight-Agent-Key header)</li>
+              <li><code className="bg-muted px-1 rounded text-xs">insight_agent_key_secondary</code> — optional rotation key</li>
+            </ul>
+            <p className="mt-1">Use the <strong>Test connection</strong> button below to verify the API is reachable.</p>
+          </SetupStep>
+
+          <SetupStep n={2} title="Connect Gmail for personal outreach" done={false}>
+            <p>
+              Trial and free-tier suggestions are sent via Gmail (personal founder outreach).
+              Go to <a href="/integrations" className="text-primary hover:underline"><strong>Integrations → Gmail</strong></a> and connect your Google Workspace account via OAuth.
+            </p>
+            <p className="mt-1">
+              Paid-tier suggestions (at_risk_paid, dormant_paid) use Taskip's own messaging system — no Gmail needed for those.
+            </p>
+          </SetupStep>
+
+          <SetupStep n={3} title="Trigger a manual sweep to verify end-to-end" done={false}>
+            <p>
+              Open the <strong>Suggestions</strong> tab and click <strong>Run sweep now</strong>.
+              Within a few seconds you should see draft suggestion cards appear. Approve one to verify the Gmail
+              and Taskip system send paths both work.
+            </p>
+            <ul className="list-disc list-inside ml-1 mt-1 space-y-0.5">
+              <li>Gmail path: check Gmail Sent folder + <strong>Suggestions</strong> tab shows status Sent</li>
+              <li>Taskip system path: check Insight AI messages log + status shows Sent</li>
+            </ul>
+          </SetupStep>
+
+          <SetupStep n={4} title="Test the chat assistant" done={agent.enabled}>
+            <p>Open the <strong>Chat</strong> page and type a question, for example:</p>
             <ul className="list-disc list-inside ml-1 mt-1 space-y-0.5">
               <li><em>Look up user john@example.com</em></li>
-              <li><em>Show me the last 5 invoices for user abc-123</em></li>
               <li><em>List at_risk_paid workspaces with score below 40</em></li>
               <li><em>Drill into workspace acme and propose a retention outreach</em></li>
             </ul>
-            <p className="mt-1">The agent will query the DB / Insight API and send the answer (or an approval request) to Telegram.</p>
           </SetupStep>
 
         </div>
@@ -1609,11 +1643,11 @@ function TaskipInternalSetupSubTab({ agent }: { agent: AgentDetail }) {
       <TaskipInsightStatusCard />
 
       <div className="rounded-xl border border-border bg-muted/20 p-4">
-        <p className="text-xs font-medium text-muted-foreground mb-1">Platform prerequisites</p>
+        <p className="text-xs font-medium text-muted-foreground mb-1">Platform note</p>
         <p className="text-xs text-muted-foreground">
-          Requires <code className="bg-muted px-1 rounded">TASKIP_DB_URL_READONLY</code> in Coolify env (shared with all Taskip agents).
-          Configure the Insight API credentials in <a href="/integrations" className="text-primary hover:underline">Integrations → Taskip Insight</a>.
-          LLM provider must be <strong>OpenAI</strong> or <strong>DeepSeek</strong> — set in <strong>Settings → LLM Providers</strong> and the LLM sub-tab (Gemini does not support tool calling).
+          Taskip DB read-only connection: set <code className="bg-muted px-1 rounded">taskip_db_url_readonly</code> in{' '}
+          <a href="/settings" className="text-primary hover:underline">Settings</a> (shared with Taskip Trial agent).
+          LLM provider must be <strong>OpenAI</strong> or <strong>DeepSeek</strong> — set in Settings and the LLM sub-tab (Gemini does not support tool calling).
         </p>
       </div>
     </div>
@@ -1650,14 +1684,14 @@ function TaskipInsightStatusCard() {
     <div className="rounded-xl border border-border bg-card p-5">
       <h3 className="text-sm font-semibold mb-1">Insight API connection</h3>
       <p className="text-xs text-muted-foreground mb-4">
-        Server-to-server integration with Taskip's Insight module (cohort segmentation, workspace overview, marketing-suggestion writeback).
-        Secrets are read from environment variables — values are never returned, only their presence.
+        Server-to-server integration with Taskip's Insight module (cohort segmentation, workspace lifecycle, pending scenarios, message delivery).
+        Credentials are read from <strong>Settings</strong> (<code className="bg-muted px-1 rounded text-xs">insight_base_url</code> and <code className="bg-muted px-1 rounded text-xs">insight_agent_key_primary</code>) — values are never returned here, only their presence is shown.
       </p>
 
       <div className="grid grid-cols-2 gap-2 text-xs mb-4">
-        <Indicator label="INSIGHT_BASE_URL" on={!!status?.baseUrl} value={status?.baseUrl ?? undefined} />
-        <Indicator label="Key — primary" on={!!status?.hasPrimary} />
-        <Indicator label="Key — secondary (rotation)" on={!!status?.hasSecondary} optional />
+        <Indicator label="insight_base_url" on={!!status?.baseUrl} value={status?.baseUrl ?? undefined} />
+        <Indicator label="insight_agent_key_primary" on={!!status?.hasPrimary} />
+        <Indicator label="insight_agent_key_secondary" on={!!status?.hasSecondary} optional />
         <Indicator label="Schema version" on={status?.schemaVersion === 1} value={status?.schemaVersion?.toString()} />
       </div>
 
@@ -1844,8 +1878,275 @@ function TaskipInternalLlmSubTab({ agent, config, onChange, token }: {
   );
 }
 
+// ─── Cohort tier colors ───────────────────────────────────────────────────────
+
+const TIER_COLORS: Record<number, string> = {
+  1: 'bg-red-100 text-red-700',
+  2: 'bg-amber-100 text-amber-700',
+  3: 'bg-blue-100 text-blue-700',
+  4: 'bg-green-100 text-green-700',
+};
+
+const TIER_LABELS: Record<number, string> = {
+  1: 'Cold',
+  2: 'Warming',
+  3: 'Active',
+  4: 'Hot',
+};
+
+interface Suggestion {
+  id: string;
+  workspaceUuid: string;
+  ownerEmail: string;
+  ownerName: string;
+  cohort: string;
+  scenarioKey: string;
+  score: number;
+  scoreTier: number;
+  lifecycleState: string;
+  daysSinceSignup: number;
+  subject: string;
+  bodyMd: string;
+  ctaText: string | null;
+  ctaUrl: string | null;
+  channel: string;
+  status: string;
+  failedReason: string | null;
+  createdAt: string;
+  recentActivity: { activityType: string; notes: string | null; createdAt: string }[];
+}
+
+function SuggestionsSubTab({ token }: { token: string }) {
+  const qc = useQueryClient();
+  const [filter, setFilter] = useState<'all' | 'pending' | 'sent' | 'skipped' | 'failed'>('pending');
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [editing, setEditing] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState<{ subject: string; bodyMd: string; ctaText: string; ctaUrl: string } | null>(null);
+  const [sweeping, setSweeping] = useState(false);
+
+  const { data: suggestions = [], isLoading } = useQuery<Suggestion[]>({
+    queryKey: ['taskip-suggestions', filter],
+    queryFn: () => apiFetch(token, `/taskip-internal/suggestions?status=${filter}`),
+    refetchInterval: 30_000,
+  });
+
+  const pending = suggestions.filter((s) => s.status === 'pending').length;
+
+  async function runSweep() {
+    setSweeping(true);
+    try {
+      await apiFetch(token, '/taskip-internal/suggestions/sweep', { method: 'POST' });
+      setTimeout(() => qc.invalidateQueries({ queryKey: ['taskip-suggestions'] }), 3000);
+    } finally {
+      setSweeping(false);
+    }
+  }
+
+  async function approve(id: string) {
+    await apiFetch(token, `/taskip-internal/suggestions/${id}/approve`, { method: 'POST' });
+    qc.invalidateQueries({ queryKey: ['taskip-suggestions'] });
+  }
+
+  async function skip(id: string) {
+    await apiFetch(token, `/taskip-internal/suggestions/${id}/skip`, { method: 'POST' });
+    qc.invalidateQueries({ queryKey: ['taskip-suggestions'] });
+  }
+
+  async function saveEdit(id: string) {
+    if (!editDraft) return;
+    await apiFetch(token, `/taskip-internal/suggestions/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(editDraft),
+    });
+    setEditing(null);
+    setEditDraft(null);
+    qc.invalidateQueries({ queryKey: ['taskip-suggestions'] });
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-semibold">Suggestions</span>
+          {pending > 0 && (
+            <span className="bg-primary text-primary-foreground text-xs font-semibold px-2 py-0.5 rounded-full">
+              {pending}
+            </span>
+          )}
+        </div>
+        <Button size="sm" variant="outline" onClick={runSweep} disabled={sweeping}>
+          {sweeping ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : null}
+          Run sweep now
+        </Button>
+      </div>
+
+      {/* Filter bar */}
+      <div className="flex gap-1 flex-wrap">
+        {(['all', 'pending', 'sent', 'skipped', 'failed'] as const).map((f) => (
+          <button
+            key={f}
+            onClick={() => setFilter(f)}
+            className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+              filter === f
+                ? 'bg-primary text-primary-foreground border-primary'
+                : 'border-border text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            {f.charAt(0).toUpperCase() + f.slice(1)}
+          </button>
+        ))}
+      </div>
+
+      {/* List */}
+      {isLoading ? (
+        <div className="space-y-2">
+          {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-24 w-full rounded-xl" />)}
+        </div>
+      ) : suggestions.length === 0 ? (
+        <div className="text-sm text-muted-foreground py-8 text-center">No suggestions found.</div>
+      ) : (
+        <div className="space-y-3">
+          {suggestions.map((s) => (
+            <div key={s.id} className="border border-border rounded-xl bg-card overflow-hidden">
+              {/* Card header */}
+              <div className="p-4">
+                <div className="flex items-start justify-between gap-3 mb-2">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${TIER_COLORS[s.scoreTier] ?? 'bg-muted text-muted-foreground'}`}>
+                      Tier {s.scoreTier} — {TIER_LABELS[s.scoreTier]}
+                    </span>
+                    <span className="text-xs border border-border rounded-full px-2 py-0.5 text-muted-foreground">
+                      {s.cohort.replace(/_/g, ' ')}
+                    </span>
+                    <span className={`text-xs border rounded-full px-2 py-0.5 ${
+                      s.channel === 'gmail' ? 'border-blue-300 text-blue-700' : 'border-purple-300 text-purple-700'
+                    }`}>
+                      {s.channel === 'gmail' ? 'Gmail' : 'Taskip System'}
+                    </span>
+                    <span className={`text-xs rounded-full px-2 py-0.5 font-medium ${
+                      s.status === 'pending' ? 'bg-amber-100 text-amber-700' :
+                      s.status === 'sent' ? 'bg-green-100 text-green-700' :
+                      s.status === 'skipped' ? 'bg-muted text-muted-foreground' :
+                      s.status === 'failed' ? 'bg-red-100 text-red-700' : 'bg-muted text-muted-foreground'
+                    }`}>
+                      {s.status}
+                    </span>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <div className="text-xs font-semibold">{s.score}/100</div>
+                    <div className="text-xs text-muted-foreground">{s.daysSinceSignup}d in {s.lifecycleState}</div>
+                  </div>
+                </div>
+
+                <div className="text-xs text-muted-foreground mb-2">
+                  {s.ownerName} &lt;{s.ownerEmail}&gt;
+                </div>
+
+                {editing === s.id && editDraft ? (
+                  <div className="space-y-2">
+                    <div>
+                      <label className="text-xs text-muted-foreground">Subject</label>
+                      <Input
+                        value={editDraft.subject}
+                        onChange={(e) => setEditDraft({ ...editDraft, subject: e.target.value })}
+                        className="mt-0.5 text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-muted-foreground">Body</label>
+                      <textarea
+                        value={editDraft.bodyMd}
+                        onChange={(e) => setEditDraft({ ...editDraft, bodyMd: e.target.value })}
+                        rows={6}
+                        className="mt-0.5 w-full text-sm border border-input rounded-md px-3 py-2 bg-background resize-y"
+                      />
+                    </div>
+                    <div className="flex gap-2">
+                      <div className="flex-1">
+                        <label className="text-xs text-muted-foreground">CTA text</label>
+                        <Input
+                          value={editDraft.ctaText}
+                          onChange={(e) => setEditDraft({ ...editDraft, ctaText: e.target.value })}
+                          className="mt-0.5 text-sm"
+                        />
+                      </div>
+                      <div className="flex-1">
+                        <label className="text-xs text-muted-foreground">CTA URL</label>
+                        <Input
+                          value={editDraft.ctaUrl}
+                          onChange={(e) => setEditDraft({ ...editDraft, ctaUrl: e.target.value })}
+                          className="mt-0.5 text-sm"
+                        />
+                      </div>
+                    </div>
+                    <div className="flex gap-2 pt-1">
+                      <Button size="sm" variant="outline" onClick={() => { setEditing(null); setEditDraft(null); }}>Cancel</Button>
+                      <Button size="sm" variant="outline" onClick={() => saveEdit(s.id)}>Save draft</Button>
+                      <Button size="sm" onClick={() => saveEdit(s.id).then(() => approve(s.id))}>Save and approve</Button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <p className="text-sm font-semibold mb-1">{s.subject}</p>
+                    <p
+                      className={`text-xs text-muted-foreground whitespace-pre-wrap ${expanded === s.id ? '' : 'line-clamp-2'}`}
+                    >
+                      {s.bodyMd}
+                    </p>
+                    {s.bodyMd.length > 120 && (
+                      <button
+                        onClick={() => setExpanded(expanded === s.id ? null : s.id)}
+                        className="text-xs text-primary mt-1"
+                      >
+                        {expanded === s.id ? 'Show less' : 'Show more'}
+                      </button>
+                    )}
+                    {s.failedReason && (
+                      <p className="text-xs text-red-600 mt-1">{s.failedReason}</p>
+                    )}
+                  </>
+                )}
+
+                {/* Action buttons */}
+                {s.status === 'pending' && editing !== s.id && (
+                  <div className="flex gap-2 mt-3">
+                    <Button size="sm" onClick={() => approve(s.id)}>Approve and send</Button>
+                    <Button size="sm" variant="outline" onClick={() => {
+                      setEditing(s.id);
+                      setEditDraft({ subject: s.subject, bodyMd: s.bodyMd, ctaText: s.ctaText ?? '', ctaUrl: s.ctaUrl ?? '' });
+                    }}>Edit</Button>
+                    <Button size="sm" variant="outline" onClick={() => skip(s.id)}>Skip</Button>
+                  </div>
+                )}
+              </div>
+
+              {/* Activity section */}
+              {s.recentActivity.length > 0 && (
+                <div className="border-t border-border bg-muted/30 px-4 py-2">
+                  <p className="text-xs font-medium text-muted-foreground mb-1">Recent activity</p>
+                  <div className="space-y-1">
+                    {s.recentActivity.map((a, i) => (
+                      <div key={i} className="flex items-start gap-2 text-xs text-muted-foreground">
+                        <span className="shrink-0">{new Date(a.createdAt).toLocaleDateString()}</span>
+                        <span>{a.activityType.replace(/_/g, ' ')}</span>
+                        {a.notes && <span className="text-muted-foreground/70">— {a.notes}</span>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TaskipInternalSettingsTab({ agent, token }: { agent: AgentDetail; token: string }) {
-  const [activeSub, setActiveSub] = useState<TaskipInternalTabKey>('setup');
+  const [activeSub, setActiveSub] = useState<TaskipInternalTabKey>('suggestions');
   const [config, setConfig] = useState<TaskipInternalConfig>(
     (agent.config as unknown as TaskipInternalConfig) ?? {
       llm: { provider: 'openai', model: 'gpt-4o' },
@@ -1875,6 +2176,7 @@ function TaskipInternalSettingsTab({ agent, token }: { agent: AgentDetail; token
         ))}
       </div>
 
+      {activeSub === 'suggestions' && <SuggestionsSubTab token={token} />}
       {activeSub === 'setup' && <TaskipInternalSetupSubTab agent={agent} />}
       {activeSub === 'llm' && (
         <TaskipInternalLlmSubTab agent={agent} config={config} onChange={handleChange} token={token} />

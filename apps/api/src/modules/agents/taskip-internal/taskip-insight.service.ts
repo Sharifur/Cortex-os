@@ -288,6 +288,18 @@ export class TaskipInsightService {
     return this.request<InsightCohortListResponse>('GET', path);
   }
 
+  async getTrialFunnelHotList(): Promise<InsightCohortListItem[]> {
+    return this.request<InsightCohortListItem[]>('GET', '/trial-funnel/hot-list');
+  }
+
+  async getTrialFunnelAtRiskList(): Promise<InsightCohortListItem[]> {
+    return this.request<InsightCohortListItem[]>('GET', '/trial-funnel/at-risk-list');
+  }
+
+  async getTrialFunnelTrialReadyList(): Promise<InsightCohortListItem[]> {
+    return this.request<InsightCohortListItem[]>('GET', '/trial-funnel/trial-ready-list');
+  }
+
   async getRecommendedActions(workspaceUuid: string): Promise<{ workspace_uuid: string; actions: InsightRecommendedAction[] }> {
     return this.request('GET', `/workspaces/${encodeURIComponent(workspaceUuid)}/recommended-actions`);
   }

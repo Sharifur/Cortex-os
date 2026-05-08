@@ -16,6 +16,19 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.2.0',
+    date: '2026-05-08',
+    entries: [
+      { tag: 'feat', scope: 'taskip-internal', description: 'Proactive suggestion sweep: BullMQ cron runs every 6h, fetches 5 cohorts via Insight API, generates LLM drafts, queues for founder approval' },
+      { tag: 'feat', scope: 'taskip-internal', description: 'Dual send path: Gmail for trial/free cohorts, Taskip system messaging for paid cohorts; channel locked at draft time' },
+      { tag: 'feat', scope: 'taskip-internal', description: 'Workspace activity log tracks suggestion lifecycle: created, sent, skipped, suppressed' },
+      { tag: 'feat', scope: 'taskip-internal', description: 'Suggestions tab on agent detail page: filter bar, suggestion cards with tier badges, inline edit, approve/skip actions, activity timeline' },
+      { tag: 'feat', scope: 'taskip-internal', description: 'Approve/skip API routes + manual sweep trigger endpoint' },
+      { tag: 'feat', scope: 'taskip-internal', description: '3-skip suppression: workspace auto-suppressed after 3 consecutive skips with no send' },
+      { tag: 'chore', scope: 'db', description: 'Migration 0061: taskip_internal_suggestions + taskip_internal_workspace_activity tables' },
+    ],
+  },
+  {
     version: 'v4.1.7',
     date: '2026-05-08',
     entries: [

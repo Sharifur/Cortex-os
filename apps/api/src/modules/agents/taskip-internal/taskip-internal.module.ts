@@ -5,6 +5,8 @@ import { TaskipInternalDbService } from './taskip-internal-db.service';
 import { TaskipInsightService } from './taskip-insight.service';
 import { TaskipInternalEmailService } from './taskip-internal-email.service';
 import { TaskipInternalEmailSweepProcessor, TASKIP_EMAIL_SWEEP_QUEUE } from './taskip-internal-email-sweep.processor';
+import { TaskipInternalSuggestionSweepService } from './taskip-internal-suggestion-sweep.service';
+import { TaskipInternalSuggestionSweepProcessor, TASKIP_SUGGESTION_SWEEP_QUEUE } from './taskip-internal-suggestion-sweep.processor';
 import { AgentsModule } from '../agents.module';
 import { LlmModule } from '../../llm/llm.module';
 import { TelegramModule } from '../../telegram/telegram.module';
@@ -21,6 +23,7 @@ import { SafetyModule } from '../../safety/safety.module';
     SettingsModule,
     SafetyModule,
     BullModule.registerQueue({ name: TASKIP_EMAIL_SWEEP_QUEUE }),
+    BullModule.registerQueue({ name: TASKIP_SUGGESTION_SWEEP_QUEUE }),
   ],
   providers: [
     TaskipInternalAgent,
@@ -28,6 +31,8 @@ import { SafetyModule } from '../../safety/safety.module';
     TaskipInsightService,
     TaskipInternalEmailService,
     TaskipInternalEmailSweepProcessor,
+    TaskipInternalSuggestionSweepService,
+    TaskipInternalSuggestionSweepProcessor,
   ],
 })
 export class TaskipInternalModule {}
