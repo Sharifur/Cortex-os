@@ -16,6 +16,16 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.1.7',
+    date: '2026-05-08',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'AI-image-first mode: planner defaults to ai_image backend (DALL-E 3 → Stability AI) instead of Canva MCP; backend resolved at runtime via canva_mcp_enabled setting' },
+      { tag: 'feat', scope: 'canva', description: 'GET /canva/thumbnail/:id route: serves PNG bytes for ai_image candidates; falls back to filePath when thumbnailPath is absent' },
+      { tag: 'feat', scope: 'canva', description: 'AIImageAdapter now saves thumbnail alongside candidate image so thumbnail URL is immediately available after generation' },
+      { tag: 'feat', scope: 'canva', description: 'Canva setup tab rewritten for AI-first mode: OpenAI key required, Stability AI optional fallback, Canva MCP in collapsible optional section' },
+    ],
+  },
+  {
     version: 'v4.1.6',
     date: '2026-05-08',
     entries: [

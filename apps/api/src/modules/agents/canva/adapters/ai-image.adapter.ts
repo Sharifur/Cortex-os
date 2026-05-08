@@ -106,6 +106,9 @@ export class AIImageAdapter implements BackendAdapter {
     const filePath = await this.folder.saveCandidate(task.id, candidate, result.bytes);
     candidate.filePath = filePath;
 
+    const thumbPath = await this.folder.saveThumbnail(task.id, candidateId, result.bytes);
+    candidate.thumbnailPath = thumbPath;
+
     await this.audit.append({
       sessionId: task.id,
       candidateId,

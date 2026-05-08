@@ -3693,11 +3693,12 @@ function CanvaSettingsTab({ agent, token }: { agent: AgentDetail; token: string 
   );
 }
 
-// Setup tab — OAuth-based Canva MCP connection guide
+// Setup tab — AI-image-first mode (DALL-E 3 default, Canva MCP optional)
 function CanvaSetupTab({ agent, token }: { agent: AgentDetail; token: string }) {
   const navigate = useNavigate();
   const [verifyResult, setVerifyResult] = useState<any>(null);
   const [verifying, setVerifying] = useState(false);
+  const [mcpExpanded, setMcpExpanded] = useState(false);
 
   const verify = async () => {
     setVerifying(true);
@@ -3718,92 +3719,138 @@ function CanvaSetupTab({ agent, token }: { agent: AgentDetail; token: string }) 
       </div>
 
       <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-3 text-xs text-blue-300 space-y-1">
-        <p className="font-semibold">No Canva app approval needed for personal use</p>
-        <p className="text-blue-300/80">Canva review is only required to publish an app publicly to all Canva users. For your own account you can create an app and use it immediately in development mode — no waiting, no submission.</p>
+        <p className="font-semibold">AI-image mode — no Canva account required</p>
+        <p className="text-blue-300/80">Designs are generated via DALL-E 3 (with Stability AI as fallback). You only need an OpenAI API key. Canva MCP is optional and can be added later.</p>
       </div>
 
       <div className="space-y-3">
 
-        <SetupStep n={1} title="Create a Canva Connect API integration (not an App)">
-          <p className="font-medium text-yellow-400 text-xs mb-1.5">Important: you need a Connect API integration, not a Canva App (SDK plugin).</p>
-          <p>Go to <a href="https://www.canva.com/developers/integrations" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">canva.com/developers/integrations</a> → <strong>Create an integration</strong>.</p>
-          <p className="mt-1 text-muted-foreground text-xs">Do not go to "Apps" — that is for UI plugins that run inside the Canva editor (JavaScript bundle / Code upload). Connect API is separate and gives you OAuth credentials for server-to-server API access.</p>
-          <p className="mt-1.5">In the integration settings, add this redirect URI:</p>
-          <code className="block bg-muted px-2 py-1 rounded text-xs break-all mt-1">
-            https://cortex-api.xgenious.com/integrations/oauth/callback/canva
-          </code>
-          <p className="mt-1.5">Enable scopes: <code className="bg-muted px-1 rounded">design:content:read</code> <code className="bg-muted px-1 rounded">design:content:write</code> <code className="bg-muted px-1 rounded">asset:read</code> <code className="bg-muted px-1 rounded">asset:write</code> <code className="bg-muted px-1 rounded">profile:read</code>.</p>
-        </SetupStep>
-
-        <SetupStep n={2} title="Add credentials to Settings">
-          <p>Copy the <strong>Client ID</strong> and <strong>Client Secret</strong> from your Canva app, then go to <strong>Settings → Secrets</strong> and add:</p>
+        <SetupStep n={1} title="Add OpenAI API key (required)">
+          <p>Go to <strong>Settings → Secrets</strong> and add:</p>
           <div className="mt-2 space-y-1.5">
-            {[
-              { key: 'canva_oauth_client_id', note: 'Client ID from your Canva app' },
-              { key: 'canva_oauth_client_secret', note: 'Client Secret — shown once, copy immediately' },
-            ].map((item) => (
-              <div key={item.key} className="flex items-center gap-2">
-                <code className="bg-muted px-1.5 py-0.5 rounded text-xs shrink-0">{item.key}</code>
-                <span className="text-muted-foreground text-xs">{item.note}</span>
-              </div>
-            ))}
+            <div className="flex items-center gap-2">
+              <code className="bg-muted px-1.5 py-0.5 rounded text-xs shrink-0">openai_api_key</code>
+              <span className="text-muted-foreground text-xs">Your OpenAI API key — used for DALL-E 3 image generation</span>
+            </div>
           </div>
-        </SetupStep>
-
-        <SetupStep n={3} title="Connect your account via OAuth">
-          <p>Go to <strong>Integrations → OAuth Apps</strong> and click <strong>Connect</strong> next to Canva. You will be redirected to Canva to approve access for your own account — this completes instantly with no review.</p>
           <div className="mt-2">
             <button
-              onClick={() => navigate('/integrations')}
+              onClick={() => navigate('/settings')}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs bg-primary text-primary-foreground rounded-lg hover:opacity-90"
             >
-              Go to Integrations
+              Go to Settings
             </button>
           </div>
         </SetupStep>
 
-        <SetupStep n={4} title="Add Canva MCP server">
-          <p>Go to the <strong>MCP</strong> page and add:</p>
-          <div className="mt-2 bg-muted rounded-lg px-3 py-2 text-xs font-mono space-y-1">
-            <div><span className="text-muted-foreground">Name: </span>canva</div>
-            <div><span className="text-muted-foreground">URL: </span>https://mcp.canva.com/mcp</div>
+        <SetupStep n={2} title="Add Stability AI key (optional fallback)">
+          <p>If DALL-E 3 is unavailable or over budget, the agent falls back to Stability AI. Add in <strong>Settings → Secrets</strong>:</p>
+          <div className="mt-2">
+            <div className="flex items-center gap-2">
+              <code className="bg-muted px-1.5 py-0.5 rounded text-xs shrink-0">stability_api_key</code>
+              <span className="text-muted-foreground text-xs">Stability AI API key — fallback image generator</span>
+            </div>
           </div>
-          <p className="mt-1.5">After saving, use the <strong>OAuth Integration</strong> dropdown on the server row to link it to the Canva connection you just made. Enable it.</p>
         </SetupStep>
 
-        <SetupStep n={5} title="Add brand identities">
+        <SetupStep n={3} title="Add brand identities">
           <p>Go to the <strong>Brands</strong> tab and add at least one brand. Paste your website URL to auto-fill voice profile, colors, and fonts.</p>
-          <p className="mt-1 text-muted-foreground">The agent uses the brand identity automatically when you request a design in chat.</p>
+          <p className="mt-1 text-muted-foreground">Brand identity is injected automatically into every generation prompt.</p>
         </SetupStep>
 
-        <SetupStep n={6} title="Verify and test" done={agent.enabled}>
-          <p>Click <strong>Verify</strong> to confirm the MCP connection. Then open the <strong>Chat</strong> page for this agent and type a concept.</p>
+        <SetupStep n={4} title="Test the agent" done={agent.enabled}>
+          <p>Open the <strong>Chat</strong> page for this agent and type a design concept.</p>
           <p className="mt-1 text-muted-foreground">Example: <em>"Create an Instagram carousel for Taskip's spring launch, bold and modern"</em></p>
-          <div className="mt-3 flex items-center gap-3 flex-wrap">
-            <Button size="sm" onClick={verify} disabled={verifying}>
-              {verifying ? 'Verifying...' : 'Verify Canva MCP'}
-            </Button>
+          <div className="mt-3">
             <button
               onClick={() => navigate(`/agents/${agent.key}/chat`)}
-              className="text-xs text-primary hover:underline"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs bg-primary text-primary-foreground rounded-lg hover:opacity-90"
             >
               Open chat
             </button>
           </div>
-          {verifyResult && (
-            <div className={`mt-3 p-3 rounded-lg text-xs font-mono border ${verifyResult.ok ? 'bg-green-500/10 border-green-500/30 text-green-400' : 'bg-destructive/10 border-destructive/20 text-destructive'}`}>
-              <div>Status: {verifyResult.ok ? 'OK' : 'FAILED'}</div>
-              <div>Tools: {verifyResult.toolsFound ?? 0}/{verifyResult.toolsExpected ?? 32}</div>
-              {verifyResult.latencyMs && <div>Latency: {verifyResult.latencyMs}ms</div>}
-              {verifyResult.error && <div>Error: {verifyResult.error}</div>}
-              {verifyResult.missingTools?.length > 0 && (
-                <div className="mt-1">Missing: {verifyResult.missingTools.slice(0, 5).join(', ')}{verifyResult.missingTools.length > 5 ? ` +${verifyResult.missingTools.length - 5} more` : ''}</div>
-              )}
-            </div>
-          )}
         </SetupStep>
 
       </div>
+
+      {/* Optional: Canva MCP */}
+      <div className="border border-border rounded-xl overflow-hidden">
+        <button
+          onClick={() => setMcpExpanded((v) => !v)}
+          className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium hover:bg-muted/40 transition-colors"
+        >
+          <span>Optional: Enable Canva MCP</span>
+          <span className="text-muted-foreground text-xs">{mcpExpanded ? 'Hide' : 'Show'}</span>
+        </button>
+        {mcpExpanded && (
+          <div className="px-4 pb-4 space-y-3 text-sm border-t border-border pt-3">
+            <p className="text-xs text-muted-foreground">When Canva MCP is enabled and connected, designs are created directly in your Canva account with a shareable edit URL. Requires a Canva Connect API integration — currently restricted to approved developers.</p>
+
+            <SetupStep n={1} title="Create a Canva Connect API integration">
+              <p>Go to <a href="https://www.canva.com/developers/integrations" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">canva.com/developers/integrations</a> → Create an integration.</p>
+              <p className="mt-1.5">Add redirect URI:</p>
+              <code className="block bg-muted px-2 py-1 rounded text-xs break-all mt-1">
+                https://cortex-api.xgenious.com/integrations/oauth/callback/canva
+              </code>
+              <p className="mt-1.5">Enable scopes: <code className="bg-muted px-1 rounded">design:content:read</code> <code className="bg-muted px-1 rounded">design:content:write</code> <code className="bg-muted px-1 rounded">asset:read</code> <code className="bg-muted px-1 rounded">asset:write</code> <code className="bg-muted px-1 rounded">profile:read</code></p>
+            </SetupStep>
+
+            <SetupStep n={2} title="Add credentials to Settings">
+              <div className="space-y-1.5 mt-1">
+                {[
+                  { key: 'canva_oauth_client_id', note: 'Client ID' },
+                  { key: 'canva_oauth_client_secret', note: 'Client Secret' },
+                ].map((item) => (
+                  <div key={item.key} className="flex items-center gap-2">
+                    <code className="bg-muted px-1.5 py-0.5 rounded text-xs shrink-0">{item.key}</code>
+                    <span className="text-muted-foreground text-xs">{item.note}</span>
+                  </div>
+                ))}
+              </div>
+            </SetupStep>
+
+            <SetupStep n={3} title="Connect via OAuth">
+              <p>Go to <strong>Integrations → OAuth Apps</strong> and click Connect next to Canva.</p>
+              <button onClick={() => navigate('/integrations')} className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs bg-primary text-primary-foreground rounded-lg hover:opacity-90">Go to Integrations</button>
+            </SetupStep>
+
+            <SetupStep n={4} title="Add Canva MCP server">
+              <p>Go to the <strong>MCP</strong> page and add:</p>
+              <div className="mt-2 bg-muted rounded-lg px-3 py-2 text-xs font-mono space-y-1">
+                <div><span className="text-muted-foreground">Name: </span>canva</div>
+                <div><span className="text-muted-foreground">URL: </span>https://mcp.canva.com/mcp</div>
+              </div>
+              <p className="mt-1.5">Link the OAuth integration to this server row, then enable it.</p>
+            </SetupStep>
+
+            <SetupStep n={5} title="Enable in Settings">
+              <p>Add in <strong>Settings → Secrets</strong>:</p>
+              <div className="flex items-center gap-2 mt-1">
+                <code className="bg-muted px-1.5 py-0.5 rounded text-xs shrink-0">canva_mcp_enabled</code>
+                <span className="text-muted-foreground text-xs">Set to <code className="bg-muted px-1 rounded">true</code></span>
+              </div>
+            </SetupStep>
+
+            <div className="flex items-center gap-3 flex-wrap pt-1">
+              <Button size="sm" onClick={verify} disabled={verifying}>
+                {verifying ? 'Verifying...' : 'Verify Canva MCP'}
+              </Button>
+            </div>
+            {verifyResult && (
+              <div className={`p-3 rounded-lg text-xs font-mono border ${verifyResult.ok ? 'bg-green-500/10 border-green-500/30 text-green-400' : 'bg-destructive/10 border-destructive/20 text-destructive'}`}>
+                <div>Status: {verifyResult.ok ? 'OK' : 'FAILED'}</div>
+                <div>Tools: {verifyResult.toolsFound ?? 0}/{verifyResult.toolsExpected ?? 32}</div>
+                {verifyResult.latencyMs && <div>Latency: {verifyResult.latencyMs}ms</div>}
+                {verifyResult.error && <div>Error: {verifyResult.error}</div>}
+                {verifyResult.missingTools?.length > 0 && (
+                  <div className="mt-1">Missing: {verifyResult.missingTools.slice(0, 5).join(', ')}{verifyResult.missingTools.length > 5 ? ` +${verifyResult.missingTools.length - 5} more` : ''}</div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
     </div>
   );
 }
