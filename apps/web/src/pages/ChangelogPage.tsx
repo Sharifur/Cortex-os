@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.1.6',
+    date: '2026-05-08',
+    entries: [
+      { tag: 'fix', scope: 'canva', description: 'Canva setup step 1: point to Connect API integrations page (canva.com/developers/integrations), not the Apps SDK page — Apps is for Canva editor plugins (Code upload / JS bundle), Connect API is for server OAuth credentials' },
+    ],
+  },
+  {
     version: 'v4.1.5',
     date: '2026-05-08',
     entries: [

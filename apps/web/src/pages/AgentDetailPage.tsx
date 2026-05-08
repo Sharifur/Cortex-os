@@ -3724,9 +3724,11 @@ function CanvaSetupTab({ agent, token }: { agent: AgentDetail; token: string }) 
 
       <div className="space-y-3">
 
-        <SetupStep n={1} title="Create a Canva OAuth app (2 min, no approval needed)">
-          <p>Go to <a href="https://www.canva.com/developers/apps" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">canva.com/developers/apps</a> → <strong>Create an app</strong> → choose <strong>Public</strong> (ignore the review note — it only applies if you later submit for public release).</p>
-          <p className="mt-1.5">In <strong>Configure → OAuth 2.0</strong>, add this redirect URI:</p>
+        <SetupStep n={1} title="Create a Canva Connect API integration (not an App)">
+          <p className="font-medium text-yellow-400 text-xs mb-1.5">Important: you need a Connect API integration, not a Canva App (SDK plugin).</p>
+          <p>Go to <a href="https://www.canva.com/developers/integrations" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">canva.com/developers/integrations</a> → <strong>Create an integration</strong>.</p>
+          <p className="mt-1 text-muted-foreground text-xs">Do not go to "Apps" — that is for UI plugins that run inside the Canva editor (JavaScript bundle / Code upload). Connect API is separate and gives you OAuth credentials for server-to-server API access.</p>
+          <p className="mt-1.5">In the integration settings, add this redirect URI:</p>
           <code className="block bg-muted px-2 py-1 rounded text-xs break-all mt-1">
             https://cortex-api.xgenious.com/integrations/oauth/callback/canva
           </code>
