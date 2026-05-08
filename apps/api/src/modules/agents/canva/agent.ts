@@ -133,7 +133,8 @@ export class CanvaAgent implements IAgent, OnModuleInit {
       });
 
       // T8: Build generation plan
-      const plan = this.planner.plan('pending', brief, skillNames);
+      const backend = await this.canvaMcp.resolveBackend();
+      const plan = this.planner.plan('pending', brief, skillNames, backend);
 
       return [{
         type: 'generate_designs',
@@ -313,7 +314,8 @@ Return ONLY a JSON array (no markdown):
           const fullConcept = brand ? `[${brand}] ${concept}` : concept;
           const brief = await this.conceptParser.parse(fullConcept, { debugMode: config.debugMode });
           const matched = this.skills.match(brief);
-          const plan = this.planner.plan('mcp', brief, matched.map((s) => s.skill.name));
+          const backend = await this.canvaMcp.resolveBackend();
+          const plan = this.planner.plan('mcp', brief, matched.map((s) => s.skill.name), backend);
           const { sessionId, candidates } = await this.aggregator.run(plan, brief, config.debugMode);
           return { sessionId, candidates: candidates.map((c) => ({ id: c.id, status: c.status, backend: c.backend, canvaEditUrl: c.canvaEditUrl, filePath: c.filePath })) };
         },
@@ -357,7 +359,8 @@ Return ONLY a JSON array (no markdown):
           const fullConcept = brand ? `[${brand}] ${concept}` : concept;
           const brief = await this.conceptParser.parse(fullConcept, { debugMode: config.debugMode });
           const matched = this.skills.match(brief);
-          const plan = this.planner.plan('api', brief, matched.map((s) => s.skill.name));
+          const backend = await this.canvaMcp.resolveBackend();
+          const plan = this.planner.plan('api', brief, matched.map((s) => s.skill.name), backend);
           const { sessionId, candidates } = await this.aggregator.run(plan, brief, config.debugMode);
           await this.approvalManager.sendApprovalMessage(sessionId, candidates);
           return {
@@ -407,7 +410,8 @@ Return ONLY a JSON array (no markdown):
           const fullConcept = brand ? `[${brand}] ${message}` : message;
           const brief = await this.conceptParser.parse(fullConcept, { debugMode: config.debugMode });
           const matched = this.skills.match(brief);
-          const plan = this.planner.plan('chat', brief, matched.map((s) => s.skill.name));
+          const backend = await this.canvaMcp.resolveBackend();
+          const plan = this.planner.plan('chat', brief, matched.map((s) => s.skill.name), backend);
           const { sessionId, candidates } = await this.aggregator.run(plan, brief, config.debugMode);
           await this.approvalManager.sendApprovalMessage(sessionId, candidates);
 
@@ -530,6 +534,31 @@ Return ONLY a JSON array (no markdown):
           const { name } = body as any;
           await this.brands.delete(name);
           return { ok: true };
+        },
+      },
+      // Candidate thumbnail — serves PNG bytes for ai_image candidates
+      {
+        method: 'GET',
+        path: '/canva/thumbnail/:id',
+        requiresAuth: false,
+        handler: async (body, reply) => {
+          const { id } = body as any;
+          const rows = await this.db.db
+            .select({ thumbnailPath: canvaCandidates.thumbnailPath, filePath: canvaCandidates.filePath })
+            .from(canvaCandidates)
+            .where(eq(canvaCandidates.id, id))
+            .limit(1);
+          const row = rows[0];
+          if (!row) { (reply as any).code(404).send({ error: 'not found' }); return; }
+          const imgPath = row.thumbnailPath ?? row.filePath;
+          if (!imgPath) { (reply as any).code(404).send({ error: 'no image' }); return; }
+          const { readFile } = await import('fs/promises');
+          try {
+            const bytes = await readFile(imgPath);
+            (reply as any).header('Content-Type', 'image/png').send(bytes);
+          } catch {
+            (reply as any).code(404).send({ error: 'file not found' });
+          }
         },
       },
     ];

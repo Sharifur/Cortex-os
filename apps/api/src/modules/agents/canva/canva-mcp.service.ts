@@ -59,6 +59,11 @@ export class CanvaMcpService implements OnModuleInit {
     }
   }
 
+  async resolveBackend(): Promise<'canva' | 'ai_image'> {
+    const enabled = await this.settings.getDecrypted('canva_mcp_enabled');
+    return enabled === 'true' ? 'canva' : 'ai_image';
+  }
+
   async verify(): Promise<CanvaVerifyResult> {
     const t0 = Date.now();
     try {
