@@ -16,6 +16,15 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.2.4',
+    date: '2026-05-08',
+    entries: [
+      { tag: 'feat', scope: 'taskip-internal', description: 'Tasks tab added to agent detail page: daily automated sweeps (6 cohort cards), on-demand tasks (8 clickable items), and weekly reviews (3 items)' },
+      { tag: 'feat', scope: 'taskip-internal', description: 'Clicking any on-demand or weekly task opens the chat page with the query pre-filled for editing before sending' },
+      { tag: 'feat', scope: 'chat', description: 'AgentChatPage now reads location.state.query and pre-fills the chat input — enables navigate-to-chat-with-query from other pages' },
+    ],
+  },
+  {
     version: 'v4.2.3',
     date: '2026-05-08',
     entries: [

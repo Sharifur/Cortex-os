@@ -8,6 +8,7 @@ import {
   CheckCircle2, Circle, MessageSquare,
   Bug, AlertTriangle, AlertCircle,
   Plus, Loader2,
+  CalendarClock, Zap, RotateCcw, ListTodo, ExternalLink,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -1629,6 +1630,7 @@ function EmailManagerSettingsTab({ agent, token }: { agent: AgentDetail; token: 
 
 const TASKIP_INTERNAL_TABS = [
   { key: 'suggestions', label: 'Suggestions', icon: Mail },
+  { key: 'tasks', label: 'Tasks', icon: ListTodo },
   { key: 'setup', label: 'Setup', icon: BookOpen },
   { key: 'llm', label: 'LLM', icon: Cpu },
   { key: 'runtime', label: 'Runtime', icon: List },
@@ -1638,6 +1640,222 @@ type TaskipInternalTabKey = typeof TASKIP_INTERNAL_TABS[number]['key'];
 
 interface TaskipInternalConfig {
   llm?: { provider?: string; model?: string } | null;
+}
+
+// ─── Tasks sub-tab data ───────────────────────────────────────────────────────
+
+const DAILY_SWEEP_TASKS = [
+  {
+    cohort: 'at_risk_paid',
+    cohortColor: 'bg-red-100 text-red-700',
+    schedule: 'Daily 9 am',
+    action: 'insight_submit_message',
+    actionColor: 'bg-blue-100 text-blue-700',
+    scenario: 'retention_nudge',
+    description: 'Find paid workspaces with CHS below 40 and propose a retention message before churn.',
+  },
+  {
+    cohort: 'dormant_paid',
+    cohortColor: 'bg-orange-100 text-orange-700',
+    schedule: 'Daily 9 am',
+    action: 'insight_submit_message',
+    actionColor: 'bg-blue-100 text-blue-700',
+    scenario: 'win_back',
+    description: 'Identify paid workspaces with no activity in 30+ days and propose a win-back message.',
+  },
+  {
+    cohort: 'trial_ready_free',
+    cohortColor: 'bg-green-100 text-green-700',
+    schedule: 'Daily 10 am',
+    action: 'send_email',
+    actionColor: 'bg-purple-100 text-purple-700',
+    scenario: 'upgrade_prompt',
+    description: 'Free workspaces with TRS above 70 — propose a personal upgrade email from Gmail.',
+  },
+  {
+    cohort: 'serious_trial',
+    cohortColor: 'bg-yellow-100 text-yellow-700',
+    schedule: 'Daily 10 am',
+    action: 'send_email',
+    actionColor: 'bg-purple-100 text-purple-700',
+    scenario: 'rescue_stalled',
+    description: 'Active trials with THS below 40 that have stalled mid-setup — propose a rescue email.',
+  },
+  {
+    cohort: 'healthy_paid',
+    cohortColor: 'bg-emerald-100 text-emerald-700',
+    schedule: 'Daily 11 am',
+    action: 'insight_submit_message',
+    actionColor: 'bg-blue-100 text-blue-700',
+    scenario: 'celebrate_activation',
+    description: 'Paid workspaces that hit their activation milestone in the last 24h — send a congratulation.',
+  },
+  {
+    cohort: 'expired_trial_warm',
+    cohortColor: 'bg-slate-100 text-slate-700',
+    schedule: 'Every 3 days',
+    action: 'send_email',
+    actionColor: 'bg-purple-100 text-purple-700',
+    scenario: 'invite_to_trial',
+    description: 'Expired trials that were recently active — propose a re-engagement email with a limited offer.',
+  },
+];
+
+const ONDEMAND_TASKS = [
+  {
+    label: 'Drill into a workspace',
+    query: 'Show full overview and suggest outreach for workspace ',
+    hint: 'append workspace UUID',
+  },
+  {
+    label: 'Review user before a call',
+    query: 'Look up  and summarize their history, subscriptions, and invoices',
+    hint: 'insert email address',
+  },
+  {
+    label: 'Check recent outreach for a workspace',
+    query: 'Show suggestion activity and sent email history for workspace ',
+    hint: 'append workspace UUID',
+  },
+  {
+    label: 'Find all at-risk paid workspaces now',
+    query: 'List at_risk_paid workspaces with CHS below 40 and propose retention outreach for the top 3',
+    hint: 'runs immediately',
+  },
+  {
+    label: 'Find free workspaces ready to upgrade',
+    query: 'List trial_ready_free workspaces with TRS above 70 and propose upgrade emails',
+    hint: 'runs immediately',
+  },
+  {
+    label: 'Check hot leads in trial funnel',
+    query: 'Find serious_trial workspaces with high activation score and propose follow-up',
+    hint: 'runs immediately',
+  },
+  {
+    label: 'Extend trial for a user',
+    query: 'Look up  and extend their trial by 14 days',
+    hint: 'insert email address — requires approval',
+  },
+  {
+    label: 'Sync replies on sent emails',
+    query: 'Sync replies for email ',
+    hint: 'append email ID from inbox',
+  },
+];
+
+const WEEKLY_TASKS = [
+  {
+    day: 'Monday',
+    label: 'Health scan report',
+    description: 'List all at_risk_paid and dormant_paid workspaces, count pending suggestions, and summarize emails sent this week.',
+    query: 'Generate a weekly health scan: list at_risk_paid and dormant_paid workspaces, count of pending suggestions, and total emails sent this week',
+  },
+  {
+    day: 'Wednesday',
+    label: 'Conversion funnel check',
+    description: 'List trial_ready_free workspaces with TRS above 60, show how many were contacted, and flag unconverted high-score workspaces.',
+    query: 'Check the conversion funnel: list trial_ready_free workspaces with TRS above 60 and show which have been contacted and which have not',
+  },
+  {
+    day: 'Friday',
+    label: 'Suppression audit',
+    description: 'List workspaces marked sweep_ignored after 3 consecutive skips. Decide whether any should be un-suppressed.',
+    query: 'List workspaces that are suppressed (sweep_ignored) and show their skip history so I can decide which to un-suppress',
+  },
+];
+
+function TaskipInternalTasksSubTab({ agentKey }: { agentKey: string }) {
+  const navigate = useNavigate();
+
+  function openChat(query: string) {
+    navigate(`/agents/${agentKey}/chat`, { state: { query } });
+  }
+
+  return (
+    <div className="space-y-6">
+
+      {/* Daily automated sweeps */}
+      <div className="rounded-xl border border-border bg-card p-5">
+        <div className="flex items-center gap-2 mb-1">
+          <CalendarClock className="w-4 h-4 text-muted-foreground" />
+          <h3 className="text-sm font-semibold">Daily automated sweeps</h3>
+        </div>
+        <p className="text-xs text-muted-foreground mb-4">
+          These run via the 6-hour BullMQ cron. Results appear in the Suggestions tab awaiting your approval — nothing is sent automatically.
+        </p>
+        <div className="space-y-3">
+          {DAILY_SWEEP_TASKS.map((t) => (
+            <div key={t.cohort} className="flex items-start gap-3 p-3 rounded-lg border border-border bg-muted/10 hover:bg-muted/20 transition-colors">
+              <div className="flex-1 min-w-0">
+                <div className="flex flex-wrap items-center gap-1.5 mb-1">
+                  <span className={`text-xs font-medium px-1.5 py-0.5 rounded ${t.cohortColor}`}>{t.cohort}</span>
+                  <span className={`text-xs px-1.5 py-0.5 rounded ${t.actionColor}`}>{t.action}</span>
+                  <span className="text-xs text-muted-foreground">scenario: {t.scenario}</span>
+                </div>
+                <p className="text-xs text-muted-foreground">{t.description}</p>
+              </div>
+              <span className="text-xs text-muted-foreground whitespace-nowrap shrink-0 pt-0.5">{t.schedule}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* On-demand tasks */}
+      <div className="rounded-xl border border-border bg-card p-5">
+        <div className="flex items-center gap-2 mb-1">
+          <Zap className="w-4 h-4 text-muted-foreground" />
+          <h3 className="text-sm font-semibold">On-demand tasks</h3>
+        </div>
+        <p className="text-xs text-muted-foreground mb-4">
+          Click any task to open the chat with the query pre-filled. Edit it before sending.
+        </p>
+        <div className="space-y-2">
+          {ONDEMAND_TASKS.map((t) => (
+            <button
+              key={t.label}
+              onClick={() => openChat(t.query)}
+              className="w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-lg border border-border bg-muted/10 hover:bg-muted/30 transition-colors text-left group"
+            >
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-foreground">{t.label}</p>
+                <p className="text-xs text-muted-foreground truncate mt-0.5">{t.hint}</p>
+              </div>
+              <ExternalLink className="w-3.5 h-3.5 text-muted-foreground shrink-0 group-hover:text-foreground transition-colors" />
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Weekly reviews */}
+      <div className="rounded-xl border border-border bg-card p-5">
+        <div className="flex items-center gap-2 mb-1">
+          <RotateCcw className="w-4 h-4 text-muted-foreground" />
+          <h3 className="text-sm font-semibold">Weekly reviews</h3>
+        </div>
+        <p className="text-xs text-muted-foreground mb-4">
+          Run once a week in chat to get a structured report. Each opens chat with the query ready.
+        </p>
+        <div className="space-y-3">
+          {WEEKLY_TASKS.map((t) => (
+            <button
+              key={t.label}
+              onClick={() => openChat(t.query)}
+              className="w-full flex items-start gap-3 p-3 rounded-lg border border-border bg-muted/10 hover:bg-muted/30 transition-colors text-left group"
+            >
+              <span className="text-xs font-medium bg-muted px-1.5 py-0.5 rounded shrink-0 mt-0.5">{t.day}</span>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-foreground">{t.label}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">{t.description}</p>
+              </div>
+              <ExternalLink className="w-3.5 h-3.5 text-muted-foreground shrink-0 group-hover:text-foreground transition-colors mt-0.5" />
+            </button>
+          ))}
+        </div>
+      </div>
+
+    </div>
+  );
 }
 
 function TaskipInternalSetupSubTab({ agent }: { agent: AgentDetail }) {
@@ -2254,6 +2472,7 @@ function TaskipInternalSettingsTab({ agent, token }: { agent: AgentDetail; token
       </div>
 
       {activeSub === 'suggestions' && <SuggestionsSubTab token={token} />}
+      {activeSub === 'tasks' && <TaskipInternalTasksSubTab agentKey={agent.key} />}
       {activeSub === 'setup' && <TaskipInternalSetupSubTab agent={agent} />}
       {activeSub === 'llm' && (
         <TaskipInternalLlmSubTab agent={agent} config={config} onChange={handleChange} token={token} />
