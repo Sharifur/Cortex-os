@@ -1579,7 +1579,7 @@ const TASKIP_INTERNAL_TABS = [
 type TaskipInternalTabKey = typeof TASKIP_INTERNAL_TABS[number]['key'];
 
 interface TaskipInternalConfig {
-  llm: { provider: string; model: string };
+  llm?: { provider?: string; model?: string } | null;
 }
 
 function TaskipInternalSetupSubTab({ agent }: { agent: AgentDetail }) {
@@ -1647,7 +1647,7 @@ function TaskipInternalSetupSubTab({ agent }: { agent: AgentDetail }) {
         <p className="text-xs text-muted-foreground">
           Taskip DB read-only connection: set <code className="bg-muted px-1 rounded">taskip_db_url_readonly</code> in{' '}
           <a href="/settings" className="text-primary hover:underline">Settings</a> (shared with Taskip Trial agent).
-          LLM provider must be <strong>OpenAI</strong> or <strong>DeepSeek</strong> — set in Settings and the LLM sub-tab (Gemini does not support tool calling).
+          LLM provider is configured in the <strong>LLM</strong> sub-tab. OpenAI or DeepSeek are required — Gemini does not support tool calling. Leave on Default to inherit platform Settings.
         </p>
       </div>
     </div>
@@ -1830,21 +1830,34 @@ function TaskipInternalLlmSubTab({ agent, config, onChange, token }: {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['agent', agent.key] }),
   });
 
+  const useDefault = !config.llm?.provider;
+
   return (
     <div className="rounded-xl border border-border bg-card p-5">
       <h3 className="text-sm font-semibold mb-2">LLM Configuration</h3>
       <p className="text-xs text-muted-foreground mb-4">
-        Only <strong>OpenAI</strong> and <strong>DeepSeek</strong> support tool calling. Gemini is not supported for this agent.
-        Use <code className="bg-muted px-1 rounded">gpt-4o</code> for best accuracy.
+        Only <strong>OpenAI</strong> and <strong>DeepSeek</strong> support tool calling — Gemini does not.
+        Select <strong>Default</strong> to inherit the platform LLM settings ({' '}
+        <a href="/settings" className="text-primary hover:underline">Settings → LLM</a>).
       </p>
       <div className="space-y-4">
         <div>
           <label className="text-xs text-muted-foreground block mb-2">Provider</label>
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
+            <button
+              onClick={() => onChange({ llm: null })}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
+                useDefault
+                  ? 'bg-primary text-primary-foreground border-primary'
+                  : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground/30'
+              }`}
+            >
+              Default (from Settings)
+            </button>
             {(['openai', 'deepseek'] as const).map((p) => (
               <button
                 key={p}
-                onClick={() => onChange({ llm: { ...config.llm, provider: p } })}
+                onClick={() => onChange({ llm: { provider: p, model: config.llm?.model ?? '' } })}
                 className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
                   config.llm?.provider === p
                     ? 'bg-primary text-primary-foreground border-primary'
@@ -1856,18 +1869,26 @@ function TaskipInternalLlmSubTab({ agent, config, onChange, token }: {
             ))}
           </div>
         </div>
-        <div>
-          <label className="text-xs text-muted-foreground block mb-1">Model</label>
-          <Input
-            value={config.llm?.model ?? ''}
-            onChange={(e) => onChange({ llm: { ...config.llm, model: e.target.value } })}
-            placeholder="gpt-4o"
-            className="text-sm"
-          />
-          <p className="text-xs text-muted-foreground mt-1">
-            Recommended: <code className="bg-muted px-1 rounded">gpt-4o</code> or <code className="bg-muted px-1 rounded">deepseek-chat</code>
+        {!useDefault && (
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1">Model</label>
+            <Input
+              value={config.llm?.model ?? ''}
+              onChange={(e) => onChange({ llm: { ...config.llm, model: e.target.value } })}
+              placeholder="gpt-4o"
+              className="text-sm"
+            />
+            <p className="text-xs text-muted-foreground mt-1">
+              Recommended: <code className="bg-muted px-1 rounded">gpt-4o</code> or <code className="bg-muted px-1 rounded">deepseek-chat</code>
+            </p>
+          </div>
+        )}
+        {useDefault && (
+          <p className="text-xs text-muted-foreground">
+            Using platform default — provider and model are read from{' '}
+            <a href="/settings" className="text-primary hover:underline">Settings → LLM</a> at runtime.
           </p>
-        </div>
+        )}
       </div>
       <SaveRow
         isPending={configMutation.isPending}
@@ -2148,9 +2169,7 @@ function SuggestionsSubTab({ token }: { token: string }) {
 function TaskipInternalSettingsTab({ agent, token }: { agent: AgentDetail; token: string }) {
   const [activeSub, setActiveSub] = useState<TaskipInternalTabKey>('suggestions');
   const [config, setConfig] = useState<TaskipInternalConfig>(
-    (agent.config as unknown as TaskipInternalConfig) ?? {
-      llm: { provider: 'openai', model: 'gpt-4o' },
-    }
+    (agent.config as unknown as TaskipInternalConfig) ?? {}
   );
 
   function handleChange(patch: Partial<TaskipInternalConfig>) {

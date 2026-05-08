@@ -16,6 +16,16 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.2.1',
+    date: '2026-05-08',
+    entries: [
+      { tag: 'fix', scope: 'runtime', description: 'Agent route dispatcher now merges request.query into params — GET route handlers (e.g. insight/status) were always receiving empty params because only request.body was passed' },
+      { tag: 'fix', scope: 'taskip-internal', description: 'Insight Test connection: workspaceUuid query param now correctly reaches the status() method; debug logs added in dispatcher and status()' },
+      { tag: 'feat', scope: 'taskip-internal', description: 'LLM tab: added Default (from Settings) provider option — when selected, agent inherits platform LLM settings instead of forcing a manual override' },
+      { tag: 'chore', scope: 'taskip-internal', description: 'Updated chat suggestion chips to reflect sweep workflow: pending suggestions, run sweep, activity log queries' },
+    ],
+  },
+  {
     version: 'v4.2.0',
     date: '2026-05-08',
     entries: [
