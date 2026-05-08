@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.1.4',
+    date: '2026-05-08',
+    entries: [
+      { tag: 'fix', scope: 'widget', description: 'Rebuild livechat.js bundle — requireEmail email gate was implemented in ui.ts but the deployed bundle was never rebuilt so the gate never appeared; fresh build includes the gate and all recent widget changes' },
+    ],
+  },
+  {
     version: 'v4.1.3',
     date: '2026-05-07',
     entries: [
