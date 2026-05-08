@@ -16,6 +16,19 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.2.3',
+    date: '2026-05-08',
+    entries: [
+      { tag: 'fix', scope: 'taskip-internal', description: 'System prompt: added golden rule (no send without approval), channel routing table, score thresholds, valid scenario_key list, per_page cap, and pre-outreach dedup checklist' },
+      { tag: 'fix', scope: 'taskip-internal', description: 'Raised MAX_TOOL_ITERATIONS from 8 to 14 — marketing workflow (segment → drill → recommend → submit → log) routinely exceeded 8 steps' },
+      { tag: 'feat', scope: 'taskip-internal', description: 'New tool: list_workspace_suggestions — LLM can check pending/sent suggestions before proposing new outreach to avoid duplicate sends' },
+      { tag: 'fix', scope: 'taskip-internal', description: 'send_email tool: body description corrected to Markdown, added paid-plan restriction warning' },
+      { tag: 'fix', scope: 'taskip-internal', description: 'insight_submit_message tool: added paid-cohort-only restriction to description' },
+      { tag: 'fix', scope: 'taskip-internal', description: 'insight_submit_marketing_suggestion: idempotency_key removed from required fields' },
+      { tag: 'fix', scope: 'taskip-internal', description: 'GET /taskip-internal/suggestions: replaced N+1 activity queries with a single batched inArray query' },
+    ],
+  },
+  {
     version: 'v4.2.2',
     date: '2026-05-08',
     entries: [
