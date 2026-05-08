@@ -54,7 +54,7 @@ export class AgentRouteDispatcherService implements OnApplicationBootstrap {
             // Fire-and-forget webhook agent run
             if (isWebhookTrigger) {
               this.runtime
-                .triggerAgent(agent.key, 'WEBHOOK', body)
+                .triggerAgent(agent.key, 'WEBHOOK', request.body ?? {})
                 .catch((err) =>
                   this.logger.warn(
                     `Webhook trigger failed for ${agent.key}: ${err}`,
