@@ -510,7 +510,7 @@ export class EmailManagerAgent implements IAgent, OnModuleInit {
     // --- Text path ---
     if (looksLikeClientEmail(effectiveInstructions)) {
       // Detect language and sentiment with a fast single call
-      const analysis = await this.analyzeEmailText(effectiveInstructions).catch(() => ({
+      const analysis = await this.analyzeEmailText(effectiveInstructions, config).catch(() => ({
         language: 'en', sentiment: 'neutral' as Sentiment,
       }));
       return this.draftClientReply(
@@ -615,8 +615,6 @@ export class EmailManagerAgent implements IAgent, OnModuleInit {
     const response = await this.llm.complete({
       messages,
       ...agentLlmOpts(config),
-      provider: 'openai',
-      model: 'gpt-4o',
       agentKey: this.key,
       maxTokens: 900,
       temperature: 0.6,
@@ -696,10 +694,9 @@ Return ONLY valid JSON in this exact format:
   }
 
   // Quick language + sentiment analysis for text-path emails (single LLM call, cheap)
-  private async analyzeEmailText(text: string): Promise<{ language: string; sentiment: Sentiment }> {
+  private async analyzeEmailText(text: string, config?: unknown): Promise<{ language: string; sentiment: Sentiment }> {
     const res = await this.llm.complete({
-      provider: 'openai',
-      model: 'gpt-4o-mini',
+      ...agentLlmOpts(config as Parameters<typeof agentLlmOpts>[0]),
       agentKey: this.key,
       maxTokens: 30,
       temperature: 0,

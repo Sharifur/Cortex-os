@@ -288,6 +288,18 @@ export class TaskipInsightService {
     return this.request<InsightCohortListResponse>('GET', path);
   }
 
+  async getTrialFunnelHotList(): Promise<InsightCohortListItem[]> {
+    return this.request<InsightCohortListItem[]>('GET', '/trial-funnel/hot-list');
+  }
+
+  async getTrialFunnelAtRiskList(): Promise<InsightCohortListItem[]> {
+    return this.request<InsightCohortListItem[]>('GET', '/trial-funnel/at-risk-list');
+  }
+
+  async getTrialFunnelTrialReadyList(): Promise<InsightCohortListItem[]> {
+    return this.request<InsightCohortListItem[]>('GET', '/trial-funnel/trial-ready-list');
+  }
+
   async getRecommendedActions(workspaceUuid: string): Promise<{ workspace_uuid: string; actions: InsightRecommendedAction[] }> {
     return this.request('GET', `/workspaces/${encodeURIComponent(workspaceUuid)}/recommended-actions`);
   }
@@ -317,11 +329,13 @@ export class TaskipInsightService {
   }
 
   async status(probeWorkspaceUuid?: string): Promise<InsightStatus> {
+    this.logger.debug(`status() called — probeWorkspaceUuid=${JSON.stringify(probeWorkspaceUuid)}`);
     const [base, primary, secondary] = await Promise.all([
       this.getBaseUrl(),
       this.settings.getDecrypted('insight_agent_key_primary'),
       this.settings.getDecrypted('insight_agent_key_secondary'),
     ]);
+    this.logger.debug(`status() settings — base=${!!base} primary=${!!primary} secondary=${!!secondary}`);
     const status: InsightStatus = {
       configured: !!base && !!primary,
       baseUrl: base,

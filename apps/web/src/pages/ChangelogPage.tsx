@@ -16,6 +16,61 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.2.4',
+    date: '2026-05-08',
+    entries: [
+      { tag: 'feat', scope: 'taskip-internal', description: 'Tasks tab added to agent detail page: daily automated sweeps (6 cohort cards), on-demand tasks (8 clickable items), and weekly reviews (3 items)' },
+      { tag: 'feat', scope: 'taskip-internal', description: 'Clicking any on-demand or weekly task opens the chat page with the query pre-filled for editing before sending' },
+      { tag: 'feat', scope: 'chat', description: 'AgentChatPage now reads location.state.query and pre-fills the chat input — enables navigate-to-chat-with-query from other pages' },
+    ],
+  },
+  {
+    version: 'v4.2.3',
+    date: '2026-05-08',
+    entries: [
+      { tag: 'fix', scope: 'taskip-internal', description: 'System prompt: added golden rule (no send without approval), channel routing table, score thresholds, valid scenario_key list, per_page cap, and pre-outreach dedup checklist' },
+      { tag: 'fix', scope: 'taskip-internal', description: 'Raised MAX_TOOL_ITERATIONS from 8 to 14 — marketing workflow (segment → drill → recommend → submit → log) routinely exceeded 8 steps' },
+      { tag: 'feat', scope: 'taskip-internal', description: 'New tool: list_workspace_suggestions — LLM can check pending/sent suggestions before proposing new outreach to avoid duplicate sends' },
+      { tag: 'fix', scope: 'taskip-internal', description: 'send_email tool: body description corrected to Markdown, added paid-plan restriction warning' },
+      { tag: 'fix', scope: 'taskip-internal', description: 'insight_submit_message tool: added paid-cohort-only restriction to description' },
+      { tag: 'fix', scope: 'taskip-internal', description: 'insight_submit_marketing_suggestion: idempotency_key removed from required fields' },
+      { tag: 'fix', scope: 'taskip-internal', description: 'GET /taskip-internal/suggestions: replaced N+1 activity queries with a single batched inArray query' },
+    ],
+  },
+  {
+    version: 'v4.2.2',
+    date: '2026-05-08',
+    entries: [
+      { tag: 'feat', scope: 'llm', description: 'All agent LLM tabs now default to "Default (from Settings)" — no hardcoded provider in initial state; per-agent override only when explicitly selected' },
+      { tag: 'feat', scope: 'llm', description: 'LlmSubTab, DailyReminderLlmSubTab, EmailManagerLlmSubTab: added Default button that clears llm config; model input hidden when default is active' },
+      { tag: 'fix', scope: 'email-manager', description: 'Remove hardcoded provider/model override in draftClientReply and analyzeEmailText — both now use agentLlmOpts(config) which falls through to global Settings' },
+      { tag: 'chore', scope: 'llm', description: 'LLM interfaces (TaskipConfig, DailyReminderConfig, EmailManagerConfig): llm field is now optional/nullable' },
+    ],
+  },
+  {
+    version: 'v4.2.1',
+    date: '2026-05-08',
+    entries: [
+      { tag: 'fix', scope: 'runtime', description: 'Agent route dispatcher now merges request.query into params — GET route handlers (e.g. insight/status) were always receiving empty params because only request.body was passed' },
+      { tag: 'fix', scope: 'taskip-internal', description: 'Insight Test connection: workspaceUuid query param now correctly reaches the status() method; debug logs added in dispatcher and status()' },
+      { tag: 'feat', scope: 'taskip-internal', description: 'LLM tab: added Default (from Settings) provider option — when selected, agent inherits platform LLM settings instead of forcing a manual override' },
+      { tag: 'chore', scope: 'taskip-internal', description: 'Updated chat suggestion chips to reflect sweep workflow: pending suggestions, run sweep, activity log queries' },
+    ],
+  },
+  {
+    version: 'v4.2.0',
+    date: '2026-05-08',
+    entries: [
+      { tag: 'feat', scope: 'taskip-internal', description: 'Proactive suggestion sweep: BullMQ cron runs every 6h, fetches 5 cohorts via Insight API, generates LLM drafts, queues for founder approval' },
+      { tag: 'feat', scope: 'taskip-internal', description: 'Dual send path: Gmail for trial/free cohorts, Taskip system messaging for paid cohorts; channel locked at draft time' },
+      { tag: 'feat', scope: 'taskip-internal', description: 'Workspace activity log tracks suggestion lifecycle: created, sent, skipped, suppressed' },
+      { tag: 'feat', scope: 'taskip-internal', description: 'Suggestions tab on agent detail page: filter bar, suggestion cards with tier badges, inline edit, approve/skip actions, activity timeline' },
+      { tag: 'feat', scope: 'taskip-internal', description: 'Approve/skip API routes + manual sweep trigger endpoint' },
+      { tag: 'feat', scope: 'taskip-internal', description: '3-skip suppression: workspace auto-suppressed after 3 consecutive skips with no send' },
+      { tag: 'chore', scope: 'db', description: 'Migration 0061: taskip_internal_suggestions + taskip_internal_workspace_activity tables' },
+    ],
+  },
+  {
     version: 'v4.1.7',
     date: '2026-05-08',
     entries: [

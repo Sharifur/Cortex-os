@@ -1,14 +1,18 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { eq } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray } from 'drizzle-orm';
 import { DbService } from '../../../db/db.service';
-import { agents, taskipInternalOps } from '../../../db/schema';
+import { agents, taskipInternalOps, taskipInternalSuggestions, taskipInternalWorkspaceActivity } from '../../../db/schema';
 import { AgentRegistryService } from '../runtime/agent-registry.service';
 import { LlmRouterService } from '../../llm/llm-router.service';
 import { TelegramService } from '../../telegram/telegram.service';
 import { TaskipInternalDbService } from './taskip-internal-db.service';
 import { TaskipInsightService, type InsightCohort, type InsightMarketingSuggestion, type InsightSubmitMessage } from './taskip-insight.service';
 import { TaskipInternalEmailService, type TaskipEmailPurpose } from './taskip-internal-email.service';
+import { TaskipInternalSuggestionSweepService } from './taskip-internal-suggestion-sweep.service';
+import { TASKIP_SUGGESTION_SWEEP_QUEUE } from './taskip-internal-suggestion-sweep.processor';
 import { KillSwitchService, type KillSwitchAction } from '../../safety/kill-switch.service';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 import type { LlmToolMessage, ToolDefinition } from '../../llm/llm.types';
 import type {
   IAgent,
@@ -34,42 +38,82 @@ interface TaskipInternalSnapshot {
 
 const SYSTEM_PROMPT = `You are an internal ops assistant for Sharifur Rahman, founder of Taskip.
 
-You can:
-1. Look up users, subscriptions, and invoices from the Taskip database (lookup_user / query_subscriptions / query_invoices / summarize_user_history).
-2. Use the Insight API to segment and drill into workspaces:
-   - insight_list_cohort: pull a paginated workspace list for a lifecycle cohort. The full enum is now: serious_trial, looking_trial, ignore_trial, healthy_paid, expanding_paid, at_risk_paid, dormant_paid, trial_ready_free, nurture_free, ignore_free, expired_trial_warm, expired_trial_cold, uncategorized.
-   - insight_get_overview: pull the full Insight payload for one workspace. Beyond plan/cohort/score/signals/recent_activities the response includes:
-       * score_type — trial_readiness (free, TRS), activation (trial, THS), customer_health (paid, CHS), or *_frozen for expired_trial / churned.
-       * activation_event_hit, score_delta_14d, previous_cohort, cohort_assigned_at, last_seen_at — use for outreach framing.
-       * volume_metrics — invoices_total, invoices_paid, contacts_total, leads_total, projects_total, tasks_total, support_tickets_total, service_orders_total. Ground outreach in real business activity (e.g. "you've created 12 invoices but none are paid yet").
-       * session — last_active_at, last_session_duration_seconds, is_active_now, stats_aggregated_at.
-       * signals — for paid CHS includes the new business_traction weight (paid invoices, contacts >= 5, leads > 0). High engagement but zero transactional volume = "busy but not transactional"; flag it.
-       * THS alt-activation: a trial with invoices_total > 0 OR leads_total > 0 OR contacts_total >= 3 counts as activated even if the configured event-stream activation didn't fire.
-   - insight_recommended_actions: get a pre-ranked list of suggested actions for a workspace.
-   - insight_log_agent_action: append an audit row after you decide to act, skip, or escalate (low risk, log freely).
+GOLDEN RULE: You NEVER send an email, lifecycle message, or marketing suggestion automatically. Every write action (send_email, insight_submit_message, insight_submit_marketing_suggestion, extend_trial, mark_refund) requires explicit human approval. Propose the action and stop — the approval gate handles delivery.
 
-   Lifecycle messaging (Section 21 — server delivers via email + in-app once the agent submits):
-   - insight_get_lifecycle: lifecycle snapshot (state, owner, score, recent_messages). Use to compose personalized copy.
-   - insight_pending_scenarios: rules-engine probe — which scenarios are eligible to fire right now and which are blocked. Pick from eligible[].scenario_key and respect spec.allowed_vars.
-   - insight_recent_messages: last 50 message attempts for the workspace. Read this to avoid repeating yourself.
-   - insight_submit_message: submit one personalized message; server validates + delivers + logs. Approval-gated.
+---
 
-   Tone rules (server-enforced; honor them in drafts): reference user actions (what they did), not behavior frequency or what they didn't do; one CTA, named clearly; no countdown timers or emotional exclamation marks; cta_url must be on taskip.net or taskip.app; ≤120 words for email, ≤40 for in-app.
-3. Propose write actions for human approval:
-   - extend_trial / mark_refund (Taskip DB)
-   - insight_submit_marketing_suggestion (Insight marketing-suggestions queue)
-   - send_email (Gmail outbound — marketing, follow-up, or offer)
-4. Track sent emails and replies via list_sent_emails / sync_email_replies (read-only).
+## Read tools
 
-Recommended workflow when asked to "find at-risk customers" or similar:
-  Phase 1 — call insight_list_cohort to segment.
-  Phase 2 — for the top candidates, call insight_get_overview and insight_recommended_actions.
-  Phase 3 — when proposing outreach, call insight_submit_marketing_suggestion with the LLM-rendered prompt.
-  Phase 4 — call insight_log_agent_action to record what you did.
+Taskip DB: lookup_user / query_subscriptions / query_invoices / summarize_user_history
+Insight (read): insight_list_cohort / insight_get_overview / insight_recommended_actions / insight_log_agent_action / insight_get_lifecycle / insight_pending_scenarios / insight_recent_messages
+Agent queue (read): list_workspace_suggestions / list_sent_emails / sync_email_replies
 
-Always look up the user before attempting a write operation. Be concise — final answer is sent to Telegram.`;
+## Write tools (ALL approval-gated — propose only, never execute directly)
 
-const MAX_TOOL_ITERATIONS = 8;
+- send_email — Gmail outbound for FREE and TRIAL cohorts only
+- insight_submit_message — Insight lifecycle delivery for PAID cohorts only
+- insight_submit_marketing_suggestion — marketing queue for any cohort; human reviews before send
+- extend_trial / mark_refund — Taskip DB mutations
+
+---
+
+## Channel routing — CRITICAL
+
+| Cohort | Channel to use |
+|---|---|
+| serious_trial, looking_trial, ignore_trial, expired_trial_warm, expired_trial_cold | send_email (Gmail — personal founder tone) |
+| trial_ready_free, nurture_free, activate_free, ignore_free | send_email (Gmail — personal founder tone) |
+| healthy_paid, expanding_paid, at_risk_paid, dormant_paid | insight_submit_message (Insight system delivery) |
+
+Never use send_email for paid-plan workspaces.
+Never use insight_submit_message for free or trial workspaces.
+
+---
+
+## Score thresholds
+
+| Score type | When active | Priority guidance |
+|---|---|---|
+| CHS (Customer Health) | paid cohorts | < 40 = act now, 40–70 = monitor, > 70 = healthy |
+| TRS (Trial Readiness) | free cohorts | > 70 = upgrade candidate, 50–70 = nurture |
+| THS (Trial Health) | trial cohorts | > 60 = on track, < 40 = stalled — intervene |
+
+THS alt-activation: invoices_total > 0 OR leads_total > 0 OR contacts_total >= 3 counts as activated even if the event stream didn't fire. Do NOT send activation nudges to already-activated workspaces.
+
+---
+
+## Valid scenario_key values (insight_submit_message only)
+
+Use ONLY keys from this list. Do not invent scenario keys.
+- celebrate_activation — first activation milestone reached
+- rescue_stalled — trial stalled mid-setup
+- invite_to_trial — free workspace ready to start a trial
+- retention_nudge — paid workspace health dropping (CHS declining)
+- win_back — dormant paid workspace with no activity 30+ days
+- upgrade_prompt — high-TRS free workspace ready to convert
+- feature_discovery — activated workspace under-using a key feature
+
+---
+
+## Recommended workflow for "find outreach candidates"
+
+Phase 1 — insight_list_cohort(cohort, per_page=5, min_score=0). Pick top 3-5 by score/urgency. Do NOT fetch 50-100 and loop over all.
+Phase 2 — for each candidate: insight_get_overview → insight_recent_messages → list_workspace_suggestions.
+  Skip workspace if: a message was sent in the last 7 days OR a pending suggestion already exists in the queue.
+Phase 3 — insight_pending_scenarios to confirm the scenario is eligible.
+Phase 4 — propose ONE action per workspace using the correct channel (see routing table above). Stop — do not chain multiple send calls.
+Phase 5 — insight_log_agent_action(result=success|skipped, reason=...) to record the decision.
+
+Before ANY outreach proposal:
+- Call list_sent_emails(workspaceUuid=...) or insight_recent_messages first.
+- If contacted in the last 7 days → log skipped, move on.
+- Never propose more than one action per workspace per session.
+
+insight_get_overview returns: plan, cohort, score, score_type, score_delta_14d, activation_event_hit, volume_metrics (invoices_total, invoices_paid, contacts_total, leads_total, projects_total, tasks_total), session (last_active_at, is_active_now). Ground all outreach copy in these real numbers.
+
+Always look up the user/workspace before a write operation. Final answer goes to Telegram — be concise.`;
+
+const MAX_TOOL_ITERATIONS = 14;
 
 @Injectable()
 export class TaskipInternalAgent implements IAgent, OnModuleInit {
@@ -84,8 +128,10 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
     private taskipDb: TaskipInternalDbService,
     private insight: TaskipInsightService,
     private emails: TaskipInternalEmailService,
+    private suggestionSweep: TaskipInternalSuggestionSweepService,
     private killSwitch: KillSwitchService,
     private registry: AgentRegistryService,
+    @InjectQueue(TASKIP_SUGGESTION_SWEEP_QUEUE) private readonly suggestionSweepQueue: Queue,
   ) {}
 
   onModuleInit() {
@@ -517,7 +563,244 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
           return this.emails.syncReplies(id);
         },
       },
+
+      // Suggestion sweep routes
+      {
+        method: 'GET',
+        path: '/taskip-internal/suggestions',
+        requiresAuth: true,
+        handler: async (params) => {
+          const { status } = params as { status?: string };
+          const rows = await this.db.db
+            .select()
+            .from(taskipInternalSuggestions)
+            .where(status && status !== 'all' ? eq(taskipInternalSuggestions.status, status) : undefined)
+            .orderBy(desc(taskipInternalSuggestions.createdAt))
+            .limit(100);
+
+          const uuids = [...new Set(rows.map((r) => r.workspaceUuid))];
+          const allActivity = uuids.length > 0
+            ? await this.db.db
+                .select()
+                .from(taskipInternalWorkspaceActivity)
+                .where(inArray(taskipInternalWorkspaceActivity.workspaceUuid, uuids))
+                .orderBy(desc(taskipInternalWorkspaceActivity.createdAt))
+            : [];
+
+          const activityByUuid = new Map<string, typeof allActivity>();
+          for (const a of allActivity) {
+            const bucket = activityByUuid.get(a.workspaceUuid) ?? [];
+            if (bucket.length < 3) {
+              bucket.push(a);
+              activityByUuid.set(a.workspaceUuid, bucket);
+            }
+          }
+
+          return rows.map((row) => ({ ...row, recentActivity: activityByUuid.get(row.workspaceUuid) ?? [] }));
+        },
+      },
+      {
+        method: 'PATCH',
+        path: '/taskip-internal/suggestions/:id',
+        requiresAuth: true,
+        handler: async (params) => {
+          const { id, subject, bodyMd, ctaText, ctaUrl } = params as {
+            id: string;
+            subject?: string;
+            bodyMd?: string;
+            ctaText?: string;
+            ctaUrl?: string;
+          };
+          const [row] = await this.db.db
+            .select({ status: taskipInternalSuggestions.status })
+            .from(taskipInternalSuggestions)
+            .where(eq(taskipInternalSuggestions.id, id))
+            .limit(1);
+          if (!row) throw new Error('Suggestion not found');
+          if (row.status !== 'pending') throw new Error('Only pending suggestions can be edited');
+
+          const updates: Partial<typeof taskipInternalSuggestions.$inferInsert> = {};
+          if (subject !== undefined) updates.subject = subject;
+          if (bodyMd !== undefined) updates.bodyMd = bodyMd;
+          if (ctaText !== undefined) updates.ctaText = ctaText;
+          if (ctaUrl !== undefined) updates.ctaUrl = ctaUrl;
+
+          const [updated] = await this.db.db
+            .update(taskipInternalSuggestions)
+            .set(updates)
+            .where(eq(taskipInternalSuggestions.id, id))
+            .returning();
+          return updated;
+        },
+      },
+      {
+        method: 'POST',
+        path: '/taskip-internal/suggestions/:id/approve',
+        requiresAuth: true,
+        handler: async (params) => {
+          const { id } = params as { id: string };
+          return this.approveSuggestion(id);
+        },
+      },
+      {
+        method: 'POST',
+        path: '/taskip-internal/suggestions/:id/skip',
+        requiresAuth: true,
+        handler: async (params) => {
+          const { id, reason } = params as { id: string; reason?: string };
+          return this.skipSuggestion(id, reason);
+        },
+      },
+      {
+        method: 'POST',
+        path: '/taskip-internal/suggestions/sweep',
+        requiresAuth: true,
+        handler: async () => {
+          await this.suggestionSweepQueue.add('sweep', {}, { jobId: `manual-sweep-${Date.now()}` });
+          return { queued: true };
+        },
+      },
+      {
+        method: 'GET',
+        path: '/taskip-internal/workspace/:uuid/activity',
+        requiresAuth: true,
+        handler: async (params) => {
+          const { uuid } = params as { uuid: string };
+          return this.db.db
+            .select()
+            .from(taskipInternalWorkspaceActivity)
+            .where(eq(taskipInternalWorkspaceActivity.workspaceUuid, uuid))
+            .orderBy(desc(taskipInternalWorkspaceActivity.createdAt))
+            .limit(100);
+        },
+      },
     ];
+  }
+
+  private async approveSuggestion(id: string): Promise<{ ok: boolean; channel: string }> {
+    const [row] = await this.db.db
+      .select()
+      .from(taskipInternalSuggestions)
+      .where(eq(taskipInternalSuggestions.id, id))
+      .limit(1);
+    if (!row) throw new Error('Suggestion not found');
+    if (row.status !== 'pending') throw new Error(`Cannot approve suggestion with status: ${row.status}`);
+
+    await this.db.db
+      .update(taskipInternalSuggestions)
+      .set({ status: 'approved', approvedAt: new Date() })
+      .where(eq(taskipInternalSuggestions.id, id));
+
+    try {
+      if (row.channel === 'gmail') {
+        const result = await this.emails.send({
+          purpose: 'followup',
+          recipient: row.ownerEmail,
+          subject: row.subject,
+          body: row.bodyMd,
+          workspaceUuid: row.workspaceUuid,
+          metadata: { suggestionId: id, cohort: row.cohort, scenarioKey: row.scenarioKey },
+        });
+
+        await this.db.db
+          .update(taskipInternalSuggestions)
+          .set({ status: 'sent', sentEmailId: result.id, sentAt: new Date() })
+          .where(eq(taskipInternalSuggestions.id, id));
+
+        await this.db.db.insert(taskipInternalWorkspaceActivity).values({
+          workspaceUuid: row.workspaceUuid,
+          activityType: 'email_sent',
+          suggestionId: id,
+          emailId: result.id,
+          score: row.score,
+          cohort: row.cohort,
+        });
+      } else {
+        const result = await this.insight.submitMessage(row.workspaceUuid, {
+          scenario_key: row.scenarioKey,
+          channel: 'both',
+          subject: row.subject,
+          body_md: row.bodyMd,
+          cta_text: row.ctaText ?? undefined,
+          cta_url: row.ctaUrl ?? undefined,
+        });
+
+        const finalStatus = result.status === 'suppressed_cooldown' ? 'skipped' : 'sent';
+        await this.db.db
+          .update(taskipInternalSuggestions)
+          .set({
+            status: finalStatus,
+            insightMessageId: result.id,
+            sentAt: finalStatus === 'sent' ? new Date() : undefined,
+            skippedAt: finalStatus === 'skipped' ? new Date() : undefined,
+            failedReason: finalStatus === 'skipped' ? result.status : null,
+          })
+          .where(eq(taskipInternalSuggestions.id, id));
+
+        await this.db.db.insert(taskipInternalWorkspaceActivity).values({
+          workspaceUuid: row.workspaceUuid,
+          activityType: 'insight_message_sent',
+          suggestionId: id,
+          score: row.score,
+          cohort: row.cohort,
+          notes: result.status,
+        });
+      }
+    } catch (err) {
+      const msg = (err as Error).message;
+      await this.db.db
+        .update(taskipInternalSuggestions)
+        .set({ status: 'failed', failedReason: msg })
+        .where(eq(taskipInternalSuggestions.id, id));
+      throw err;
+    }
+
+    return { ok: true, channel: row.channel };
+  }
+
+  private async skipSuggestion(id: string, reason?: string): Promise<{ ok: boolean; suppressed: boolean }> {
+    const [row] = await this.db.db
+      .select()
+      .from(taskipInternalSuggestions)
+      .where(eq(taskipInternalSuggestions.id, id))
+      .limit(1);
+    if (!row) throw new Error('Suggestion not found');
+    if (row.status !== 'pending') throw new Error(`Cannot skip suggestion with status: ${row.status}`);
+
+    await this.db.db
+      .update(taskipInternalSuggestions)
+      .set({ status: 'skipped', skippedAt: new Date() })
+      .where(eq(taskipInternalSuggestions.id, id));
+
+    await this.db.db.insert(taskipInternalWorkspaceActivity).values({
+      workspaceUuid: row.workspaceUuid,
+      activityType: 'suggestion_skipped',
+      suggestionId: id,
+      score: row.score,
+      cohort: row.cohort,
+      notes: reason ?? null,
+    });
+
+    // check for 3-consecutive-skip suppression
+    const recent = await this.db.db
+      .select({ activityType: taskipInternalWorkspaceActivity.activityType })
+      .from(taskipInternalWorkspaceActivity)
+      .where(eq(taskipInternalWorkspaceActivity.workspaceUuid, row.workspaceUuid))
+      .orderBy(desc(taskipInternalWorkspaceActivity.createdAt))
+      .limit(3);
+
+    const suppressed = recent.length === 3 && recent.every((r) => r.activityType === 'suggestion_skipped');
+    if (suppressed) {
+      await this.db.db.insert(taskipInternalWorkspaceActivity).values({
+        workspaceUuid: row.workspaceUuid,
+        activityType: 'sweep_ignored',
+        score: row.score,
+        cohort: row.cohort,
+        notes: '3 consecutive skips',
+      });
+    }
+
+    return { ok: true, suppressed };
   }
 
   private async executeReadTool(name: string, args: Record<string, unknown>): Promise<unknown> {
@@ -577,6 +860,30 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
             reason: reason ?? null,
             payload,
           });
+        }
+        case 'list_workspace_suggestions': {
+          const { workspace_uuid, status } = args as { workspace_uuid: string; status?: string };
+          return await this.db.db
+            .select({
+              id: taskipInternalSuggestions.id,
+              status: taskipInternalSuggestions.status,
+              cohort: taskipInternalSuggestions.cohort,
+              scenarioKey: taskipInternalSuggestions.scenarioKey,
+              subject: taskipInternalSuggestions.subject,
+              channel: taskipInternalSuggestions.channel,
+              createdAt: taskipInternalSuggestions.createdAt,
+              sentAt: taskipInternalSuggestions.sentAt,
+              skippedAt: taskipInternalSuggestions.skippedAt,
+            })
+            .from(taskipInternalSuggestions)
+            .where(
+              and(
+                eq(taskipInternalSuggestions.workspaceUuid, workspace_uuid),
+                status ? eq(taskipInternalSuggestions.status, status) : undefined,
+              ),
+            )
+            .orderBy(desc(taskipInternalSuggestions.createdAt))
+            .limit(10);
         }
         default:
           return { error: `Unknown tool: ${name}` };
@@ -716,20 +1023,20 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
               },
             },
           },
-          required: ['workspace_uuid', 'template_key', 'title', 'description', 'priority', 'channel', 'recommended_due_at', 'idempotency_key'],
+          required: ['workspace_uuid', 'template_key', 'title', 'description', 'priority', 'channel', 'recommended_due_at'],
         },
       },
       {
         name: 'send_email',
-        description: 'Send a Gmail email (marketing, follow-up, or offer). Tracked in the agent inbox so replies can be matched. Requires approval before sending.',
+        description: 'Send a Gmail email to a FREE or TRIAL cohort workspace owner. Tracked so replies can be matched. Requires approval before sending. DO NOT use for paid-plan workspaces — use insight_submit_message instead.',
         parameters: {
           type: 'object',
           properties: {
             purpose: { type: 'string', enum: ['marketing', 'followup', 'offer', 'other'] },
             recipient: { type: 'string', description: 'recipient email address' },
             subject: { type: 'string' },
-            body: { type: 'string', description: 'plain text body' },
-            workspaceUuid: { type: 'string', description: 'optional — link this email to a Taskip workspace' },
+            body: { type: 'string', description: 'Markdown-formatted email body. Keep under 120 words. Reference specific actions the user took (volume_metrics). One CTA only.' },
+            workspaceUuid: { type: 'string', description: 'link this email to a Taskip workspace for dedup tracking' },
           },
           required: ['purpose', 'recipient', 'subject', 'body'],
         },
@@ -798,8 +1105,20 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
         },
       },
       {
+        name: 'list_workspace_suggestions',
+        description: 'Check this agent\'s suggestion queue for a workspace. Call before proposing new outreach to avoid duplicates. Returns recent suggestions with status (pending/sent/skipped/suppressed).',
+        parameters: {
+          type: 'object',
+          properties: {
+            workspace_uuid: { type: 'string' },
+            status: { type: 'string', enum: ['pending', 'approved', 'sent', 'skipped', 'failed', 'suppressed'], description: 'filter by status; omit to return all' },
+          },
+          required: ['workspace_uuid'],
+        },
+      },
+      {
         name: 'insight_submit_message',
-        description: 'Submit a personalized lifecycle message. Server validates against tone rules + scenario allow-list, logs the row, then delivers via in-app + email. Approval-gated. cta_url must be on taskip.net or taskip.app. Email body <=120 words; in-app <=40.',
+        description: 'Submit a personalized lifecycle message for a PAID cohort workspace. Server validates against tone rules + scenario allow-list, logs the row, then delivers via in-app + email. Approval-gated. DO NOT use for free/trial workspaces — use send_email. cta_url must be on taskip.net or taskip.app. Email body <=120 words; in-app <=40.',
         parameters: {
           type: 'object',
           properties: {

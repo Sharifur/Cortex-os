@@ -384,6 +384,14 @@ export const SETTING_DEFINITIONS: Record<string, SettingDefinition> = {
     defaultValue: '500',
   },
 
+  // Taskip Internal — read-only DB connection (shared with taskip_trial agent)
+  taskip_db_url_readonly: {
+    label: 'Taskip DB — Read-only URL',
+    description: 'Postgres connection string for the Taskip production database (read-only replica). Used by Taskip Internal and Taskip Trial agents to look up users, subscriptions, and invoices.',
+    isSecret: true,
+    group: 'general',
+  },
+
   // Taskip Insight API
   insight_base_url: {
     label: 'Base URL',

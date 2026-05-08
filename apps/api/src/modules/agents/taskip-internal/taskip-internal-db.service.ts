@@ -1,5 +1,6 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import postgres from 'postgres';
+import { SettingsService } from '../../settings/settings.service';
 
 export interface TaskipUserDetail {
   id: string;
@@ -32,17 +33,21 @@ export interface TaskipInvoice {
 }
 
 @Injectable()
-export class TaskipInternalDbService implements OnModuleInit, OnModuleDestroy {
+export class TaskipInternalDbService implements OnModuleDestroy {
   private readonly logger = new Logger(TaskipInternalDbService.name);
   private sql: ReturnType<typeof postgres> | null = null;
 
-  onModuleInit() {
-    const url = process.env.TASKIP_DB_URL_READONLY;
+  constructor(private readonly settings: SettingsService) {}
+
+  private async getClient(): Promise<ReturnType<typeof postgres> | null> {
+    if (this.sql) return this.sql;
+    const url = (await this.settings.getDecrypted('taskip_db_url_readonly'))?.trim();
     if (!url) {
-      this.logger.warn('TASKIP_DB_URL_READONLY not set — Taskip DB queries will return empty');
-      return;
+      this.logger.warn('taskip_db_url_readonly not set in Settings — Taskip DB queries will return empty');
+      return null;
     }
     this.sql = postgres(url, { max: 3 });
+    return this.sql;
   }
 
   async onModuleDestroy() {
@@ -50,10 +55,11 @@ export class TaskipInternalDbService implements OnModuleInit, OnModuleDestroy {
   }
 
   async lookupUser(emailOrId: string): Promise<TaskipUserDetail | null> {
-    if (!this.sql) return null;
+    const sql = await this.getClient();
+    if (!sql) return null;
     try {
       const isUuid = /^[0-9a-f-]{36}$/i.test(emailOrId);
-      const rows = await this.sql<TaskipUserDetail[]>`
+      const rows = await sql<TaskipUserDetail[]>`
         SELECT id, email, name, plan,
                created_at as "createdAt",
                trial_ends_at as "trialEndsAt",
@@ -61,7 +67,7 @@ export class TaskipInternalDbService implements OnModuleInit, OnModuleDestroy {
                cancelled_at as "cancelledAt",
                COALESCE(feature_count, 0) as "featureCount"
         FROM users
-        WHERE ${isUuid ? this.sql`id = ${emailOrId}` : this.sql`email ILIKE ${'%' + emailOrId + '%'}`}
+        WHERE ${isUuid ? sql`id = ${emailOrId}` : sql`email ILIKE ${'%' + emailOrId + '%'}`}
         LIMIT 1`;
       return rows[0] ?? null;
     } catch (err) {
@@ -71,9 +77,10 @@ export class TaskipInternalDbService implements OnModuleInit, OnModuleDestroy {
   }
 
   async querySubscriptions(userId: string): Promise<TaskipSubscription[]> {
-    if (!this.sql) return [];
+    const sql = await this.getClient();
+    if (!sql) return [];
     try {
-      return await this.sql<TaskipSubscription[]>`
+      return await sql<TaskipSubscription[]>`
         SELECT id, user_id as "userId", plan, status,
                started_at as "startedAt", ends_at as "endsAt"
         FROM subscriptions
@@ -87,9 +94,10 @@ export class TaskipInternalDbService implements OnModuleInit, OnModuleDestroy {
   }
 
   async queryInvoices(userId: string): Promise<TaskipInvoice[]> {
-    if (!this.sql) return [];
+    const sql = await this.getClient();
+    if (!sql) return [];
     try {
-      return await this.sql<TaskipInvoice[]>`
+      return await sql<TaskipInvoice[]>`
         SELECT id, user_id as "userId", amount, currency, status,
                created_at as "createdAt"
         FROM invoices
@@ -103,9 +111,10 @@ export class TaskipInternalDbService implements OnModuleInit, OnModuleDestroy {
   }
 
   async extendTrial(userId: string, days: number): Promise<{ success: boolean; newTrialEndsAt?: string }> {
-    if (!this.sql) return { success: false };
+    const sql = await this.getClient();
+    if (!sql) return { success: false };
     try {
-      const rows = await this.sql<{ trialEndsAt: string }[]>`
+      const rows = await sql<{ trialEndsAt: string }[]>`
         UPDATE users
         SET trial_ends_at = COALESCE(trial_ends_at, NOW()) + (${days} || ' days')::interval,
             updated_at = NOW()
@@ -119,9 +128,10 @@ export class TaskipInternalDbService implements OnModuleInit, OnModuleDestroy {
   }
 
   async markRefund(userId: string, invoiceId: string): Promise<{ success: boolean }> {
-    if (!this.sql) return { success: false };
+    const sql = await this.getClient();
+    if (!sql) return { success: false };
     try {
-      await this.sql`
+      await sql`
         UPDATE invoices
         SET status = 'refund_requested', updated_at = NOW()
         WHERE id = ${invoiceId} AND user_id = ${userId}`;

@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useLocation } from 'react-router-dom';
 import {
   Bot, ArrowLeft, Send, Loader2, RefreshCw,
   Calendar, Clock, CheckCircle2, XCircle,
@@ -208,7 +208,7 @@ function MessageBubble({
 // ─── Chat tab ─────────────────────────────────────────────────────────────────
 
 function ChatTab({
-  agent, token, color, convId, onNewConv, onSwitchConv,
+  agent, token, color, convId, onNewConv, onSwitchConv, initialQuery,
 }: {
   agent: AgentInfo;
   token: string;
@@ -216,9 +216,10 @@ function ChatTab({
   convId: string;
   onNewConv: () => void;
   onSwitchConv: (id: string) => void;
+  initialQuery?: string;
 }) {
   const [messages, setMessages] = useState<(ConvMessage & { pending?: boolean; feedback?: 'up' | 'down' })[]>([]);
-  const [input, setInput] = useState('');
+  const [input, setInput] = useState(initialQuery ?? '');
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
   const [isThinking, setIsThinking] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
@@ -956,6 +957,8 @@ function ScheduleTab({
 export default function AgentChatPage() {
   const { key } = useParams<{ key: string }>();
   const token = useAuthStore((s) => s.token)!;
+  const location = useLocation();
+  const initialQuery = (location.state as { query?: string } | null)?.query;
   const [activeTab, setActiveTab] = useState<ChatTabKey>('chat');
   const [convId, setConvIdState] = useState(() => getConvId(key!));
   const color = agentColor(key!);
@@ -1045,7 +1048,7 @@ export default function AgentChatPage() {
       {/* Content */}
       <div className="flex-1 overflow-hidden">
         {agent && activeTab === 'chat' && (
-          <ChatTab key={convId} agent={agent} token={token} color={color} convId={convId} onNewConv={handleNewConv} onSwitchConv={handleSwitchConv} />
+          <ChatTab key={convId} agent={agent} token={token} color={color} convId={convId} onNewConv={handleNewConv} onSwitchConv={handleSwitchConv} initialQuery={initialQuery} />
         )}
         {agent && activeTab === 'tasks' && (
           <TasksTab agent={agent} token={token} color={color} />

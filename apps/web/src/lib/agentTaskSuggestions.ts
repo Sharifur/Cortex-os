@@ -3,15 +3,15 @@
 
 export const AGENT_TASK_SUGGESTIONS: Record<string, string[]> = {
   taskip_internal: [
-    'Look up user — enter an email',
-    'Show subscriptions for user',
-    'List invoices for user',
-    'Extend trial by 7 days for user',
-    'Mark invoice as refund for user',
-    'List at_risk_paid workspaces with score below 40',
-    'Drill into workspace acme and propose a retention outreach',
-    'Find trial_ready_free workspaces that signed up 3+ days ago',
-    'Send a celebrate_activation message to workspace acme',
+    'List at_risk_paid workspaces with score below 40 needing retention outreach',
+    'Show trial_ready_free workspaces signed up 3+ days ago for upgrade follow-up',
+    'Find hot_leads in the trial funnel with high activation score',
+    'Show dormant_paid workspaces with no activity in 30 days',
+    'Run proactive suggestion sweep across all cohorts now',
+    'Show pending follow-up suggestions awaiting approval',
+    'Propose a retention email for workspace [uuid]',
+    'Show suggestion activity and send history for workspace [uuid]',
+    'List activate_free workspaces that have not connected an inbox',
   ],
 
   support: [

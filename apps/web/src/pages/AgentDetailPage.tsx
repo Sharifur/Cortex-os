@@ -8,6 +8,7 @@ import {
   CheckCircle2, Circle, MessageSquare,
   Bug, AlertTriangle, AlertCircle,
   Plus, Loader2,
+  CalendarClock, Zap, RotateCcw, ListTodo, ExternalLink,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -41,7 +42,7 @@ interface Run {
 
 interface TaskipConfig {
   segments: Record<string, { enabled: boolean; templatePromptId: string }>;
-  llm: { provider: string; model: string };
+  llm?: { provider?: string; model?: string } | null;
   emailProvider: 'gmail' | 'ses';
   gmail: { from: string };
   ses: { from: string; configurationSet?: string };
@@ -54,7 +55,7 @@ interface DailyReminderConfig {
   eveningCron: string;
   enableMorning: boolean;
   enableEvening: boolean;
-  llm: { provider: string; model: string };
+  llm?: { provider?: string; model?: string } | null;
 }
 
 const STATUS_CLS: Record<string, string> = {
@@ -691,6 +692,8 @@ function LlmSubTab({
     onSuccess: () => qc.invalidateQueries({ queryKey: ['agent', agent.key] }),
   });
 
+  const useDefault = !config.llm?.provider;
+
   return (
     <div className="rounded-xl border border-border bg-card p-5">
       <h3 className="text-sm font-semibold mb-4">LLM Configuration</h3>
@@ -698,33 +701,51 @@ function LlmSubTab({
         <div>
           <label className="text-xs text-muted-foreground block mb-2">Provider</label>
           <div className="flex flex-wrap gap-2">
-            {LLM_PROVIDERS.map((p) => (
+            <button
+              onClick={() => onChange({ llm: null })}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
+                useDefault
+                  ? 'bg-primary text-primary-foreground border-primary'
+                  : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground/30'
+              }`}
+            >
+              Default (from Settings)
+            </button>
+            {LLM_PROVIDERS.filter((p) => p !== 'auto').map((p) => (
               <button
                 key={p}
-                onClick={() => onChange({ llm: { ...config.llm, provider: p } })}
+                onClick={() => onChange({ llm: { provider: p, model: config.llm?.model ?? '' } })}
                 className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
                   config.llm?.provider === p
                     ? 'bg-primary text-primary-foreground border-primary'
                     : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground/30'
                 }`}
               >
-                {p === 'auto' ? 'Auto (fallback chain)' : p.charAt(0).toUpperCase() + p.slice(1)}
+                {p.charAt(0).toUpperCase() + p.slice(1)}
               </button>
             ))}
           </div>
         </div>
-        <div>
-          <label className="text-xs text-muted-foreground block mb-1">Model</label>
-          <Input
-            value={config.llm?.model ?? ''}
-            onChange={(e) => onChange({ llm: { ...config.llm, model: e.target.value } })}
-            placeholder="gpt-4o-mini"
-            className="text-sm"
-          />
-          <p className="text-xs text-muted-foreground mt-1">
-            e.g. gpt-4o-mini, gpt-4o, gemini-1.5-flash, deepseek-chat
+        {!useDefault && (
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1">Model</label>
+            <Input
+              value={config.llm?.model ?? ''}
+              onChange={(e) => onChange({ llm: { ...config.llm, model: e.target.value } })}
+              placeholder="gpt-4o-mini"
+              className="text-sm"
+            />
+            <p className="text-xs text-muted-foreground mt-1">
+              e.g. gpt-4o-mini, gpt-4o, gemini-1.5-flash, deepseek-chat
+            </p>
+          </div>
+        )}
+        {useDefault && (
+          <p className="text-xs text-muted-foreground">
+            Using platform default — provider and model are read from{' '}
+            <a href="/settings" className="text-primary hover:underline">Settings → LLM</a> at runtime.
           </p>
-        </div>
+        )}
       </div>
       <SaveRow
         isPending={configMutation.isPending}
@@ -1080,6 +1101,8 @@ function DailyReminderLlmSubTab({
     onSuccess: () => qc.invalidateQueries({ queryKey: ['agent', agent.key] }),
   });
 
+  const useDefault = !config.llm?.provider;
+
   return (
     <div className="rounded-xl border border-border bg-card p-5">
       <h3 className="text-sm font-semibold mb-4">LLM Configuration</h3>
@@ -1087,33 +1110,51 @@ function DailyReminderLlmSubTab({
         <div>
           <label className="text-xs text-muted-foreground block mb-2">Provider</label>
           <div className="flex flex-wrap gap-2">
-            {LLM_PROVIDERS.map((p) => (
+            <button
+              onClick={() => onChange({ llm: null })}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
+                useDefault
+                  ? 'bg-primary text-primary-foreground border-primary'
+                  : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground/30'
+              }`}
+            >
+              Default (from Settings)
+            </button>
+            {LLM_PROVIDERS.filter((p) => p !== 'auto').map((p) => (
               <button
                 key={p}
-                onClick={() => onChange({ llm: { ...config.llm, provider: p } })}
+                onClick={() => onChange({ llm: { provider: p, model: config.llm?.model ?? '' } })}
                 className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
                   config.llm?.provider === p
                     ? 'bg-primary text-primary-foreground border-primary'
                     : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground/30'
                 }`}
               >
-                {p === 'auto' ? 'Auto (fallback chain)' : p.charAt(0).toUpperCase() + p.slice(1)}
+                {p.charAt(0).toUpperCase() + p.slice(1)}
               </button>
             ))}
           </div>
         </div>
-        <div>
-          <label className="text-xs text-muted-foreground block mb-1">Model</label>
-          <Input
-            value={config.llm?.model ?? ''}
-            onChange={(e) => onChange({ llm: { ...config.llm, model: e.target.value } })}
-            placeholder="gpt-4o-mini"
-            className="text-sm"
-          />
-          <p className="text-xs text-muted-foreground mt-1">
-            e.g. gpt-4o-mini, gpt-4o, gemini-1.5-flash, deepseek-chat
+        {!useDefault && (
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1">Model</label>
+            <Input
+              value={config.llm?.model ?? ''}
+              onChange={(e) => onChange({ llm: { ...config.llm, model: e.target.value } })}
+              placeholder="gpt-4o-mini"
+              className="text-sm"
+            />
+            <p className="text-xs text-muted-foreground mt-1">
+              e.g. gpt-4o-mini, gpt-4o, gemini-1.5-flash, deepseek-chat
+            </p>
+          </div>
+        )}
+        {useDefault && (
+          <p className="text-xs text-muted-foreground">
+            Using platform default — provider and model are read from{' '}
+            <a href="/settings" className="text-primary hover:underline">Settings → LLM</a> at runtime.
           </p>
-        </div>
+        )}
       </div>
       <SaveRow
         isPending={configMutation.isPending}
@@ -1132,7 +1173,6 @@ function DailyReminderSettingsTab({ agent, token }: { agent: AgentDetail; token:
       eveningCron: '0 15 * * *',
       enableMorning: true,
       enableEvening: true,
-      llm: { provider: 'auto', model: 'gpt-4o-mini' },
     }
   );
 
@@ -1188,7 +1228,7 @@ interface EmailManagerConfig {
   maxEmailsPerRun: number;
   importantSenders: string[];
   autoArchiveDomains: string[];
-  llm: { provider: string; model: string };
+  llm?: { provider?: string; model?: string } | null;
 }
 
 function EmailManagerSetupSubTab({ agent }: { agent: AgentDetail }) {
@@ -1473,41 +1513,61 @@ function EmailManagerLlmSubTab({ agent, config, onChange, token }: {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['agent', agent.key] }),
   });
 
+  const useDefault = !config.llm?.provider;
+
   return (
     <div className="rounded-xl border border-border bg-card p-5">
       <h3 className="text-sm font-semibold mb-4">LLM Configuration</h3>
       <p className="text-xs text-muted-foreground mb-4">
         Used for email classification (~20 tokens each) and reply drafting (~300 tokens each).
-        A cheap model like <code className="bg-muted px-1 rounded">gpt-4o-mini</code> is recommended.
+        Select <strong>Default</strong> to inherit platform LLM settings.
       </p>
       <div className="space-y-4">
         <div>
           <label className="text-xs text-muted-foreground block mb-2">Provider</label>
           <div className="flex flex-wrap gap-2">
-            {LLM_PROVIDERS.map((p) => (
+            <button
+              onClick={() => onChange({ llm: null })}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
+                useDefault
+                  ? 'bg-primary text-primary-foreground border-primary'
+                  : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground/30'
+              }`}
+            >
+              Default (from Settings)
+            </button>
+            {LLM_PROVIDERS.filter((p) => p !== 'auto').map((p) => (
               <button
                 key={p}
-                onClick={() => onChange({ llm: { ...config.llm, provider: p } })}
+                onClick={() => onChange({ llm: { provider: p, model: config.llm?.model ?? '' } })}
                 className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
                   config.llm?.provider === p
                     ? 'bg-primary text-primary-foreground border-primary'
                     : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground/30'
                 }`}
               >
-                {p === 'auto' ? 'Auto (fallback chain)' : p.charAt(0).toUpperCase() + p.slice(1)}
+                {p.charAt(0).toUpperCase() + p.slice(1)}
               </button>
             ))}
           </div>
         </div>
-        <div>
-          <label className="text-xs text-muted-foreground block mb-1">Model</label>
-          <Input
-            value={config.llm?.model ?? ''}
-            onChange={(e) => onChange({ llm: { ...config.llm, model: e.target.value } })}
-            placeholder="gpt-4o-mini"
-            className="text-sm"
-          />
-        </div>
+        {!useDefault && (
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1">Model</label>
+            <Input
+              value={config.llm?.model ?? ''}
+              onChange={(e) => onChange({ llm: { ...config.llm, model: e.target.value } })}
+              placeholder="gpt-4o-mini"
+              className="text-sm"
+            />
+          </div>
+        )}
+        {useDefault && (
+          <p className="text-xs text-muted-foreground">
+            Using platform default — provider and model are read from{' '}
+            <a href="/settings" className="text-primary hover:underline">Settings → LLM</a> at runtime.
+          </p>
+        )}
       </div>
       <SaveRow
         isPending={configMutation.isPending}
@@ -1525,7 +1585,6 @@ function EmailManagerSettingsTab({ agent, token }: { agent: AgentDetail; token: 
       maxEmailsPerRun: 20,
       importantSenders: [],
       autoArchiveDomains: [],
-      llm: { provider: 'auto', model: 'gpt-4o-mini' },
     }
   );
 
@@ -1570,6 +1629,8 @@ function EmailManagerSettingsTab({ agent, token }: { agent: AgentDetail; token: 
 // ─── Taskip Internal sub-tabs ─────────────────────────────────────────────────
 
 const TASKIP_INTERNAL_TABS = [
+  { key: 'suggestions', label: 'Suggestions', icon: Mail },
+  { key: 'tasks', label: 'Tasks', icon: ListTodo },
   { key: 'setup', label: 'Setup', icon: BookOpen },
   { key: 'llm', label: 'LLM', icon: Cpu },
   { key: 'runtime', label: 'Runtime', icon: List },
@@ -1578,7 +1639,223 @@ const TASKIP_INTERNAL_TABS = [
 type TaskipInternalTabKey = typeof TASKIP_INTERNAL_TABS[number]['key'];
 
 interface TaskipInternalConfig {
-  llm: { provider: string; model: string };
+  llm?: { provider?: string; model?: string } | null;
+}
+
+// ─── Tasks sub-tab data ───────────────────────────────────────────────────────
+
+const DAILY_SWEEP_TASKS = [
+  {
+    cohort: 'at_risk_paid',
+    cohortColor: 'bg-red-100 text-red-700',
+    schedule: 'Daily 9 am',
+    action: 'insight_submit_message',
+    actionColor: 'bg-blue-100 text-blue-700',
+    scenario: 'retention_nudge',
+    description: 'Find paid workspaces with CHS below 40 and propose a retention message before churn.',
+  },
+  {
+    cohort: 'dormant_paid',
+    cohortColor: 'bg-orange-100 text-orange-700',
+    schedule: 'Daily 9 am',
+    action: 'insight_submit_message',
+    actionColor: 'bg-blue-100 text-blue-700',
+    scenario: 'win_back',
+    description: 'Identify paid workspaces with no activity in 30+ days and propose a win-back message.',
+  },
+  {
+    cohort: 'trial_ready_free',
+    cohortColor: 'bg-green-100 text-green-700',
+    schedule: 'Daily 10 am',
+    action: 'send_email',
+    actionColor: 'bg-purple-100 text-purple-700',
+    scenario: 'upgrade_prompt',
+    description: 'Free workspaces with TRS above 70 — propose a personal upgrade email from Gmail.',
+  },
+  {
+    cohort: 'serious_trial',
+    cohortColor: 'bg-yellow-100 text-yellow-700',
+    schedule: 'Daily 10 am',
+    action: 'send_email',
+    actionColor: 'bg-purple-100 text-purple-700',
+    scenario: 'rescue_stalled',
+    description: 'Active trials with THS below 40 that have stalled mid-setup — propose a rescue email.',
+  },
+  {
+    cohort: 'healthy_paid',
+    cohortColor: 'bg-emerald-100 text-emerald-700',
+    schedule: 'Daily 11 am',
+    action: 'insight_submit_message',
+    actionColor: 'bg-blue-100 text-blue-700',
+    scenario: 'celebrate_activation',
+    description: 'Paid workspaces that hit their activation milestone in the last 24h — send a congratulation.',
+  },
+  {
+    cohort: 'expired_trial_warm',
+    cohortColor: 'bg-slate-100 text-slate-700',
+    schedule: 'Every 3 days',
+    action: 'send_email',
+    actionColor: 'bg-purple-100 text-purple-700',
+    scenario: 'invite_to_trial',
+    description: 'Expired trials that were recently active — propose a re-engagement email with a limited offer.',
+  },
+];
+
+const ONDEMAND_TASKS = [
+  {
+    label: 'Drill into a workspace',
+    query: 'Show full overview and suggest outreach for workspace ',
+    hint: 'append workspace UUID',
+  },
+  {
+    label: 'Review user before a call',
+    query: 'Look up  and summarize their history, subscriptions, and invoices',
+    hint: 'insert email address',
+  },
+  {
+    label: 'Check recent outreach for a workspace',
+    query: 'Show suggestion activity and sent email history for workspace ',
+    hint: 'append workspace UUID',
+  },
+  {
+    label: 'Find all at-risk paid workspaces now',
+    query: 'List at_risk_paid workspaces with CHS below 40 and propose retention outreach for the top 3',
+    hint: 'runs immediately',
+  },
+  {
+    label: 'Find free workspaces ready to upgrade',
+    query: 'List trial_ready_free workspaces with TRS above 70 and propose upgrade emails',
+    hint: 'runs immediately',
+  },
+  {
+    label: 'Check hot leads in trial funnel',
+    query: 'Find serious_trial workspaces with high activation score and propose follow-up',
+    hint: 'runs immediately',
+  },
+  {
+    label: 'Extend trial for a user',
+    query: 'Look up  and extend their trial by 14 days',
+    hint: 'insert email address — requires approval',
+  },
+  {
+    label: 'Sync replies on sent emails',
+    query: 'Sync replies for email ',
+    hint: 'append email ID from inbox',
+  },
+];
+
+const WEEKLY_TASKS = [
+  {
+    day: 'Monday',
+    label: 'Health scan report',
+    description: 'List all at_risk_paid and dormant_paid workspaces, count pending suggestions, and summarize emails sent this week.',
+    query: 'Generate a weekly health scan: list at_risk_paid and dormant_paid workspaces, count of pending suggestions, and total emails sent this week',
+  },
+  {
+    day: 'Wednesday',
+    label: 'Conversion funnel check',
+    description: 'List trial_ready_free workspaces with TRS above 60, show how many were contacted, and flag unconverted high-score workspaces.',
+    query: 'Check the conversion funnel: list trial_ready_free workspaces with TRS above 60 and show which have been contacted and which have not',
+  },
+  {
+    day: 'Friday',
+    label: 'Suppression audit',
+    description: 'List workspaces marked sweep_ignored after 3 consecutive skips. Decide whether any should be un-suppressed.',
+    query: 'List workspaces that are suppressed (sweep_ignored) and show their skip history so I can decide which to un-suppress',
+  },
+];
+
+function TaskipInternalTasksSubTab({ agentKey }: { agentKey: string }) {
+  const navigate = useNavigate();
+
+  function openChat(query: string) {
+    navigate(`/agents/${agentKey}/chat`, { state: { query } });
+  }
+
+  return (
+    <div className="space-y-6">
+
+      {/* Daily automated sweeps */}
+      <div className="rounded-xl border border-border bg-card p-5">
+        <div className="flex items-center gap-2 mb-1">
+          <CalendarClock className="w-4 h-4 text-muted-foreground" />
+          <h3 className="text-sm font-semibold">Daily automated sweeps</h3>
+        </div>
+        <p className="text-xs text-muted-foreground mb-4">
+          These run via the 6-hour BullMQ cron. Results appear in the Suggestions tab awaiting your approval — nothing is sent automatically.
+        </p>
+        <div className="space-y-3">
+          {DAILY_SWEEP_TASKS.map((t) => (
+            <div key={t.cohort} className="flex items-start gap-3 p-3 rounded-lg border border-border bg-muted/10 hover:bg-muted/20 transition-colors">
+              <div className="flex-1 min-w-0">
+                <div className="flex flex-wrap items-center gap-1.5 mb-1">
+                  <span className={`text-xs font-medium px-1.5 py-0.5 rounded ${t.cohortColor}`}>{t.cohort}</span>
+                  <span className={`text-xs px-1.5 py-0.5 rounded ${t.actionColor}`}>{t.action}</span>
+                  <span className="text-xs text-muted-foreground">scenario: {t.scenario}</span>
+                </div>
+                <p className="text-xs text-muted-foreground">{t.description}</p>
+              </div>
+              <span className="text-xs text-muted-foreground whitespace-nowrap shrink-0 pt-0.5">{t.schedule}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* On-demand tasks */}
+      <div className="rounded-xl border border-border bg-card p-5">
+        <div className="flex items-center gap-2 mb-1">
+          <Zap className="w-4 h-4 text-muted-foreground" />
+          <h3 className="text-sm font-semibold">On-demand tasks</h3>
+        </div>
+        <p className="text-xs text-muted-foreground mb-4">
+          Click any task to open the chat with the query pre-filled. Edit it before sending.
+        </p>
+        <div className="space-y-2">
+          {ONDEMAND_TASKS.map((t) => (
+            <button
+              key={t.label}
+              onClick={() => openChat(t.query)}
+              className="w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-lg border border-border bg-muted/10 hover:bg-muted/30 transition-colors text-left group"
+            >
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-foreground">{t.label}</p>
+                <p className="text-xs text-muted-foreground truncate mt-0.5">{t.hint}</p>
+              </div>
+              <ExternalLink className="w-3.5 h-3.5 text-muted-foreground shrink-0 group-hover:text-foreground transition-colors" />
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Weekly reviews */}
+      <div className="rounded-xl border border-border bg-card p-5">
+        <div className="flex items-center gap-2 mb-1">
+          <RotateCcw className="w-4 h-4 text-muted-foreground" />
+          <h3 className="text-sm font-semibold">Weekly reviews</h3>
+        </div>
+        <p className="text-xs text-muted-foreground mb-4">
+          Run once a week in chat to get a structured report. Each opens chat with the query ready.
+        </p>
+        <div className="space-y-3">
+          {WEEKLY_TASKS.map((t) => (
+            <button
+              key={t.label}
+              onClick={() => openChat(t.query)}
+              className="w-full flex items-start gap-3 p-3 rounded-lg border border-border bg-muted/10 hover:bg-muted/30 transition-colors text-left group"
+            >
+              <span className="text-xs font-medium bg-muted px-1.5 py-0.5 rounded shrink-0 mt-0.5">{t.day}</span>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-foreground">{t.label}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">{t.description}</p>
+              </div>
+              <ExternalLink className="w-3.5 h-3.5 text-muted-foreground shrink-0 group-hover:text-foreground transition-colors mt-0.5" />
+            </button>
+          ))}
+        </div>
+      </div>
+
+    </div>
+  );
 }
 
 function TaskipInternalSetupSubTab({ agent }: { agent: AgentDetail }) {
@@ -1587,20 +1864,53 @@ function TaskipInternalSetupSubTab({ agent }: { agent: AgentDetail }) {
       <div className="rounded-xl border border-border bg-card p-5">
         <h3 className="text-sm font-semibold mb-1">Taskip Internal — Setup Checklist</h3>
         <p className="text-xs text-muted-foreground mb-5">
-          On-demand assistant for internal Taskip ops. Ask in plain English — it looks up users, subscriptions,
-          and invoices, then proposes write actions (extend trial, mark refund, marketing suggestion) for your Telegram approval.
+          Two modes in one agent: (1) on-demand chat assistant — ask in plain English to look up users, subscriptions,
+          invoices, or propose write actions; (2) proactive suggestion sweep — runs every 6 hours, scans Insight cohorts,
+          generates LLM draft emails, and queues them here for your approval before anything is sent.
         </p>
         <div className="space-y-5">
 
-          <SetupStep n={1} title="Test with the Chat page" done={agent.enabled}>
-            <p>Open the <strong>Chat</strong> page for this agent and type a question, for example:</p>
+          <SetupStep n={1} title="Configure Insight API credentials" done={agent.enabled}>
+            <p>
+              Go to <a href="/integrations" className="text-primary hover:underline"><strong>Integrations → Taskip Insight</strong></a> and set:
+            </p>
+            <ul className="list-disc list-inside ml-1 mt-1 space-y-0.5">
+              <li><code className="bg-muted px-1 rounded text-xs">insight_base_url</code> — base URL of your Taskip Insight API (no trailing slash)</li>
+              <li><code className="bg-muted px-1 rounded text-xs">insight_agent_key_primary</code> — primary agent key (X-Insight-Agent-Key header)</li>
+              <li><code className="bg-muted px-1 rounded text-xs">insight_agent_key_secondary</code> — optional rotation key</li>
+            </ul>
+            <p className="mt-1">Use the <strong>Test connection</strong> button below to verify the API is reachable.</p>
+          </SetupStep>
+
+          <SetupStep n={2} title="Connect Gmail for personal outreach" done={false}>
+            <p>
+              Trial and free-tier suggestions are sent via Gmail (personal founder outreach).
+              Go to <a href="/integrations" className="text-primary hover:underline"><strong>Integrations → Gmail</strong></a> and connect your Google Workspace account via OAuth.
+            </p>
+            <p className="mt-1">
+              Paid-tier suggestions (at_risk_paid, dormant_paid) use Taskip's own messaging system — no Gmail needed for those.
+            </p>
+          </SetupStep>
+
+          <SetupStep n={3} title="Trigger a manual sweep to verify end-to-end" done={false}>
+            <p>
+              Open the <strong>Suggestions</strong> tab and click <strong>Run sweep now</strong>.
+              Within a few seconds you should see draft suggestion cards appear. Approve one to verify the Gmail
+              and Taskip system send paths both work.
+            </p>
+            <ul className="list-disc list-inside ml-1 mt-1 space-y-0.5">
+              <li>Gmail path: check Gmail Sent folder + <strong>Suggestions</strong> tab shows status Sent</li>
+              <li>Taskip system path: check Insight AI messages log + status shows Sent</li>
+            </ul>
+          </SetupStep>
+
+          <SetupStep n={4} title="Test the chat assistant" done={agent.enabled}>
+            <p>Open the <strong>Chat</strong> page and type a question, for example:</p>
             <ul className="list-disc list-inside ml-1 mt-1 space-y-0.5">
               <li><em>Look up user john@example.com</em></li>
-              <li><em>Show me the last 5 invoices for user abc-123</em></li>
               <li><em>List at_risk_paid workspaces with score below 40</em></li>
               <li><em>Drill into workspace acme and propose a retention outreach</em></li>
             </ul>
-            <p className="mt-1">The agent will query the DB / Insight API and send the answer (or an approval request) to Telegram.</p>
           </SetupStep>
 
         </div>
@@ -1609,11 +1919,11 @@ function TaskipInternalSetupSubTab({ agent }: { agent: AgentDetail }) {
       <TaskipInsightStatusCard />
 
       <div className="rounded-xl border border-border bg-muted/20 p-4">
-        <p className="text-xs font-medium text-muted-foreground mb-1">Platform prerequisites</p>
+        <p className="text-xs font-medium text-muted-foreground mb-1">Platform note</p>
         <p className="text-xs text-muted-foreground">
-          Requires <code className="bg-muted px-1 rounded">TASKIP_DB_URL_READONLY</code> in Coolify env (shared with all Taskip agents).
-          Configure the Insight API credentials in <a href="/integrations" className="text-primary hover:underline">Integrations → Taskip Insight</a>.
-          LLM provider must be <strong>OpenAI</strong> or <strong>DeepSeek</strong> — set in <strong>Settings → LLM Providers</strong> and the LLM sub-tab (Gemini does not support tool calling).
+          Taskip DB read-only connection: set <code className="bg-muted px-1 rounded">taskip_db_url_readonly</code> in{' '}
+          <a href="/settings" className="text-primary hover:underline">Settings</a> (shared with Taskip Trial agent).
+          LLM provider is configured in the <strong>LLM</strong> sub-tab. OpenAI or DeepSeek are required — Gemini does not support tool calling. Leave on Default to inherit platform Settings.
         </p>
       </div>
     </div>
@@ -1650,14 +1960,14 @@ function TaskipInsightStatusCard() {
     <div className="rounded-xl border border-border bg-card p-5">
       <h3 className="text-sm font-semibold mb-1">Insight API connection</h3>
       <p className="text-xs text-muted-foreground mb-4">
-        Server-to-server integration with Taskip's Insight module (cohort segmentation, workspace overview, marketing-suggestion writeback).
-        Secrets are read from environment variables — values are never returned, only their presence.
+        Server-to-server integration with Taskip's Insight module (cohort segmentation, workspace lifecycle, pending scenarios, message delivery).
+        Credentials are read from <strong>Settings</strong> (<code className="bg-muted px-1 rounded text-xs">insight_base_url</code> and <code className="bg-muted px-1 rounded text-xs">insight_agent_key_primary</code>) — values are never returned here, only their presence is shown.
       </p>
 
       <div className="grid grid-cols-2 gap-2 text-xs mb-4">
-        <Indicator label="INSIGHT_BASE_URL" on={!!status?.baseUrl} value={status?.baseUrl ?? undefined} />
-        <Indicator label="Key — primary" on={!!status?.hasPrimary} />
-        <Indicator label="Key — secondary (rotation)" on={!!status?.hasSecondary} optional />
+        <Indicator label="insight_base_url" on={!!status?.baseUrl} value={status?.baseUrl ?? undefined} />
+        <Indicator label="insight_agent_key_primary" on={!!status?.hasPrimary} />
+        <Indicator label="insight_agent_key_secondary" on={!!status?.hasSecondary} optional />
         <Indicator label="Schema version" on={status?.schemaVersion === 1} value={status?.schemaVersion?.toString()} />
       </div>
 
@@ -1796,21 +2106,34 @@ function TaskipInternalLlmSubTab({ agent, config, onChange, token }: {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['agent', agent.key] }),
   });
 
+  const useDefault = !config.llm?.provider;
+
   return (
     <div className="rounded-xl border border-border bg-card p-5">
       <h3 className="text-sm font-semibold mb-2">LLM Configuration</h3>
       <p className="text-xs text-muted-foreground mb-4">
-        Only <strong>OpenAI</strong> and <strong>DeepSeek</strong> support tool calling. Gemini is not supported for this agent.
-        Use <code className="bg-muted px-1 rounded">gpt-4o</code> for best accuracy.
+        Only <strong>OpenAI</strong> and <strong>DeepSeek</strong> support tool calling — Gemini does not.
+        Select <strong>Default</strong> to inherit the platform LLM settings ({' '}
+        <a href="/settings" className="text-primary hover:underline">Settings → LLM</a>).
       </p>
       <div className="space-y-4">
         <div>
           <label className="text-xs text-muted-foreground block mb-2">Provider</label>
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
+            <button
+              onClick={() => onChange({ llm: null })}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
+                useDefault
+                  ? 'bg-primary text-primary-foreground border-primary'
+                  : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground/30'
+              }`}
+            >
+              Default (from Settings)
+            </button>
             {(['openai', 'deepseek'] as const).map((p) => (
               <button
                 key={p}
-                onClick={() => onChange({ llm: { ...config.llm, provider: p } })}
+                onClick={() => onChange({ llm: { provider: p, model: config.llm?.model ?? '' } })}
                 className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
                   config.llm?.provider === p
                     ? 'bg-primary text-primary-foreground border-primary'
@@ -1822,18 +2145,26 @@ function TaskipInternalLlmSubTab({ agent, config, onChange, token }: {
             ))}
           </div>
         </div>
-        <div>
-          <label className="text-xs text-muted-foreground block mb-1">Model</label>
-          <Input
-            value={config.llm?.model ?? ''}
-            onChange={(e) => onChange({ llm: { ...config.llm, model: e.target.value } })}
-            placeholder="gpt-4o"
-            className="text-sm"
-          />
-          <p className="text-xs text-muted-foreground mt-1">
-            Recommended: <code className="bg-muted px-1 rounded">gpt-4o</code> or <code className="bg-muted px-1 rounded">deepseek-chat</code>
+        {!useDefault && (
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1">Model</label>
+            <Input
+              value={config.llm?.model ?? ''}
+              onChange={(e) => onChange({ llm: { ...config.llm, model: e.target.value } })}
+              placeholder="gpt-4o"
+              className="text-sm"
+            />
+            <p className="text-xs text-muted-foreground mt-1">
+              Recommended: <code className="bg-muted px-1 rounded">gpt-4o</code> or <code className="bg-muted px-1 rounded">deepseek-chat</code>
+            </p>
+          </div>
+        )}
+        {useDefault && (
+          <p className="text-xs text-muted-foreground">
+            Using platform default — provider and model are read from{' '}
+            <a href="/settings" className="text-primary hover:underline">Settings → LLM</a> at runtime.
           </p>
-        </div>
+        )}
       </div>
       <SaveRow
         isPending={configMutation.isPending}
@@ -1844,12 +2175,277 @@ function TaskipInternalLlmSubTab({ agent, config, onChange, token }: {
   );
 }
 
-function TaskipInternalSettingsTab({ agent, token }: { agent: AgentDetail; token: string }) {
-  const [activeSub, setActiveSub] = useState<TaskipInternalTabKey>('setup');
-  const [config, setConfig] = useState<TaskipInternalConfig>(
-    (agent.config as unknown as TaskipInternalConfig) ?? {
-      llm: { provider: 'openai', model: 'gpt-4o' },
+// ─── Cohort tier colors ───────────────────────────────────────────────────────
+
+const TIER_COLORS: Record<number, string> = {
+  1: 'bg-red-100 text-red-700',
+  2: 'bg-amber-100 text-amber-700',
+  3: 'bg-blue-100 text-blue-700',
+  4: 'bg-green-100 text-green-700',
+};
+
+const TIER_LABELS: Record<number, string> = {
+  1: 'Cold',
+  2: 'Warming',
+  3: 'Active',
+  4: 'Hot',
+};
+
+interface Suggestion {
+  id: string;
+  workspaceUuid: string;
+  ownerEmail: string;
+  ownerName: string;
+  cohort: string;
+  scenarioKey: string;
+  score: number;
+  scoreTier: number;
+  lifecycleState: string;
+  daysSinceSignup: number;
+  subject: string;
+  bodyMd: string;
+  ctaText: string | null;
+  ctaUrl: string | null;
+  channel: string;
+  status: string;
+  failedReason: string | null;
+  createdAt: string;
+  recentActivity: { activityType: string; notes: string | null; createdAt: string }[];
+}
+
+function SuggestionsSubTab({ token }: { token: string }) {
+  const qc = useQueryClient();
+  const [filter, setFilter] = useState<'all' | 'pending' | 'sent' | 'skipped' | 'failed'>('pending');
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [editing, setEditing] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState<{ subject: string; bodyMd: string; ctaText: string; ctaUrl: string } | null>(null);
+  const [sweeping, setSweeping] = useState(false);
+
+  const { data: suggestions = [], isLoading } = useQuery<Suggestion[]>({
+    queryKey: ['taskip-suggestions', filter],
+    queryFn: () => apiFetch(token, `/taskip-internal/suggestions?status=${filter}`),
+    refetchInterval: 30_000,
+  });
+
+  const pending = suggestions.filter((s) => s.status === 'pending').length;
+
+  async function runSweep() {
+    setSweeping(true);
+    try {
+      await apiFetch(token, '/taskip-internal/suggestions/sweep', { method: 'POST' });
+      setTimeout(() => qc.invalidateQueries({ queryKey: ['taskip-suggestions'] }), 3000);
+    } finally {
+      setSweeping(false);
     }
+  }
+
+  async function approve(id: string) {
+    await apiFetch(token, `/taskip-internal/suggestions/${id}/approve`, { method: 'POST' });
+    qc.invalidateQueries({ queryKey: ['taskip-suggestions'] });
+  }
+
+  async function skip(id: string) {
+    await apiFetch(token, `/taskip-internal/suggestions/${id}/skip`, { method: 'POST' });
+    qc.invalidateQueries({ queryKey: ['taskip-suggestions'] });
+  }
+
+  async function saveEdit(id: string) {
+    if (!editDraft) return;
+    await apiFetch(token, `/taskip-internal/suggestions/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(editDraft),
+    });
+    setEditing(null);
+    setEditDraft(null);
+    qc.invalidateQueries({ queryKey: ['taskip-suggestions'] });
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-semibold">Suggestions</span>
+          {pending > 0 && (
+            <span className="bg-primary text-primary-foreground text-xs font-semibold px-2 py-0.5 rounded-full">
+              {pending}
+            </span>
+          )}
+        </div>
+        <Button size="sm" variant="outline" onClick={runSweep} disabled={sweeping}>
+          {sweeping ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : null}
+          Run sweep now
+        </Button>
+      </div>
+
+      {/* Filter bar */}
+      <div className="flex gap-1 flex-wrap">
+        {(['all', 'pending', 'sent', 'skipped', 'failed'] as const).map((f) => (
+          <button
+            key={f}
+            onClick={() => setFilter(f)}
+            className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+              filter === f
+                ? 'bg-primary text-primary-foreground border-primary'
+                : 'border-border text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            {f.charAt(0).toUpperCase() + f.slice(1)}
+          </button>
+        ))}
+      </div>
+
+      {/* List */}
+      {isLoading ? (
+        <div className="space-y-2">
+          {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-24 w-full rounded-xl" />)}
+        </div>
+      ) : suggestions.length === 0 ? (
+        <div className="text-sm text-muted-foreground py-8 text-center">No suggestions found.</div>
+      ) : (
+        <div className="space-y-3">
+          {suggestions.map((s) => (
+            <div key={s.id} className="border border-border rounded-xl bg-card overflow-hidden">
+              {/* Card header */}
+              <div className="p-4">
+                <div className="flex items-start justify-between gap-3 mb-2">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${TIER_COLORS[s.scoreTier] ?? 'bg-muted text-muted-foreground'}`}>
+                      Tier {s.scoreTier} — {TIER_LABELS[s.scoreTier]}
+                    </span>
+                    <span className="text-xs border border-border rounded-full px-2 py-0.5 text-muted-foreground">
+                      {s.cohort.replace(/_/g, ' ')}
+                    </span>
+                    <span className={`text-xs border rounded-full px-2 py-0.5 ${
+                      s.channel === 'gmail' ? 'border-blue-300 text-blue-700' : 'border-purple-300 text-purple-700'
+                    }`}>
+                      {s.channel === 'gmail' ? 'Gmail' : 'Taskip System'}
+                    </span>
+                    <span className={`text-xs rounded-full px-2 py-0.5 font-medium ${
+                      s.status === 'pending' ? 'bg-amber-100 text-amber-700' :
+                      s.status === 'sent' ? 'bg-green-100 text-green-700' :
+                      s.status === 'skipped' ? 'bg-muted text-muted-foreground' :
+                      s.status === 'failed' ? 'bg-red-100 text-red-700' : 'bg-muted text-muted-foreground'
+                    }`}>
+                      {s.status}
+                    </span>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <div className="text-xs font-semibold">{s.score}/100</div>
+                    <div className="text-xs text-muted-foreground">{s.daysSinceSignup}d in {s.lifecycleState}</div>
+                  </div>
+                </div>
+
+                <div className="text-xs text-muted-foreground mb-2">
+                  {s.ownerName} &lt;{s.ownerEmail}&gt;
+                </div>
+
+                {editing === s.id && editDraft ? (
+                  <div className="space-y-2">
+                    <div>
+                      <label className="text-xs text-muted-foreground">Subject</label>
+                      <Input
+                        value={editDraft.subject}
+                        onChange={(e) => setEditDraft({ ...editDraft, subject: e.target.value })}
+                        className="mt-0.5 text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-muted-foreground">Body</label>
+                      <textarea
+                        value={editDraft.bodyMd}
+                        onChange={(e) => setEditDraft({ ...editDraft, bodyMd: e.target.value })}
+                        rows={6}
+                        className="mt-0.5 w-full text-sm border border-input rounded-md px-3 py-2 bg-background resize-y"
+                      />
+                    </div>
+                    <div className="flex gap-2">
+                      <div className="flex-1">
+                        <label className="text-xs text-muted-foreground">CTA text</label>
+                        <Input
+                          value={editDraft.ctaText}
+                          onChange={(e) => setEditDraft({ ...editDraft, ctaText: e.target.value })}
+                          className="mt-0.5 text-sm"
+                        />
+                      </div>
+                      <div className="flex-1">
+                        <label className="text-xs text-muted-foreground">CTA URL</label>
+                        <Input
+                          value={editDraft.ctaUrl}
+                          onChange={(e) => setEditDraft({ ...editDraft, ctaUrl: e.target.value })}
+                          className="mt-0.5 text-sm"
+                        />
+                      </div>
+                    </div>
+                    <div className="flex gap-2 pt-1">
+                      <Button size="sm" variant="outline" onClick={() => { setEditing(null); setEditDraft(null); }}>Cancel</Button>
+                      <Button size="sm" variant="outline" onClick={() => saveEdit(s.id)}>Save draft</Button>
+                      <Button size="sm" onClick={() => saveEdit(s.id).then(() => approve(s.id))}>Save and approve</Button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <p className="text-sm font-semibold mb-1">{s.subject}</p>
+                    <p
+                      className={`text-xs text-muted-foreground whitespace-pre-wrap ${expanded === s.id ? '' : 'line-clamp-2'}`}
+                    >
+                      {s.bodyMd}
+                    </p>
+                    {s.bodyMd.length > 120 && (
+                      <button
+                        onClick={() => setExpanded(expanded === s.id ? null : s.id)}
+                        className="text-xs text-primary mt-1"
+                      >
+                        {expanded === s.id ? 'Show less' : 'Show more'}
+                      </button>
+                    )}
+                    {s.failedReason && (
+                      <p className="text-xs text-red-600 mt-1">{s.failedReason}</p>
+                    )}
+                  </>
+                )}
+
+                {/* Action buttons */}
+                {s.status === 'pending' && editing !== s.id && (
+                  <div className="flex gap-2 mt-3">
+                    <Button size="sm" onClick={() => approve(s.id)}>Approve and send</Button>
+                    <Button size="sm" variant="outline" onClick={() => {
+                      setEditing(s.id);
+                      setEditDraft({ subject: s.subject, bodyMd: s.bodyMd, ctaText: s.ctaText ?? '', ctaUrl: s.ctaUrl ?? '' });
+                    }}>Edit</Button>
+                    <Button size="sm" variant="outline" onClick={() => skip(s.id)}>Skip</Button>
+                  </div>
+                )}
+              </div>
+
+              {/* Activity section */}
+              {s.recentActivity.length > 0 && (
+                <div className="border-t border-border bg-muted/30 px-4 py-2">
+                  <p className="text-xs font-medium text-muted-foreground mb-1">Recent activity</p>
+                  <div className="space-y-1">
+                    {s.recentActivity.map((a, i) => (
+                      <div key={i} className="flex items-start gap-2 text-xs text-muted-foreground">
+                        <span className="shrink-0">{new Date(a.createdAt).toLocaleDateString()}</span>
+                        <span>{a.activityType.replace(/_/g, ' ')}</span>
+                        {a.notes && <span className="text-muted-foreground/70">— {a.notes}</span>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TaskipInternalSettingsTab({ agent, token }: { agent: AgentDetail; token: string }) {
+  const [activeSub, setActiveSub] = useState<TaskipInternalTabKey>('suggestions');
+  const [config, setConfig] = useState<TaskipInternalConfig>(
+    (agent.config as unknown as TaskipInternalConfig) ?? {}
   );
 
   function handleChange(patch: Partial<TaskipInternalConfig>) {
@@ -1875,6 +2471,8 @@ function TaskipInternalSettingsTab({ agent, token }: { agent: AgentDetail; token
         ))}
       </div>
 
+      {activeSub === 'suggestions' && <SuggestionsSubTab token={token} />}
+      {activeSub === 'tasks' && <TaskipInternalTasksSubTab agentKey={agent.key} />}
       {activeSub === 'setup' && <TaskipInternalSetupSubTab agent={agent} />}
       {activeSub === 'llm' && (
         <TaskipInternalLlmSubTab agent={agent} config={config} onChange={handleChange} token={token} />
@@ -1891,7 +2489,6 @@ function SettingsTab({ agent, token }: { agent: AgentDetail; token: string }) {
   const [config, setConfig] = useState<TaskipConfig>(
     (agent.config as unknown as TaskipConfig) ?? {
       segments: {},
-      llm: { provider: 'openai', model: 'gpt-4o-mini' },
       emailProvider: 'gmail',
       gmail: { from: '' },
       ses: { from: '', configurationSet: '' },
