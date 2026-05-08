@@ -34,6 +34,7 @@ interface TaskipInternalConfig {
 interface TaskipInternalSnapshot {
   query: string;
   config: TaskipInternalConfig;
+  history?: string;
 }
 
 const SYSTEM_PROMPT = `You are an internal ops assistant for Sharifur Rahman, founder of Taskip.
@@ -144,27 +145,37 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
 
   async buildContext(trigger: TriggerEvent, run: RunContext): Promise<AgentContext> {
     const config = await this.getConfig();
-    const payload = run.triggerPayload as { query?: string } | null;
+    const payload = run.triggerPayload as { query?: string; history?: string } | null;
     const query = payload?.query ?? 'No query provided';
+    const history = payload?.history;
 
     return {
       source: trigger,
-      snapshot: { query, config } satisfies TaskipInternalSnapshot,
+      snapshot: { query, config, history } satisfies TaskipInternalSnapshot,
       followups: (run.context as AgentContext | null)?.followups ?? [],
     };
   }
 
   async decide(ctx: AgentContext): Promise<ProposedAction[]> {
-    const { query, config } = ctx.snapshot as TaskipInternalSnapshot;
+    const { query, config, history } = ctx.snapshot as TaskipInternalSnapshot;
     const followupNote = ctx.followups.at(-1)?.text;
 
     const effectiveQuery = followupNote
       ? `${query}\n\nAdditional instruction: ${followupNote}`
       : query;
 
+    const priorMessages: LlmToolMessage[] = [];
+    if (history) {
+      for (const line of history.split('\n')) {
+        if (line.startsWith('User: ')) priorMessages.push({ role: 'user', content: line.slice(6) });
+        else if (line.startsWith('Agent: ')) priorMessages.push({ role: 'assistant', content: line.slice(7) });
+      }
+    }
+
     const tools = this.buildToolDefinitions();
     const messages: LlmToolMessage[] = [
       { role: 'system', content: SYSTEM_PROMPT },
+      ...priorMessages,
       { role: 'user', content: effectiveQuery },
     ];
 

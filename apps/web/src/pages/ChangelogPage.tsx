@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.2.6',
+    date: '2026-05-08',
+    entries: [
+      { tag: 'fix', scope: 'taskip-internal', description: 'Chat continuity: agent now reads history from trigger payload and prepends prior conversation turns to the LLM messages array — follow-up questions no longer lose context of the previous exchange' },
+    ],
+  },
+  {
     version: 'v4.2.5',
     date: '2026-05-08',
     entries: [
