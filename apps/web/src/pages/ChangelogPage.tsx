@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.2.5',
+    date: '2026-05-08',
+    entries: [
+      { tag: 'fix', scope: 'runtime', description: 'Build error: stale "body" reference in agent-route-dispatcher webhook trigger — replaced with request.body after the params refactor renamed the variable' },
+    ],
+  },
+  {
     version: 'v4.2.4',
     date: '2026-05-08',
     entries: [
