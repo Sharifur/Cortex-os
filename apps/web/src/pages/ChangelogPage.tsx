@@ -16,6 +16,16 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.2.2',
+    date: '2026-05-08',
+    entries: [
+      { tag: 'feat', scope: 'llm', description: 'All agent LLM tabs now default to "Default (from Settings)" — no hardcoded provider in initial state; per-agent override only when explicitly selected' },
+      { tag: 'feat', scope: 'llm', description: 'LlmSubTab, DailyReminderLlmSubTab, EmailManagerLlmSubTab: added Default button that clears llm config; model input hidden when default is active' },
+      { tag: 'fix', scope: 'email-manager', description: 'Remove hardcoded provider/model override in draftClientReply and analyzeEmailText — both now use agentLlmOpts(config) which falls through to global Settings' },
+      { tag: 'chore', scope: 'llm', description: 'LLM interfaces (TaskipConfig, DailyReminderConfig, EmailManagerConfig): llm field is now optional/nullable' },
+    ],
+  },
+  {
     version: 'v4.2.1',
     date: '2026-05-08',
     entries: [

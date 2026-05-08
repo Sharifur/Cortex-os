@@ -41,7 +41,7 @@ interface Run {
 
 interface TaskipConfig {
   segments: Record<string, { enabled: boolean; templatePromptId: string }>;
-  llm: { provider: string; model: string };
+  llm?: { provider?: string; model?: string } | null;
   emailProvider: 'gmail' | 'ses';
   gmail: { from: string };
   ses: { from: string; configurationSet?: string };
@@ -54,7 +54,7 @@ interface DailyReminderConfig {
   eveningCron: string;
   enableMorning: boolean;
   enableEvening: boolean;
-  llm: { provider: string; model: string };
+  llm?: { provider?: string; model?: string } | null;
 }
 
 const STATUS_CLS: Record<string, string> = {
@@ -691,6 +691,8 @@ function LlmSubTab({
     onSuccess: () => qc.invalidateQueries({ queryKey: ['agent', agent.key] }),
   });
 
+  const useDefault = !config.llm?.provider;
+
   return (
     <div className="rounded-xl border border-border bg-card p-5">
       <h3 className="text-sm font-semibold mb-4">LLM Configuration</h3>
@@ -698,33 +700,51 @@ function LlmSubTab({
         <div>
           <label className="text-xs text-muted-foreground block mb-2">Provider</label>
           <div className="flex flex-wrap gap-2">
-            {LLM_PROVIDERS.map((p) => (
+            <button
+              onClick={() => onChange({ llm: null })}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
+                useDefault
+                  ? 'bg-primary text-primary-foreground border-primary'
+                  : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground/30'
+              }`}
+            >
+              Default (from Settings)
+            </button>
+            {LLM_PROVIDERS.filter((p) => p !== 'auto').map((p) => (
               <button
                 key={p}
-                onClick={() => onChange({ llm: { ...config.llm, provider: p } })}
+                onClick={() => onChange({ llm: { provider: p, model: config.llm?.model ?? '' } })}
                 className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
                   config.llm?.provider === p
                     ? 'bg-primary text-primary-foreground border-primary'
                     : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground/30'
                 }`}
               >
-                {p === 'auto' ? 'Auto (fallback chain)' : p.charAt(0).toUpperCase() + p.slice(1)}
+                {p.charAt(0).toUpperCase() + p.slice(1)}
               </button>
             ))}
           </div>
         </div>
-        <div>
-          <label className="text-xs text-muted-foreground block mb-1">Model</label>
-          <Input
-            value={config.llm?.model ?? ''}
-            onChange={(e) => onChange({ llm: { ...config.llm, model: e.target.value } })}
-            placeholder="gpt-4o-mini"
-            className="text-sm"
-          />
-          <p className="text-xs text-muted-foreground mt-1">
-            e.g. gpt-4o-mini, gpt-4o, gemini-1.5-flash, deepseek-chat
+        {!useDefault && (
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1">Model</label>
+            <Input
+              value={config.llm?.model ?? ''}
+              onChange={(e) => onChange({ llm: { ...config.llm, model: e.target.value } })}
+              placeholder="gpt-4o-mini"
+              className="text-sm"
+            />
+            <p className="text-xs text-muted-foreground mt-1">
+              e.g. gpt-4o-mini, gpt-4o, gemini-1.5-flash, deepseek-chat
+            </p>
+          </div>
+        )}
+        {useDefault && (
+          <p className="text-xs text-muted-foreground">
+            Using platform default — provider and model are read from{' '}
+            <a href="/settings" className="text-primary hover:underline">Settings → LLM</a> at runtime.
           </p>
-        </div>
+        )}
       </div>
       <SaveRow
         isPending={configMutation.isPending}
@@ -1080,6 +1100,8 @@ function DailyReminderLlmSubTab({
     onSuccess: () => qc.invalidateQueries({ queryKey: ['agent', agent.key] }),
   });
 
+  const useDefault = !config.llm?.provider;
+
   return (
     <div className="rounded-xl border border-border bg-card p-5">
       <h3 className="text-sm font-semibold mb-4">LLM Configuration</h3>
@@ -1087,33 +1109,51 @@ function DailyReminderLlmSubTab({
         <div>
           <label className="text-xs text-muted-foreground block mb-2">Provider</label>
           <div className="flex flex-wrap gap-2">
-            {LLM_PROVIDERS.map((p) => (
+            <button
+              onClick={() => onChange({ llm: null })}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
+                useDefault
+                  ? 'bg-primary text-primary-foreground border-primary'
+                  : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground/30'
+              }`}
+            >
+              Default (from Settings)
+            </button>
+            {LLM_PROVIDERS.filter((p) => p !== 'auto').map((p) => (
               <button
                 key={p}
-                onClick={() => onChange({ llm: { ...config.llm, provider: p } })}
+                onClick={() => onChange({ llm: { provider: p, model: config.llm?.model ?? '' } })}
                 className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
                   config.llm?.provider === p
                     ? 'bg-primary text-primary-foreground border-primary'
                     : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground/30'
                 }`}
               >
-                {p === 'auto' ? 'Auto (fallback chain)' : p.charAt(0).toUpperCase() + p.slice(1)}
+                {p.charAt(0).toUpperCase() + p.slice(1)}
               </button>
             ))}
           </div>
         </div>
-        <div>
-          <label className="text-xs text-muted-foreground block mb-1">Model</label>
-          <Input
-            value={config.llm?.model ?? ''}
-            onChange={(e) => onChange({ llm: { ...config.llm, model: e.target.value } })}
-            placeholder="gpt-4o-mini"
-            className="text-sm"
-          />
-          <p className="text-xs text-muted-foreground mt-1">
-            e.g. gpt-4o-mini, gpt-4o, gemini-1.5-flash, deepseek-chat
+        {!useDefault && (
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1">Model</label>
+            <Input
+              value={config.llm?.model ?? ''}
+              onChange={(e) => onChange({ llm: { ...config.llm, model: e.target.value } })}
+              placeholder="gpt-4o-mini"
+              className="text-sm"
+            />
+            <p className="text-xs text-muted-foreground mt-1">
+              e.g. gpt-4o-mini, gpt-4o, gemini-1.5-flash, deepseek-chat
+            </p>
+          </div>
+        )}
+        {useDefault && (
+          <p className="text-xs text-muted-foreground">
+            Using platform default — provider and model are read from{' '}
+            <a href="/settings" className="text-primary hover:underline">Settings → LLM</a> at runtime.
           </p>
-        </div>
+        )}
       </div>
       <SaveRow
         isPending={configMutation.isPending}
@@ -1132,7 +1172,6 @@ function DailyReminderSettingsTab({ agent, token }: { agent: AgentDetail; token:
       eveningCron: '0 15 * * *',
       enableMorning: true,
       enableEvening: true,
-      llm: { provider: 'auto', model: 'gpt-4o-mini' },
     }
   );
 
@@ -1188,7 +1227,7 @@ interface EmailManagerConfig {
   maxEmailsPerRun: number;
   importantSenders: string[];
   autoArchiveDomains: string[];
-  llm: { provider: string; model: string };
+  llm?: { provider?: string; model?: string } | null;
 }
 
 function EmailManagerSetupSubTab({ agent }: { agent: AgentDetail }) {
@@ -1473,41 +1512,61 @@ function EmailManagerLlmSubTab({ agent, config, onChange, token }: {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['agent', agent.key] }),
   });
 
+  const useDefault = !config.llm?.provider;
+
   return (
     <div className="rounded-xl border border-border bg-card p-5">
       <h3 className="text-sm font-semibold mb-4">LLM Configuration</h3>
       <p className="text-xs text-muted-foreground mb-4">
         Used for email classification (~20 tokens each) and reply drafting (~300 tokens each).
-        A cheap model like <code className="bg-muted px-1 rounded">gpt-4o-mini</code> is recommended.
+        Select <strong>Default</strong> to inherit platform LLM settings.
       </p>
       <div className="space-y-4">
         <div>
           <label className="text-xs text-muted-foreground block mb-2">Provider</label>
           <div className="flex flex-wrap gap-2">
-            {LLM_PROVIDERS.map((p) => (
+            <button
+              onClick={() => onChange({ llm: null })}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
+                useDefault
+                  ? 'bg-primary text-primary-foreground border-primary'
+                  : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground/30'
+              }`}
+            >
+              Default (from Settings)
+            </button>
+            {LLM_PROVIDERS.filter((p) => p !== 'auto').map((p) => (
               <button
                 key={p}
-                onClick={() => onChange({ llm: { ...config.llm, provider: p } })}
+                onClick={() => onChange({ llm: { provider: p, model: config.llm?.model ?? '' } })}
                 className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
                   config.llm?.provider === p
                     ? 'bg-primary text-primary-foreground border-primary'
                     : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground/30'
                 }`}
               >
-                {p === 'auto' ? 'Auto (fallback chain)' : p.charAt(0).toUpperCase() + p.slice(1)}
+                {p.charAt(0).toUpperCase() + p.slice(1)}
               </button>
             ))}
           </div>
         </div>
-        <div>
-          <label className="text-xs text-muted-foreground block mb-1">Model</label>
-          <Input
-            value={config.llm?.model ?? ''}
-            onChange={(e) => onChange({ llm: { ...config.llm, model: e.target.value } })}
-            placeholder="gpt-4o-mini"
-            className="text-sm"
-          />
-        </div>
+        {!useDefault && (
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1">Model</label>
+            <Input
+              value={config.llm?.model ?? ''}
+              onChange={(e) => onChange({ llm: { ...config.llm, model: e.target.value } })}
+              placeholder="gpt-4o-mini"
+              className="text-sm"
+            />
+          </div>
+        )}
+        {useDefault && (
+          <p className="text-xs text-muted-foreground">
+            Using platform default — provider and model are read from{' '}
+            <a href="/settings" className="text-primary hover:underline">Settings → LLM</a> at runtime.
+          </p>
+        )}
       </div>
       <SaveRow
         isPending={configMutation.isPending}
@@ -1525,7 +1584,6 @@ function EmailManagerSettingsTab({ agent, token }: { agent: AgentDetail; token: 
       maxEmailsPerRun: 20,
       importantSenders: [],
       autoArchiveDomains: [],
-      llm: { provider: 'auto', model: 'gpt-4o-mini' },
     }
   );
 
@@ -2212,7 +2270,6 @@ function SettingsTab({ agent, token }: { agent: AgentDetail; token: string }) {
   const [config, setConfig] = useState<TaskipConfig>(
     (agent.config as unknown as TaskipConfig) ?? {
       segments: {},
-      llm: { provider: 'openai', model: 'gpt-4o-mini' },
       emailProvider: 'gmail',
       gmail: { from: '' },
       ses: { from: '', configurationSet: '' },
