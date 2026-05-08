@@ -3717,15 +3717,20 @@ function CanvaSetupTab({ agent, token }: { agent: AgentDetail; token: string }) 
         LLM provider, Telegram bot, and database are platform-wide — configure them in Settings, not here.
       </div>
 
+      <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-3 text-xs text-blue-300 space-y-1">
+        <p className="font-semibold">No Canva app approval needed for personal use</p>
+        <p className="text-blue-300/80">Canva review is only required to publish an app publicly to all Canva users. For your own account you can create an app and use it immediately in development mode — no waiting, no submission.</p>
+      </div>
+
       <div className="space-y-3">
 
-        <SetupStep n={1} title="Register a Canva OAuth app">
-          <p>Go to <a href="https://www.canva.com/developers/apps" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">canva.com/developers/apps</a> → <strong>Create an app</strong>.</p>
-          <p className="mt-1">In <strong>Configure → OAuth 2.0</strong>, add this redirect URI:</p>
+        <SetupStep n={1} title="Create a Canva OAuth app (2 min, no approval needed)">
+          <p>Go to <a href="https://www.canva.com/developers/apps" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">canva.com/developers/apps</a> → <strong>Create an app</strong> → choose <strong>Public</strong> (ignore the review note — it only applies if you later submit for public release).</p>
+          <p className="mt-1.5">In <strong>Configure → OAuth 2.0</strong>, add this redirect URI:</p>
           <code className="block bg-muted px-2 py-1 rounded text-xs break-all mt-1">
             https://cortex-api.xgenious.com/integrations/oauth/callback/canva
           </code>
-          <p className="mt-1">Enable all required scopes: <code className="bg-muted px-1 rounded">design:content:read/write</code>, <code className="bg-muted px-1 rounded">asset:read/write</code>, <code className="bg-muted px-1 rounded">profile:read</code>, and brand template scopes.</p>
+          <p className="mt-1.5">Enable scopes: <code className="bg-muted px-1 rounded">design:content:read</code> <code className="bg-muted px-1 rounded">design:content:write</code> <code className="bg-muted px-1 rounded">asset:read</code> <code className="bg-muted px-1 rounded">asset:write</code> <code className="bg-muted px-1 rounded">profile:read</code>.</p>
         </SetupStep>
 
         <SetupStep n={2} title="Add credentials to Settings">
@@ -3743,9 +3748,8 @@ function CanvaSetupTab({ agent, token }: { agent: AgentDetail; token: string }) 
           </div>
         </SetupStep>
 
-        <SetupStep n={3} title="Connect Canva via OAuth">
-          <p>Go to <strong>Integrations → OAuth Apps</strong> and click <strong>Connect</strong> next to Canva.</p>
-          <p className="mt-1">You will be redirected to Canva to approve access. After approval the token is stored encrypted and auto-refreshes.</p>
+        <SetupStep n={3} title="Connect your account via OAuth">
+          <p>Go to <strong>Integrations → OAuth Apps</strong> and click <strong>Connect</strong> next to Canva. You will be redirected to Canva to approve access for your own account — this completes instantly with no review.</p>
           <div className="mt-2">
             <button
               onClick={() => navigate('/integrations')}
@@ -3762,12 +3766,12 @@ function CanvaSetupTab({ agent, token }: { agent: AgentDetail; token: string }) 
             <div><span className="text-muted-foreground">Name: </span>canva</div>
             <div><span className="text-muted-foreground">URL: </span>https://mcp.canva.com/mcp</div>
           </div>
-          <p className="mt-1.5">After saving, use the <strong>OAuth Integration</strong> dropdown on the server row to link it to the Canva OAuth app you just connected. Enable it.</p>
+          <p className="mt-1.5">After saving, use the <strong>OAuth Integration</strong> dropdown on the server row to link it to the Canva connection you just made. Enable it.</p>
         </SetupStep>
 
         <SetupStep n={5} title="Add brand identities">
           <p>Go to the <strong>Brands</strong> tab and add at least one brand. Paste your website URL to auto-fill voice profile, colors, and fonts.</p>
-          <p className="mt-1 text-muted-foreground">The agent uses the brand's identity automatically when you request a design in the chat.</p>
+          <p className="mt-1 text-muted-foreground">The agent uses the brand identity automatically when you request a design in chat.</p>
         </SetupStep>
 
         <SetupStep n={6} title="Verify and test" done={agent.enabled}>

@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.1.5',
+    date: '2026-05-08',
+    entries: [
+      { tag: 'fix', scope: 'canva', description: 'Canva setup tab: clarify that Canva app review is only needed for public release — personal/dev use works immediately; reword steps to remove approval confusion; add info banner explaining no-approval path' },
+    ],
+  },
+  {
     version: 'v4.1.4',
     date: '2026-05-08',
     entries: [
