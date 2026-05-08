@@ -45,8 +45,11 @@ export class AgentRouteDispatcherService implements OnApplicationBootstrap {
                 return;
               }
             }
-            const body = request.body ?? {};
-            const result = await route.handler(body, reply);
+            const params = { ...(request.query ?? {}), ...(request.body ?? {}) };
+            this.logger.debug(
+              `${route.method} ${route.path} params=${JSON.stringify(params)}`,
+            );
+            const result = await route.handler(params, reply);
 
             // Fire-and-forget webhook agent run
             if (isWebhookTrigger) {

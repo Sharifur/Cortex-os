@@ -329,11 +329,13 @@ export class TaskipInsightService {
   }
 
   async status(probeWorkspaceUuid?: string): Promise<InsightStatus> {
+    this.logger.debug(`status() called — probeWorkspaceUuid=${JSON.stringify(probeWorkspaceUuid)}`);
     const [base, primary, secondary] = await Promise.all([
       this.getBaseUrl(),
       this.settings.getDecrypted('insight_agent_key_primary'),
       this.settings.getDecrypted('insight_agent_key_secondary'),
     ]);
+    this.logger.debug(`status() settings — base=${!!base} primary=${!!primary} secondary=${!!secondary}`);
     const status: InsightStatus = {
       configured: !!base && !!primary,
       baseUrl: base,
