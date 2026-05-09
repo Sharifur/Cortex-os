@@ -31,7 +31,7 @@ export class ApprovalService {
       .returning();
 
     const enriched = await this.getEnrichedApproval(approval.id);
-    if (enriched) this.events.emit('approval.created', enriched);
+    if (enriched) this.events.emit('approval.created', { ...enriched, approvalId: enriched.id });
 
     return approval;
   }

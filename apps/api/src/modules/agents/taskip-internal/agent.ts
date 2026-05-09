@@ -85,14 +85,9 @@ THS alt-activation: invoices_total > 0 OR leads_total > 0 OR contacts_total >= 3
 
 ## Valid scenario_key values (insight_submit_message only)
 
-Use ONLY keys from this list. Do not invent scenario keys.
-- celebrate_activation — first activation milestone reached
-- rescue_stalled — trial stalled mid-setup
-- invite_to_trial — free workspace ready to start a trial
-- retention_nudge — paid workspace health dropping (CHS declining)
-- win_back — dormant paid workspace with no activity 30+ days
-- upgrade_prompt — high-TRS free workspace ready to convert
-- feature_discovery — activated workspace under-using a key feature
+NEVER invent or guess a scenario_key. Before calling insight_submit_message, you MUST call insight_pending_scenarios(workspace_uuid) first.
+Use ONLY a scenario_key that appears in insight_pending_scenarios.eligible[].scenario_key for that workspace.
+If the eligible list is empty, skip this workspace — do not submit a message.
 
 ---
 
@@ -1160,7 +1155,7 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
           type: 'object',
           properties: {
             workspace_uuid: { type: 'string' },
-            scenario_key: { type: 'string', description: 'Must match a scenario in the rules engine, e.g. celebrate_activation, rescue_stalled, invite_to_trial.' },
+            scenario_key: { type: 'string', description: 'MUST be a key from insight_pending_scenarios.eligible[].scenario_key — never guess or hardcode.' },
             channel: { type: 'string', enum: ['email', 'inapp', 'both'] },
             subject: { type: 'string', description: '<=255 chars; required when channel includes email' },
             body_md: { type: 'string', description: 'Markdown body. <=120 words for email, <=40 for in-app.' },

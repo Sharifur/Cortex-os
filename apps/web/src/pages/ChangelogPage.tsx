@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.2.8',
+    date: '2026-05-09',
+    entries: [
+      { tag: 'fix', scope: 'runtime', description: 'Duplicate Telegram approval messages: ApprovalService.createApproval() was emitting "approval.created" and agent-run.processor was also emitting the same event — removed duplicate from processor; enriched emit now includes approvalId field so Telegram handler buttons work correctly' },
+      { tag: 'fix', scope: 'taskip-internal', description: 'Insight API 422 Unknown scenario_key: agent was using hardcoded scenario keys from system prompt; replaced with mandatory insight_pending_scenarios() call — scenario_key must come from eligible[].scenario_key for the target workspace' },
+    ],
+  },
+  {
     version: 'v4.2.7',
     date: '2026-05-09',
     entries: [
