@@ -16,6 +16,49 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.3.8',
+    date: '2026-05-10',
+    entries: [
+      { tag: 'fix', scope: 'taskip-internal', description: 'lookup_user now resolves by owner email via Insight API GET /search?email= instead of direct DB query — fixes "user not found" errors when taskip_db_url_readonly is not configured or points to the wrong DB.' },
+    ],
+  },
+  {
+    version: 'v4.3.7',
+    date: '2026-05-10',
+    entries: [
+      { tag: 'fix', scope: 'integrations', description: 'LinkedIn setup guide: corrected Unipile URL from app.unipile.com (DNS does not resolve) to dashboard.unipile.com' },
+    ],
+  },
+  {
+    version: 'v4.3.6',
+    date: '2026-05-10',
+    entries: [
+      { tag: 'fix', scope: 'integrations', description: 'LinkedIn setup guide: app.unipile.com was plain text — browser opened it as http:// which errors; converted to a proper https:// anchor link' },
+    ],
+  },
+  {
+    version: 'v4.3.5',
+    date: '2026-05-10',
+    entries: [
+      { tag: 'feat', scope: 'integrations', description: 'Gmail OAuth modal now shows required Google scopes inline — amber card lists both gmail.modify and userinfo.email with copy-friendly monospace blocks, path to OAuth consent screen, and note about the restricted-scope warning.' },
+      { tag: 'fix', scope: 'db', description: 'email_suppressions migration (0062) was missing from _journal.json — Drizzle never applied it on boot, causing 500 on GET /ses/suppressions. Table will be created on next restart.' },
+    ],
+  },
+  {
+    version: 'v4.3.4',
+    date: '2026-05-10',
+    entries: [
+      { tag: 'feat', scope: 'widget', description: 'Message preview popup — when the widget is minimised and the AI sends a new message, a dark bubble pops above the chat button showing the first 90 chars of the message; auto-dismisses after 6s; clicking opens the panel; close button dismisses manually. Unread badge count was already working — this adds the visual preview.' },
+    ],
+  },
+  {
+    version: 'v4.3.3',
+    date: '2026-05-10',
+    entries: [
+      { tag: 'fix', scope: 'webhook', description: 'Webhook signature failures are now visible in the debug page — dispatcher creates a FAILED agent run entry when the x-webhook-secret check fails, so the rejection shows up in the activity log instead of disappearing silently into Pino logs. Also improved log level from DEBUG to LOG so signature check events always appear in production logs with the received header names.' },
+    ],
+  },
+  {
     version: 'v4.3.2',
     date: '2026-05-09',
     entries: [

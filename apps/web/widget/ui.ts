@@ -137,6 +137,38 @@ export function mountWidget(cfg: WidgetConfig, siteConfig: SiteConfigResponse = 
     });
   }
 
+  // Incoming message preview popup — shown above the bubble when minimised
+  const msgPreview = document.createElement('div');
+  msgPreview.className = 'lc-msg-preview';
+  msgPreview.style.display = 'none';
+  msgPreview.innerHTML = `<button class="lc-msg-preview-close" aria-label="Dismiss">&#x2715;</button><span class="lc-msg-preview-text"></span>`;
+  shadow.appendChild(msgPreview);
+
+  let previewDismissTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function showMsgPreview(text: string) {
+    if (state.open) return;
+    const clean = text.replace(/__[a-z_]+__/g, '').trim();
+    if (!clean) return;
+    const truncated = clean.length > 90 ? clean.slice(0, 87) + '...' : clean;
+    const textEl = msgPreview.querySelector<HTMLElement>('.lc-msg-preview-text');
+    if (textEl) textEl.textContent = truncated;
+    msgPreview.style.display = 'block';
+    if (previewDismissTimer) clearTimeout(previewDismissTimer);
+    previewDismissTimer = setTimeout(() => { msgPreview.style.display = 'none'; }, 6000);
+  }
+
+  msgPreview.addEventListener('click', (e) => {
+    if ((e.target as HTMLElement).closest('.lc-msg-preview-close')) {
+      msgPreview.style.display = 'none';
+      if (previewDismissTimer) { clearTimeout(previewDismissTimer); previewDismissTimer = null; }
+      return;
+    }
+    msgPreview.style.display = 'none';
+    state.open = true;
+    openPanel();
+  });
+
   // Seed the welcome message as a system-style agent line if no prior conversation exists.
   if (state.messages.length === 0 && siteConfig.welcomeMessage) {
     state.messages.push({
@@ -266,6 +298,8 @@ export function mountWidget(cfg: WidgetConfig, siteConfig: SiteConfigResponse = 
     panel.style.display = 'flex';
     state.unread = 0;
     unreadBadge.style.display = 'none';
+    msgPreview.style.display = 'none';
+    if (previewDismissTimer) { clearTimeout(previewDismissTimer); previewDismissTimer = null; }
     scrollMessagesToEnd(panel);
     markAgentMessagesSeen(state);
 
@@ -299,6 +333,8 @@ export function mountWidget(cfg: WidgetConfig, siteConfig: SiteConfigResponse = 
       closePanelAnim();
     }
   });
+
+  state.showMsgPreview = showMsgPreview;
 
   // If we already had a session from a previous page load, reconnect socket.
   if (state.sessionId) connectAndListen(cfg, state, render, siteConfig);
@@ -1065,8 +1101,11 @@ function connectAndListen(cfg: WidgetConfig, state: any, render: () => void, sit
       if (draftIdx >= 0) {
         state.messages[draftIdx] = { ...state.messages[draftIdx], id: event.messageId, content: event.content ?? state.messages[draftIdx].content };
         cacheMessages(state.messages);
-        if (!state.open) { state.unread = (state.unread ?? 0) + 1; playNotificationSound(); }
-        else markAgentMessagesSeen(state);
+        if (!state.open) {
+          state.unread = (state.unread ?? 0) + 1;
+          playNotificationSound();
+          state.showMsgPreview?.(event.content ?? state.messages[draftIdx].content);
+        } else markAgentMessagesSeen(state);
         render();
       }
       return;
@@ -1100,8 +1139,11 @@ function connectAndListen(cfg: WidgetConfig, state: any, render: () => void, sit
     pushAgent(state, event.content ?? '', event.messageId, event.role === 'operator', (event as any).attachments, opName, opAvatar);
     const panel = state.panel as HTMLDivElement | undefined;
     if (panel) hideTyping(panel);
-    if (!state.open) { state.unread = (state.unread ?? 0) + 1; playNotificationSound(); }
-    else markAgentMessagesSeen(state);
+    if (!state.open) {
+      state.unread = (state.unread ?? 0) + 1;
+      playNotificationSound();
+      state.showMsgPreview?.(event.content ?? '');
+    } else markAgentMessagesSeen(state);
     render();
   });
 }

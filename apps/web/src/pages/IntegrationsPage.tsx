@@ -357,7 +357,7 @@ function LinkedInTab({ rows, token }: { rows: SettingRow[]; token: string }) {
           <h2 className="text-sm font-semibold mb-4">Setup Guide</h2>
           <div className="space-y-4">
             <SetupStep n={1} title="Sign up for Unipile (recommended)">
-              <p>Go to <strong>app.unipile.com</strong> and create an account.</p>
+              <p>Go to <a href="https://dashboard.unipile.com" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">dashboard.unipile.com</a> and create an account.</p>
               <p>Connect your LinkedIn account under <strong>Accounts</strong>.</p>
               <p>In <strong>Settings → API Keys</strong>, generate a key and copy your DSN.</p>
               <p>Paste <strong>API Key</strong> and <strong>DSN</strong> in Settings — Unipile handles LinkedIn auth.</p>
@@ -610,6 +610,16 @@ function GmailOAuthModal({ token, onClose }: { token: string; onClose: () => voi
                 <p className="mt-1">
                   APIs & Services → Credentials → your OAuth client → <strong>Authorized redirect URIs</strong> → add the URI above. The Client ID + Secret below come from that same OAuth client.
                 </p>
+              </div>
+
+              <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3 text-xs text-amber-300 space-y-2">
+                <div className="font-semibold text-amber-200">Required OAuth scopes — add these in Google Cloud Console:</div>
+                <p className="text-amber-300/80">APIs & Services → OAuth consent screen → <strong>Scopes</strong> → Add or remove scopes</p>
+                <div className="space-y-1">
+                  <div className="font-mono bg-amber-950/40 rounded px-2 py-1 break-all">https://www.googleapis.com/auth/gmail.modify</div>
+                  <div className="font-mono bg-amber-950/40 rounded px-2 py-1 break-all">https://www.googleapis.com/auth/userinfo.email</div>
+                </div>
+                <p className="text-amber-300/70"><strong className="text-amber-300">gmail.modify</strong> is a restricted scope — Google will show a security warning on the consent screen. For personal or internal use you can click <em>Continue</em> past the warning without submitting for verification.</p>
               </div>
 
               <div>

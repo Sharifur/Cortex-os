@@ -478,15 +478,15 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
     return [
       {
         name: 'lookup_user',
-        description: 'Find a Taskip user by email address or user ID',
+        description: 'Find a Taskip workspace by owner email address via the Insight API. Returns workspace stats including owner details, cohort, score, and 60-day activity.',
         inputSchema: {
           type: 'object',
-          properties: { emailOrId: { type: 'string' } },
+          properties: { emailOrId: { type: 'string', description: 'owner email address' } },
           required: ['emailOrId'],
         },
         handler: async (input) => {
           const { emailOrId } = input as { emailOrId: string };
-          return this.taskipDb.lookupUser(emailOrId);
+          return this.insight.searchByEmail(emailOrId);
         },
       },
       {
@@ -852,7 +852,7 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
     try {
       switch (name) {
         case 'lookup_user':
-          return await this.taskipDb.lookupUser(args.emailOrId as string);
+          return await this.insight.searchByEmail(args.emailOrId as string);
         case 'lookup_workspace_owner':
           return await this.insight.getLifecycle(args.workspaceUuid as string);
         case 'query_subscriptions':
@@ -944,10 +944,10 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
     return [
       {
         name: 'lookup_user',
-        description: 'Find a Taskip user by email (partial match) or exact UUID',
+        description: 'Find a Taskip workspace by owner email via the Insight API. Returns workspace stats including owner details, cohort, score, and 60-day daily activity.',
         parameters: {
           type: 'object',
-          properties: { emailOrId: { type: 'string', description: 'email address or user UUID' } },
+          properties: { emailOrId: { type: 'string', description: 'owner email address' } },
           required: ['emailOrId'],
         },
       },
