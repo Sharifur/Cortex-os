@@ -328,6 +328,10 @@ export class TaskipInsightService {
     return this.request('POST', `/workspaces/${encodeURIComponent(workspaceUuid)}/messages`, payload);
   }
 
+  async searchByEmail(email: string): Promise<unknown> {
+    return this.request('GET', `/search?email=${encodeURIComponent(email)}`);
+  }
+
   async status(probeWorkspaceUuid?: string): Promise<InsightStatus> {
     this.logger.debug(`status() called — probeWorkspaceUuid=${JSON.stringify(probeWorkspaceUuid)}`);
     const [base, primary, secondary] = await Promise.all([

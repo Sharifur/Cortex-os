@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.3.8',
+    date: '2026-05-10',
+    entries: [
+      { tag: 'fix', scope: 'taskip-internal', description: 'lookup_user now resolves by owner email via Insight API GET /search?email= instead of direct DB query — fixes "user not found" errors when taskip_db_url_readonly is not configured or points to the wrong DB.' },
+    ],
+  },
+  {
     version: 'v4.3.7',
     date: '2026-05-10',
     entries: [
