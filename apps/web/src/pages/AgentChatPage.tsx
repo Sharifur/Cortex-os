@@ -5,7 +5,7 @@ import {
   Bot, ArrowLeft, Send, Loader2, RefreshCw,
   Calendar, Clock, CheckCircle2, XCircle,
   AlertCircle, MessageSquare, ListTodo, RotateCcw, History, X,
-  ThumbsUp, ThumbsDown, ImagePlus,
+  ThumbsUp, ThumbsDown, ImagePlus, Copy, Mail, Check,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -98,6 +98,8 @@ async function apiFetch(token: string, path: string, opts?: RequestInit) {
   return res.json();
 }
 
+const EMAIL_DRAFT_PREFIX = '__EMAIL_DRAFT__:';
+
 function extractResponse(run: RunDetail): string {
   if (run.status === 'FAILED') return `Error: ${run.error ?? 'Run failed'}`;
   if (run.status === 'REJECTED') return 'Action was rejected.';
@@ -105,15 +107,116 @@ function extractResponse(run: RunDetail): string {
   const actions = run.proposedActions ?? [];
   if (!actions.length) return 'Done.';
 
+  const emailAction = actions.find((a) => a.type === 'send_email');
+  if (emailAction?.payload) {
+    const { subject, body, recipient } = emailAction.payload as { subject?: string; body?: string; recipient?: string };
+    if (subject && body) {
+      return EMAIL_DRAFT_PREFIX + JSON.stringify({ subject, body, recipient, summary: emailAction.summary });
+    }
+  }
+
   const notify = actions.find((a) =>
     ['notify_result', 'send_telegram_brief', 'notify_email'].includes(a.type),
   );
   if (notify?.payload?.['message']) return String(notify.payload['message']);
 
   const approval = actions.find((a) => ['extend_trial', 'mark_refund', 'send_reply'].includes(a.type));
-  if (approval) return `⏳ Awaiting Telegram approval: ${approval.summary}`;
+  if (approval) return `Awaiting Telegram approval: ${approval.summary}`;
 
   return actions.map((a) => a.summary).join('\n') || 'Done.';
+}
+
+// ─── Markdown renderer ────────────────────────────────────────────────────────
+
+function renderMarkdown(text: string): string {
+  let s = text
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+  // Tables: detect lines with | separators
+  s = s.replace(/^(\|.+\|\n?)+/gm, (table) => {
+    const rows = table.trim().split('\n').filter(Boolean);
+    if (rows.length < 2) return table;
+    const header = rows[0].split('|').filter((_, i, a) => i > 0 && i < a.length - 1).map(c => `<th class="px-3 py-1.5 text-left text-xs font-semibold border-b border-border">${c.trim()}</th>`).join('');
+    const body = rows.slice(2).map(r => {
+      const cells = r.split('|').filter((_, i, a) => i > 0 && i < a.length - 1).map(c => `<td class="px-3 py-1.5 text-xs border-b border-border/50">${c.trim()}</td>`).join('');
+      return `<tr>${cells}</tr>`;
+    }).join('');
+    return `<div class="overflow-x-auto my-2"><table class="w-full border border-border rounded-lg overflow-hidden"><thead><tr>${header}</tr></thead><tbody>${body}</tbody></table></div>`;
+  });
+  // Code blocks
+  s = s.replace(/```[\w]*\n?([\s\S]*?)```/g, '<pre class="bg-muted rounded-md p-3 text-xs font-mono overflow-x-auto my-2"><code>$1</code></pre>');
+  // Inline code
+  s = s.replace(/`([^`\n]+)`/g, '<code class="bg-muted px-1 py-0.5 rounded text-xs font-mono">$1</code>');
+  // Bold
+  s = s.replace(/\*\*([^*\n]+?)\*\*/g, '<strong>$1</strong>');
+  // Italic
+  s = s.replace(/\*([^*\n]+?)\*/g, '<em>$1</em>');
+  // Links
+  s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="underline text-primary">$1</a>');
+  // Headings
+  s = s.replace(/^### (.+)$/gm, '<h3 class="font-semibold text-sm mt-3 mb-1">$1</h3>');
+  s = s.replace(/^## (.+)$/gm, '<h2 class="font-semibold text-base mt-3 mb-1">$1</h2>');
+  s = s.replace(/^# (.+)$/gm, '<h1 class="font-bold text-lg mt-3 mb-1">$1</h1>');
+  // Unordered lists
+  s = s.replace(/^[-*] (.+)$/gm, '<li class="ml-4 list-disc text-sm">$1</li>');
+  s = s.replace(/(<li[^>]*>.*<\/li>\n?)+/g, (m) => `<ul class="my-1 space-y-0.5">${m}</ul>`);
+  // Numbered lists
+  s = s.replace(/^\d+\. (.+)$/gm, '<li class="ml-4 list-decimal text-sm">$1</li>');
+  // Line breaks
+  s = s.replace(/\n/g, '<br>');
+  return s;
+}
+
+// ─── Email draft card ─────────────────────────────────────────────────────────
+
+function EmailDraftCard({ subject, body, recipient }: { subject: string; body: string; recipient?: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(`Subject: ${subject}\n\n${body}`).catch(() => {});
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleOpenMail = () => {
+    const mailto = `mailto:${recipient ?? ''}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    window.open(mailto, '_blank');
+  };
+
+  return (
+    <div className="rounded-xl border border-border bg-card overflow-hidden w-full max-w-xl text-sm">
+      <div className="flex items-baseline gap-2 px-4 py-3 border-b border-border bg-muted/30">
+        <span className="text-muted-foreground shrink-0 text-xs font-medium w-14">Subject:</span>
+        <span className="font-medium text-foreground">{subject}</span>
+      </div>
+      {recipient && (
+        <div className="flex items-baseline gap-2 px-4 py-2 border-b border-border bg-muted/20">
+          <span className="text-muted-foreground shrink-0 text-xs font-medium w-14">To:</span>
+          <span className="text-foreground text-xs">{recipient}</span>
+        </div>
+      )}
+      <div
+        className="px-4 py-4 text-foreground leading-relaxed prose-sm max-w-none"
+        dangerouslySetInnerHTML={{ __html: renderMarkdown(body) }}
+      />
+      <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-border bg-muted/20">
+        <button
+          onClick={handleCopy}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border text-xs text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+        >
+          {copied ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5" />}
+          {copied ? 'Copied' : 'Copy'}
+        </button>
+        <button
+          onClick={handleOpenMail}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs hover:bg-primary/90 transition-colors"
+        >
+          <Mail className="w-3.5 h-3.5" />
+          Open in Mail
+        </button>
+      </div>
+    </div>
+  );
 }
 
 // ─── Typing indicator ─────────────────────────────────────────────────────────
@@ -158,14 +261,27 @@ function MessageBubble({
           <Bot className={`w-3.5 h-3.5 ${color.iconText}`} />
         </div>
       )}
-      <div className={`max-w-[72%] group`}>
-        <div className={`rounded-2xl px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap ${
-          isUser
-            ? 'bg-primary text-primary-foreground rounded-br-sm'
-            : `${color.bubble} text-foreground rounded-bl-sm`
-        }`}>
-          {msg.content}
-        </div>
+      <div className={`max-w-[80%] group`}>
+        {(() => {
+          if (!isUser && msg.content.startsWith(EMAIL_DRAFT_PREFIX)) {
+            try {
+              const draft = JSON.parse(msg.content.slice(EMAIL_DRAFT_PREFIX.length));
+              return <EmailDraftCard subject={draft.subject} body={draft.body} recipient={draft.recipient} />;
+            } catch { /* fall through to plain render */ }
+          }
+          return (
+            <div className={`rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
+              isUser
+                ? 'bg-primary text-primary-foreground rounded-br-sm whitespace-pre-wrap'
+                : `${color.bubble} text-foreground rounded-bl-sm`
+            }`}>
+              {isUser
+                ? msg.content
+                : <div dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }} />
+              }
+            </div>
+          );
+        })()}
         {msg.requiresApproval && (
           <div className="flex items-center gap-1 mt-1 px-1">
             <AlertCircle className="w-3 h-3 text-amber-500" />
