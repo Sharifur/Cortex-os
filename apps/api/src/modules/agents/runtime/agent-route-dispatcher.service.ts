@@ -21,10 +21,10 @@ export class AgentRouteDispatcherService implements OnApplicationBootstrap {
 
   onApplicationBootstrap() {
     const fastify = this.httpAdapterHost.httpAdapter.getInstance();
-    const agents = this.registry.getAll();
+    const agentList = this.registry.getAll();
     let mounted = 0;
 
-    for (const agent of agents) {
+    for (const agent of agentList) {
       const routes = agent.apiRoutes();
 
       for (const route of routes) {

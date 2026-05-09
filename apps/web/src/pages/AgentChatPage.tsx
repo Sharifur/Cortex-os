@@ -5,7 +5,7 @@ import {
   Bot, ArrowLeft, Send, Loader2, RefreshCw,
   Calendar, Clock, CheckCircle2, XCircle,
   AlertCircle, MessageSquare, ListTodo, RotateCcw, History, X,
-  ThumbsUp, ThumbsDown, ImagePlus, Copy, Mail, Check,
+  ThumbsUp, ThumbsDown, ImagePlus, Copy, Mail, Check, Wrench, Zap,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -321,6 +321,260 @@ function MessageBubble({
   );
 }
 
+// ─── Run Activity Panel ───────────────────────────────────────────────────────
+
+interface RunLog {
+  id: string;
+  level: string;
+  message: string;
+  meta: Record<string, unknown> | null;
+  createdAt: string;
+  runId: string;
+}
+
+interface RunUsage {
+  calls: number;
+  inputTokens: number;
+  outputTokens: number;
+  costUsd: number;
+}
+
+interface ActivityEntry {
+  id: string;
+  at: string;
+  type: 'start' | 'thinking' | 'tool_call' | 'tool_result' | 'decision' | 'approval' | 'error' | 'complete';
+  label: string;
+  detail?: string;
+  status?: 'running' | 'success' | 'failed';
+  durationMs?: number;
+}
+
+function parseLogsToTimeline(logs: RunLog[]): ActivityEntry[] {
+  const entries: ActivityEntry[] = [];
+  for (const log of logs) {
+    const meta = log.meta as Record<string, unknown> | null;
+    const at = log.createdAt;
+    if (meta?.event_type === 'tool_call_start') {
+      entries.push({
+        id: `tcs-${log.id}`,
+        at,
+        type: 'tool_call',
+        label: String(meta.tool ?? 'tool'),
+        detail: meta.args_summary ? String(meta.args_summary) : undefined,
+        status: 'running',
+      });
+      continue;
+    }
+    if (meta?.event_type === 'tool_call_end') {
+      entries.push({
+        id: `tce-${log.id}`,
+        at,
+        type: 'tool_result',
+        label: String(meta.tool ?? 'tool'),
+        status: meta.success ? 'success' : 'failed',
+        durationMs: meta.duration_ms ? Number(meta.duration_ms) : undefined,
+        detail: meta.error ? String(meta.error).slice(0, 60) : undefined,
+      });
+      continue;
+    }
+    if (meta?.event_type === 'llm_call') {
+      entries.push({ id: `llm-${log.id}`, at, type: 'thinking', label: 'Thinking...', status: 'running' });
+      continue;
+    }
+    if (log.message === 'Run started') {
+      entries.push({ id: log.id, at, type: 'start', label: 'Run started' });
+      continue;
+    }
+    if (log.message.startsWith('Decided ')) {
+      const actions = (meta?.actions as Array<{ type: string; summary: string }> | null) ?? [];
+      const label = actions.length ? `Decided: ${actions.map((a) => a.type).join(', ')}` : 'Decided actions';
+      const detail = actions[0]?.summary?.slice(0, 70);
+      entries.push({ id: log.id, at, type: 'decision', label, detail, status: 'success' });
+      continue;
+    }
+    if (log.message.startsWith('Approval pending:')) {
+      entries.push({
+        id: log.id, at, type: 'approval',
+        label: 'Awaiting approval',
+        detail: log.message.slice('Approval pending: '.length).slice(0, 60),
+        status: 'running',
+      });
+      continue;
+    }
+    if (log.message.startsWith('Auto-executing:')) {
+      entries.push({ id: log.id, at, type: 'complete', label: log.message.slice(0, 60), status: 'success' });
+      continue;
+    }
+    if (log.message.startsWith('Run completed')) {
+      entries.push({ id: log.id, at, type: 'complete', label: 'Run completed', status: 'success' });
+      continue;
+    }
+    if (log.level === 'ERROR') {
+      entries.push({ id: log.id, at, type: 'error', label: 'Error', detail: log.message.slice(0, 70), status: 'failed' });
+      continue;
+    }
+  }
+  return entries;
+}
+
+function ActivityIcon({ entry }: { entry: ActivityEntry }) {
+  switch (entry.type) {
+    case 'start':
+      return <div className="w-2 h-2 rounded-full bg-emerald-500 mt-1" />;
+    case 'thinking':
+      return entry.status === 'running'
+        ? <Loader2 className="w-3 h-3 text-blue-400 animate-spin" />
+        : <CheckCircle2 className="w-3 h-3 text-blue-400" />;
+    case 'tool_call':
+      return <Wrench className="w-3 h-3 text-violet-400" />;
+    case 'tool_result':
+      return entry.status === 'success'
+        ? <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+        : <XCircle className="w-3 h-3 text-red-400" />;
+    case 'decision':
+      return <Zap className="w-3 h-3 text-amber-400" />;
+    case 'approval':
+      return <AlertCircle className="w-3 h-3 text-amber-400" />;
+    case 'error':
+      return <XCircle className="w-3 h-3 text-red-400" />;
+    case 'complete':
+      return <CheckCircle2 className="w-3 h-3 text-emerald-400" />;
+    default:
+      return <div className="w-2 h-2 rounded-full bg-border mt-1" />;
+  }
+}
+
+function RunActivityPanel({
+  runId,
+  isActive,
+  token,
+}: {
+  runId: string | null;
+  isActive: boolean;
+  token: string;
+}) {
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  const { data: logsData } = useQuery<{ logs: RunLog[]; finished: boolean }>({
+    queryKey: ['run-logs', runId],
+    enabled: !!runId,
+    queryFn: () => apiFetch(token, `/runs/${runId}/logs`),
+    refetchInterval: (query) => {
+      if (!runId) return false;
+      if (query.state.data?.finished) return false;
+      return 1500;
+    },
+  });
+
+  const { data: usage } = useQuery<RunUsage>({
+    queryKey: ['run-usage', runId],
+    enabled: !!runId && !!logsData?.finished,
+    queryFn: () => apiFetch(token, `/runs/${runId}/usage`),
+    staleTime: Infinity,
+  });
+
+  const entries = logsData ? parseLogsToTimeline(logsData.logs) : [];
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [entries.length]);
+
+  return (
+    <div className="flex flex-col h-full">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-border shrink-0">
+        <span className="text-xs font-semibold text-foreground">Activity</span>
+        {isActive && (
+          <span className="flex items-center gap-1 text-[10px] text-blue-400">
+            <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
+            Running
+          </span>
+        )}
+        {!isActive && logsData?.finished && (
+          <span className="text-[10px] text-muted-foreground/50">Done</span>
+        )}
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-2 py-2 space-y-0">
+        {!runId && (
+          <div className="flex flex-col items-center justify-center h-32 gap-2">
+            <Clock className="w-4 h-4 text-muted-foreground/20" />
+            <p className="text-[10px] text-muted-foreground/40 text-center">Send a message to see live activity</p>
+          </div>
+        )}
+
+        {runId && entries.length === 0 && (
+          <div className="flex items-center gap-2 py-2">
+            <Loader2 className="w-3 h-3 text-blue-400 animate-spin shrink-0" />
+            <span className="text-[11px] text-muted-foreground">Starting run...</span>
+          </div>
+        )}
+
+        {entries.map((entry, idx) => (
+          <div key={entry.id} className="flex gap-2 py-1">
+            <div className="flex flex-col items-center shrink-0 w-4">
+              <div className="flex items-center justify-center w-4 h-4">
+                <ActivityIcon entry={entry} />
+              </div>
+              {idx < entries.length - 1 && (
+                <div className="w-px flex-1 bg-border/40 mt-0.5" />
+              )}
+            </div>
+            <div className="flex-1 min-w-0 pb-1">
+              <div className="flex items-start justify-between gap-1">
+                <span className={`text-[11px] font-medium leading-tight ${
+                  entry.status === 'failed' ? 'text-red-400' :
+                  entry.type === 'thinking' && entry.status === 'running' ? 'text-blue-400' :
+                  entry.type === 'tool_call' ? 'text-violet-300' :
+                  entry.type === 'start' ? 'text-emerald-400' :
+                  entry.type === 'approval' ? 'text-amber-400' :
+                  'text-foreground/80'
+                }`}>
+                  {entry.label}
+                </span>
+                <span className="text-[9px] text-muted-foreground/40 shrink-0 pt-0.5">
+                  {new Date(entry.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                </span>
+              </div>
+              {entry.detail && (
+                <p className="text-[10px] text-muted-foreground/60 truncate mt-0.5">{entry.detail}</p>
+              )}
+              {entry.durationMs !== undefined && (
+                <span className="text-[9px] text-muted-foreground/40">{entry.durationMs}ms</span>
+              )}
+            </div>
+          </div>
+        ))}
+
+        {usage && usage.calls > 0 && (
+          <div className="mt-3 rounded-lg bg-muted/30 border border-border/40 p-2.5">
+            <p className="text-[10px] font-semibold text-muted-foreground mb-1.5">Token Usage</p>
+            <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+              <div>
+                <p className="text-[9px] text-muted-foreground/50">Input</p>
+                <p className="text-[11px] font-mono text-foreground">{usage.inputTokens.toLocaleString()}</p>
+              </div>
+              <div>
+                <p className="text-[9px] text-muted-foreground/50">Output</p>
+                <p className="text-[11px] font-mono text-foreground">{usage.outputTokens.toLocaleString()}</p>
+              </div>
+              <div>
+                <p className="text-[9px] text-muted-foreground/50">LLM calls</p>
+                <p className="text-[11px] font-mono text-foreground">{usage.calls}</p>
+              </div>
+              <div>
+                <p className="text-[9px] text-muted-foreground/50">Est. cost</p>
+                <p className="text-[11px] font-mono text-foreground">${Number(usage.costUsd).toFixed(5)}</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div ref={bottomRef} />
+      </div>
+    </div>
+  );
+}
+
 // ─── Chat tab ─────────────────────────────────────────────────────────────────
 
 function ChatTab({
@@ -337,6 +591,7 @@ function ChatTab({
   const [messages, setMessages] = useState<(ConvMessage & { pending?: boolean; feedback?: 'up' | 'down' })[]>([]);
   const [input, setInput] = useState(initialQuery ?? '');
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
+  const [lastRunId, setLastRunId] = useState<string | null>(null);
   const [isThinking, setIsThinking] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [pastedImage, setPastedImage] = useState<{ base64: string; mimeType: string; previewUrl: string } | null>(null);
@@ -436,6 +691,10 @@ function ChatTab({
     setIsThinking(false);
     setActiveRunId(null);
   }, [runData, activeRunId]);
+
+  useEffect(() => {
+    if (activeRunId) setLastRunId(activeRunId);
+  }, [activeRunId]);
 
   const triggerMutation = useMutation({
     mutationFn: async (query: string) => {
@@ -572,9 +831,12 @@ function ChatTab({
   }
 
   const isBusy = triggerMutation.isPending || isThinking;
+  const displayRunId = activeRunId ?? lastRunId;
 
   return (
-    <div className="flex flex-col h-full relative">
+    <div className="flex h-full relative">
+      {/* Left: chat column */}
+      <div className="flex flex-col flex-1 min-w-0 relative">
       {/* Toolbar */}
       <div className="flex items-center justify-between px-4 py-2 border-b border-border shrink-0">
         <p className="text-xs text-muted-foreground font-mono truncate max-w-xs">{convId}</p>
@@ -730,6 +992,16 @@ function ChatTab({
             {isBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
           </Button>
         </div>
+      </div>
+      </div>{/* end left chat column */}
+
+      {/* Right: activity panel */}
+      <div className="w-60 border-l border-border shrink-0 hidden lg:flex flex-col bg-card/30">
+        <RunActivityPanel
+          runId={displayRunId}
+          isActive={!!activeRunId}
+          token={token}
+        />
       </div>
     </div>
   );

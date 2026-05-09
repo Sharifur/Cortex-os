@@ -3,6 +3,7 @@ import { and, asc, desc, eq, inArray } from 'drizzle-orm';
 import { DbService } from '../../../db/db.service';
 import { agents, taskipInternalOps, taskipInternalSuggestions, taskipInternalWorkspaceActivity } from '../../../db/schema';
 import { AgentRegistryService } from '../runtime/agent-registry.service';
+import { AgentLogService } from '../runtime/agent-log.service';
 import { LlmRouterService } from '../../llm/llm-router.service';
 import { TelegramService } from '../../telegram/telegram.service';
 import { TaskipInternalDbService } from './taskip-internal-db.service';
@@ -35,6 +36,7 @@ interface TaskipInternalSnapshot {
   query: string;
   config: TaskipInternalConfig;
   history?: string;
+  runId?: string;
 }
 
 const SYSTEM_PROMPT = `You are an internal ops assistant for Sharifur Rahman, founder of Taskip.
@@ -153,6 +155,7 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
     private suggestionSweep: TaskipInternalSuggestionSweepService,
     private killSwitch: KillSwitchService,
     private registry: AgentRegistryService,
+    private logSvc: AgentLogService,
     @InjectQueue(TASKIP_SUGGESTION_SWEEP_QUEUE) private readonly suggestionSweepQueue: Queue,
   ) {}
 
@@ -172,13 +175,13 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
 
     return {
       source: trigger,
-      snapshot: { query, config, history } satisfies TaskipInternalSnapshot,
+      snapshot: { query, config, history, runId: run.id } satisfies TaskipInternalSnapshot,
       followups: (run.context as AgentContext | null)?.followups ?? [],
     };
   }
 
   async decide(ctx: AgentContext): Promise<ProposedAction[]> {
-    const { query, config, history } = ctx.snapshot as TaskipInternalSnapshot;
+    const { query, config, history, runId } = ctx.snapshot as TaskipInternalSnapshot;
     const followupNote = ctx.followups.at(-1)?.text;
 
     const effectiveQuery = followupNote
@@ -201,9 +204,13 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
     ];
 
     for (let i = 0; i < MAX_TOOL_ITERATIONS; i++) {
+      if (runId) {
+        await this.logSvc.debug(runId, 'LLM call', { event_type: 'llm_call', iteration: i });
+      }
       const result = await this.llm.completeWithTools({
         ...agentLlmOpts(config),
         agentKey: this.key,
+        runId,
         messages,
         tools,
         maxTokens: 800,
@@ -279,7 +286,23 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
         }
 
         // Read-only tools — execute and feed result back
+        const argsSummary = Object.entries(args).map(([k, v]) => `${k}: ${String(v).slice(0, 40)}`).join(', ');
+        if (runId) {
+          await this.logSvc.debug(runId, `Tool call: ${tc.name}`, { event_type: 'tool_call_start', tool: tc.name, args_summary: argsSummary });
+        }
+        const toolCallStart = Date.now();
         const toolResult = await this.executeReadTool(tc.name, args);
+        const durationMs = Date.now() - toolCallStart;
+        const isError = toolResult && typeof toolResult === 'object' && 'error' in (toolResult as object);
+        if (runId) {
+          await this.logSvc.debug(runId, `Tool result: ${tc.name}`, {
+            event_type: 'tool_call_end',
+            tool: tc.name,
+            duration_ms: durationMs,
+            success: !isError,
+            error: isError ? String((toolResult as { error: unknown }).error) : undefined,
+          });
+        }
         messages.push({
           role: 'tool',
           content: JSON.stringify(toolResult),
