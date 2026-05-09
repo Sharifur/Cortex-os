@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.2.10',
+    date: '2026-05-09',
+    entries: [
+      { tag: 'fix', scope: 'support', description: 'Webhook rejection was silent — added warn logs for missing secret config, missing header, and header mismatch; dispatcher now logs signature check start/pass/fail with route and source IP' },
+    ],
+  },
+  {
     version: 'v4.2.9',
     date: '2026-05-09',
     entries: [

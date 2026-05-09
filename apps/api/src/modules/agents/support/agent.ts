@@ -316,9 +316,18 @@ export class SupportAgent implements IAgent, OnModuleInit {
         requiresAuth: false,
         verifySignature: async (_rawBody, headers) => {
           const secret = await this.settings.getDecrypted('support_webhook_secret');
-          if (!secret) return false;
+          if (!secret) {
+            this.logger.warn('support_webhook_secret not configured in Settings — all webhook requests will be rejected');
+            return false;
+          }
           const sent = (headers['x-webhook-secret'] as string | undefined)?.trim() ?? '';
-          return safeEqualString(sent, secret);
+          if (!sent) {
+            this.logger.warn('Webhook arrived without x-webhook-secret header');
+            return false;
+          }
+          const ok = safeEqualString(sent, secret);
+          if (!ok) this.logger.warn('Webhook x-webhook-secret header did not match stored secret');
+          return ok;
         },
         handler: async (body) => this.ingestWebhook(body as any),
       },
