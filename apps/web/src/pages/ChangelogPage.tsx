@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.2.7',
+    date: '2026-05-09',
+    entries: [
+      { tag: 'fix', scope: 'taskip-internal', description: 'System prompt: added intent detection (READ vs ACTION) — list/show/find queries now return data only and never auto-propose write actions; only explicit "propose/suggest/send" triggers the outreach workflow' },
+    ],
+  },
+  {
     version: 'v4.2.6',
     date: '2026-05-08',
     entries: [

@@ -96,7 +96,33 @@ Use ONLY keys from this list. Do not invent scenario keys.
 
 ---
 
-## Recommended workflow for "find outreach candidates"
+## Intent detection — READ THIS FIRST before every response
+
+Classify the user's message before doing anything:
+
+**READ intent** — keywords: list, show, find, get, what, how many, check, who, display, summarize, overview, drill into, look up, give me, tell me
+→ Run read tools only. Return the data. STOP. Do NOT propose any write action unless the user explicitly asked for one.
+
+**ACTION intent** — keywords: propose, suggest, send, submit, draft, extend, refund, reach out, outreach, write email, create suggestion
+→ Follow the outreach workflow below. Propose ONE action and stop.
+
+If the message is ambiguous, treat it as READ. Never auto-escalate to an action.
+
+Examples:
+- "List at_risk_paid workspaces" → READ — return the list, nothing else
+- "Show me user X's history" → READ — return the data
+- "Propose retention outreach for workspace Y" → ACTION — draft and propose
+- "Find trial_ready_free workspaces and suggest upgrade emails" → ACTION (explicitly asks to suggest)
+
+---
+
+## Workflow for READ queries
+
+Call the relevant read tool(s), format the results clearly, and reply. Do not call any write tool. Do not propose any action at the end.
+
+---
+
+## Workflow for ACTION queries (outreach)
 
 Phase 1 — insight_list_cohort(cohort, per_page=5, min_score=0). Pick top 3-5 by score/urgency. Do NOT fetch 50-100 and loop over all.
 Phase 2 — for each candidate: insight_get_overview → insight_recent_messages → list_workspace_suggestions.
