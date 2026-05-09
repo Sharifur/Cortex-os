@@ -1,7 +1,8 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { eq, desc, lt } from 'drizzle-orm';
+import { eq, desc, lt, sql } from 'drizzle-orm';
 import { DbService } from '../../db/db.service';
 import { agentRuns, agentLogs, agents } from '../../db/schema';
+import { llmUsageLogs } from '../llm/llm-usage.schema';
 
 @Injectable()
 export class RunsService {
@@ -73,6 +74,30 @@ export class RunsService {
       .innerJoin(agents, eq(agentRuns.agentId, agents.id));
     const filtered = before ? q.where(lt(agentLogs.createdAt, before)) : q;
     return filtered.orderBy(desc(agentLogs.createdAt)).limit(limit);
+  }
+
+  async getRunUsage(runId: string): Promise<{ calls: number; inputTokens: number; outputTokens: number; costUsd: number }> {
+    const [row] = await this.db.db.execute<{
+      calls: string;
+      input_tokens: string | null;
+      output_tokens: string | null;
+      cost_usd: string | null;
+    }>(sql`
+      SELECT
+        COUNT(*)::int                          AS calls,
+        COALESCE(SUM(input_tokens), 0)::bigint AS input_tokens,
+        COALESCE(SUM(output_tokens), 0)::bigint AS output_tokens,
+        COALESCE(SUM(cost_usd), 0)::numeric    AS cost_usd
+      FROM llm_usage_logs
+      WHERE run_id = ${runId}
+    `);
+    void llmUsageLogs;
+    return {
+      calls: Number(row?.calls ?? 0),
+      inputTokens: Number(row?.input_tokens ?? 0),
+      outputTokens: Number(row?.output_tokens ?? 0),
+      costUsd: Number(row?.cost_usd ?? 0),
+    };
   }
 
   async isRunFinished(runId: string): Promise<boolean> {

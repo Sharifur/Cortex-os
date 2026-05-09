@@ -34,4 +34,9 @@ export class RunsController {
     ]);
     return { logs, finished };
   }
+
+  @Get(':id/usage')
+  getUsage(@Param('id') id: string) {
+    return this.runs.getRunUsage(id);
+  }
 }

@@ -16,6 +16,25 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.4.0',
+    date: '2026-05-10',
+    entries: [
+      { tag: 'feat', scope: 'email', description: 'Gmail open tracking — emails sent via TaskipInternalEmailService now embed a 1x1 transparent GIF tracking pixel; public GET /track/open/:token.gif endpoint records open count, first/last open timestamp, and per-open events (IP, user-agent) in taskip_internal_emails table.' },
+      { tag: 'feat', scope: 'gmail', description: 'sendEmail() now accepts htmlBody — builds multipart/alternative MIME for OAuth2 path and passes html option to nodemailer for IMAP path; fallback to plain text when htmlBody is omitted.' },
+      { tag: 'feat', scope: 'db', description: 'Migration 0063: adds tracking_token, open_count, first_open_at, last_open_at, open_events columns to taskip_internal_emails with unique partial index on tracking_token.' },
+    ],
+  },
+  {
+    version: 'v4.3.9',
+    date: '2026-05-10',
+    entries: [
+      { tag: 'feat', scope: 'chat', description: 'Activity timeline panel — right-side panel in all agent chat pages shows live run activity: tool calls (start/success/failed), thinking state, LLM call events, decisions, approval gates, and per-run token/cost summary after completion.' },
+      { tag: 'feat', scope: 'taskip-internal', description: 'Structured tool-call logging in decide() loop — each tool call emits event_type:tool_call_start and tool_call_end log entries with tool name, args summary, duration, and success/error; LLM calls emit llm_call event; runId now passed to LlmRouter for per-run token tracking.' },
+      { tag: 'feat', scope: 'api', description: 'GET /runs/:id/usage endpoint — returns aggregated input/output token counts and estimated cost in USD for a run, queried from llm_usage_logs.' },
+      { tag: 'fix', scope: 'dispatcher', description: 'agents variable shadowed the schema import in agent-route-dispatcher — renamed local to agentList to fix TS2339/TS2345/TS2551 errors.' },
+    ],
+  },
+  {
     version: 'v4.3.8',
     date: '2026-05-10',
     entries: [

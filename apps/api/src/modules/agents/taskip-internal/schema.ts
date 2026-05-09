@@ -30,11 +30,18 @@ export const taskipInternalEmails = pgTable(
     lastSyncedAt: timestamp('last_synced_at'),
     metadata: jsonb('metadata'),
     sentAt: timestamp('sent_at').defaultNow().notNull(),
+    // open tracking
+    trackingToken: text('tracking_token'),
+    openCount: integer('open_count').notNull().default(0),
+    firstOpenAt: timestamp('first_open_at'),
+    lastOpenAt: timestamp('last_open_at'),
+    openEvents: jsonb('open_events'), // Array<{ at: string; ip: string; ua: string }>
   },
   (t) => ({
     threadIdx: index('taskip_internal_emails_thread_idx').on(t.gmailThreadId),
     workspaceIdx: index('taskip_internal_emails_workspace_idx').on(t.workspaceUuid),
     sentAtIdx: index('taskip_internal_emails_sent_at_idx').on(t.sentAt),
+    trackingTokenIdx: uniqueIndex('taskip_internal_emails_tracking_token_idx').on(t.trackingToken),
   }),
 );
 

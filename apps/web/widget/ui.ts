@@ -96,6 +96,7 @@ export function mountWidget(cfg: WidgetConfig, siteConfig: SiteConfigResponse = 
     closePanelAnim: undefined as (() => void) | undefined,
     collectPageContext: undefined as (() => VisitorPageContext) | undefined,
     requireEmail: siteConfig.requireEmail ?? false,
+    showMsgPreview: undefined as ((text: string) => void) | undefined,
   };
 
   const bubbleBtn = document.createElement('button');

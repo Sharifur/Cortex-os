@@ -1,8 +1,18 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { and, desc, eq, gte, isNotNull, isNull, lt, or } from 'drizzle-orm';
+import { createId } from '@paralleldrive/cuid2';
 import { DbService } from '../../../db/db.service';
 import { taskipInternalEmails, taskipInternalEmailReplies } from '../../../db/schema';
 import { GmailService } from '../../gmail/gmail.service';
+
+function buildHtmlEmail(textBody: string, pixelUrl: string): string {
+  const escaped = textBody
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/\n/g, '<br>');
+  return `<!DOCTYPE html><html><body style="font-family:sans-serif;font-size:14px;line-height:1.6;color:#222;max-width:600px">${escaped}<img src="${pixelUrl}" width="1" height="1" style="display:block;width:1px;height:1px;border:0" alt="" loading="eager"></body></html>`;
+}
 
 export type TaskipEmailPurpose = 'marketing' | 'followup' | 'offer' | 'other';
 
@@ -23,12 +33,18 @@ export class TaskipInternalEmailService {
 
   async send(input: SendTrackedEmailInput): Promise<{ id: string; gmailMessageId: string | null; status: 'sent' | 'failed'; error?: string }> {
     const from = await this.gmail.getFromAddress();
+    const trackingToken = createId();
+    const apiBase = (process.env.COOLIFY_URL ?? process.env.API_PUBLIC_URL ?? 'http://localhost:3000').replace(/\/$/, '');
+    const pixelUrl = `${apiBase}/track/open/${trackingToken}.gif`;
+    const htmlBody = buildHtmlEmail(input.body, pixelUrl);
+
     try {
       const messageId = await this.gmail.sendEmail({
         to: input.recipient,
         from,
         subject: input.subject,
         textBody: input.body,
+        htmlBody,
       });
 
       let threadId: string | null = null;
@@ -51,6 +67,7 @@ export class TaskipInternalEmailService {
           gmailThreadId: threadId,
           status: 'sent',
           metadata: input.metadata ?? null,
+          trackingToken,
         })
         .returning({ id: taskipInternalEmails.id });
 
@@ -68,6 +85,7 @@ export class TaskipInternalEmailService {
           status: 'failed',
           error: message,
           metadata: input.metadata ?? null,
+          trackingToken,
         })
         .returning({ id: taskipInternalEmails.id });
       return { id: row.id, gmailMessageId: null, status: 'failed', error: message };
