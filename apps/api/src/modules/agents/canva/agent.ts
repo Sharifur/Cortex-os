@@ -84,6 +84,15 @@ export class CanvaAgent implements IAgent, OnModuleInit {
     const payload = trigger.payload as any;
     const taskMode = payload?.task ?? null;
 
+    // Chat-sourced triggers: respond conversationally, never auto-generate a calendar
+    if (payload?.source === 'chat' || (payload?.query && !taskMode)) {
+      return {
+        source: trigger,
+        snapshot: { mode: 'chat', query: payload.query ?? '', config },
+        followups: (run.context as AgentContext | null)?.followups ?? [],
+      };
+    }
+
     if (taskMode === 'generate_design') {
       return {
         source: trigger,
@@ -92,7 +101,7 @@ export class CanvaAgent implements IAgent, OnModuleInit {
       };
     }
 
-    // Default: content calendar mode
+    // Default: content calendar mode (CRON or explicit task trigger)
     const month = new Date().toISOString().slice(0, 7);
     const existing = await this.db.db.select().from(contentIdeas).where(eq(contentIdeas.month, month));
     return {
@@ -106,10 +115,52 @@ export class CanvaAgent implements IAgent, OnModuleInit {
     const snap = ctx.snapshot as any;
     const config: CanvaConfig = snap.config;
 
+    if (snap.mode === 'chat') {
+      return this.decideChat(snap.query, config);
+    }
     if (snap.mode === 'design') {
       return this.decideDesign(snap.concept, config);
     }
     return this.decideCalendar(snap.month, config, snap.existingCount);
+  }
+
+  private async decideChat(query: string, config: CanvaConfig): Promise<ProposedAction[]> {
+    if (!query?.trim()) {
+      return [{ type: 'notify_result', summary: 'No query', payload: { message: 'What would you like help with?' }, riskLevel: 'low' }];
+    }
+
+    const systemPrompt = `You are a social media design assistant for Sharifur Rahman, founder of Taskip and Xgenious.
+You help with: design prompts, content ideas, carousel layouts, caption writing, platform-specific advice, and content strategy.
+When asked for design prompts, provide specific, detailed, actionable prompts that a designer could use directly in Canva.
+When asked for carousel layouts, describe each slide (number, headline, body, visual).
+Be concise and practical. No filler. No emojis.`;
+
+    try {
+      const result = await this.llm.complete({
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: query },
+        ],
+        ...agentLlmOpts(config),
+        agentKey: this.key,
+        maxTokens: 1000,
+        temperature: 0.4,
+      });
+
+      return [{
+        type: 'notify_result',
+        summary: 'Chat response',
+        payload: { message: result.content.trim(), query },
+        riskLevel: 'low',
+      }];
+    } catch (err) {
+      return [{
+        type: 'notify_result',
+        summary: 'Chat response',
+        payload: { message: `Error: ${(err as Error).message}`, query },
+        riskLevel: 'low',
+      }];
+    }
   }
 
   private async decideDesign(concept: string, config: CanvaConfig): Promise<ProposedAction[]> {
@@ -203,6 +254,7 @@ Return ONLY a JSON array (no markdown):
 
   async execute(action: ProposedAction): Promise<ActionResult> {
     if (action.type === 'noop') return { success: true };
+    if (action.type === 'notify_result') return { success: true, data: { message: (action.payload as any).message } };
 
     if (action.type === 'approve_calendar_batch') {
       return this.executeCalendar(action.payload as any);
