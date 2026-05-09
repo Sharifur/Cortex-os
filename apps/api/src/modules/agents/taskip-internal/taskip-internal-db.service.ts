@@ -110,6 +110,28 @@ export class TaskipInternalDbService implements OnModuleDestroy {
     }
   }
 
+  async lookupUserByWorkspace(workspaceUuid: string): Promise<TaskipUserDetail | null> {
+    const sql = await this.getClient();
+    if (!sql) return null;
+    try {
+      const rows = await sql<TaskipUserDetail[]>`
+        SELECT u.id, u.email, u.name, u.plan,
+               u.created_at as "createdAt",
+               u.trial_ends_at as "trialEndsAt",
+               u.last_active_at as "lastActiveAt",
+               u.cancelled_at as "cancelledAt",
+               COALESCE(u.feature_count, 0) as "featureCount"
+        FROM workspaces w
+        JOIN users u ON u.id = w.user_id
+        WHERE w.uuid = ${workspaceUuid}
+        LIMIT 1`;
+      return rows[0] ?? null;
+    } catch (err) {
+      this.logger.error(`lookupUserByWorkspace failed: ${(err as Error).message}`);
+      return null;
+    }
+  }
+
   async extendTrial(userId: string, days: number): Promise<{ success: boolean; newTrialEndsAt?: string }> {
     const sql = await this.getClient();
     if (!sql) return { success: false };

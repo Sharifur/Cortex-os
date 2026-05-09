@@ -490,6 +490,19 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
         },
       },
       {
+        name: 'lookup_workspace_owner',
+        description: 'Find the Taskip user who owns a workspace by workspace UUID. Use this when you have a workspace UUID and need the owner email/details to draft an email.',
+        inputSchema: {
+          type: 'object',
+          properties: { workspaceUuid: { type: 'string', description: 'Taskip workspace UUID' } },
+          required: ['workspaceUuid'],
+        },
+        handler: async (input) => {
+          const { workspaceUuid } = input as { workspaceUuid: string };
+          return this.taskipDb.lookupUserByWorkspace(workspaceUuid);
+        },
+      },
+      {
         name: 'query_subscriptions',
         description: 'Get subscription history for a Taskip user',
         inputSchema: {
@@ -840,6 +853,8 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
       switch (name) {
         case 'lookup_user':
           return await this.taskipDb.lookupUser(args.emailOrId as string);
+        case 'lookup_workspace_owner':
+          return await this.taskipDb.lookupUserByWorkspace(args.workspaceUuid as string);
         case 'query_subscriptions':
           return await this.taskipDb.querySubscriptions(args.userId as string);
         case 'query_invoices':
@@ -934,6 +949,15 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
           type: 'object',
           properties: { emailOrId: { type: 'string', description: 'email address or user UUID' } },
           required: ['emailOrId'],
+        },
+      },
+      {
+        name: 'lookup_workspace_owner',
+        description: 'Find the Taskip user who owns a workspace by workspace UUID. Use when you have a workspace UUID and need the owner email or details to draft a personalised email.',
+        parameters: {
+          type: 'object',
+          properties: { workspaceUuid: { type: 'string', description: 'Taskip workspace UUID' } },
+          required: ['workspaceUuid'],
         },
       },
       {

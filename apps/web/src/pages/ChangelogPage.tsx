@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.3.1',
+    date: '2026-05-09',
+    entries: [
+      { tag: 'feat', scope: 'taskip-internal', description: 'lookup_workspace_owner tool — resolves workspace UUID to owner user details via workspaces JOIN users; agent can now draft emails from a workspace ID without needing the email upfront' },
+      { tag: 'feat', scope: 'chat', description: 'Email draft card — send_email proposals render as a structured inbox card with Subject/To header, markdown-rendered body (bold, italic, tables, code, lists, headings), Copy and Open in Mail buttons; all agent text responses now render markdown instead of plain whitespace-pre-wrap' },
+    ],
+  },
+  {
     version: 'v4.3.0',
     date: '2026-05-09',
     entries: [
