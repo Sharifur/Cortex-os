@@ -39,11 +39,14 @@ export class AgentRouteDispatcherService implements OnApplicationBootstrap {
           try {
             if (route.verifySignature && route.method === 'POST') {
               const rawBody = (request.rawBody as string | undefined) ?? '';
+              this.logger.debug(`Webhook signature check: ${route.path} from ${request.ip ?? 'unknown'} headers=${JSON.stringify(Object.keys(request.headers ?? {}))}`);
               const ok = await route.verifySignature(rawBody, request.headers ?? {}, request.query ?? {});
               if (!ok) {
+                this.logger.warn(`Webhook signature rejected: ${route.path} — check x-webhook-secret header and support_webhook_secret setting`);
                 reply.status(401).send({ error: 'Invalid webhook signature' });
                 return;
               }
+              this.logger.debug(`Webhook signature OK: ${route.path}`);
             }
             const params = { ...(request.query ?? {}), ...(request.body ?? {}) };
             this.logger.debug(

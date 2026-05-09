@@ -16,6 +16,27 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.2.11',
+    date: '2026-05-09',
+    entries: [
+      { tag: 'fix', scope: 'support', description: 'Webhook secret was not trimmed before comparison — trailing whitespace in stored value caused safeEqualString length check to silently reject all requests; now trims both sides; added payload keys log at handler entry' },
+    ],
+  },
+  {
+    version: 'v4.2.10',
+    date: '2026-05-09',
+    entries: [
+      { tag: 'fix', scope: 'support', description: 'Webhook rejection was silent — added warn logs for missing secret config, missing header, and header mismatch; dispatcher now logs signature check start/pass/fail with route and source IP' },
+    ],
+  },
+  {
+    version: 'v4.2.9',
+    date: '2026-05-09',
+    entries: [
+      { tag: 'fix', scope: 'canva', description: 'Chat messages no longer trigger automatic content calendar generation — added chat mode that responds conversationally via LLM; only CRON and explicit task:generate_design payloads run the calendar/design workflows' },
+    ],
+  },
+  {
     version: 'v4.2.8',
     date: '2026-05-09',
     entries: [
