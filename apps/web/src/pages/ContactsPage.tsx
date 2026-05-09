@@ -1,9 +1,19 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Users, Search, Plus, Mail, Phone, MessageSquare, Tag, Trash2, Loader2, X, Save } from 'lucide-react';
+import { Users, Search, Plus, Mail, Phone, MessageSquare, Tag, Trash2, Loader2, X, Save, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useAuthStore } from '@/stores/authStore';
+
+const PAGE_SIZE = 25;
+
+interface ContactListResponse {
+  data: Contact[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+}
 
 interface Contact {
   id: string;
@@ -63,20 +73,26 @@ export default function ContactsPage() {
   const qc = useQueryClient();
   const [q, setQ] = useState('');
   const [source, setSource] = useState<string>('');
+  const [page, setPage] = useState(1);
   const [openId, setOpenId] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
 
-  const list = useQuery<Contact[]>({
-    queryKey: ['contacts', q, source],
+  useEffect(() => { setPage(1); }, [q, source]);
+
+  const list = useQuery<ContactListResponse>({
+    queryKey: ['contacts', q, source, page],
     queryFn: () => {
       const qs = new URLSearchParams();
       if (q) qs.set('q', q);
       if (source) qs.set('source', source);
-      return api<Contact[]>(token, `/contacts?${qs}`);
+      qs.set('page', String(page));
+      qs.set('pageSize', String(PAGE_SIZE));
+      return api<ContactListResponse>(token, `/contacts?${qs}`);
     },
+    placeholderData: (prev) => prev,
   });
 
-  const stats = useQuery<{ total: number; crisp: number; email: number; manual: number }>({
+  const stats = useQuery<{ total: number; crisp: number; livechat: number; email: number; manual: number }>({
     queryKey: ['contacts-stats'],
     queryFn: () => api(token, '/contacts/stats'),
     refetchInterval: 30_000,
@@ -125,7 +141,7 @@ export default function ContactsPage() {
 
       <div className="grid grid-cols-4 gap-3 mt-6 mb-6">
         <Stat label="Total" value={stats.data?.total ?? '–'} />
-        <Stat label="Live Chat" value={stats.data?.crisp ?? '–'} accent="violet" />
+        <Stat label="Live Chat" value={(stats.data?.livechat ?? 0) + (stats.data?.crisp ?? 0) || '–'} accent="violet" />
         <Stat label="Email" value={stats.data?.email ?? '–'} accent="blue" />
         <Stat label="Manual" value={stats.data?.manual ?? '–'} accent="slate" />
       </div>
@@ -157,7 +173,7 @@ export default function ContactsPage() {
         </div>
 
         {list.isLoading && <p className="p-6 text-xs text-muted-foreground">Loading…</p>}
-        {!list.isLoading && (list.data ?? []).length === 0 && (
+        {!list.isLoading && (list.data?.data ?? []).length === 0 && (
           <div className="p-12 text-center">
             <p className="text-sm text-muted-foreground">No contacts yet.</p>
             <p className="text-xs text-muted-foreground/70 mt-1">
@@ -167,7 +183,7 @@ export default function ContactsPage() {
         )}
 
         <div className="divide-y divide-border">
-          {(list.data ?? []).map((c) => (
+          {(list.data?.data ?? []).map((c) => (
             <button
               key={c.id}
               onClick={() => setOpenId(c.id === openId ? null : c.id)}
@@ -199,6 +215,33 @@ export default function ContactsPage() {
             </button>
           ))}
         </div>
+
+        {list.data && list.data.totalPages > 1 && (
+          <div className="flex items-center justify-between px-4 py-3 border-t border-border">
+            <p className="text-xs text-muted-foreground">
+              {((list.data.page - 1) * list.data.pageSize) + 1}–{Math.min(list.data.page * list.data.pageSize, list.data.total)} of {list.data.total}
+            </p>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setPage((p) => Math.max(p - 1, 1))}
+                disabled={list.data.page <= 1}
+                className="p-1.5 rounded hover:bg-muted/40 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <span className="text-xs text-muted-foreground px-2">
+                Page {list.data.page} of {list.data.totalPages}
+              </span>
+              <button
+                onClick={() => setPage((p) => Math.min(p + 1, list.data!.totalPages))}
+                disabled={list.data.page >= list.data.totalPages}
+                className="p-1.5 rounded hover:bg-muted/40 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {openId && detail.data && (

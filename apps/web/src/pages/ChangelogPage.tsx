@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.4.1',
+    date: '2026-05-10',
+    entries: [
+      { tag: 'feat', scope: 'contacts', description: 'Contacts list now paginates — 25 per page with Prev/Next controls and "X–Y of Z" counter; page resets to 1 when search query or source filter changes. Backend returns { data, total, page, pageSize, totalPages } envelope.' },
+      { tag: 'fix', scope: 'contacts', description: 'Live Chat stat card now sums both livechat and crisp source counts correctly.' },
+    ],
+  },
+  {
     version: 'v4.4.0',
     date: '2026-05-10',
     entries: [

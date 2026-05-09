@@ -28,8 +28,11 @@ export interface UpsertBySourceInput {
 export class ContactsService {
   constructor(private db: DbService) {}
 
-  async list(opts: { q?: string; source?: ContactSource; websiteTag?: string; limit?: number } = {}) {
-    const limit = Math.min(opts.limit ?? 100, 500);
+  async list(opts: { q?: string; source?: ContactSource; websiteTag?: string; page?: number; pageSize?: number } = {}) {
+    const pageSize = Math.min(opts.pageSize ?? 25, 100);
+    const page = Math.max(opts.page ?? 1, 1);
+    const offset = (page - 1) * pageSize;
+
     const where = [];
     if (opts.source) where.push(eq(contacts.source, opts.source));
     if (opts.websiteTag) where.push(eq(contacts.websiteTag, opts.websiteTag));
@@ -43,12 +46,25 @@ export class ContactsService {
         ilike(contacts.sourceRef, like),
       )!);
     }
-    return this.db.db
-      .select()
-      .from(contacts)
-      .where(where.length ? and(...where) : undefined)
-      .orderBy(desc(contacts.updatedAt))
-      .limit(limit);
+
+    const condition = where.length ? and(...where) : undefined;
+
+    const [data, [countRow]] = await Promise.all([
+      this.db.db
+        .select()
+        .from(contacts)
+        .where(condition)
+        .orderBy(desc(contacts.updatedAt))
+        .limit(pageSize)
+        .offset(offset),
+      this.db.db
+        .select({ count: sql<number>`COUNT(*)::int` })
+        .from(contacts)
+        .where(condition),
+    ]);
+
+    const total = countRow?.count ?? 0;
+    return { data, total, page, pageSize, totalPages: Math.max(Math.ceil(total / pageSize), 1) };
   }
 
   async getById(id: string) {
