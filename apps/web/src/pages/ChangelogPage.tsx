@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.2.15',
+    date: '2026-05-09',
+    entries: [
+      { tag: 'fix', scope: 'livechat', description: 'Origin mismatch error response no longer leaks the configured site origin — moved details to a server-side warn log; public response is now a generic "Origin not allowed"' },
+    ],
+  },
+  {
     version: 'v4.2.14',
     date: '2026-05-09',
     entries: [

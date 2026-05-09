@@ -226,9 +226,8 @@ export class LivechatService implements OnModuleInit {
     if (requestHostname) {
       const siteHostname = this.extractHostname(site.origin);
       if (requestHostname !== siteHostname) {
-        throw new ForbiddenException(
-          `Origin not allowed for site ${siteKey}: received '${requestOrigin}', expected '${site.origin}'`,
-        );
+        this.logger.warn(`Origin mismatch for site ${siteKey}: received '${requestOrigin}', expected '${site.origin}'`);
+        throw new ForbiddenException('Origin not allowed');
       }
     }
     return site;
