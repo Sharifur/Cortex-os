@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.3.3',
+    date: '2026-05-10',
+    entries: [
+      { tag: 'fix', scope: 'webhook', description: 'Webhook signature failures are now visible in the debug page — dispatcher creates a FAILED agent run entry when the x-webhook-secret check fails, so the rejection shows up in the activity log instead of disappearing silently into Pino logs. Also improved log level from DEBUG to LOG so signature check events always appear in production logs with the received header names.' },
+    ],
+  },
+  {
     version: 'v4.3.2',
     date: '2026-05-09',
     entries: [

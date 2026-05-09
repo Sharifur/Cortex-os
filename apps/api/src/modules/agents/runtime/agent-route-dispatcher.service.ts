@@ -1,6 +1,9 @@
 import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { HttpAdapterHost } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
+import { eq } from 'drizzle-orm';
+import { DbService } from '../../../db/db.service';
+import { agents, agentRuns } from '../../../db/schema';
 import { AgentRegistryService } from './agent-registry.service';
 import { AgentRuntimeService } from './agent-runtime.service';
 
@@ -13,6 +16,7 @@ export class AgentRouteDispatcherService implements OnApplicationBootstrap {
     private readonly runtime: AgentRuntimeService,
     private readonly httpAdapterHost: HttpAdapterHost,
     private readonly jwt: JwtService,
+    private readonly db: DbService,
   ) {}
 
   onApplicationBootstrap() {
@@ -39,14 +43,32 @@ export class AgentRouteDispatcherService implements OnApplicationBootstrap {
           try {
             if (route.verifySignature && route.method === 'POST') {
               const rawBody = (request.rawBody as string | undefined) ?? '';
-              this.logger.debug(`Webhook signature check: ${route.path} from ${request.ip ?? 'unknown'} headers=${JSON.stringify(Object.keys(request.headers ?? {}))}`);
+              const receivedHeaderKeys = Object.keys(request.headers ?? {});
+              this.logger.log(`Webhook arrived: ${route.path} from ${request.ip ?? 'unknown'} headers=[${receivedHeaderKeys.join(', ')}]`);
               const ok = await route.verifySignature(rawBody, request.headers ?? {}, request.query ?? {});
               if (!ok) {
-                this.logger.warn(`Webhook signature rejected: ${route.path} — check x-webhook-secret header and support_webhook_secret setting`);
+                this.logger.warn(`Webhook signature rejected: ${route.path} — received headers: [${receivedHeaderKeys.join(', ')}]. Check that x-webhook-secret header is sent and support_webhook_secret setting matches.`);
+                // Write a FAILED run so the rejection is visible in the debug page
+                try {
+                  const [agentRecord] = await this.db.db
+                    .select({ id: agents.id })
+                    .from(agents)
+                    .where(eq(agents.key, agent.key));
+                  if (agentRecord) {
+                    await this.db.db.insert(agentRuns).values({
+                      agentId: agentRecord.id,
+                      triggerType: 'WEBHOOK',
+                      triggerPayload: { path: route.path, receivedHeaderKeys },
+                      status: 'FAILED',
+                      error: 'Webhook signature rejected — check x-webhook-secret header and support_webhook_secret setting',
+                      finishedAt: new Date(),
+                    });
+                  }
+                } catch { /* best-effort */ }
                 reply.status(401).send({ error: 'Invalid webhook signature' });
                 return;
               }
-              this.logger.debug(`Webhook signature OK: ${route.path}`);
+              this.logger.log(`Webhook signature OK: ${route.path}`);
             }
             const params = { ...(request.query ?? {}), ...(request.body ?? {}) };
             this.logger.debug(
