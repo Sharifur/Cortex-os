@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.3.4',
+    date: '2026-05-10',
+    entries: [
+      { tag: 'feat', scope: 'widget', description: 'Message preview popup — when the widget is minimised and the AI sends a new message, a dark bubble pops above the chat button showing the first 90 chars of the message; auto-dismisses after 6s; clicking opens the panel; close button dismisses manually. Unread badge count was already working — this adds the visual preview.' },
+    ],
+  },
+  {
     version: 'v4.3.3',
     date: '2026-05-10',
     entries: [

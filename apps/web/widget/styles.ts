@@ -653,6 +653,51 @@ export const WIDGET_STYLES = `
   50% { opacity: 0; }
 }
 
+/* ── Incoming message preview popup ── */
+.lc-msg-preview {
+  position: absolute;
+  bottom: 76px;
+  right: 0;
+  width: 280px;
+  max-width: calc(100vw - 80px);
+  background: #1e293b;
+  color: #f1f5f9;
+  border-radius: 18px 18px 4px 18px;
+  box-shadow: 0 10px 32px rgba(15, 23, 42, 0.28), 0 2px 8px rgba(15, 23, 42, 0.12);
+  padding: 12px 36px 12px 14px;
+  font-size: 13px;
+  line-height: 1.5;
+  cursor: pointer;
+  animation: lc-slide-in 0.25s ease;
+  word-break: break-word;
+}
+:host(.lc-position-left) .lc-msg-preview {
+  right: auto;
+  left: 0;
+  border-radius: 18px 18px 18px 4px;
+}
+.lc-msg-preview-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: transparent;
+  border: 0;
+  color: #94a3b8;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  border-radius: 50%;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, color 0.15s;
+}
+.lc-msg-preview-close:hover { color: #f1f5f9; background: rgba(255,255,255,0.1); }
+.lc-msg-preview-text { display: block; }
+
 /* ── Proactive welcome bubble ── */
 /* Styled as a chat bubble pointing down at the chat-launcher button.
    Width is fixed (not max-width) because the host has no intrinsic width;
