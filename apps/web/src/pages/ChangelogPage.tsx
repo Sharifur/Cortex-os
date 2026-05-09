@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.3.7',
+    date: '2026-05-10',
+    entries: [
+      { tag: 'fix', scope: 'integrations', description: 'LinkedIn setup guide: corrected Unipile URL from app.unipile.com (DNS does not resolve) to dashboard.unipile.com' },
+    ],
+  },
+  {
     version: 'v4.3.6',
     date: '2026-05-10',
     entries: [

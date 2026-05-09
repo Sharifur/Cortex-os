@@ -357,7 +357,7 @@ function LinkedInTab({ rows, token }: { rows: SettingRow[]; token: string }) {
           <h2 className="text-sm font-semibold mb-4">Setup Guide</h2>
           <div className="space-y-4">
             <SetupStep n={1} title="Sign up for Unipile (recommended)">
-              <p>Go to <a href="https://app.unipile.com" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">app.unipile.com</a> and create an account.</p>
+              <p>Go to <a href="https://dashboard.unipile.com" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">dashboard.unipile.com</a> and create an account.</p>
               <p>Connect your LinkedIn account under <strong>Accounts</strong>.</p>
               <p>In <strong>Settings → API Keys</strong>, generate a key and copy your DSN.</p>
               <p>Paste <strong>API Key</strong> and <strong>DSN</strong> in Settings — Unipile handles LinkedIn auth.</p>
