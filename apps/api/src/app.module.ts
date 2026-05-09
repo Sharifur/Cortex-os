@@ -43,6 +43,7 @@ import { VisitorEnrichmentModule } from './common/visitor-enrichment/visitor-enr
 import { StorageModule } from './modules/storage/storage.module';
 import { PushModule } from './modules/push/push.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
+import { TrackingModule } from './modules/tracking/tracking.module';
 
 @Module({
   imports: [
@@ -108,6 +109,7 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
     StorageModule,
     PushModule,
     NotificationsModule,
+    TrackingModule,
   ],
 })
 export class AppModule {}

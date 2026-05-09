@@ -16,6 +16,15 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.4.0',
+    date: '2026-05-10',
+    entries: [
+      { tag: 'feat', scope: 'email', description: 'Gmail open tracking — emails sent via TaskipInternalEmailService now embed a 1x1 transparent GIF tracking pixel; public GET /track/open/:token.gif endpoint records open count, first/last open timestamp, and per-open events (IP, user-agent) in taskip_internal_emails table.' },
+      { tag: 'feat', scope: 'gmail', description: 'sendEmail() now accepts htmlBody — builds multipart/alternative MIME for OAuth2 path and passes html option to nodemailer for IMAP path; fallback to plain text when htmlBody is omitted.' },
+      { tag: 'feat', scope: 'db', description: 'Migration 0063: adds tracking_token, open_count, first_open_at, last_open_at, open_events columns to taskip_internal_emails with unique partial index on tracking_token.' },
+    ],
+  },
+  {
     version: 'v4.3.9',
     date: '2026-05-10',
     entries: [

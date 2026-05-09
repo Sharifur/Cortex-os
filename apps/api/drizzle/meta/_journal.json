@@ -442,6 +442,13 @@
       "when": 1747008000000,
       "tag": "0062_email_suppressions",
       "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "6",
+      "when": 1747094400000,
+      "tag": "0063_email_open_tracking",
+      "breakpoints": true
     }
   ]
 }

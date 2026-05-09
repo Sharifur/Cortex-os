@@ -13,6 +13,7 @@ export interface GmailSendParams {
   from: string;
   subject: string;
   textBody: string;
+  htmlBody?: string;
 }
 
 export interface GmailMessage {
@@ -212,6 +213,7 @@ export class GmailService {
         to: params.to,
         subject: params.subject,
         text: params.textBody,
+        ...(params.htmlBody ? { html: params.htmlBody } : {}),
       });
       this.logger.log(`Gmail/IMAP (${acc.email}) sent to ${params.to} — messageId: ${info.messageId}`);
       return info.messageId ?? '';
@@ -219,8 +221,30 @@ export class GmailService {
 
     // OAuth2 → Gmail API users.messages.send
     const gmail = this.gmailApi(acc);
-    const raw = Buffer.from(
-      [
+    let rawParts: string[];
+    if (params.htmlBody) {
+      const boundary = `boundary_${Date.now().toString(36)}`;
+      rawParts = [
+        `From: ${fromHeader}`,
+        `To: ${params.to}`,
+        `Subject: ${params.subject}`,
+        `MIME-Version: 1.0`,
+        `Content-Type: multipart/alternative; boundary="${boundary}"`,
+        ``,
+        `--${boundary}`,
+        `Content-Type: text/plain; charset=UTF-8`,
+        ``,
+        params.textBody,
+        ``,
+        `--${boundary}`,
+        `Content-Type: text/html; charset=UTF-8`,
+        ``,
+        params.htmlBody,
+        ``,
+        `--${boundary}--`,
+      ];
+    } else {
+      rawParts = [
         `From: ${fromHeader}`,
         `To: ${params.to}`,
         `Subject: ${params.subject}`,
@@ -228,8 +252,9 @@ export class GmailService {
         `Content-Type: text/plain; charset=UTF-8`,
         ``,
         params.textBody,
-      ].join('\r\n'),
-    ).toString('base64url');
+      ];
+    }
+    const raw = Buffer.from(rawParts.join('\r\n')).toString('base64url');
     const res = await gmail.users.messages.send({ userId: 'me', requestBody: { raw } });
     const messageId = res.data.id ?? '';
     this.logger.log(`Gmail/OAuth (${acc.email}) sent to ${params.to} — messageId: ${messageId}`);
