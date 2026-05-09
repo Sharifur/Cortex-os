@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.2.12',
+    date: '2026-05-09',
+    entries: [
+      { tag: 'fix', scope: 'kb', description: 'Knowledge Base tab bar is now horizontally scrollable on small screens — tabs no longer overflow the viewport; header description wraps instead of clipping' },
+    ],
+  },
+  {
     version: 'v4.2.11',
     date: '2026-05-09',
     entries: [

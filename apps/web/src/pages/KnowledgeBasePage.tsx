@@ -1960,27 +1960,31 @@ export default function KnowledgeBasePage() {
 
   return (
     <div className="p-6 max-w-4xl mx-auto">
-      <div className="flex items-center gap-2.5 mb-6">
-        <BookOpen className="w-5 h-5 text-primary" />
-        <h1 className="text-lg font-semibold">Knowledge Base</h1>
-        <p className="text-sm text-muted-foreground ml-1">Personalize agent outputs with facts, tone, and writing samples</p>
+      <div className="flex items-start gap-2.5 mb-6">
+        <BookOpen className="w-5 h-5 text-primary shrink-0 mt-0.5" />
+        <div>
+          <h1 className="text-lg font-semibold">Knowledge Base</h1>
+          <p className="text-sm text-muted-foreground">Personalize agent outputs with facts, tone, and writing samples</p>
+        </div>
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 mb-6 border-b border-border">
-        {TABS.map(t => (
-          <button
-            key={t.id}
-            onClick={() => setTab(t.id)}
-            className={`px-4 py-2 text-sm transition-colors -mb-px border-b-2 ${
-              tab === t.id
-                ? 'border-primary text-foreground font-medium'
-                : 'border-transparent text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
+      <div className="border-b border-border mb-6 -mx-6 px-6 sm:mx-0 sm:px-0">
+        <div className="flex gap-1 overflow-x-auto scrollbar-none">
+          {TABS.map(t => (
+            <button
+              key={t.id}
+              onClick={() => setTab(t.id)}
+              className={`shrink-0 px-4 py-2 text-sm transition-colors -mb-px border-b-2 ${
+                tab === t.id
+                  ? 'border-primary text-foreground font-medium'
+                  : 'border-transparent text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {tab === 'entries' && <EntriesTab token={token} />}
