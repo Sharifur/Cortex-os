@@ -491,7 +491,7 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
       },
       {
         name: 'lookup_workspace_owner',
-        description: 'Find the Taskip user who owns a workspace by workspace UUID. Use this when you have a workspace UUID and need the owner email/details to draft an email.',
+        description: 'Resolve a workspace UUID to its owner via the Insight API lifecycle endpoint. Returns the full lifecycle snapshot including owner.email, owner.first_name, workspace state, score, and recent messages.',
         inputSchema: {
           type: 'object',
           properties: { workspaceUuid: { type: 'string', description: 'Taskip workspace UUID' } },
@@ -499,7 +499,7 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
         },
         handler: async (input) => {
           const { workspaceUuid } = input as { workspaceUuid: string };
-          return this.taskipDb.lookupUserByWorkspace(workspaceUuid);
+          return this.insight.getLifecycle(workspaceUuid);
         },
       },
       {
@@ -854,7 +854,7 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
         case 'lookup_user':
           return await this.taskipDb.lookupUser(args.emailOrId as string);
         case 'lookup_workspace_owner':
-          return await this.taskipDb.lookupUserByWorkspace(args.workspaceUuid as string);
+          return await this.insight.getLifecycle(args.workspaceUuid as string);
         case 'query_subscriptions':
           return await this.taskipDb.querySubscriptions(args.userId as string);
         case 'query_invoices':
@@ -953,7 +953,7 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
       },
       {
         name: 'lookup_workspace_owner',
-        description: 'Find the Taskip user who owns a workspace by workspace UUID. Use when you have a workspace UUID and need the owner email or details to draft a personalised email.',
+        description: 'Resolve a workspace UUID to its owner via the Insight API lifecycle endpoint. Returns owner.email, owner.first_name, workspace state, cohort, score, and recent messages — use this whenever you have a workspace UUID and need owner contact details.',
         parameters: {
           type: 'object',
           properties: { workspaceUuid: { type: 'string', description: 'Taskip workspace UUID' } },

@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.3.2',
+    date: '2026-05-09',
+    entries: [
+      { tag: 'fix', scope: 'taskip-internal', description: 'lookup_workspace_owner now resolves workspace UUID via Insight API getLifecycle() instead of a direct DB join — returns the full lifecycle snapshot (owner.email, owner.first_name, workspace state, score, recent messages) without requiring readonly DB access' },
+    ],
+  },
+  {
     version: 'v4.3.1',
     date: '2026-05-09',
     entries: [
