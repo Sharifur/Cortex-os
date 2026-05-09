@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.2.11',
+    date: '2026-05-09',
+    entries: [
+      { tag: 'fix', scope: 'support', description: 'Webhook secret was not trimmed before comparison — trailing whitespace in stored value caused safeEqualString length check to silently reject all requests; now trims both sides; added payload keys log at handler entry' },
+    ],
+  },
+  {
     version: 'v4.2.10',
     date: '2026-05-09',
     entries: [

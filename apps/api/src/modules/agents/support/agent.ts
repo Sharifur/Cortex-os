@@ -315,7 +315,8 @@ export class SupportAgent implements IAgent, OnModuleInit {
         path: '/support/ingest-ticket',
         requiresAuth: false,
         verifySignature: async (_rawBody, headers) => {
-          const secret = await this.settings.getDecrypted('support_webhook_secret');
+          const raw = await this.settings.getDecrypted('support_webhook_secret');
+          const secret = raw?.trim() ?? '';
           if (!secret) {
             this.logger.warn('support_webhook_secret not configured in Settings — all webhook requests will be rejected');
             return false;
@@ -325,6 +326,7 @@ export class SupportAgent implements IAgent, OnModuleInit {
             this.logger.warn('Webhook arrived without x-webhook-secret header');
             return false;
           }
+          this.logger.debug(`Webhook secret check: sent.length=${sent.length} stored.length=${secret.length}`);
           const ok = safeEqualString(sent, secret);
           if (!ok) this.logger.warn('Webhook x-webhook-secret header did not match stored secret');
           return ok;
@@ -361,9 +363,10 @@ export class SupportAgent implements IAgent, OnModuleInit {
   }
 
   private async ingestWebhook(payload: any) {
+    this.logger.log(`ingestWebhook called — payload keys: ${Object.keys(payload ?? {}).join(', ')}`);
     const { ticket, contact } = payload ?? {};
     if (!ticket?.id || !ticket?.subject) {
-      this.logger.warn(`ingestWebhook: missing ticket.id or ticket.subject in payload`);
+      this.logger.warn(`ingestWebhook: missing ticket.id or ticket.subject — received: ${JSON.stringify(payload).slice(0, 200)}`);
       return { ok: false, error: 'Missing ticket.id or ticket.subject' };
     }
 
