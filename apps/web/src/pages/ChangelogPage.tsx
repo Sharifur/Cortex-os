@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.3.5',
+    date: '2026-05-10',
+    entries: [
+      { tag: 'feat', scope: 'integrations', description: 'Gmail OAuth modal now shows required Google scopes inline — amber card lists both gmail.modify and userinfo.email with copy-friendly monospace blocks, path to OAuth consent screen, and note about the restricted-scope warning.' },
+      { tag: 'fix', scope: 'db', description: 'email_suppressions migration (0062) was missing from _journal.json — Drizzle never applied it on boot, causing 500 on GET /ses/suppressions. Table will be created on next restart.' },
+    ],
+  },
+  {
     version: 'v4.3.4',
     date: '2026-05-10',
     entries: [

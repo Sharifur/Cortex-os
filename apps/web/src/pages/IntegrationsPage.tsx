@@ -612,6 +612,16 @@ function GmailOAuthModal({ token, onClose }: { token: string; onClose: () => voi
                 </p>
               </div>
 
+              <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3 text-xs text-amber-300 space-y-2">
+                <div className="font-semibold text-amber-200">Required OAuth scopes — add these in Google Cloud Console:</div>
+                <p className="text-amber-300/80">APIs & Services → OAuth consent screen → <strong>Scopes</strong> → Add or remove scopes</p>
+                <div className="space-y-1">
+                  <div className="font-mono bg-amber-950/40 rounded px-2 py-1 break-all">https://www.googleapis.com/auth/gmail.modify</div>
+                  <div className="font-mono bg-amber-950/40 rounded px-2 py-1 break-all">https://www.googleapis.com/auth/userinfo.email</div>
+                </div>
+                <p className="text-amber-300/70"><strong className="text-amber-300">gmail.modify</strong> is a restricted scope — Google will show a security warning on the consent screen. For personal or internal use you can click <em>Continue</em> past the warning without submitting for verification.</p>
+              </div>
+
               <div>
                 <label className="text-xs text-muted-foreground mb-1 block">Label</label>
                 <input
