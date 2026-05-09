@@ -95,6 +95,7 @@ export function mountWidget(cfg: WidgetConfig, siteConfig: SiteConfigResponse = 
     pendingTrigger: undefined as string | undefined,
     closePanelAnim: undefined as (() => void) | undefined,
     collectPageContext: undefined as (() => VisitorPageContext) | undefined,
+    requireEmail: siteConfig.requireEmail ?? false,
   };
 
   const bubbleBtn = document.createElement('button');
@@ -268,15 +269,6 @@ export function mountWidget(cfg: WidgetConfig, siteConfig: SiteConfigResponse = 
     scrollMessagesToEnd(panel);
     markAgentMessagesSeen(state);
 
-    // requireEmail gate: show overlay before first interaction if email not yet captured
-    if (siteConfig.requireEmail) {
-      let emailSaved = false;
-      try { const v = localStorage.getItem(IDENTIFY_EMAIL_KEY); emailSaved = v === 'saved' || (!!v && v !== 'skipped'); } catch {}
-      if (!emailSaved) {
-        showRequireEmailGate(panel, cfg, state, render, siteConfig);
-        return;
-      }
-    }
     panel.querySelector<HTMLTextAreaElement>('textarea')?.focus();
   }
 
@@ -779,6 +771,19 @@ function buildPanel(shadow: ShadowRoot, cfg: WidgetConfig, state: any, render: (
       showToast(panel, 'Slow down — too many messages in the last minute.');
       return;
     }
+    if (siteConfig.requireEmail) {
+      let emailSaved = false;
+      try { const v = localStorage.getItem(IDENTIFY_EMAIL_KEY); emailSaved = v === 'saved' || (!!v && v !== 'skipped'); } catch {}
+      if (!emailSaved) {
+        const hasVisitorMsgs = (state.messages as VisitorMessage[]).some((m) => m.role === 'visitor');
+        if (hasVisitorMsgs) {
+          showToast(panel, 'Please enter your email to continue.');
+          const emailInput = panel.querySelector<HTMLInputElement>('.lc-inline-identify[data-step="email"] .lc-inline-input');
+          if (emailInput) emailInput.focus();
+          return;
+        }
+      }
+    }
     sendBtn.disabled = true;
     textarea.value = '';
     textarea.style.height = 'auto';
@@ -830,7 +835,19 @@ function buildPanel(shadow: ShadowRoot, cfg: WidgetConfig, state: any, render: (
         }
       }
       if (!state.socket) connectAndListen(cfg, state, render, siteConfig);
-      maybePromptEmail(panel, state, render);
+      if (siteConfig.requireEmail) {
+        let emailSaved = false;
+        try { const v = localStorage.getItem(IDENTIFY_EMAIL_KEY); emailSaved = v === 'saved' || (!!v && v !== 'skipped'); } catch {}
+        if (!emailSaved) {
+          const emailPromptShown = (state.messages as VisitorMessage[]).some((m: VisitorMessage) => m.id === 'identify-email' || m.id === 'identify-email-done');
+          if (!emailPromptShown) {
+            state.messages.push({ id: 'identify-email', role: 'agent', content: '__identify_email__', createdAt: new Date().toISOString() });
+            render();
+          }
+        }
+      } else {
+        maybePromptEmail(panel, state, render);
+      }
     } catch (err) {
       hideTyping(panel);
       showToast(panel, 'Could not send — please try again.');
@@ -1170,7 +1187,7 @@ function renderMessages(panel: HTMLDivElement, state: any) {
                 <input type="${inputType}" class="lc-inline-input" placeholder="${placeholder}" autocomplete="${autoComp}" />
                 <button type="button" class="lc-inline-save" data-step="${step}" aria-label="Save">${sendIcon()}</button>
               </div>
-              <button type="button" class="lc-inline-skip" data-step="${step}">${isName ? 'Skip' : 'Maybe later'}</button>
+              ${isName || !state.requireEmail ? `<button type="button" class="lc-inline-skip" data-step="${step}">${isName ? 'Skip' : 'Maybe later'}</button>` : ''}
             </div>
           </div>
         </div>`;

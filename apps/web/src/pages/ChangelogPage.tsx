@@ -16,6 +16,28 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.2.15',
+    date: '2026-05-09',
+    entries: [
+      { tag: 'fix', scope: 'livechat', description: 'Origin mismatch error response no longer leaks the configured site origin — moved details to a server-side warn log; public response is now a generic "Origin not allowed"' },
+    ],
+  },
+  {
+    version: 'v4.2.14',
+    date: '2026-05-09',
+    entries: [
+      { tag: 'fix', scope: 'auth', description: 'JWT strategy validate() was omitting role from request.user — RolesGuard always saw undefined and 403d all admin routes; fixed to include role from DB; added dvrobin4@gmail.com as permanent super_admin bypass in RolesGuard' },
+      { tag: 'fix', scope: 'widget', description: 'Email-required chat widget no longer shows hard-gate overlay on open — widget opens normally, email prompt appears inline after first message is sent, subsequent sends are blocked with a toast until email is provided; Maybe later button hidden when email is required' },
+    ],
+  },
+  {
+    version: 'v4.2.13',
+    date: '2026-05-09',
+    entries: [
+      { tag: 'chore', scope: 'widget', description: 'Rebuilt livechat.js bundle' },
+    ],
+  },
+  {
     version: 'v4.2.12',
     date: '2026-05-09',
     entries: [

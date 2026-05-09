@@ -28,11 +28,11 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     }
 
     const [user] = await this.db.db
-      .select({ id: users.id, email: users.email })
+      .select({ id: users.id, email: users.email, role: users.role })
       .from(users)
       .where(eq(users.id, payload.sub));
 
     if (!user) throw new UnauthorizedException();
-    return { sub: user.id, email: user.email, jti: payload.jti };
+    return { sub: user.id, email: user.email, role: user.role, jti: payload.jti };
   }
 }
