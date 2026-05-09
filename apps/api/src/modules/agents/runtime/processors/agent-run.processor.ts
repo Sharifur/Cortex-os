@@ -13,7 +13,7 @@ import { AgentLogService } from '../agent-log.service';
 import { QUEUE_NAMES } from '../../../../common/queue/queue.constants';
 import { TELEGRAM_EVENTS } from '../../../telegram/telegram.types';
 import type { AgentRunJobData, AgentExecuteJobData, TriggerEvent } from '../types';
-import type { ApprovalCreatedEvent, TaskNotifyEvent, AgentFailedEvent } from '../../../telegram/telegram.types';
+import type { TaskNotifyEvent, AgentFailedEvent } from '../../../telegram/telegram.types';
 
 const MAX_FOLLOWUPS = 5;
 
@@ -155,14 +155,6 @@ export class AgentRunProcessor extends WorkerHost {
             approvalId: approval.id,
             risk: action.riskLevel,
           });
-
-          this.eventEmitter.emit(TELEGRAM_EVENTS.APPROVAL_CREATED, {
-            approvalId: approval.id,
-            runId,
-            agentKey,
-            agentName,
-            action,
-          } satisfies ApprovalCreatedEvent);
         } else {
           await this.executeQueue.add(
             'execute',
