@@ -12,13 +12,15 @@ export class ContactsController {
     @Query('q') q?: string,
     @Query('source') source?: ContactSource,
     @Query('websiteTag') websiteTag?: string,
-    @Query('limit') limit?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
   ) {
     return this.contacts.list({
       q: q || undefined,
       source: source || undefined,
       websiteTag: websiteTag || undefined,
-      limit: limit ? parseInt(limit, 10) : undefined,
+      page: page ? parseInt(page, 10) : undefined,
+      pageSize: pageSize ? parseInt(pageSize, 10) : undefined,
     });
   }
 
