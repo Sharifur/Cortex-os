@@ -1,9 +1,7 @@
 import { Body, Controller, Headers, HttpCode, Logger, Post, Query, UnauthorizedException } from '@nestjs/common';
-import { eq } from 'drizzle-orm';
-import { DbService } from '../../db/db.service';
-import { taskipTrialSuppressed } from '../../db/schema';
 import { SettingsService } from '../settings/settings.service';
 import { safeEqualString } from '../../common/webhooks/verify';
+import { SesService } from './ses.service';
 
 interface SnsEnvelope {
   Type: string;
@@ -38,7 +36,10 @@ interface SesNotification {
 export class SesWebhookController {
   private readonly logger = new Logger(SesWebhookController.name);
 
-  constructor(private db: DbService, private settings: SettingsService) {}
+  constructor(
+    private settings: SettingsService,
+    private ses: SesService,
+  ) {}
 
   @Post('webhook')
   @HttpCode(200)
@@ -85,27 +86,15 @@ export class SesWebhookController {
       const bounce = notification.bounce!;
       if (bounce.bounceType === 'Permanent') {
         for (const r of bounce.bouncedRecipients) {
-          await this.suppress(r.emailAddress, 'hard_bounce');
+          await this.ses.suppress(r.emailAddress, 'hard_bounce', 'ses');
         }
       }
     }
 
     if (notification.notificationType === 'Complaint') {
       for (const r of notification.complaint!.complainedRecipients) {
-        await this.suppress(r.emailAddress, 'complaint');
+        await this.ses.suppress(r.emailAddress, 'complaint', 'ses');
       }
     }
-  }
-
-  private async suppress(email: string, reason: string) {
-    const existing = await this.db.db
-      .select({ id: taskipTrialSuppressed.id })
-      .from(taskipTrialSuppressed)
-      .where(eq(taskipTrialSuppressed.email, email));
-
-    if (existing.length) return;
-
-    await this.db.db.insert(taskipTrialSuppressed).values({ email, reason });
-    this.logger.log(`Suppressed ${email} (${reason})`);
   }
 }

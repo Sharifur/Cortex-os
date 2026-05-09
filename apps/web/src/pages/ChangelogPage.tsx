@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.3.0',
+    date: '2026-05-09',
+    entries: [
+      { tag: 'feat', scope: 'ses', description: 'Platform-wide email suppression list — hard bounces and spam complaints from SES SNS are stored in email_suppressions table; SesService.sendEmail() checks suppression before every send (all email types: transcripts, agent emails, etc.); new /ses/suppressions REST API (list, add, delete); Suppressions page in sidebar with table view, manual add, and per-row remove' },
+    ],
+  },
+  {
     version: 'v4.2.15',
     date: '2026-05-09',
     entries: [
