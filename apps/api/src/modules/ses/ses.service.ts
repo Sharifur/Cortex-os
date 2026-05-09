@@ -1,6 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { SESClient, SendEmailCommand } from '@aws-sdk/client-ses';
+import { eq } from 'drizzle-orm';
 import { SettingsService } from '../settings/settings.service';
+import { DbService } from '../../db/db.service';
+import { emailSuppressions } from './ses-suppressions.schema';
 
 export interface SendEmailParams {
   to: string;
@@ -18,7 +21,29 @@ export interface SendEmailParams {
 export class SesService {
   private readonly logger = new Logger(SesService.name);
 
-  constructor(private readonly settings: SettingsService) {}
+  constructor(
+    private readonly settings: SettingsService,
+    private readonly db: DbService,
+  ) {}
+
+  async isSuppressed(email: string): Promise<boolean> {
+    const [row] = await this.db.db
+      .select({ id: emailSuppressions.id })
+      .from(emailSuppressions)
+      .where(eq(emailSuppressions.email, email.toLowerCase().trim()));
+    return !!row;
+  }
+
+  async suppress(email: string, reason: string, source = 'ses'): Promise<void> {
+    const normalized = email.toLowerCase().trim();
+    const [existing] = await this.db.db
+      .select({ id: emailSuppressions.id })
+      .from(emailSuppressions)
+      .where(eq(emailSuppressions.email, normalized));
+    if (existing) return;
+    await this.db.db.insert(emailSuppressions).values({ email: normalized, reason, source });
+    this.logger.log(`Suppressed ${normalized} (${reason})`);
+  }
 
   async sendEmail(params: SendEmailParams): Promise<string> {
     const [accessKeyId, secretAccessKey, region] = await Promise.all([
@@ -29,6 +54,11 @@ export class SesService {
 
     if (!accessKeyId || !secretAccessKey) {
       throw new Error('AWS credentials not configured — set them in Settings → Email (SES)');
+    }
+
+    if (await this.isSuppressed(params.to)) {
+      this.logger.warn(`Skipping suppressed address: ${params.to}`);
+      return '';
     }
 
     const client = new SESClient({
