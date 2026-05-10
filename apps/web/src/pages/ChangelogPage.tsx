@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.5.3',
+    date: '2026-05-10',
+    entries: [
+      { tag: 'feat', scope: 'taskip-internal', description: 'Agent now shows a reasoning block (cohort, score, activity signals, last outreach, decision trigger) before every email draft so the operator can understand the rationale before approving.' },
+      { tag: 'feat', scope: 'taskip-internal', description: 'Email copy rules enforced in system prompt: no generic Welcome subjects, subject must reference a real behavior/gap, body must cite at least one data point, under 80 words, signed as "Sharifur" only.' },
+    ],
+  },
+  {
     version: 'v4.5.2',
     date: '2026-05-10',
     entries: [
