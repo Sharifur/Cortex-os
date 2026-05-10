@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.6.1',
+    date: '2026-05-10',
+    entries: [
+      { tag: 'feat', scope: 'chat', description: 'Send Email modal now shows an editable body textarea pre-filled with the draft. Agent SPAR output includes **To:** line — parser extracts the recipient email and auto-fills the To field. **To:** line stripped from the reasoning bubble to avoid duplication.' },
+    ],
+  },
+  {
     version: 'v4.6.0',
     date: '2026-05-10',
     entries: [

@@ -107,6 +107,7 @@ interface InlineEmail {
   body: string;
   after: string;
   selfScore?: string;   // e.g. "5/5"
+  to?: string;          // recipient email from **To:** line
 }
 
 function cleanSubject(raw: string): string {
@@ -119,7 +120,8 @@ function stripSubjectLines(text: string): string {
   return text
     .split('\n')
     .filter(line => !/^\*{0,2}Subject\s*[AB]?\s*:/i.test(line.trim()) &&
-                    !/^\*{0,2}Recommended:/i.test(line.trim()))
+                    !/^\*{0,2}Recommended:/i.test(line.trim()) &&
+                    !/^\*{0,2}To:\*{0,2}\s/i.test(line.trim()))
     .join('\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
@@ -170,7 +172,11 @@ function extractInlineEmail(text: string): InlineEmail | null {
     const rawBefore = text.slice(0, emailMarkerIdx).replace(/\n?---\s*$/, '');
     const before = stripSubjectLines(rawBefore);
 
-    if (subject && body) return { before, subject, subjectAlt, body, after: '', selfScore };
+    // Extract **To:** recipient email
+    const toMatch = text.match(/\*{0,2}To:\*{0,2}\s*([^\s\n]+)/i);
+    const to = toMatch ? toMatch[1].trim() : undefined;
+
+    if (subject && body) return { before, subject, subjectAlt, body, after: '', selfScore, to };
   }
 
   // ── Legacy format (Subject: / Body:) ─────────────────────────────────────────
@@ -288,6 +294,7 @@ function SendEmailModal({
   const defaultAccount = accounts?.find(a => a.isDefault) ?? accounts?.[0];
   const [selectedId, setSelectedId] = useState<string>('');
   const [toValue, setToValue] = useState(to ?? '');
+  const [bodyValue, setBodyValue] = useState(body);
   const [sending, setSending] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -304,7 +311,7 @@ function SendEmailModal({
       const res = await fetch('/gmail/send', {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accountId: selectedId, to: toValue.trim(), subject, textBody: body }),
+        body: JSON.stringify({ accountId: selectedId, to: toValue.trim(), subject, textBody: bodyValue }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error((data as any).message ?? `HTTP ${res.status}`);
@@ -352,6 +359,17 @@ function SendEmailModal({
             <div>
               <label className="text-xs text-muted-foreground block mb-1">Subject</label>
               <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-foreground truncate">{subject}</div>
+            </div>
+
+            {/* Body (editable) */}
+            <div>
+              <label className="text-xs text-muted-foreground block mb-1">Body</label>
+              <textarea
+                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary resize-none"
+                rows={6}
+                value={bodyValue}
+                onChange={e => setBodyValue(e.target.value)}
+              />
             </div>
 
             {/* From account picker */}
@@ -581,7 +599,7 @@ function MessageBubble({
                       <div dangerouslySetInnerHTML={{ __html: renderMarkdown(inline.before) }} />
                     </div>
                   )}
-                  <EmailDraftCard subject={inline.subject} subjectAlt={inline.subjectAlt} body={inline.body} selfScore={inline.selfScore} token={token} />
+                  <EmailDraftCard subject={inline.subject} subjectAlt={inline.subjectAlt} body={inline.body} selfScore={inline.selfScore} recipient={inline.to} token={token} />
                   {inline.after && (
                     <div className={`rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${color.bubble} text-foreground rounded-bl-sm`}>
                       <div dangerouslySetInnerHTML={{ __html: renderMarkdown(inline.after) }} />

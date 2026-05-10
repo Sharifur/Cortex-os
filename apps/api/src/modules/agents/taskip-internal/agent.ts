@@ -328,6 +328,8 @@ If score >= 4: output the draft.
 **Angle:** [chosen angle]
 **Prior outreach angle:** [angle used before, or "none"]
 
+**To:** [recipient email address — exact email from the workspace owner record]
+
 **Subject A:** [formula A]
 **Subject B:** [formula B]
 **Recommended:** A or B — [one sentence why]
