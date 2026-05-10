@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useSearchParams, useNavigate, Link } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '@/stores/authStore';
 import { Button } from '@/components/ui/button';
 import {
@@ -54,6 +54,32 @@ function timeAgo(iso: string): string {
   const h = Math.floor(m / 60);
   if (h < 24) return `${h}h ago`;
   return `${Math.floor(h / 24)}d ago`;
+}
+
+function escHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function inlineMarkup(s: string): string {
+  return s
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/_(.+?)_/g, '<em>$1</em>');
+}
+
+function bodyToHtml(text: string): string {
+  const blocks = text.split(/\n\n+/);
+  return blocks.map(block => {
+    const lines = block.split('\n');
+    const nonEmpty = lines.filter(l => l.trim());
+    if (nonEmpty.length > 0 && nonEmpty.every(l => l.trimStart().startsWith('- '))) {
+      const items = nonEmpty
+        .map(l => `<li>${inlineMarkup(escHtml(l.replace(/^[\s]*-\s*/, '').trim()))}</li>`)
+        .join('');
+      return `<ul style="margin:0 0 0.75em 1.4em;padding:0">${items}</ul>`;
+    }
+    const content = lines.map(l => inlineMarkup(escHtml(l))).join('<br>');
+    return `<p style="margin:0 0 0.75em">${content}</p>`;
+  }).join('');
 }
 
 function initials(email: string): string {
@@ -341,8 +367,11 @@ export default function InboxPage() {
               </div>
 
               {/* Email body */}
-              <div className="rounded-xl border border-border bg-card p-4 mb-4">
-                <pre className="text-sm whitespace-pre-wrap font-sans leading-relaxed text-foreground/90">{selected.body}</pre>
+              <div className="rounded-xl border border-border bg-card p-5 mb-4">
+                <div
+                  className="text-sm leading-relaxed text-foreground/90 prose-sm"
+                  dangerouslySetInnerHTML={{ __html: bodyToHtml(selected.body) }}
+                />
               </div>
 
               {/* Replies */}
@@ -365,7 +394,10 @@ export default function InboxPage() {
                         </div>
                         <span className="text-[11px] text-muted-foreground">{new Date(reply.receivedAt).toLocaleString()}</span>
                       </div>
-                      <p className="text-sm text-foreground/80 whitespace-pre-wrap leading-relaxed">{reply.body || reply.snippet}</p>
+                      <div
+                        className="text-sm text-foreground/80 leading-relaxed"
+                        dangerouslySetInnerHTML={{ __html: bodyToHtml(reply.body || reply.snippet || '') }}
+                      />
                     </div>
                   ))}
                 </div>

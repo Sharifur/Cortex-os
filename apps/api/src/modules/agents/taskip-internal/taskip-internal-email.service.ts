@@ -5,13 +5,32 @@ import { DbService } from '../../../db/db.service';
 import { taskipInternalEmails, taskipInternalEmailReplies } from '../../../db/schema';
 import { GmailService } from '../../gmail/gmail.service';
 
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function applyInlineMarkup(s: string): string {
+  return s
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/_(.+?)_/g, '<em>$1</em>');
+}
+
 function buildHtmlEmail(textBody: string, pixelUrl: string): string {
-  const escaped = textBody
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/\n/g, '<br>');
-  return `<!DOCTYPE html><html><body style="font-family:sans-serif;font-size:14px;line-height:1.6;color:#222;max-width:600px">${escaped}<img src="${pixelUrl}" width="1" height="1" style="display:block;width:1px;height:1px;border:0" alt="" loading="eager"></body></html>`;
+  const blocks = textBody.split(/\n\n+/);
+  const htmlParts = blocks.map(block => {
+    const lines = block.split('\n');
+    const nonEmpty = lines.filter(l => l.trim());
+    if (nonEmpty.length > 0 && nonEmpty.every(l => l.trimStart().startsWith('- '))) {
+      const items = nonEmpty
+        .map(l => `<li>${applyInlineMarkup(escapeHtml(l.replace(/^[\s]*-\s*/, '').trim()))}</li>`)
+        .join('');
+      return `<ul style="margin:0 0 12px 1.4em;padding:0">${items}</ul>`;
+    }
+    const content = lines.map(l => applyInlineMarkup(escapeHtml(l))).join('<br>');
+    return `<p style="margin:0 0 12px">${content}</p>`;
+  });
+  const body = htmlParts.join('');
+  return `<!DOCTYPE html><html><body style="font-family:sans-serif;font-size:14px;line-height:1.6;color:#222;max-width:600px;padding:16px">${body}<img src="${pixelUrl}" width="1" height="1" style="display:block;width:1px;height:1px;border:0" alt="" loading="eager"></body></html>`;
 }
 
 export type TaskipEmailPurpose = 'marketing' | 'followup' | 'offer' | 'other';

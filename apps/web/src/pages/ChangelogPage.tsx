@@ -16,6 +16,15 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.7.1',
+    date: '2026-05-10',
+    entries: [
+      { tag: 'feat', scope: 'chat', description: 'Send Email modal: auto-resizing textarea (grows with content, min 220px), formatting toolbar with Bold (**), Italic (_), and Bullet list toggle. Paragraph tip shown in toolbar.' },
+      { tag: 'feat', scope: 'inbox', description: 'Email body now rendered as structured HTML — double newline = paragraph break, lines starting with "- " = bullet list, **text** = bold, _text_ = italic. Applies to both the send modal preview and the inbox detail panel.' },
+      { tag: 'feat', scope: 'api', description: 'buildHtmlEmail: enhanced converter produces proper <p> paragraphs, <ul> bullet lists, <strong>/<em> for inline markup instead of a flat <br> dump.' },
+    ],
+  },
+  {
     version: 'v4.7.0',
     date: '2026-05-10',
     entries: [

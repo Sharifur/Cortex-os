@@ -6,6 +6,7 @@ import {
   Calendar, Clock, CheckCircle2, XCircle,
   AlertCircle, MessageSquare, ListTodo, RotateCcw, History, X,
   ThumbsUp, ThumbsDown, ImagePlus, Copy, Mail, Check, Wrench, Zap,
+  Bold, Italic, List,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -275,6 +276,29 @@ function renderMarkdown(text: string): string {
 
 interface GmailAccountOption { id: string; label: string; email: string; isDefault: boolean; }
 
+function insertAtCursor(el: HTMLTextAreaElement, before: string, after: string) {
+  const start = el.selectionStart;
+  const end = el.selectionEnd;
+  const selected = el.value.slice(start, end);
+  const replacement = before + (selected || 'text') + after;
+  el.setRangeText(replacement, start, end, 'select');
+  el.focus();
+}
+
+function toggleBullets(el: HTMLTextAreaElement) {
+  const start = el.selectionStart;
+  const end = el.selectionEnd;
+  const val = el.value;
+  const lineStart = val.lastIndexOf('\n', start - 1) + 1;
+  const lineEnd = val.indexOf('\n', end);
+  const block = val.slice(lineStart, lineEnd === -1 ? val.length : lineEnd);
+  const lines = block.split('\n');
+  const allBullets = lines.every(l => l.startsWith('- '));
+  const toggled = lines.map(l => allBullets ? l.replace(/^- /, '') : `- ${l}`).join('\n');
+  el.setRangeText(toggled, lineStart, lineEnd === -1 ? val.length : lineEnd, 'preserve');
+  el.focus();
+}
+
 function SendEmailModal({
   to, subject, body, token,
   onClose, onSent, trackedSend,
@@ -284,6 +308,7 @@ function SendEmailModal({
   onSent?: (emailId?: string) => void;
   trackedSend?: boolean;
 }) {
+  const bodyRef = useRef<HTMLTextAreaElement>(null);
   const { data: accounts, isLoading } = useQuery<GmailAccountOption[]>({
     queryKey: ['gmail-accounts-send'],
     queryFn: async () => {
@@ -307,6 +332,13 @@ function SendEmailModal({
   useEffect(() => {
     if (defaultAccount && !selectedId) setSelectedId(defaultAccount.id);
   }, [defaultAccount, selectedId]);
+
+  useEffect(() => {
+    const el = bodyRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  }, [bodyValue]);
 
   async function handleSend() {
     if (!selectedId || !toValue.trim()) return;
@@ -379,7 +411,7 @@ function SendEmailModal({
               />
             </div>
 
-            {/* Body (editable) with word count */}
+            {/* Body (editable) with formatting toolbar */}
             <div>
               <div className="flex items-center justify-between mb-1">
                 <label className="text-xs text-muted-foreground">Body</label>
@@ -387,9 +419,40 @@ function SendEmailModal({
                   {wordCount} words
                 </span>
               </div>
+              {/* Toolbar */}
+              <div className="flex items-center gap-1 border border-border border-b-0 rounded-t-md bg-muted/40 px-2 py-1">
+                <button
+                  type="button"
+                  title="Bold (wraps selection in **)"
+                  onClick={() => bodyRef.current && insertAtCursor(bodyRef.current, '**', '**')}
+                  className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <Bold className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  type="button"
+                  title="Italic (wraps selection in _)"
+                  onClick={() => bodyRef.current && insertAtCursor(bodyRef.current, '_', '_')}
+                  className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <Italic className="w-3.5 h-3.5" />
+                </button>
+                <div className="w-px h-3.5 bg-border mx-1" />
+                <button
+                  type="button"
+                  title="Toggle bullet list"
+                  onClick={() => bodyRef.current && toggleBullets(bodyRef.current)}
+                  className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <List className="w-3.5 h-3.5" />
+                </button>
+                <div className="w-px h-3.5 bg-border mx-1" />
+                <span className="text-[10px] text-muted-foreground/60 ml-1">Tip: blank line = new paragraph</span>
+              </div>
               <textarea
-                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary resize-none"
-                rows={6}
+                ref={bodyRef}
+                className="w-full rounded-b-md border border-border bg-background px-3 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary resize-y font-mono leading-relaxed"
+                style={{ minHeight: '220px' }}
                 value={bodyValue}
                 onChange={e => setBodyValue(e.target.value)}
               />
