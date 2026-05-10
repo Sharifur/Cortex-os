@@ -355,12 +355,16 @@ function parseLogsToTimeline(logs: RunLog[], finished: boolean): ActivityEntry[]
     const meta = log.meta as Record<string, unknown> | null;
     const at = log.createdAt;
     if (meta?.event_type === 'tool_call_start') {
+      const detail = [
+        meta.args_summary ? String(meta.args_summary) : null,
+        meta.endpoint ? `→ ${String(meta.endpoint)}` : null,
+      ].filter(Boolean).join('  ');
       entries.push({
         id: `tcs-${log.id}`,
         at,
         type: 'tool_call',
         label: String(meta.tool ?? 'tool'),
-        detail: meta.args_summary ? String(meta.args_summary) : undefined,
+        detail: detail || undefined,
         status: 'running',
       });
       continue;

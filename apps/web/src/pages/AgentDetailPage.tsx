@@ -1875,7 +1875,7 @@ function TaskipInternalSetupSubTab({ agent }: { agent: AgentDetail }) {
               Go to <a href="/integrations" className="text-primary hover:underline"><strong>Integrations → Taskip Insight</strong></a> and set:
             </p>
             <ul className="list-disc list-inside ml-1 mt-1 space-y-0.5">
-              <li><code className="bg-muted px-1 rounded text-xs">insight_base_url</code> — base URL of your Taskip Insight API (no trailing slash)</li>
+              <li><code className="bg-muted px-1 rounded text-xs">insight_base_url</code> — full module base URL including path, e.g. <code className="bg-muted px-1 rounded text-xs">https://api.taskip.net/api/internal/insight</code> (no trailing slash). All endpoints are appended to this, e.g. <code className="bg-muted px-1 rounded text-xs">/search?email=</code> or <code className="bg-muted px-1 rounded text-xs">/workspaces/uuid/overview</code>.</li>
               <li><code className="bg-muted px-1 rounded text-xs">insight_agent_key_primary</code> — primary agent key (X-Insight-Agent-Key header)</li>
               <li><code className="bg-muted px-1 rounded text-xs">insight_agent_key_secondary</code> — optional rotation key</li>
             </ul>

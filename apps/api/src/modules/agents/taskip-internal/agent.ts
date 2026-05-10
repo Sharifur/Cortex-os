@@ -287,8 +287,20 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
 
         // Read-only tools — execute and feed result back
         const argsSummary = Object.entries(args).map(([k, v]) => `${k}: ${String(v).slice(0, 40)}`).join(', ');
+        const insightEndpointHint = tc.name === 'lookup_user'
+          ? `/search?email=${encodeURIComponent(String(args.emailOrId ?? ''))}`
+          : tc.name === 'lookup_workspace_owner' || tc.name === 'insight_get_lifecycle'
+          ? `/workspaces/${String(args.workspace_uuid ?? args.workspaceUuid ?? '')}/lifecycle`
+          : tc.name === 'insight_get_overview'
+          ? `/workspaces/${String(args.workspace_uuid ?? '')}/overview`
+          : null;
         if (runId) {
-          await this.logSvc.debug(runId, `Tool call: ${tc.name}`, { event_type: 'tool_call_start', tool: tc.name, args_summary: argsSummary });
+          await this.logSvc.debug(runId, `Tool call: ${tc.name}`, {
+            event_type: 'tool_call_start',
+            tool: tc.name,
+            args_summary: argsSummary,
+            ...(insightEndpointHint ? { endpoint: insightEndpointHint } : {}),
+          });
         }
         const toolCallStart = Date.now();
         const toolResult = await this.executeReadTool(tc.name, args);
