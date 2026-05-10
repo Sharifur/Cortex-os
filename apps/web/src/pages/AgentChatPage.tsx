@@ -277,10 +277,11 @@ interface GmailAccountOption { id: string; label: string; email: string; isDefau
 
 function SendEmailModal({
   to, subject, body, token,
-  onClose,
+  onClose, onSent,
 }: {
   to?: string; subject: string; body: string; token: string;
   onClose: () => void;
+  onSent?: () => void;
 }) {
   const { data: accounts, isLoading } = useQuery<GmailAccountOption[]>({
     queryKey: ['gmail-accounts-send'],
@@ -294,10 +295,13 @@ function SendEmailModal({
   const defaultAccount = accounts?.find(a => a.isDefault) ?? accounts?.[0];
   const [selectedId, setSelectedId] = useState<string>('');
   const [toValue, setToValue] = useState(to ?? '');
+  const [subjectValue, setSubjectValue] = useState(subject);
   const [bodyValue, setBodyValue] = useState(body);
   const [sending, setSending] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const wordCount = bodyValue.trim() ? bodyValue.trim().split(/\s+/).length : 0;
 
   useEffect(() => {
     if (defaultAccount && !selectedId) setSelectedId(defaultAccount.id);
@@ -311,11 +315,12 @@ function SendEmailModal({
       const res = await fetch('/gmail/send', {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accountId: selectedId, to: toValue.trim(), subject, textBody: bodyValue }),
+        body: JSON.stringify({ accountId: selectedId, to: toValue.trim(), subject: subjectValue, textBody: bodyValue }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error((data as any).message ?? `HTTP ${res.status}`);
       setDone(true);
+      onSent?.();
       setTimeout(onClose, 1200);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -325,7 +330,11 @@ function SendEmailModal({
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
+    <div
+      className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+      onClick={onClose}
+      onKeyDown={e => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') handleSend(); }}
+    >
       <div
         className="bg-card border border-border rounded-xl w-full max-w-md shadow-xl"
         onClick={e => e.stopPropagation()}
@@ -355,15 +364,24 @@ function SendEmailModal({
               />
             </div>
 
-            {/* Subject (read-only) */}
+            {/* Subject (editable) */}
             <div>
               <label className="text-xs text-muted-foreground block mb-1">Subject</label>
-              <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-foreground truncate">{subject}</div>
+              <input
+                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+                value={subjectValue}
+                onChange={e => setSubjectValue(e.target.value)}
+              />
             </div>
 
-            {/* Body (editable) */}
+            {/* Body (editable) with word count */}
             <div>
-              <label className="text-xs text-muted-foreground block mb-1">Body</label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs text-muted-foreground">Body</label>
+                <span className={`text-[10px] tabular-nums ${wordCount > 80 ? 'text-amber-500' : 'text-muted-foreground'}`}>
+                  {wordCount} words
+                </span>
+              </div>
               <textarea
                 className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary resize-none"
                 rows={6}
@@ -411,21 +429,24 @@ function SendEmailModal({
 
             {error && <p className="text-xs text-destructive">{error}</p>}
 
-            <div className="flex justify-end gap-2 pt-1">
-              <button
-                onClick={onClose}
-                className="px-3 py-1.5 rounded-md border border-border text-xs text-muted-foreground hover:text-foreground transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleSend}
-                disabled={sending || !selectedId || !toValue.trim() || !accounts?.length}
-                className="flex items-center gap-1.5 px-4 py-1.5 rounded-md bg-primary text-primary-foreground text-xs hover:bg-primary/90 disabled:opacity-50 transition-colors"
-              >
-                {sending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Mail className="w-3.5 h-3.5" />}
-                {sending ? 'Sending…' : 'Send'}
-              </button>
+            <div className="flex items-center justify-between pt-1">
+              <span className="text-[10px] text-muted-foreground">Cmd+Enter to send</span>
+              <div className="flex gap-2">
+                <button
+                  onClick={onClose}
+                  className="px-3 py-1.5 rounded-md border border-border text-xs text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSend}
+                  disabled={sending || !selectedId || !toValue.trim() || !accounts?.length}
+                  className="flex items-center gap-1.5 px-4 py-1.5 rounded-md bg-primary text-primary-foreground text-xs hover:bg-primary/90 disabled:opacity-50 transition-colors"
+                >
+                  {sending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Mail className="w-3.5 h-3.5" />}
+                  {sending ? 'Sending…' : 'Send'}
+                </button>
+              </div>
             </div>
           </div>
         )}
@@ -449,6 +470,7 @@ function EmailDraftCard({
   const [copied, setCopied] = useState(false);
   const [useAlt, setUseAlt] = useState(false);
   const [showSendModal, setShowSendModal] = useState(false);
+  const [sent, setSent] = useState(false);
 
   const activeSubject = useAlt && subjectAlt ? subjectAlt : subject;
 
@@ -467,6 +489,7 @@ function EmailDraftCard({
           body={body}
           token={token}
           onClose={() => setShowSendModal(false)}
+          onSent={() => setSent(true)}
         />
       )}
       <div className="rounded-xl border border-border bg-card overflow-hidden w-full max-w-xl text-sm">
@@ -507,10 +530,15 @@ function EmailDraftCard({
           dangerouslySetInnerHTML={{ __html: renderMarkdown(body) }}
         />
         <div className="flex items-center justify-between gap-2 px-4 py-3 border-t border-border bg-muted/20">
-          <div>
+          <div className="flex items-center gap-2">
             {selfScore && (
               <span className="inline-flex items-center gap-1 text-[10px] text-emerald-500 font-medium">
                 <Check className="w-3 h-3" /> {selfScore}
+              </span>
+            )}
+            {sent && (
+              <span className="inline-flex items-center gap-1 text-[10px] text-emerald-500 font-medium border border-emerald-500/30 rounded px-1.5 py-0.5">
+                <CheckCircle2 className="w-3 h-3" /> Sent
               </span>
             )}
           </div>
@@ -522,13 +550,23 @@ function EmailDraftCard({
               {copied ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5" />}
               {copied ? 'Copied' : 'Copy'}
             </button>
-            <button
-              onClick={() => setShowSendModal(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs hover:bg-primary/90 transition-colors"
-            >
-              <Mail className="w-3.5 h-3.5" />
-              Send Email
-            </button>
+            {sent ? (
+              <button
+                onClick={() => setShowSendModal(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border text-xs text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <Mail className="w-3.5 h-3.5" />
+                Send again
+              </button>
+            ) : (
+              <button
+                onClick={() => setShowSendModal(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs hover:bg-primary/90 transition-colors"
+              >
+                <Mail className="w-3.5 h-3.5" />
+                Send Email
+              </button>
+            )}
           </div>
         </div>
       </div>

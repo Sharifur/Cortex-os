@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.6.2',
+    date: '2026-05-10',
+    entries: [
+      { tag: 'feat', scope: 'chat', description: 'Send Email modal: subject field is now editable; body has a live word counter (amber at >80 words); Cmd/Ctrl+Enter sends. EmailDraftCard: green "Sent" badge appears in the footer after a successful send; button demotes to "Send again".' },
+    ],
+  },
+  {
     version: 'v4.6.1',
     date: '2026-05-10',
     entries: [
