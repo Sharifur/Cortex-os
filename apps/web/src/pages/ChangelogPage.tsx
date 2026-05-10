@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.4.5',
+    date: '2026-05-10',
+    entries: [
+      { tag: 'fix', scope: 'ses', description: 'GET /ses/suppressions no longer 500s when email_suppressions table is missing — returns empty array instead. list() and remove() both catch the missing-table error.' },
+      { tag: 'fix', scope: 'ses', description: 'sendEmail() now validates the To domain is ASCII-only before calling SES — silently skips and logs a warning instead of throwing InvalidParameterValue when a visitor email has a unicode/punycode domain.' },
+    ],
+  },
+  {
     version: 'v4.4.4',
     date: '2026-05-10',
     entries: [

@@ -15,10 +15,17 @@ export class SesSupressionsController {
 
   @Get()
   async list() {
-    return this.db.db
-      .select()
-      .from(emailSuppressions)
-      .orderBy(desc(emailSuppressions.createdAt));
+    try {
+      return await this.db.db
+        .select()
+        .from(emailSuppressions)
+        .orderBy(desc(emailSuppressions.createdAt));
+    } catch (err) {
+      if ((err as Error).message?.includes('email_suppressions')) {
+        return [];
+      }
+      throw err;
+    }
   }
 
   @Post()
@@ -35,9 +42,16 @@ export class SesSupressionsController {
   @Delete(':id')
   @HttpCode(200)
   async remove(@Param('id') id: string) {
-    await this.db.db
-      .delete(emailSuppressions)
-      .where(eq(emailSuppressions.id, id));
+    try {
+      await this.db.db
+        .delete(emailSuppressions)
+        .where(eq(emailSuppressions.id, id));
+    } catch (err) {
+      if ((err as Error).message?.includes('email_suppressions')) {
+        return { ok: true };
+      }
+      throw err;
+    }
     return { ok: true };
   }
 }

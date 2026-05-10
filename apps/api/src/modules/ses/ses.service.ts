@@ -72,6 +72,13 @@ export class SesService {
       throw new Error('AWS credentials not configured — set them in Settings → Email (SES)');
     }
 
+    const atIdx = params.to.indexOf('@');
+    const domain = atIdx >= 0 ? params.to.slice(atIdx + 1) : '';
+    if (!domain || !/^[a-zA-Z0-9.\-]+$/.test(domain)) {
+      this.logger.warn(`SES send skipped: non-ASCII or invalid domain in "${params.to}"`);
+      return '';
+    }
+
     if (await this.isSuppressed(params.to)) {
       this.logger.warn(`Skipping suppressed address: ${params.to}`);
       return '';
