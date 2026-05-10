@@ -21,7 +21,7 @@ export class TaskipInternalEmailSweepProcessor extends WorkerHost implements OnM
       'sweep',
       {},
       {
-        repeat: { every: 10 * 60 * 1000 },
+        repeat: { every: 15 * 60 * 1000 },
         jobId: 'taskip-internal-email-sweep-repeatable',
       },
     );

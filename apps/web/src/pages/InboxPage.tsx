@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useSearchParams, useNavigate } from 'react-router-dom';
+import { useSearchParams, useNavigate, Link } from 'react-router-dom';
 import { useAuthStore } from '@/stores/authStore';
 import { Button } from '@/components/ui/button';
 import {
-  Mail, Eye, EyeOff, MessageSquare, RefreshCw, Bot, ExternalLink, Loader2, Clock,
+  Mail, Eye, EyeOff, MessageSquare, RefreshCw, Bot, Loader2, Clock, ChevronRight,
 } from 'lucide-react';
 
 interface InboxRow {
@@ -56,24 +56,30 @@ function timeAgo(iso: string): string {
   return `${Math.floor(h / 24)}d ago`;
 }
 
-function OpenBadge({ row }: { row: InboxRow }) {
-  if (row.status === 'failed') {
-    return <span className="text-[10px] text-rose-400 border border-rose-400/30 rounded px-1.5 py-0.5">Failed</span>;
+function initials(email: string): string {
+  const name = email.split('@')[0];
+  const parts = name.split(/[._-]/);
+  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+  return name.slice(0, 2).toUpperCase();
+}
+
+function purposeColor(purpose: string): string {
+  switch (purpose) {
+    case 'marketing': return 'bg-violet-500/15 text-violet-300';
+    case 'followup': return 'bg-blue-500/15 text-blue-300';
+    case 'offer': return 'bg-amber-500/15 text-amber-300';
+    default: return 'bg-slate-500/15 text-slate-300';
   }
-  const opens = row.openCount ?? 0;
-  if (opens > 0) {
-    return (
-      <span className="inline-flex items-center gap-1 text-[10px] text-emerald-400 font-medium border border-emerald-500/30 rounded px-1.5 py-0.5">
-        <Eye className="w-3 h-3" />
-        Opened {opens > 1 ? `${opens}x` : ''} · {timeAgo(row.firstOpenAt!)}
-      </span>
-    );
-  }
-  return (
-    <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground border border-border rounded px-1.5 py-0.5">
-      <EyeOff className="w-3 h-3" /> Not opened
-    </span>
-  );
+}
+
+function avatarColor(email: string): string {
+  const colors = [
+    'bg-indigo-500', 'bg-violet-500', 'bg-cyan-600', 'bg-emerald-600',
+    'bg-rose-500', 'bg-amber-500', 'bg-sky-500', 'bg-teal-600',
+  ];
+  let h = 0;
+  for (const c of email) h = (h * 31 + c.charCodeAt(0)) & 0xffffffff;
+  return colors[Math.abs(h) % colors.length];
 }
 
 export default function InboxPage() {
@@ -84,7 +90,7 @@ export default function InboxPage() {
   const highlightId = searchParams.get('highlight') ?? '';
 
   const [purpose, setPurpose] = useState<string>('');
-  const [openId, setOpenId] = useState<string | null>(highlightId || null);
+  const [selectedId, setSelectedId] = useState<string | null>(highlightId || null);
 
   const { data, isLoading, refetch } = useQuery({
     queryKey: ['inbox', purpose],
@@ -95,30 +101,30 @@ export default function InboxPage() {
   });
 
   const detailQuery = useQuery({
-    queryKey: ['inbox-detail', openId],
-    queryFn: () => api<{ email: InboxRow; replies: InboxReply[] }>(token, `/taskip-internal/inbox/${openId}`),
-    enabled: !!openId,
+    queryKey: ['inbox-detail', selectedId],
+    queryFn: () => api<{ email: InboxRow; replies: InboxReply[] }>(token, `/taskip-internal/inbox/${selectedId}`),
+    enabled: !!selectedId,
   });
 
   const syncMutation = useMutation({
     mutationFn: (id: string) => api(token, `/taskip-internal/inbox/${id}/sync`, { method: 'POST' }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['inbox'] });
-      qc.invalidateQueries({ queryKey: ['inbox-detail', openId] });
+      qc.invalidateQueries({ queryKey: ['inbox-detail', selectedId] });
     },
   });
 
   useEffect(() => {
-    if (highlightId) {
+    if (highlightId && data) {
+      setSelectedId(highlightId);
       setTimeout(() => {
         document.getElementById(`inbox-row-${highlightId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }, 400);
+      }, 300);
     }
   }, [highlightId, data]);
 
   const rows = data ?? [];
-  const openedCount = rows.filter((r) => (r.openCount ?? 0) > 0).length;
-  const repliedCount = rows.filter((r) => r.replyCount > 0).length;
+  const selected = rows.find((r) => r.id === selectedId) ?? null;
 
   function handleDraftReply(r: InboxRow) {
     const opens = r.openCount ?? 0;
@@ -133,177 +139,244 @@ export default function InboxPage() {
   }
 
   return (
-    <div className="max-w-5xl mx-auto px-6 py-8">
-      <div className="flex items-center justify-between gap-4 mb-2">
+    <div className="flex flex-col h-[calc(100vh-64px)]">
+      {/* Top bar */}
+      <div className="flex items-center justify-between gap-4 px-6 py-3 border-b border-border shrink-0">
         <div className="flex items-center gap-3">
-          <div className="h-10 w-10 rounded-lg bg-gradient-to-br from-indigo-500 to-violet-500 flex items-center justify-center">
-            <Mail className="w-5 h-5 text-white" />
+          <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-indigo-500 to-violet-500 flex items-center justify-center">
+            <Mail className="w-4 h-4 text-white" />
           </div>
           <div>
-            <h1 className="text-xl font-semibold">Inbox</h1>
-            <p className="text-xs text-muted-foreground">
-              Outbound emails with open tracking and reply sync. Auto-synced every 10 min for the last 14 days.
-            </p>
+            <h1 className="text-base font-semibold leading-tight">Inbox</h1>
+            <p className="text-[11px] text-muted-foreground">Outbound emails — open tracking + reply sync every 15 min</p>
           </div>
         </div>
-        <button
-          onClick={() => refetch()}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border text-xs text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <RefreshCw className="w-3.5 h-3.5" /> Refresh
-        </button>
-      </div>
-
-      <div className="grid grid-cols-4 gap-3 mt-6 mb-6">
-        <Stat label="Total sent" value={rows.length.toString()} />
-        <Stat label="Opened" value={openedCount.toString()} accent="emerald" />
-        <Stat label="Replied" value={repliedCount.toString()} accent="blue" />
-        <Stat label="Failed" value={rows.filter((r) => r.status === 'failed').length.toString()} accent="rose" />
-      </div>
-
-      <div className="rounded-xl border border-border bg-card">
-        <div className="flex items-center gap-2 p-4 border-b border-border">
-          {(['', 'marketing', 'followup', 'offer', 'other'] as const).map((p) => (
-            <button
-              key={p || 'all'}
-              onClick={() => setPurpose(p)}
-              className={`text-xs px-3 py-1.5 rounded-full border transition-colors ${
-                purpose === p
-                  ? 'bg-primary text-primary-foreground border-primary'
-                  : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground/30'
-              }`}
-            >
-              {p ? p.charAt(0).toUpperCase() + p.slice(1) : 'All'}
-            </button>
-          ))}
+        <div className="flex items-center gap-2">
+          {/* Stats pills */}
+          <span className="text-[11px] text-muted-foreground border border-border rounded-full px-2.5 py-0.5">
+            {rows.length} sent
+          </span>
+          <span className="text-[11px] text-emerald-400 border border-emerald-500/30 rounded-full px-2.5 py-0.5">
+            {rows.filter((r) => (r.openCount ?? 0) > 0).length} opened
+          </span>
+          <span className="text-[11px] text-blue-400 border border-blue-400/30 rounded-full px-2.5 py-0.5">
+            {rows.filter((r) => r.replyCount > 0).length} replied
+          </span>
+          <button
+            onClick={() => refetch()}
+            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-border text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <RefreshCw className="w-3 h-3" /> Refresh
+          </button>
         </div>
+      </div>
 
-        {isLoading && <p className="text-xs text-muted-foreground p-6">Loading…</p>}
-        {!isLoading && rows.length === 0 && (
-          <div className="p-12 text-center">
-            <p className="text-sm text-muted-foreground">No emails sent yet.</p>
-            <p className="text-xs text-muted-foreground/70 mt-1">Emails sent via the Taskip Internal agent appear here with open tracking.</p>
-          </div>
-        )}
+      {/* Filter tabs */}
+      <div className="flex items-center gap-1.5 px-6 py-2 border-b border-border shrink-0">
+        {(['', 'marketing', 'followup', 'offer', 'other'] as const).map((p) => (
+          <button
+            key={p || 'all'}
+            onClick={() => setPurpose(p)}
+            className={`text-[11px] px-3 py-1 rounded-full border transition-colors ${
+              purpose === p
+                ? 'bg-primary text-primary-foreground border-primary'
+                : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground/30'
+            }`}
+          >
+            {p ? p.charAt(0).toUpperCase() + p.slice(1) : 'All'}
+          </button>
+        ))}
+      </div>
 
-        <div className="divide-y divide-border">
+      {/* Two-panel body */}
+      <div className="flex flex-1 min-h-0">
+        {/* Left: email list */}
+        <div className="w-80 shrink-0 border-r border-border flex flex-col overflow-y-auto">
+          {isLoading && <p className="text-xs text-muted-foreground p-6">Loading…</p>}
+          {!isLoading && rows.length === 0 && (
+            <div className="p-8 text-center">
+              <p className="text-sm text-muted-foreground">No emails yet.</p>
+            </div>
+          )}
           {rows.map((r) => {
-            const isOpen = openId === r.id;
+            const isSelected = selectedId === r.id;
             const isHighlighted = r.id === highlightId;
+            const opens = r.openCount ?? 0;
             return (
-              <div key={r.id} id={`inbox-row-${r.id}`} className={isHighlighted ? 'bg-emerald-500/5' : ''}>
-                {/* Row summary */}
-                <button
-                  onClick={() => setOpenId(isOpen ? null : r.id)}
-                  className="w-full text-left py-3 px-4 hover:bg-muted/30 transition-colors"
-                >
-                  <div className="flex items-center gap-3">
-                    <span className={`shrink-0 text-[10px] px-2 py-0.5 rounded-full uppercase tracking-wider font-semibold ${
-                      r.status === 'failed' ? 'bg-rose-500/10 text-rose-400'
-                        : r.replyCount > 0 ? 'bg-emerald-500/10 text-emerald-400'
-                        : 'bg-slate-500/10 text-slate-300'
-                    }`}>{r.purpose}</span>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">{r.subject}</p>
-                      <p className="text-xs text-muted-foreground truncate">to {r.recipient}</p>
+              <button
+                key={r.id}
+                id={`inbox-row-${r.id}`}
+                onClick={() => setSelectedId(isSelected ? null : r.id)}
+                className={`w-full text-left px-4 py-3 border-b border-border transition-colors hover:bg-muted/30 ${
+                  isSelected ? 'bg-primary/10 border-l-2 border-l-primary' : ''
+                } ${isHighlighted && !isSelected ? 'bg-emerald-500/5' : ''}`}
+              >
+                <div className="flex items-start gap-2.5">
+                  {/* Avatar */}
+                  <div className={`shrink-0 w-8 h-8 rounded-full ${avatarColor(r.recipient)} flex items-center justify-center text-white text-[11px] font-semibold mt-0.5`}>
+                    {initials(r.recipient)}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-1 mb-0.5">
+                      <span className="text-xs font-medium truncate">{r.recipient}</span>
+                      <span className="text-[10px] text-muted-foreground shrink-0">{timeAgo(r.sentAt)}</span>
                     </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <OpenBadge row={r} />
+                    <p className="text-[11px] font-medium truncate text-foreground/90">{r.subject}</p>
+                    <p className="text-[10px] text-muted-foreground truncate mt-0.5">{r.body.slice(0, 80)}</p>
+                    <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                      <span className={`text-[9px] px-1.5 py-0.5 rounded-full uppercase tracking-wider font-semibold ${purposeColor(r.purpose)}`}>
+                        {r.purpose}
+                      </span>
+                      {opens > 0 ? (
+                        <span className="inline-flex items-center gap-0.5 text-[9px] text-emerald-400">
+                          <Eye className="w-2.5 h-2.5" /> {opens > 1 ? `${opens}x` : 'Opened'}
+                        </span>
+                      ) : r.status !== 'failed' ? (
+                        <span className="inline-flex items-center gap-0.5 text-[9px] text-muted-foreground">
+                          <EyeOff className="w-2.5 h-2.5" /> Not opened
+                        </span>
+                      ) : null}
+                      {r.status === 'failed' && (
+                        <span className="text-[9px] text-rose-400">Failed</span>
+                      )}
                       {r.replyCount > 0 && (
-                        <span className="inline-flex items-center gap-1 text-[10px] text-blue-400 border border-blue-400/30 rounded px-1.5 py-0.5">
-                          <MessageSquare className="w-3 h-3" /> {r.replyCount}
+                        <span className="inline-flex items-center gap-0.5 text-[9px] text-blue-400">
+                          <MessageSquare className="w-2.5 h-2.5" /> {r.replyCount}
                         </span>
                       )}
-                      <span className="text-xs text-muted-foreground">{timeAgo(r.sentAt)}</span>
                     </div>
                   </div>
-                </button>
-
-                {/* Expanded */}
-                {isOpen && (
-                  <div className="px-4 pb-4">
-                    <div className="rounded-lg border border-border bg-muted/10 p-4 space-y-4">
-                      {/* Actions */}
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <button
-                          onClick={() => handleDraftReply(r)}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs hover:bg-primary/90 transition-colors"
-                        >
-                          <Bot className="w-3.5 h-3.5" /> Draft reply with AI
-                        </button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => syncMutation.mutate(r.id)}
-                          disabled={syncMutation.isPending}
-                        >
-                          {syncMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : <RefreshCw className="w-3.5 h-3.5 mr-1" />}
-                          Sync replies
-                        </Button>
-                        {r.workspaceUuid && (
-                          <span className="text-xs text-muted-foreground">workspace <code className="bg-muted px-1 rounded">{r.workspaceUuid}</code></span>
-                        )}
-                        {r.lastSyncedAt && (
-                          <span className="text-[11px] text-muted-foreground flex items-center gap-1">
-                            <Clock className="w-3 h-3" /> synced {timeAgo(r.lastSyncedAt)}
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Open tracking detail */}
-                      {(r.openCount ?? 0) > 0 && (
-                        <div className="text-xs text-muted-foreground space-y-0.5">
-                          <p><span className="font-medium text-emerald-400">Opened {r.openCount}x</span></p>
-                          {r.firstOpenAt && <p>First: {new Date(r.firstOpenAt).toLocaleString()} · Last: {r.lastOpenAt ? new Date(r.lastOpenAt).toLocaleString() : '—'}</p>}
-                        </div>
-                      )}
-
-                      {r.status === 'failed' && r.error && (
-                        <p className="text-xs text-destructive">{r.error}</p>
-                      )}
-
-                      {/* Body */}
-                      <pre className="text-xs whitespace-pre-wrap font-mono bg-background/60 rounded-md p-3">{r.body}</pre>
-
-                      {/* Replies */}
-                      {detailQuery.data?.email.id === r.id && detailQuery.data.replies.length > 0 && (
-                        <div className="space-y-2">
-                          <p className="text-xs font-semibold text-muted-foreground">
-                            {detailQuery.data.replies.length} repl{detailQuery.data.replies.length === 1 ? 'y' : 'ies'}
-                          </p>
-                          {detailQuery.data.replies.map((reply) => (
-                            <div key={reply.id} className="rounded-md border border-border bg-background/60 p-3">
-                              <div className="flex items-center justify-between mb-1">
-                                <span className="text-xs font-medium">{reply.fromAddress}</span>
-                                <span className="text-[11px] text-muted-foreground">{new Date(reply.receivedAt).toLocaleString()}</span>
-                              </div>
-                              <p className="text-xs text-muted-foreground whitespace-pre-wrap">{reply.body || reply.snippet}</p>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
+                  {isSelected && <ChevronRight className="w-3 h-3 text-primary shrink-0 mt-2" />}
+                </div>
+              </button>
             );
           })}
         </div>
-      </div>
-    </div>
-  );
-}
 
-function Stat({ label, value, accent }: { label: string; value: string; accent?: 'emerald' | 'rose' | 'blue' }) {
-  return (
-    <div className="rounded-xl border border-border bg-card p-4">
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className={`text-2xl font-semibold mt-1 ${
-        accent === 'emerald' ? 'text-emerald-400'
-          : accent === 'rose' ? 'text-rose-400'
-          : accent === 'blue' ? 'text-blue-400'
-          : 'text-foreground'
-      }`}>{value}</p>
+        {/* Right: detail panel */}
+        <div className="flex-1 min-w-0 overflow-y-auto">
+          {!selected && (
+            <div className="flex items-center justify-center h-full">
+              <div className="text-center">
+                <Mail className="w-10 h-10 text-muted-foreground/30 mx-auto mb-3" />
+                <p className="text-sm text-muted-foreground">Select an email to read</p>
+              </div>
+            </div>
+          )}
+
+          {selected && (
+            <div className="p-6 max-w-2xl">
+              {/* Header */}
+              <div className="mb-4">
+                <h2 className="text-lg font-semibold">{selected.subject}</h2>
+                <div className="flex items-center gap-2 mt-1 flex-wrap">
+                  <div className={`w-6 h-6 rounded-full ${avatarColor(selected.recipient)} flex items-center justify-center text-white text-[10px] font-semibold`}>
+                    {initials(selected.recipient)}
+                  </div>
+                  <span className="text-sm text-muted-foreground">To: {selected.recipient}</span>
+                  <span className="text-xs text-muted-foreground">·</span>
+                  <span className="text-xs text-muted-foreground">{new Date(selected.sentAt).toLocaleString()}</span>
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full uppercase tracking-wider font-semibold ${purposeColor(selected.purpose)}`}>
+                    {selected.purpose}
+                  </span>
+                </div>
+              </div>
+
+              {/* Open tracking */}
+              {selected.status !== 'failed' && (
+                <div className={`rounded-lg border px-3 py-2 mb-4 text-xs flex items-center gap-2 ${
+                  (selected.openCount ?? 0) > 0
+                    ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-400'
+                    : 'border-border bg-muted/10 text-muted-foreground'
+                }`}>
+                  {(selected.openCount ?? 0) > 0 ? (
+                    <>
+                      <Eye className="w-3.5 h-3.5 shrink-0" />
+                      <span>
+                        Opened {selected.openCount}x — first {selected.firstOpenAt ? new Date(selected.firstOpenAt).toLocaleString() : '—'}
+                        {selected.lastOpenAt && selected.firstOpenAt !== selected.lastOpenAt
+                          ? ` · last ${new Date(selected.lastOpenAt).toLocaleString()}`
+                          : ''}
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <EyeOff className="w-3.5 h-3.5 shrink-0" />
+                      <span>Not opened yet</span>
+                    </>
+                  )}
+                </div>
+              )}
+
+              {selected.status === 'failed' && selected.error && (
+                <div className="rounded-lg border border-rose-500/30 bg-rose-500/5 px-3 py-2 mb-4 text-xs text-rose-400">
+                  {selected.error}
+                </div>
+              )}
+
+              {/* Actions */}
+              <div className="flex items-center gap-2 mb-4 flex-wrap">
+                <button
+                  onClick={() => handleDraftReply(selected)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs hover:bg-primary/90 transition-colors"
+                >
+                  <Bot className="w-3.5 h-3.5" /> Draft reply with AI
+                </button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => syncMutation.mutate(selected.id)}
+                  disabled={syncMutation.isPending}
+                >
+                  {syncMutation.isPending
+                    ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" />
+                    : <RefreshCw className="w-3.5 h-3.5 mr-1" />}
+                  Sync replies
+                </Button>
+                {selected.lastSyncedAt && (
+                  <span className="text-[11px] text-muted-foreground flex items-center gap-1">
+                    <Clock className="w-3 h-3" /> synced {timeAgo(selected.lastSyncedAt)}
+                  </span>
+                )}
+              </div>
+
+              {/* Email body */}
+              <div className="rounded-xl border border-border bg-card p-4 mb-4">
+                <pre className="text-sm whitespace-pre-wrap font-sans leading-relaxed text-foreground/90">{selected.body}</pre>
+              </div>
+
+              {/* Replies */}
+              {detailQuery.isLoading && (
+                <p className="text-xs text-muted-foreground">Loading replies…</p>
+              )}
+              {detailQuery.data?.email.id === selected.id && detailQuery.data.replies.length > 0 && (
+                <div className="space-y-3">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                    {detailQuery.data.replies.length} repl{detailQuery.data.replies.length === 1 ? 'y' : 'ies'}
+                  </p>
+                  {detailQuery.data.replies.map((reply) => (
+                    <div key={reply.id} className="rounded-xl border border-border bg-card p-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          <div className={`w-6 h-6 rounded-full ${avatarColor(reply.fromAddress)} flex items-center justify-center text-white text-[10px] font-semibold`}>
+                            {initials(reply.fromAddress)}
+                          </div>
+                          <span className="text-xs font-medium">{reply.fromAddress}</span>
+                        </div>
+                        <span className="text-[11px] text-muted-foreground">{new Date(reply.receivedAt).toLocaleString()}</span>
+                      </div>
+                      <p className="text-sm text-foreground/80 whitespace-pre-wrap leading-relaxed">{reply.body || reply.snippet}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {detailQuery.data?.email.id === selected.id && detailQuery.data.replies.length === 0 && (
+                <p className="text-xs text-muted-foreground">No replies yet.</p>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

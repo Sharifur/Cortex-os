@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.7.0',
+    date: '2026-05-10',
+    entries: [
+      { tag: 'feat', scope: 'inbox', description: 'Redesign Inbox page to Apple Mail two-panel layout: left panel is a compact email list with avatar initials, subject snippet, open/reply indicators; right panel shows full email body, open tracking detail, replies, and action buttons. Stats moved to a top bar with pill badges.' },
+      { tag: 'feat', scope: 'api', description: 'Email reply sweep interval changed from 10 min to 15 min as requested.' },
+    ],
+  },
+  {
     version: 'v4.6.5',
     date: '2026-05-10',
     entries: [
