@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.5.5',
+    date: '2026-05-10',
+    entries: [
+      { tag: 'fix', scope: 'chat', description: 'extractInlineEmail now handles the SPAR output format (**Email:** marker, **Subject A/B:** with **Recommended:** picker) in addition to the legacy Subject:/Body: format. Self-score line is omitted from the rendered output.' },
+    ],
+  },
+  {
     version: 'v4.5.4',
     date: '2026-05-10',
     entries: [

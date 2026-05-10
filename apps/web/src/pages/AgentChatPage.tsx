@@ -100,9 +100,38 @@ async function apiFetch(token: string, path: string, opts?: RequestInit) {
 
 const EMAIL_DRAFT_PREFIX = '__EMAIL_DRAFT__:';
 
-// Detects inline "Subject: ... Body: ..." patterns in agent text replies
+// Detects inline email draft patterns in agent text replies.
+// Handles two formats:
+//   SPAR format:  **Subject A/B:** ... **Recommended:** A/B ... **Email:** \n body \n **Self-score:** ...
+//   Legacy format: **Subject:** ... **Body:** \n body
 function extractInlineEmail(text: string): { before: string; subject: string; body: string; after: string } | null {
-  // Match Subject: (with optional bold markdown) anywhere in the text
+  // ── SPAR format ──────────────────────────────────────────────────────────────
+  const emailMarkerRe = /\*{0,2}Email:\*{0,2}\s*\n/i;
+  const emailMarkerIdx = text.search(emailMarkerRe);
+  if (emailMarkerIdx >= 0) {
+    const markerMatch = text.match(emailMarkerRe)!;
+    const bodyStart = emailMarkerIdx + markerMatch[0].length;
+    const afterEmail = text.slice(bodyStart);
+
+    // Body ends at **Self-score:** line
+    const selfScoreIdx = afterEmail.search(/\n\*{0,2}Self-score:/i);
+    const body = selfScoreIdx >= 0 ? afterEmail.slice(0, selfScoreIdx).trim() : afterEmail.trim();
+    // Omit self-score from the rendered "after" — it's internal reasoning
+    const after = '';
+
+    // Pick subject from the recommended option (A or B), fall back to A
+    const recommendedMatch = text.match(/\*{0,2}Recommended:\*{0,2}\s*([AB])\b/i);
+    const pick = recommendedMatch ? recommendedMatch[1].toUpperCase() : 'A';
+    const subjectRe = new RegExp(`\\*{0,2}Subject\\s+${pick}:\\*{0,2}\\s*"?([^"\\n]+)"?`, 'i');
+    const subjectMatch = text.match(subjectRe);
+    const subject = subjectMatch ? subjectMatch[1].trim().replace(/\*+$/, '') : '';
+
+    const before = text.slice(0, emailMarkerIdx).replace(/\n?---\s*$/, '').trim();
+
+    if (subject && body) return { before, subject, body, after };
+  }
+
+  // ── Legacy format (Subject: / Body:) ─────────────────────────────────────────
   const subjectRe = /\*{0,2}Subject:\*{0,2}\s*(.+)/i;
   const bodyRe = /\*{0,2}Body:\*{0,2}\s*\n?([\s\S]+)/i;
 
@@ -115,21 +144,10 @@ function extractInlineEmail(text: string): { before: string; subject: string; bo
   if (!bodyMatch) return null;
 
   const subject = subjectMatch[1].replace(/\*{0,2}$/, '').trim();
-
-  // Body content ends at a trailing separator line (---) or "Would you" style follow-up
   const rawBody = bodyMatch[1];
   const separatorIdx = rawBody.search(/\n---\s*\n|\n\n(?=\w{1,30}\s+you\b|\[|\*\*)/);
-  let body: string;
-  let after: string;
-  if (separatorIdx >= 0) {
-    body = rawBody.slice(0, separatorIdx).trim();
-    after = rawBody.slice(separatorIdx).replace(/^[\s-]+/, '').trim();
-  } else {
-    body = rawBody.trim();
-    after = '';
-  }
-
-  // "before" is everything up to the Subject line, stripping trailing --- separators
+  const body = separatorIdx >= 0 ? rawBody.slice(0, separatorIdx).trim() : rawBody.trim();
+  const after = separatorIdx >= 0 ? rawBody.slice(separatorIdx).replace(/^[\s-]+/, '').trim() : '';
   const before = text.slice(0, subjectIdx).replace(/\n?---\s*$/, '').trim();
 
   if (!subject || !body) return null;
