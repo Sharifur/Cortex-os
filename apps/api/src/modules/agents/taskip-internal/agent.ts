@@ -12,6 +12,7 @@ import { TaskipInternalEmailService, type TaskipEmailPurpose } from './taskip-in
 import { TaskipInternalSuggestionSweepService } from './taskip-internal-suggestion-sweep.service';
 import { TASKIP_SUGGESTION_SWEEP_QUEUE } from './taskip-internal-suggestion-sweep.processor';
 import { KillSwitchService, type KillSwitchAction } from '../../safety/kill-switch.service';
+import { KnowledgeBaseService } from '../../knowledge-base/knowledge-base.service';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import type { LlmToolMessage, ToolDefinition } from '../../llm/llm.types';
@@ -355,6 +356,7 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
     private killSwitch: KillSwitchService,
     private registry: AgentRegistryService,
     private logSvc: AgentLogService,
+    private kb: KnowledgeBaseService,
     @InjectQueue(TASKIP_SUGGESTION_SWEEP_QUEUE) private readonly suggestionSweepQueue: Queue,
   ) {}
 
@@ -395,9 +397,16 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
       }
     }
 
+    const [alwaysOn, kbRefs] = await Promise.all([
+      this.kb.getAlwaysOnContext(this.key, 'Taskip').catch(() => []),
+      this.kb.searchEntries(effectiveQuery, this.key, 5, 'Taskip').catch(() => []),
+    ]);
+
+    const kbBlock = this.buildKbBlock(alwaysOn, kbRefs);
+
     const tools = this.buildToolDefinitions();
     const messages: LlmToolMessage[] = [
-      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'system', content: kbBlock ? `${SYSTEM_PROMPT}\n\n${kbBlock}` : SYSTEM_PROMPT },
       ...priorMessages,
       { role: 'user', content: effectiveQuery },
     ];
@@ -1190,6 +1199,28 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
       }
       return { error: (err as Error).message };
     }
+  }
+
+  private buildKbBlock(
+    alwaysOn: Awaited<ReturnType<KnowledgeBaseService['getAlwaysOnContext']>>,
+    refs: Awaited<ReturnType<KnowledgeBaseService['searchEntries']>>,
+  ): string {
+    const lines: string[] = [];
+    if (alwaysOn.length > 0) {
+      lines.push('## Taskip Product Knowledge (from KB)');
+      for (const e of alwaysOn) {
+        lines.push(`### ${e.title}`);
+        lines.push(e.content.trim());
+      }
+    }
+    if (refs.length > 0) {
+      lines.push('## Relevant KB References');
+      for (const e of refs) {
+        lines.push(`### ${e.title}`);
+        lines.push(e.content.trim());
+      }
+    }
+    return lines.join('\n\n');
   }
 
   private buildToolDefinitions(): ToolDefinition[] {
