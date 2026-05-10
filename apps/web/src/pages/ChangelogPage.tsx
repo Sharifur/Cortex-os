@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.4.7',
+    date: '2026-05-10',
+    entries: [
+      { tag: 'fix', scope: 'chat', description: 'Activity panel: Thinking... entries no longer stay permanently spinning — marked as success when any subsequent entry follows them, or when the run is finished.' },
+    ],
+  },
+  {
     version: 'v4.4.6',
     date: '2026-05-10',
     entries: [

@@ -349,7 +349,7 @@ interface ActivityEntry {
   durationMs?: number;
 }
 
-function parseLogsToTimeline(logs: RunLog[]): ActivityEntry[] {
+function parseLogsToTimeline(logs: RunLog[], finished: boolean): ActivityEntry[] {
   const entries: ActivityEntry[] = [];
   for (const log of logs) {
     const meta = log.meta as Record<string, unknown> | null;
@@ -414,6 +414,17 @@ function parseLogsToTimeline(logs: RunLog[]): ActivityEntry[] {
       continue;
     }
   }
+
+  // Resolve thinking entries: mark as success if something follows them, or if the run is finished
+  for (let i = 0; i < entries.length; i++) {
+    if (entries[i].type === 'thinking' && entries[i].status === 'running') {
+      const hasFollowingEntry = i < entries.length - 1;
+      if (hasFollowingEntry || finished) {
+        entries[i] = { ...entries[i], status: 'success' };
+      }
+    }
+  }
+
   return entries;
 }
 
@@ -473,7 +484,7 @@ function RunActivityPanel({
     staleTime: Infinity,
   });
 
-  const entries = logsData ? parseLogsToTimeline(logsData.logs) : [];
+  const entries = logsData ? parseLogsToTimeline(logsData.logs, !!logsData.finished) : [];
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
