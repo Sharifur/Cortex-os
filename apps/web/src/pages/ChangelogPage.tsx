@@ -16,6 +16,15 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.8.4',
+    date: '2026-05-10',
+    entries: [
+      { tag: 'feat', scope: 'inbox', description: 'Draft reply with AI: clicking the button opens an in-page right-side drawer with a live AI chat (taskip_internal agent). Pre-seeds the context from the selected email and auto-sends the initial draft query. No navigation away from the inbox.' },
+      { tag: 'feat', scope: 'inbox', description: 'Reply loading skeleton: replaced "Loading replies..." text with two animated skeleton reply cards while replies are fetching.' },
+      { tag: 'feat', scope: 'inbox', description: 'AI thinking skeleton: while the agent is processing, the drawer shows animated skeleton lines instead of a plain loading indicator.' },
+    ],
+  },
+  {
     version: 'v4.8.3',
     date: '2026-05-10',
     entries: [
