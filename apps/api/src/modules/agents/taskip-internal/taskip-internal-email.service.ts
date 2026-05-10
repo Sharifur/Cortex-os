@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { and, desc, eq, gte, isNotNull, isNull, lt, or } from 'drizzle-orm';
+import { and, desc, eq, gte, isNotNull, isNull, lt, or, sql } from 'drizzle-orm';
 import { createId } from '@paralleldrive/cuid2';
 import { DbService } from '../../../db/db.service';
 import { taskipInternalEmails, taskipInternalEmailReplies } from '../../../db/schema';
@@ -55,58 +55,47 @@ export class TaskipInternalEmailService {
         this.logger.warn(`could not fetch threadId for ${messageId}: ${(err as Error).message}`);
       }
 
-      const baseValues = {
-        purpose: input.purpose,
-        workspaceUuid: input.workspaceUuid ?? null,
-        recipient: input.recipient,
-        subject: input.subject,
-        body: input.body,
-        gmailMessageId: messageId,
-        gmailThreadId: threadId,
-        status: 'sent' as const,
-        metadata: input.metadata ?? null,
-      };
+      const id = createId();
+      // Use raw SQL to guarantee only stable columns are inserted.
+      // Drizzle client-side defaults (e.g. open_count=0) would reference columns
+      // that may not exist on older environments where migration 0063 hasn't run.
+      await this.db.db.execute(sql`
+        INSERT INTO taskip_internal_emails
+          (id, purpose, workspace_uuid, recipient, subject, body,
+           gmail_message_id, gmail_thread_id, status, metadata, sent_at)
+        VALUES
+          (${id}, ${input.purpose}, ${input.workspaceUuid ?? null},
+           ${input.recipient}, ${input.subject}, ${input.body},
+           ${messageId}, ${threadId}, 'sent',
+           ${input.metadata ? JSON.stringify(input.metadata) : null}::jsonb,
+           NOW())
+      `);
 
-      let row: { id: string };
-      try {
-        [row] = await this.db.db
-          .insert(taskipInternalEmails)
-          .values({ ...baseValues, trackingToken })
-          .returning({ id: taskipInternalEmails.id });
-      } catch {
-        // tracking columns not yet on this environment — insert without them
-        [row] = await this.db.db
-          .insert(taskipInternalEmails)
-          .values(baseValues)
-          .returning({ id: taskipInternalEmails.id });
-      }
+      // Best-effort: set tracking token if the column exists
+      await this.db.db.execute(sql`
+        UPDATE taskip_internal_emails
+        SET tracking_token = ${trackingToken}
+        WHERE id = ${id}
+      `).catch(() => { /* column not yet migrated */ });
 
-      return { id: row!.id, gmailMessageId: messageId, status: 'sent' };
+      return { id, gmailMessageId: messageId, status: 'sent' };
     } catch (err) {
       const message = (err as Error).message;
-      const baseFailValues = {
-        purpose: input.purpose,
-        workspaceUuid: input.workspaceUuid ?? null,
-        recipient: input.recipient,
-        subject: input.subject,
-        body: input.body,
-        status: 'failed' as const,
-        error: message,
-        metadata: input.metadata ?? null,
-      };
-      let row: { id: string };
-      try {
-        [row] = await this.db.db
-          .insert(taskipInternalEmails)
-          .values({ ...baseFailValues, trackingToken })
-          .returning({ id: taskipInternalEmails.id });
-      } catch {
-        [row] = await this.db.db
-          .insert(taskipInternalEmails)
-          .values(baseFailValues)
-          .returning({ id: taskipInternalEmails.id });
-      }
-      return { id: row!.id, gmailMessageId: null, status: 'failed', error: message };
+      const id = createId();
+      await this.db.db.execute(sql`
+        INSERT INTO taskip_internal_emails
+          (id, purpose, workspace_uuid, recipient, subject, body,
+           status, error, metadata, sent_at)
+        VALUES
+          (${id}, ${input.purpose}, ${input.workspaceUuid ?? null},
+           ${input.recipient}, ${input.subject}, ${input.body},
+           'failed', ${message},
+           ${input.metadata ? JSON.stringify(input.metadata) : null}::jsonb,
+           NOW())
+      `).catch((dbErr: unknown) => {
+        this.logger.warn(`failed to record send failure: ${(dbErr as Error).message}`);
+      });
+      return { id, gmailMessageId: null, status: 'failed', error: message };
     }
   }
 
