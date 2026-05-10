@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.5.4',
+    date: '2026-05-10',
+    entries: [
+      { tag: 'feat', scope: 'taskip-internal', description: 'Full SPAR 8-step email reasoning system: Signal Inventory (behavior/gap/momentum with recency weighting), Persona Inference, Prior Email Check (angle memory), Cohort Tone Calibration, Angle Selection table, two formula-locked subject options (A/B), body rules with banned-phrase list, and a self-score "would I reply?" gate that forces a rewrite if score < 4.' },
+    ],
+  },
+  {
     version: 'v4.5.3',
     date: '2026-05-10',
     entries: [
