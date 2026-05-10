@@ -73,16 +73,12 @@ export class TaskipInternalEmailService {
           .insert(taskipInternalEmails)
           .values({ ...baseValues, trackingToken })
           .returning({ id: taskipInternalEmails.id });
-      } catch (colErr) {
-        // tracking_token column not yet migrated on this environment
-        if ((colErr as Error).message?.includes('tracking_token')) {
-          [row] = await this.db.db
-            .insert(taskipInternalEmails)
-            .values(baseValues)
-            .returning({ id: taskipInternalEmails.id });
-        } else {
-          throw colErr;
-        }
+      } catch {
+        // tracking columns not yet on this environment — insert without them
+        [row] = await this.db.db
+          .insert(taskipInternalEmails)
+          .values(baseValues)
+          .returning({ id: taskipInternalEmails.id });
       }
 
       return { id: row!.id, gmailMessageId: messageId, status: 'sent' };
@@ -104,15 +100,11 @@ export class TaskipInternalEmailService {
           .insert(taskipInternalEmails)
           .values({ ...baseFailValues, trackingToken })
           .returning({ id: taskipInternalEmails.id });
-      } catch (colErr) {
-        if ((colErr as Error).message?.includes('tracking_token')) {
-          [row] = await this.db.db
-            .insert(taskipInternalEmails)
-            .values(baseFailValues)
-            .returning({ id: taskipInternalEmails.id });
-        } else {
-          throw colErr;
-        }
+      } catch {
+        [row] = await this.db.db
+          .insert(taskipInternalEmails)
+          .values(baseFailValues)
+          .returning({ id: taskipInternalEmails.id });
       }
       return { id: row!.id, gmailMessageId: null, status: 'failed', error: message };
     }
@@ -141,9 +133,6 @@ export class TaskipInternalEmailService {
         lastSyncedAt: taskipInternalEmails.lastSyncedAt,
         metadata: taskipInternalEmails.metadata,
         sentAt: taskipInternalEmails.sentAt,
-        openCount: taskipInternalEmails.openCount,
-        firstOpenAt: taskipInternalEmails.firstOpenAt,
-        lastOpenAt: taskipInternalEmails.lastOpenAt,
       })
       .from(taskipInternalEmails)
       .where(where.length ? and(...where) : undefined)
@@ -170,9 +159,6 @@ export class TaskipInternalEmailService {
         lastSyncedAt: taskipInternalEmails.lastSyncedAt,
         metadata: taskipInternalEmails.metadata,
         sentAt: taskipInternalEmails.sentAt,
-        openCount: taskipInternalEmails.openCount,
-        firstOpenAt: taskipInternalEmails.firstOpenAt,
-        lastOpenAt: taskipInternalEmails.lastOpenAt,
       })
       .from(taskipInternalEmails)
       .where(eq(taskipInternalEmails.id, id))

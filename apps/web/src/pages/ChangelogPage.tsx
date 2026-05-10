@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.6.4',
+    date: '2026-05-10',
+    entries: [
+      { tag: 'fix', scope: 'api', description: 'Send email: tracking insert fallback is now unconditional — any insert error retries without tracking columns instead of checking the error message string (avoids Drizzle error-wrapping edge cases). Inbox listSent/getDetail no longer select open_count/first_open_at/last_open_at since migration 0063 is not yet on prod.' },
+      { tag: 'fix', scope: 'inbox', description: 'InboxRow openCount/firstOpenAt/lastOpenAt are optional — page renders correctly when tracking columns are absent from prod DB.' },
+    ],
+  },
+  {
     version: 'v4.6.3',
     date: '2026-05-10',
     entries: [

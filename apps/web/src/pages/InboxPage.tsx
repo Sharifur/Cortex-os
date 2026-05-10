@@ -20,9 +20,9 @@ interface InboxRow {
   lastReplyAt: string | null;
   lastSyncedAt: string | null;
   sentAt: string;
-  openCount: number;
-  firstOpenAt: string | null;
-  lastOpenAt: string | null;
+  openCount?: number;
+  firstOpenAt?: string | null;
+  lastOpenAt?: string | null;
 }
 
 interface InboxReply {
@@ -60,11 +60,12 @@ function OpenBadge({ row }: { row: InboxRow }) {
   if (row.status === 'failed') {
     return <span className="text-[10px] text-rose-400 border border-rose-400/30 rounded px-1.5 py-0.5">Failed</span>;
   }
-  if (row.openCount > 0) {
+  const opens = row.openCount ?? 0;
+  if (opens > 0) {
     return (
       <span className="inline-flex items-center gap-1 text-[10px] text-emerald-400 font-medium border border-emerald-500/30 rounded px-1.5 py-0.5">
         <Eye className="w-3 h-3" />
-        Opened {row.openCount > 1 ? `${row.openCount}x` : ''} · {timeAgo(row.firstOpenAt!)}
+        Opened {opens > 1 ? `${opens}x` : ''} · {timeAgo(row.firstOpenAt!)}
       </span>
     );
   }
@@ -116,12 +117,13 @@ export default function InboxPage() {
   }, [highlightId, data]);
 
   const rows = data ?? [];
-  const openedCount = rows.filter((r) => r.openCount > 0).length;
+  const openedCount = rows.filter((r) => (r.openCount ?? 0) > 0).length;
   const repliedCount = rows.filter((r) => r.replyCount > 0).length;
 
   function handleDraftReply(r: InboxRow) {
-    const openInfo = r.openCount > 0
-      ? `opened it ${r.openCount} time${r.openCount > 1 ? 's' : ''} (first opened ${timeAgo(r.firstOpenAt!)})`
+    const opens = r.openCount ?? 0;
+    const openInfo = opens > 0
+      ? `opened it ${opens} time${opens > 1 ? 's' : ''} (first opened ${timeAgo(r.firstOpenAt!)})`
       : 'has not opened it yet';
     const replyInfo = r.replyCount > 0
       ? ` They replied ${r.replyCount} time${r.replyCount > 1 ? 's' : ''}, last ${timeAgo(r.lastReplyAt!)}.`
@@ -249,10 +251,10 @@ export default function InboxPage() {
                       </div>
 
                       {/* Open tracking detail */}
-                      {r.openCount > 0 && (
+                      {(r.openCount ?? 0) > 0 && (
                         <div className="text-xs text-muted-foreground space-y-0.5">
                           <p><span className="font-medium text-emerald-400">Opened {r.openCount}x</span></p>
-                          <p>First: {new Date(r.firstOpenAt!).toLocaleString()} · Last: {new Date(r.lastOpenAt!).toLocaleString()}</p>
+                          {r.firstOpenAt && <p>First: {new Date(r.firstOpenAt).toLocaleString()} · Last: {r.lastOpenAt ? new Date(r.lastOpenAt).toLocaleString() : '—'}</p>}
                         </div>
                       )}
 
