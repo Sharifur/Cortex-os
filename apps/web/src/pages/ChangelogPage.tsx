@@ -16,6 +16,55 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.8.2',
+    date: '2026-05-10',
+    entries: [
+      { tag: 'feat', scope: 'agent', description: 'Batch send gap: 100–300s random delay between consecutive emails in a batch to avoid bulk-send patterns and improve deliverability. Telegram notifies before each wait with the countdown.' },
+    ],
+  },
+  {
+    version: 'v4.8.1',
+    date: '2026-05-10',
+    entries: [
+      { tag: 'feat', scope: 'agent', description: 'Dry-run mode: say "show me first" / "dry run" / "preview" — agent runs the full SPAR workflow per workspace and outputs all drafts as formatted text without calling batch_send_email. Reply "send them" or a number selection to dispatch.' },
+      { tag: 'feat', scope: 'agent', description: 'Tone presets: append a tone modifier to any message — "aggressive", "soft", "ultra-brief", "warm". Overrides SPAR Step 4 cohort calibration for all emails in that batch.' },
+      { tag: 'feat', scope: 'agent', description: 'Dedup pre-filter: workspace list now shows "[contacted Xd ago]" and "[replied — engaged]" annotations. Agent checks insight_recent_messages in parallel while listing, but still includes all workspaces — user decides whether to include flagged ones.' },
+      { tag: 'feat', scope: 'agent', description: 'Reply-aware skip in batch: before generating each email, checks list_sent_emails for replyCount > 0. Workspaces with active replies are skipped automatically (they are already engaged).' },
+      { tag: 'feat', scope: 'agent', description: 'Partial batch recovery: when a batch has failures, Telegram summary lists each failed recipient with error. Say "retry failed" or "retry" to re-process only the failed ones — CONTINUATION MODE targets them specifically.' },
+    ],
+  },
+  {
+    version: 'v4.8.0',
+    date: '2026-05-10',
+    entries: [
+      { tag: 'feat', scope: 'agent', description: 'Continuation intent detection: when the prior agent message asked for confirmation and the user replies with "yes/go/proceed", the agent now injects a CONTINUATION MODE directive into the system prompt — bypassing re-read and re-listing entirely, executing the queued action immediately.' },
+      { tag: 'feat', scope: 'agent', description: 'Selection intent: when the user sends numbers like "2,4,5,6,7", the agent maps them back to the workspace names from the prior numbered list and processes only those workspaces through SPAR.' },
+      { tag: 'feat', scope: 'agent', description: 'batch_send_email action: new approval-gated action type that holds an array of SPAR-generated email drafts. Single Telegram approval sends the whole batch. Each email is individually tracked in the Inbox.' },
+      { tag: 'feat', scope: 'agent', description: 'Workspace list format standardised: agent now numbers lists as "1. Name — Score: N" and ends with reply instructions, making number-selection parsing reliable.' },
+      { tag: 'feat', scope: 'agent', description: 'MAX_TOOL_ITERATIONS raised from 14 to 25 to support multi-workspace batch processing (7 workspaces × ~3 tool calls each).' },
+      { tag: 'feat', scope: 'chat', description: 'Batch email action shown in chat as a preview list of all recipients + subjects with Telegram approval reminder.' },
+    ],
+  },
+  {
+    version: 'v4.7.2',
+    date: '2026-05-10',
+    entries: [
+      { tag: 'feat', scope: 'inbox', description: 'Inline reply composer in the email detail panel: Reply button expands a compose area pre-filled with recipient and Re: subject. Auto-resizing textarea, word count, Send reply button. Collapses and resets when switching emails.' },
+      { tag: 'feat', scope: 'inbox', description: 'Plain text mode toggle in the inline reply composer. When enabled: no HTML wrapper, no tracking pixel — raw plain text email for maximum deliverability. Status strip shows the mode clearly.' },
+      { tag: 'feat', scope: 'chat', description: 'Plain text mode toggle in the Send Email modal (taskip_internal agent only). Same deliverability behaviour — bypasses buildHtmlEmail when enabled.' },
+      { tag: 'feat', scope: 'api', description: 'SendTrackedEmailInput accepts plainText flag. When true: skips HTML generation and tracking pixel entirely, sends raw plain text via Gmail.' },
+    ],
+  },
+  {
+    version: 'v4.7.1',
+    date: '2026-05-10',
+    entries: [
+      { tag: 'feat', scope: 'chat', description: 'Send Email modal: auto-resizing textarea (grows with content, min 220px), formatting toolbar with Bold (**), Italic (_), and Bullet list toggle. Paragraph tip shown in toolbar.' },
+      { tag: 'feat', scope: 'inbox', description: 'Email body now rendered as structured HTML — double newline = paragraph break, lines starting with "- " = bullet list, **text** = bold, _text_ = italic. Applies to both the send modal preview and the inbox detail panel.' },
+      { tag: 'feat', scope: 'api', description: 'buildHtmlEmail: enhanced converter produces proper <p> paragraphs, <ul> bullet lists, <strong>/<em> for inline markup instead of a flat <br> dump.' },
+    ],
+  },
+  {
     version: 'v4.7.0',
     date: '2026-05-10',
     entries: [

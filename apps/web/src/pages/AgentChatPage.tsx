@@ -6,6 +6,7 @@ import {
   Calendar, Clock, CheckCircle2, XCircle,
   AlertCircle, MessageSquare, ListTodo, RotateCcw, History, X,
   ThumbsUp, ThumbsDown, ImagePlus, Copy, Mail, Check, Wrench, Zap,
+  Bold, Italic, List,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -222,6 +223,17 @@ function extractResponse(run: RunDetail): string {
   );
   if (notify?.payload?.['message']) return String(notify.payload['message']);
 
+  const batchAction = actions.find((a) => a.type === 'batch_send_email');
+  if (batchAction) {
+    const emails = (batchAction.payload as any)?.emails ?? [];
+    const lines = [`Batch email ready — ${emails.length} email${emails.length !== 1 ? 's' : ''} awaiting Telegram approval:`, ''];
+    for (const [i, e] of emails.entries()) {
+      lines.push(`${i + 1}. **${e.recipient}** — ${e.subject}`);
+    }
+    lines.push('', 'Approve or reject via Telegram.');
+    return lines.join('\n');
+  }
+
   const approval = actions.find((a) => ['extend_trial', 'mark_refund', 'send_reply'].includes(a.type));
   if (approval) return `Awaiting Telegram approval: ${approval.summary}`;
 
@@ -275,6 +287,29 @@ function renderMarkdown(text: string): string {
 
 interface GmailAccountOption { id: string; label: string; email: string; isDefault: boolean; }
 
+function insertAtCursor(el: HTMLTextAreaElement, before: string, after: string) {
+  const start = el.selectionStart;
+  const end = el.selectionEnd;
+  const selected = el.value.slice(start, end);
+  const replacement = before + (selected || 'text') + after;
+  el.setRangeText(replacement, start, end, 'select');
+  el.focus();
+}
+
+function toggleBullets(el: HTMLTextAreaElement) {
+  const start = el.selectionStart;
+  const end = el.selectionEnd;
+  const val = el.value;
+  const lineStart = val.lastIndexOf('\n', start - 1) + 1;
+  const lineEnd = val.indexOf('\n', end);
+  const block = val.slice(lineStart, lineEnd === -1 ? val.length : lineEnd);
+  const lines = block.split('\n');
+  const allBullets = lines.every(l => l.startsWith('- '));
+  const toggled = lines.map(l => allBullets ? l.replace(/^- /, '') : `- ${l}`).join('\n');
+  el.setRangeText(toggled, lineStart, lineEnd === -1 ? val.length : lineEnd, 'preserve');
+  el.focus();
+}
+
 function SendEmailModal({
   to, subject, body, token,
   onClose, onSent, trackedSend,
@@ -284,6 +319,7 @@ function SendEmailModal({
   onSent?: (emailId?: string) => void;
   trackedSend?: boolean;
 }) {
+  const bodyRef = useRef<HTMLTextAreaElement>(null);
   const { data: accounts, isLoading } = useQuery<GmailAccountOption[]>({
     queryKey: ['gmail-accounts-send'],
     queryFn: async () => {
@@ -298,6 +334,7 @@ function SendEmailModal({
   const [toValue, setToValue] = useState(to ?? '');
   const [subjectValue, setSubjectValue] = useState(subject);
   const [bodyValue, setBodyValue] = useState(body);
+  const [plainText, setPlainText] = useState(false);
   const [sending, setSending] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -308,6 +345,13 @@ function SendEmailModal({
     if (defaultAccount && !selectedId) setSelectedId(defaultAccount.id);
   }, [defaultAccount, selectedId]);
 
+  useEffect(() => {
+    const el = bodyRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  }, [bodyValue]);
+
   async function handleSend() {
     if (!selectedId || !toValue.trim()) return;
     setSending(true);
@@ -315,7 +359,7 @@ function SendEmailModal({
     try {
       const endpoint = trackedSend ? '/taskip-internal/inbox/send' : '/gmail/send';
       const payload = trackedSend
-        ? { recipient: toValue.trim(), subject: subjectValue, textBody: bodyValue, accountId: selectedId, purpose: 'marketing' }
+        ? { recipient: toValue.trim(), subject: subjectValue, textBody: bodyValue, accountId: selectedId, purpose: 'marketing', plainText }
         : { accountId: selectedId, to: toValue.trim(), subject: subjectValue, textBody: bodyValue };
       const res = await fetch(endpoint, {
         method: 'POST',
@@ -379,7 +423,7 @@ function SendEmailModal({
               />
             </div>
 
-            {/* Body (editable) with word count */}
+            {/* Body (editable) with formatting toolbar */}
             <div>
               <div className="flex items-center justify-between mb-1">
                 <label className="text-xs text-muted-foreground">Body</label>
@@ -387,13 +431,61 @@ function SendEmailModal({
                   {wordCount} words
                 </span>
               </div>
+              {/* Toolbar */}
+              <div className="flex items-center gap-1 border border-border border-b-0 rounded-t-md bg-muted/40 px-2 py-1">
+                <button
+                  type="button"
+                  title="Bold (wraps selection in **)"
+                  onClick={() => bodyRef.current && insertAtCursor(bodyRef.current, '**', '**')}
+                  className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <Bold className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  type="button"
+                  title="Italic (wraps selection in _)"
+                  onClick={() => bodyRef.current && insertAtCursor(bodyRef.current, '_', '_')}
+                  className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <Italic className="w-3.5 h-3.5" />
+                </button>
+                <div className="w-px h-3.5 bg-border mx-1" />
+                <button
+                  type="button"
+                  title="Toggle bullet list"
+                  onClick={() => bodyRef.current && toggleBullets(bodyRef.current)}
+                  className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <List className="w-3.5 h-3.5" />
+                </button>
+                <div className="w-px h-3.5 bg-border mx-1" />
+                <span className="text-[10px] text-muted-foreground/60 ml-1">Tip: blank line = new paragraph</span>
+              </div>
               <textarea
-                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary resize-none"
-                rows={6}
+                ref={bodyRef}
+                className="w-full rounded-b-md border border-border bg-background px-3 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary resize-y font-mono leading-relaxed"
+                style={{ minHeight: '220px' }}
                 value={bodyValue}
                 onChange={e => setBodyValue(e.target.value)}
               />
             </div>
+
+            {/* Plain text toggle (only for tracked send) */}
+            {trackedSend && (
+              <div className="flex items-center justify-between rounded-lg border border-border bg-muted/20 px-3 py-2">
+                <div>
+                  <p className="text-xs font-medium">Plain text mode</p>
+                  <p className="text-[11px] text-muted-foreground">No HTML wrapper or tracking pixel — better deliverability</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPlainText(v => !v)}
+                  className={`w-9 h-5 rounded-full transition-colors relative shrink-0 ${plainText ? 'bg-emerald-500' : 'bg-muted-foreground/30'}`}
+                >
+                  <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform shadow ${plainText ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                </button>
+              </div>
+            )}
 
             {/* From account picker */}
             <div>
