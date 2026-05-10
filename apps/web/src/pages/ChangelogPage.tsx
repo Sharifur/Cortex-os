@@ -16,6 +16,24 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.8.7',
+    date: '2026-05-10',
+    entries: [
+      { tag: 'feat', scope: 'agent', description: 'lookup_user unified search: now accepts uuid, url (slug/subdomain/custom domain), email, or name — passes directly to Insight /search endpoint. Name search returns a candidate list; exact lookups return full stats + activity_by_day.' },
+      { tag: 'feat', scope: 'agent', description: 'New trial funnel tools: insight_trial_funnel_hot (THS-sorted trials), insight_trial_funnel_at_risk (stalled day 5+), insight_trial_funnel_trial_ready (free TRS>=50), insight_trial_funnel_stats (conversion ratio summary).' },
+      { tag: 'feat', scope: 'agent', description: 'System prompt updated: 4-band score tier model (Cold/Warming/Active/Hot, 0-25/26-50/51-75/76-100), delta_14d momentum guidance, lifecycle_state field awareness, THS day-caps.' },
+      { tag: 'chore', scope: 'api', description: 'InsightCohortListItem gains lifecycle_state field. InsightSearchResult, InsightSearchExactResult, InsightSearchNameResult types added. insight.search() replaces searchByEmail() as canonical method.' },
+    ],
+  },
+  {
+    version: 'v4.8.6',
+    date: '2026-05-10',
+    entries: [
+      { tag: 'feat', scope: 'support', description: 'Webhook Logs tab in Support Ticket Manager chat page. Shows all incoming CRM webhook events with status (ok / duplicate / error), CRM ticket ID, internal ID, timestamp, and expandable raw payload viewer.' },
+      { tag: 'feat', scope: 'api', description: 'support_webhook_logs table (migration 0064). ingestWebhook now writes a row for every event — success, duplicate, and error cases. GET /support/webhook-logs endpoint (auth required, limit 100).' },
+    ],
+  },
+  {
     version: 'v4.8.5',
     date: '2026-05-10',
     entries: [

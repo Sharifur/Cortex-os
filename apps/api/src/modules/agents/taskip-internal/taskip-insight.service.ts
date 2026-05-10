@@ -180,9 +180,36 @@ export interface InsightCohortListItem {
   previous_cohort: InsightCohort | null;
   cohort_assigned_at: string;
   last_seen_at: string;
-  plan_mrr_usd: number;
+  lifecycle_state?: InsightLifecycleState;
+  plan_mrr_usd?: number;
   primary_signal_key: string;
 }
+
+export interface InsightSearchExactResult {
+  mode: 'exact_match';
+  data: InsightWorkspaceOverview & {
+    workspace: { email?: string };
+    activity_by_day?: Record<string, number>;
+  };
+}
+
+export interface InsightSearchNameResult {
+  mode: 'name_search';
+  total: number;
+  matches: Array<{
+    uuid: string;
+    url: string;
+    name: string;
+    email?: string;
+    days_since_signup: number;
+    cohort: InsightCohort | null;
+    score: number;
+    score_delta_14d: number;
+  }>;
+  hint: string;
+}
+
+export type InsightSearchResult = InsightSearchExactResult | InsightSearchNameResult;
 
 export interface InsightCohortListResponse {
   schema_version: number;
@@ -329,10 +356,29 @@ export class TaskipInsightService {
   }
 
   async searchByEmail(email: string): Promise<unknown> {
-    const path = `/search?email=${encodeURIComponent(email)}`;
-    const base = await this.getBaseUrl();
-    this.logger.debug(`searchByEmail → ${base}${path}`);
-    return this.request('GET', path);
+    return this.search({ email });
+  }
+
+  async search(params: {
+    uuid?: string;
+    url?: string;
+    tenantId?: string;
+    email?: string;
+    name?: string;
+  }): Promise<InsightSearchResult> {
+    const qs = new URLSearchParams();
+    if (params.uuid) qs.set('uuid', params.uuid);
+    else if (params.url) qs.set('url', params.url);
+    else if (params.tenantId) qs.set('tenant_id', params.tenantId);
+    else if (params.email) qs.set('email', params.email);
+    else if (params.name) qs.set('name', params.name);
+    const path = `/search?${qs.toString()}`;
+    this.logger.debug(`search → ${path}`);
+    return this.request<InsightSearchResult>('GET', path);
+  }
+
+  async getTrialFunnelStats(): Promise<unknown> {
+    return this.request('GET', '/trial-funnel/stats');
   }
 
   async status(probeWorkspaceUuid?: string): Promise<InsightStatus> {

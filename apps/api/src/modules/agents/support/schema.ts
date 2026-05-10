@@ -1,6 +1,16 @@
 import { pgTable, text, timestamp } from 'drizzle-orm/pg-core';
 import { createId } from '@paralleldrive/cuid2';
 
+export const supportWebhookLogs = pgTable('support_webhook_logs', {
+  id: text('id').primaryKey().$defaultFn(() => createId()),
+  status: text('status').notNull(),       // 'ok' | 'duplicate' | 'error' | 'rejected'
+  externalId: text('external_id'),        // ticket.id from CRM
+  ticketId: text('ticket_id'),            // internal support_tickets.id if created
+  rawPayload: text('raw_payload'),        // first 5000 chars of the raw JSON body
+  error: text('error'),                   // error message when status = 'error'|'rejected'
+  receivedAt: timestamp('received_at').defaultNow().notNull(),
+});
+
 export const supportTickets = pgTable('support_tickets', {
   id: text('id').primaryKey().$defaultFn(() => createId()),
   externalId: text('external_id').unique(),
