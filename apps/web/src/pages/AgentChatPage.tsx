@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useParams, Link, useLocation } from 'react-router-dom';
+import { useParams, Link, useLocation, useSearchParams } from 'react-router-dom';
 import {
   Bot, ArrowLeft, Send, Loader2, RefreshCw,
   Calendar, Clock, CheckCircle2, XCircle,
@@ -107,6 +107,7 @@ interface InlineEmail {
   body: string;
   after: string;
   selfScore?: string;   // e.g. "5/5"
+  to?: string;          // recipient email from **To:** line
 }
 
 function cleanSubject(raw: string): string {
@@ -119,7 +120,8 @@ function stripSubjectLines(text: string): string {
   return text
     .split('\n')
     .filter(line => !/^\*{0,2}Subject\s*[AB]?\s*:/i.test(line.trim()) &&
-                    !/^\*{0,2}Recommended:/i.test(line.trim()))
+                    !/^\*{0,2}Recommended:/i.test(line.trim()) &&
+                    !/^\*{0,2}To:\*{0,2}\s/i.test(line.trim()))
     .join('\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
@@ -170,7 +172,11 @@ function extractInlineEmail(text: string): InlineEmail | null {
     const rawBefore = text.slice(0, emailMarkerIdx).replace(/\n?---\s*$/, '');
     const before = stripSubjectLines(rawBefore);
 
-    if (subject && body) return { before, subject, subjectAlt, body, after: '', selfScore };
+    // Extract **To:** recipient email
+    const toMatch = text.match(/\*{0,2}To:\*{0,2}\s*([^\s\n]+)/i);
+    const to = toMatch ? toMatch[1].trim() : undefined;
+
+    if (subject && body) return { before, subject, subjectAlt, body, after: '', selfScore, to };
   }
 
   // ── Legacy format (Subject: / Body:) ─────────────────────────────────────────
@@ -271,10 +277,12 @@ interface GmailAccountOption { id: string; label: string; email: string; isDefau
 
 function SendEmailModal({
   to, subject, body, token,
-  onClose,
+  onClose, onSent, trackedSend,
 }: {
   to?: string; subject: string; body: string; token: string;
   onClose: () => void;
+  onSent?: (emailId?: string) => void;
+  trackedSend?: boolean;
 }) {
   const { data: accounts, isLoading } = useQuery<GmailAccountOption[]>({
     queryKey: ['gmail-accounts-send'],
@@ -288,9 +296,13 @@ function SendEmailModal({
   const defaultAccount = accounts?.find(a => a.isDefault) ?? accounts?.[0];
   const [selectedId, setSelectedId] = useState<string>('');
   const [toValue, setToValue] = useState(to ?? '');
+  const [subjectValue, setSubjectValue] = useState(subject);
+  const [bodyValue, setBodyValue] = useState(body);
   const [sending, setSending] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const wordCount = bodyValue.trim() ? bodyValue.trim().split(/\s+/).length : 0;
 
   useEffect(() => {
     if (defaultAccount && !selectedId) setSelectedId(defaultAccount.id);
@@ -301,14 +313,19 @@ function SendEmailModal({
     setSending(true);
     setError(null);
     try {
-      const res = await fetch('/gmail/send', {
+      const endpoint = trackedSend ? '/taskip-internal/inbox/send' : '/gmail/send';
+      const payload = trackedSend
+        ? { recipient: toValue.trim(), subject: subjectValue, textBody: bodyValue, accountId: selectedId, purpose: 'marketing' }
+        : { accountId: selectedId, to: toValue.trim(), subject: subjectValue, textBody: bodyValue };
+      const res = await fetch(endpoint, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accountId: selectedId, to: toValue.trim(), subject, textBody: body }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error((data as any).message ?? `HTTP ${res.status}`);
       setDone(true);
+      onSent?.((data as any).id);
       setTimeout(onClose, 1200);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -318,7 +335,11 @@ function SendEmailModal({
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
+    <div
+      className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+      onClick={onClose}
+      onKeyDown={e => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') handleSend(); }}
+    >
       <div
         className="bg-card border border-border rounded-xl w-full max-w-md shadow-xl"
         onClick={e => e.stopPropagation()}
@@ -348,10 +369,30 @@ function SendEmailModal({
               />
             </div>
 
-            {/* Subject (read-only) */}
+            {/* Subject (editable) */}
             <div>
               <label className="text-xs text-muted-foreground block mb-1">Subject</label>
-              <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-foreground truncate">{subject}</div>
+              <input
+                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+                value={subjectValue}
+                onChange={e => setSubjectValue(e.target.value)}
+              />
+            </div>
+
+            {/* Body (editable) with word count */}
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs text-muted-foreground">Body</label>
+                <span className={`text-[10px] tabular-nums ${wordCount > 80 ? 'text-amber-500' : 'text-muted-foreground'}`}>
+                  {wordCount} words
+                </span>
+              </div>
+              <textarea
+                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary resize-none"
+                rows={6}
+                value={bodyValue}
+                onChange={e => setBodyValue(e.target.value)}
+              />
             </div>
 
             {/* From account picker */}
@@ -393,21 +434,24 @@ function SendEmailModal({
 
             {error && <p className="text-xs text-destructive">{error}</p>}
 
-            <div className="flex justify-end gap-2 pt-1">
-              <button
-                onClick={onClose}
-                className="px-3 py-1.5 rounded-md border border-border text-xs text-muted-foreground hover:text-foreground transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleSend}
-                disabled={sending || !selectedId || !toValue.trim() || !accounts?.length}
-                className="flex items-center gap-1.5 px-4 py-1.5 rounded-md bg-primary text-primary-foreground text-xs hover:bg-primary/90 disabled:opacity-50 transition-colors"
-              >
-                {sending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Mail className="w-3.5 h-3.5" />}
-                {sending ? 'Sending…' : 'Send'}
-              </button>
+            <div className="flex items-center justify-between pt-1">
+              <span className="text-[10px] text-muted-foreground">Cmd+Enter to send</span>
+              <div className="flex gap-2">
+                <button
+                  onClick={onClose}
+                  className="px-3 py-1.5 rounded-md border border-border text-xs text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSend}
+                  disabled={sending || !selectedId || !toValue.trim() || !accounts?.length}
+                  className="flex items-center gap-1.5 px-4 py-1.5 rounded-md bg-primary text-primary-foreground text-xs hover:bg-primary/90 disabled:opacity-50 transition-colors"
+                >
+                  {sending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Mail className="w-3.5 h-3.5" />}
+                  {sending ? 'Sending…' : 'Send'}
+                </button>
+              </div>
             </div>
           </div>
         )}
@@ -419,7 +463,7 @@ function SendEmailModal({
 // ─── Email draft card ─────────────────────────────────────────────────────────
 
 function EmailDraftCard({
-  subject, subjectAlt, body, recipient, selfScore, token,
+  subject, subjectAlt, body, recipient, selfScore, token, agentKey,
 }: {
   subject: string;
   subjectAlt?: string;
@@ -427,10 +471,14 @@ function EmailDraftCard({
   recipient?: string;
   selfScore?: string;
   token: string;
+  agentKey?: string;
 }) {
   const [copied, setCopied] = useState(false);
   const [useAlt, setUseAlt] = useState(false);
   const [showSendModal, setShowSendModal] = useState(false);
+  const [sent, setSent] = useState(false);
+  const [sentEmailId, setSentEmailId] = useState<string | undefined>();
+  const trackedSend = agentKey === 'taskip_internal';
 
   const activeSubject = useAlt && subjectAlt ? subjectAlt : subject;
 
@@ -448,7 +496,9 @@ function EmailDraftCard({
           subject={activeSubject}
           body={body}
           token={token}
+          trackedSend={trackedSend}
           onClose={() => setShowSendModal(false)}
+          onSent={(id) => { setSent(true); setSentEmailId(id); }}
         />
       )}
       <div className="rounded-xl border border-border bg-card overflow-hidden w-full max-w-xl text-sm">
@@ -489,11 +539,25 @@ function EmailDraftCard({
           dangerouslySetInnerHTML={{ __html: renderMarkdown(body) }}
         />
         <div className="flex items-center justify-between gap-2 px-4 py-3 border-t border-border bg-muted/20">
-          <div>
+          <div className="flex items-center gap-2">
             {selfScore && (
               <span className="inline-flex items-center gap-1 text-[10px] text-emerald-500 font-medium">
                 <Check className="w-3 h-3" /> {selfScore}
               </span>
+            )}
+            {sent && (
+              sentEmailId ? (
+                <Link
+                  to={`/inbox?highlight=${sentEmailId}`}
+                  className="inline-flex items-center gap-1 text-[10px] text-emerald-500 font-medium border border-emerald-500/30 rounded px-1.5 py-0.5 hover:bg-emerald-500/10 transition-colors"
+                >
+                  <CheckCircle2 className="w-3 h-3" /> Sent — view in inbox
+                </Link>
+              ) : (
+                <span className="inline-flex items-center gap-1 text-[10px] text-emerald-500 font-medium border border-emerald-500/30 rounded px-1.5 py-0.5">
+                  <CheckCircle2 className="w-3 h-3" /> Sent
+                </span>
+              )
             )}
           </div>
           <div className="flex items-center gap-2">
@@ -504,13 +568,23 @@ function EmailDraftCard({
               {copied ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5" />}
               {copied ? 'Copied' : 'Copy'}
             </button>
-            <button
-              onClick={() => setShowSendModal(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs hover:bg-primary/90 transition-colors"
-            >
-              <Mail className="w-3.5 h-3.5" />
-              Send Email
-            </button>
+            {sent ? (
+              <button
+                onClick={() => setShowSendModal(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border text-xs text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <Mail className="w-3.5 h-3.5" />
+                Send again
+              </button>
+            ) : (
+              <button
+                onClick={() => setShowSendModal(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs hover:bg-primary/90 transition-colors"
+              >
+                <Mail className="w-3.5 h-3.5" />
+                Send Email
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -544,13 +618,14 @@ function TypingBubble({ color }: { color: ReturnType<typeof agentColor> }) {
 // ─── Message bubble ───────────────────────────────────────────────────────────
 
 function MessageBubble({
-  msg, color, agentName, onFeedback, token,
+  msg, color, agentName, onFeedback, token, agentKey,
 }: {
   msg: ConvMessage & { pending?: boolean; feedback?: 'up' | 'down' };
   color: ReturnType<typeof agentColor>;
   agentName: string;
   onFeedback?: (msgId: string, rating: 'up' | 'down') => void;
   token: string;
+  agentKey?: string;
 }) {
   const isUser = msg.role === 'user';
 
@@ -567,7 +642,7 @@ function MessageBubble({
           if (!isUser && msg.content.startsWith(EMAIL_DRAFT_PREFIX)) {
             try {
               const draft = JSON.parse(msg.content.slice(EMAIL_DRAFT_PREFIX.length));
-              return <EmailDraftCard subject={draft.subject} body={draft.body} recipient={draft.recipient} token={token} />;
+              return <EmailDraftCard subject={draft.subject} body={draft.body} recipient={draft.recipient} token={token} agentKey={agentKey} />;
             } catch { /* fall through */ }
           }
           // Inline email draft in LLM text reply
@@ -581,7 +656,7 @@ function MessageBubble({
                       <div dangerouslySetInnerHTML={{ __html: renderMarkdown(inline.before) }} />
                     </div>
                   )}
-                  <EmailDraftCard subject={inline.subject} subjectAlt={inline.subjectAlt} body={inline.body} selfScore={inline.selfScore} token={token} />
+                  <EmailDraftCard subject={inline.subject} subjectAlt={inline.subjectAlt} body={inline.body} selfScore={inline.selfScore} recipient={inline.to} token={token} agentKey={agentKey} />
                   {inline.after && (
                     <div className={`rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${color.bubble} text-foreground rounded-bl-sm`}>
                       <div dangerouslySetInnerHTML={{ __html: renderMarkdown(inline.after) }} />
@@ -1267,7 +1342,7 @@ function ChatTab({
         )}
 
         {messages.map((msg) => (
-          <MessageBubble key={msg.id} msg={msg} color={color} agentName={agent.name} onFeedback={handleFeedback} token={token ?? ''} />
+          <MessageBubble key={msg.id} msg={msg} color={color} agentName={agent.name} onFeedback={handleFeedback} token={token ?? ''} agentKey={agent.key} />
         ))}
 
         {isThinking && <TypingBubble color={color} />}
@@ -1686,7 +1761,8 @@ export default function AgentChatPage() {
   const { key } = useParams<{ key: string }>();
   const token = useAuthStore((s) => s.token)!;
   const location = useLocation();
-  const initialQuery = (location.state as { query?: string } | null)?.query;
+  const [searchParams] = useSearchParams();
+  const initialQuery = searchParams.get('query') ?? (location.state as { query?: string } | null)?.query;
   const [activeTab, setActiveTab] = useState<ChatTabKey>('chat');
   const [convId, setConvIdState] = useState(() => getConvId(key!));
   const color = agentColor(key!);

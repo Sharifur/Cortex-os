@@ -16,6 +16,36 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.6.3',
+    date: '2026-05-10',
+    entries: [
+      { tag: 'feat', scope: 'inbox', description: 'Inbox page: open tracking badge (Opened Nx · Xm ago / Not opened), opened count + timestamps in detail, "Draft reply with AI" button that pre-fills the agent chat with recipient context and SPAR instruction.' },
+      { tag: 'feat', scope: 'chat', description: 'Send Email from taskip_internal agent now calls tracked send endpoint (POST /taskip-internal/inbox/send) — email recorded in Inbox with open pixel. "Sent — view in inbox" badge links directly to the tracked row.' },
+      { tag: 'feat', scope: 'api', description: 'listSent / getDetail now include openCount, firstOpenAt, lastOpenAt. New POST /taskip-internal/inbox/send tracked send endpoint. AgentChatPage reads ?query= URL param to pre-fill chat from inbox.' },
+    ],
+  },
+  {
+    version: 'v4.6.2',
+    date: '2026-05-10',
+    entries: [
+      { tag: 'feat', scope: 'chat', description: 'Send Email modal: subject field is now editable; body has a live word counter (amber at >80 words); Cmd/Ctrl+Enter sends. EmailDraftCard: green "Sent" badge appears in the footer after a successful send; button demotes to "Send again".' },
+    ],
+  },
+  {
+    version: 'v4.6.1',
+    date: '2026-05-10',
+    entries: [
+      { tag: 'feat', scope: 'chat', description: 'Send Email modal now shows an editable body textarea pre-filled with the draft. Agent SPAR output includes **To:** line — parser extracts the recipient email and auto-fills the To field. **To:** line stripped from the reasoning bubble to avoid duplication.' },
+    ],
+  },
+  {
+    version: 'v4.6.0',
+    date: '2026-05-10',
+    entries: [
+      { tag: 'feat', scope: 'livechat', description: 'Inline search input added to the conversation list sidebar — always visible between the stats bar and the online visitors panel. Filters by visitor name, email, or last message; clear button appears when there is input.' },
+    ],
+  },
+  {
     version: 'v4.5.9',
     date: '2026-05-10',
     entries: [

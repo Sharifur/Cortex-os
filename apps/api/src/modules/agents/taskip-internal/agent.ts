@@ -328,6 +328,8 @@ If score >= 4: output the draft.
 **Angle:** [chosen angle]
 **Prior outreach angle:** [angle used before, or "none"]
 
+**To:** [recipient email address — exact email from the workspace owner record]
+
 **Subject A:** [formula A]
 **Subject B:** [formula B]
 **Recommended:** A or B — [one sentence why]
@@ -850,6 +852,32 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
         handler: async (params) => {
           const { id } = params as { id: string };
           return this.emails.syncReplies(id);
+        },
+      },
+      {
+        method: 'POST',
+        path: '/taskip-internal/inbox/send',
+        requiresAuth: true,
+        handler: async (params) => {
+          const { recipient, subject, textBody, purpose, workspaceUuid, accountId } = params as {
+            recipient?: string;
+            subject?: string;
+            textBody?: string;
+            purpose?: string;
+            workspaceUuid?: string;
+            accountId?: string;
+          };
+          if (!recipient?.trim()) throw new Error('recipient is required');
+          if (!subject?.trim()) throw new Error('subject is required');
+          if (!textBody?.trim()) throw new Error('textBody is required');
+          return this.emails.send({
+            purpose: (purpose as any) ?? 'other',
+            recipient: recipient.trim(),
+            subject: subject.trim(),
+            body: textBody.trim(),
+            workspaceUuid: workspaceUuid?.trim() || undefined,
+            metadata: accountId ? { accountId } : undefined,
+          });
         },
       },
 
