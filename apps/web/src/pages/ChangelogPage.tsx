@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.6.5',
+    date: '2026-05-10',
+    entries: [
+      { tag: 'fix', scope: 'api', description: 'send(): rewrite to raw SQL INSERT with only the stable columns — Drizzle client-side defaults (open_count=0 etc.) were included in every INSERT even when not specified, causing column-not-found errors on prod where migration 0063 has not run. tracking_token set via a separate best-effort UPDATE.' },
+    ],
+  },
+  {
     version: 'v4.6.4',
     date: '2026-05-10',
     entries: [
