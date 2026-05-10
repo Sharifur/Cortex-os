@@ -42,6 +42,7 @@ export interface SendTrackedEmailInput {
   body: string;
   workspaceUuid?: string;
   metadata?: Record<string, unknown>;
+  plainText?: boolean;
 }
 
 @Injectable()
@@ -53,9 +54,13 @@ export class TaskipInternalEmailService {
   async send(input: SendTrackedEmailInput): Promise<{ id: string; gmailMessageId: string | null; status: 'sent' | 'failed'; error?: string }> {
     const from = await this.gmail.getFromAddress();
     const trackingToken = createId();
-    const apiBase = (process.env.COOLIFY_URL ?? process.env.API_PUBLIC_URL ?? 'http://localhost:3000').replace(/\/$/, '');
-    const pixelUrl = `${apiBase}/track/open/${trackingToken}.gif`;
-    const htmlBody = buildHtmlEmail(input.body, pixelUrl);
+
+    let htmlBody: string | undefined;
+    if (!input.plainText) {
+      const apiBase = (process.env.COOLIFY_URL ?? process.env.API_PUBLIC_URL ?? 'http://localhost:3000').replace(/\/$/, '');
+      const pixelUrl = `${apiBase}/track/open/${trackingToken}.gif`;
+      htmlBody = buildHtmlEmail(input.body, pixelUrl);
+    }
 
     try {
       const messageId = await this.gmail.sendEmail({

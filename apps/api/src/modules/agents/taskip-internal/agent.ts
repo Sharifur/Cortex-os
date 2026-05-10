@@ -859,13 +859,14 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
         path: '/taskip-internal/inbox/send',
         requiresAuth: true,
         handler: async (params) => {
-          const { recipient, subject, textBody, purpose, workspaceUuid, accountId } = params as {
+          const { recipient, subject, textBody, purpose, workspaceUuid, accountId, plainText } = params as {
             recipient?: string;
             subject?: string;
             textBody?: string;
             purpose?: string;
             workspaceUuid?: string;
             accountId?: string;
+            plainText?: boolean;
           };
           if (!recipient?.trim()) throw new Error('recipient is required');
           if (!subject?.trim()) throw new Error('subject is required');
@@ -877,6 +878,7 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
             body: textBody.trim(),
             workspaceUuid: workspaceUuid?.trim() || undefined,
             metadata: accountId ? { accountId } : undefined,
+            plainText: plainText === true,
           });
         },
       },

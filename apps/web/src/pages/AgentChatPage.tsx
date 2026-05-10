@@ -323,6 +323,7 @@ function SendEmailModal({
   const [toValue, setToValue] = useState(to ?? '');
   const [subjectValue, setSubjectValue] = useState(subject);
   const [bodyValue, setBodyValue] = useState(body);
+  const [plainText, setPlainText] = useState(false);
   const [sending, setSending] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -347,7 +348,7 @@ function SendEmailModal({
     try {
       const endpoint = trackedSend ? '/taskip-internal/inbox/send' : '/gmail/send';
       const payload = trackedSend
-        ? { recipient: toValue.trim(), subject: subjectValue, textBody: bodyValue, accountId: selectedId, purpose: 'marketing' }
+        ? { recipient: toValue.trim(), subject: subjectValue, textBody: bodyValue, accountId: selectedId, purpose: 'marketing', plainText }
         : { accountId: selectedId, to: toValue.trim(), subject: subjectValue, textBody: bodyValue };
       const res = await fetch(endpoint, {
         method: 'POST',
@@ -457,6 +458,23 @@ function SendEmailModal({
                 onChange={e => setBodyValue(e.target.value)}
               />
             </div>
+
+            {/* Plain text toggle (only for tracked send) */}
+            {trackedSend && (
+              <div className="flex items-center justify-between rounded-lg border border-border bg-muted/20 px-3 py-2">
+                <div>
+                  <p className="text-xs font-medium">Plain text mode</p>
+                  <p className="text-[11px] text-muted-foreground">No HTML wrapper or tracking pixel — better deliverability</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPlainText(v => !v)}
+                  className={`w-9 h-5 rounded-full transition-colors relative shrink-0 ${plainText ? 'bg-emerald-500' : 'bg-muted-foreground/30'}`}
+                >
+                  <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform shadow ${plainText ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                </button>
+              </div>
+            )}
 
             {/* From account picker */}
             <div>

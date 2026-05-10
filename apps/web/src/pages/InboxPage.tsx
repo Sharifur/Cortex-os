@@ -1,10 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '@/stores/authStore';
 import { Button } from '@/components/ui/button';
 import {
-  Mail, Eye, EyeOff, MessageSquare, RefreshCw, Bot, Loader2, Clock, ChevronRight,
+  Mail, Eye, EyeOff, MessageSquare, RefreshCw, Bot, Loader2, Clock, ChevronRight, Reply, Send, X,
 } from 'lucide-react';
 
 interface InboxRow {
@@ -151,6 +151,56 @@ export default function InboxPage() {
 
   const rows = data ?? [];
   const selected = rows.find((r) => r.id === selectedId) ?? null;
+
+  const [replyOpen, setReplyOpen] = useState(false);
+  const [replyBody, setReplyBody] = useState('');
+  const [replyPlainText, setReplyPlainText] = useState(false);
+  const [replySending, setReplySending] = useState(false);
+  const [replySent, setReplySent] = useState(false);
+  const [replyError, setReplyError] = useState<string | null>(null);
+  const replyRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    setReplyOpen(false);
+    setReplyBody('');
+    setReplySent(false);
+    setReplyError(null);
+  }, [selectedId]);
+
+  useEffect(() => {
+    const el = replyRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  }, [replyBody]);
+
+  async function handleSendReply() {
+    if (!selected || !replyBody.trim()) return;
+    setReplySending(true);
+    setReplyError(null);
+    try {
+      const res = await fetch('/taskip-internal/inbox/send', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          recipient: selected.recipient,
+          subject: selected.subject.startsWith('Re:') ? selected.subject : `Re: ${selected.subject}`,
+          textBody: replyBody.trim(),
+          purpose: 'followup',
+          plainText: replyPlainText,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).message ?? `HTTP ${res.status}`);
+      setReplySent(true);
+      setReplyBody('');
+      qc.invalidateQueries({ queryKey: ['inbox'] });
+    } catch (e) {
+      setReplyError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setReplySending(false);
+    }
+  }
 
   function handleDraftReply(r: InboxRow) {
     const opens = r.openCount ?? 0;
@@ -343,10 +393,21 @@ export default function InboxPage() {
               {/* Actions */}
               <div className="flex items-center gap-2 mb-4 flex-wrap">
                 <button
-                  onClick={() => handleDraftReply(selected)}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs hover:bg-primary/90 transition-colors"
+                  onClick={() => { setReplyOpen(o => !o); setReplySent(false); setReplyError(null); }}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs transition-colors ${
+                    replyOpen
+                      ? 'bg-muted text-foreground border border-border'
+                      : 'bg-primary text-primary-foreground hover:bg-primary/90'
+                  }`}
                 >
-                  <Bot className="w-3.5 h-3.5" /> Draft reply with AI
+                  {replyOpen ? <X className="w-3.5 h-3.5" /> : <Reply className="w-3.5 h-3.5" />}
+                  {replyOpen ? 'Cancel' : 'Reply'}
+                </button>
+                <button
+                  onClick={() => handleDraftReply(selected)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border text-xs text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <Bot className="w-3.5 h-3.5" /> Draft with AI
                 </button>
                 <Button
                   size="sm"
@@ -357,7 +418,7 @@ export default function InboxPage() {
                   {syncMutation.isPending
                     ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" />
                     : <RefreshCw className="w-3.5 h-3.5 mr-1" />}
-                  Sync replies
+                  Sync
                 </Button>
                 {selected.lastSyncedAt && (
                   <span className="text-[11px] text-muted-foreground flex items-center gap-1">
@@ -373,6 +434,61 @@ export default function InboxPage() {
                   dangerouslySetInnerHTML={{ __html: bodyToHtml(selected.body) }}
                 />
               </div>
+
+              {/* Inline reply composer */}
+              {replyOpen && (
+                <div className="rounded-xl border border-border bg-card mb-4 overflow-hidden">
+                  <div className="px-4 py-2.5 border-b border-border bg-muted/20 flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <Reply className="w-3.5 h-3.5" />
+                      <span>To: <span className="text-foreground font-medium">{selected.recipient}</span></span>
+                      <span className="text-muted-foreground/50">·</span>
+                      <span className="truncate max-w-[200px]">Re: {selected.subject}</span>
+                    </div>
+                    {/* Plain text toggle */}
+                    <label className="flex items-center gap-1.5 cursor-pointer">
+                      <div
+                        onClick={() => setReplyPlainText(v => !v)}
+                        className={`w-7 h-4 rounded-full transition-colors relative ${replyPlainText ? 'bg-emerald-500' : 'bg-muted-foreground/30'}`}
+                      >
+                        <span className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-transform shadow ${replyPlainText ? 'translate-x-3.5' : 'translate-x-0.5'}`} />
+                      </div>
+                      <span className="text-[11px] text-muted-foreground">Plain text</span>
+                    </label>
+                  </div>
+                  {replyPlainText && (
+                    <div className="px-4 py-1.5 bg-emerald-500/5 border-b border-emerald-500/20">
+                      <p className="text-[11px] text-emerald-400">Plain text mode — no HTML wrapper or tracking pixel. Better deliverability.</p>
+                    </div>
+                  )}
+                  <textarea
+                    ref={replyRef}
+                    className="w-full px-4 py-3 text-sm bg-transparent focus:outline-none resize-none font-mono leading-relaxed"
+                    style={{ minHeight: '140px' }}
+                    placeholder="Write your reply…"
+                    value={replyBody}
+                    onChange={e => setReplyBody(e.target.value)}
+                    autoFocus
+                  />
+                  <div className="px-4 py-2.5 border-t border-border flex items-center justify-between gap-2">
+                    <span className="text-[11px] text-muted-foreground tabular-nums">
+                      {replyBody.trim() ? replyBody.trim().split(/\s+/).length : 0} words
+                    </span>
+                    <div className="flex items-center gap-2">
+                      {replyError && <span className="text-[11px] text-destructive">{replyError}</span>}
+                      {replySent && <span className="text-[11px] text-emerald-400">Sent!</span>}
+                      <button
+                        onClick={handleSendReply}
+                        disabled={replySending || !replyBody.trim()}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs hover:bg-primary/90 disabled:opacity-50 transition-colors"
+                      >
+                        {replySending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                        Send reply
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Replies */}
               {detailQuery.isLoading && (

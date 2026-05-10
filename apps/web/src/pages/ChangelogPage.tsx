@@ -16,6 +16,16 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.7.2',
+    date: '2026-05-10',
+    entries: [
+      { tag: 'feat', scope: 'inbox', description: 'Inline reply composer in the email detail panel: Reply button expands a compose area pre-filled with recipient and Re: subject. Auto-resizing textarea, word count, Send reply button. Collapses and resets when switching emails.' },
+      { tag: 'feat', scope: 'inbox', description: 'Plain text mode toggle in the inline reply composer. When enabled: no HTML wrapper, no tracking pixel — raw plain text email for maximum deliverability. Status strip shows the mode clearly.' },
+      { tag: 'feat', scope: 'chat', description: 'Plain text mode toggle in the Send Email modal (taskip_internal agent only). Same deliverability behaviour — bypasses buildHtmlEmail when enabled.' },
+      { tag: 'feat', scope: 'api', description: 'SendTrackedEmailInput accepts plainText flag. When true: skips HTML generation and tracking pixel entirely, sends raw plain text via Gmail.' },
+    ],
+  },
+  {
     version: 'v4.7.1',
     date: '2026-05-10',
     entries: [
