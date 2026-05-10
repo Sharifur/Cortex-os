@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.5.2',
+    date: '2026-05-10',
+    entries: [
+      { tag: 'feat', scope: 'chat', description: 'Agent messages containing an inline email draft (Subject:/Body: pattern from LLM text replies) are now rendered as a styled EmailDraftCard with Copy and Open in Mail actions instead of raw text.' },
+    ],
+  },
+  {
     version: 'v4.5.1',
     date: '2026-05-10',
     entries: [

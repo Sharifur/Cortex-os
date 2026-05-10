@@ -100,6 +100,42 @@ async function apiFetch(token: string, path: string, opts?: RequestInit) {
 
 const EMAIL_DRAFT_PREFIX = '__EMAIL_DRAFT__:';
 
+// Detects inline "Subject: ... Body: ..." patterns in agent text replies
+function extractInlineEmail(text: string): { before: string; subject: string; body: string; after: string } | null {
+  // Match Subject: (with optional bold markdown) anywhere in the text
+  const subjectRe = /\*{0,2}Subject:\*{0,2}\s*(.+)/i;
+  const bodyRe = /\*{0,2}Body:\*{0,2}\s*\n?([\s\S]+)/i;
+
+  const subjectMatch = text.match(subjectRe);
+  if (!subjectMatch) return null;
+  const subjectIdx = text.search(subjectRe);
+
+  const afterSubject = text.slice(subjectIdx);
+  const bodyMatch = afterSubject.match(bodyRe);
+  if (!bodyMatch) return null;
+
+  const subject = subjectMatch[1].replace(/\*{0,2}$/, '').trim();
+
+  // Body content ends at a trailing separator line (---) or "Would you" style follow-up
+  const rawBody = bodyMatch[1];
+  const separatorIdx = rawBody.search(/\n---\s*\n|\n\n(?=\w{1,30}\s+you\b|\[|\*\*)/);
+  let body: string;
+  let after: string;
+  if (separatorIdx >= 0) {
+    body = rawBody.slice(0, separatorIdx).trim();
+    after = rawBody.slice(separatorIdx).replace(/^[\s-]+/, '').trim();
+  } else {
+    body = rawBody.trim();
+    after = '';
+  }
+
+  // "before" is everything up to the Subject line, stripping trailing --- separators
+  const before = text.slice(0, subjectIdx).replace(/\n?---\s*$/, '').trim();
+
+  if (!subject || !body) return null;
+  return { before, subject, body, after };
+}
+
 function extractResponse(run: RunDetail): string {
   if (run.status === 'FAILED') return `Error: ${run.error ?? 'Run failed'}`;
   if (run.status === 'REJECTED') return 'Action was rejected.';
@@ -263,11 +299,33 @@ function MessageBubble({
       )}
       <div className={`max-w-[80%] group`}>
         {(() => {
+          // Structured email draft from proposedActions
           if (!isUser && msg.content.startsWith(EMAIL_DRAFT_PREFIX)) {
             try {
               const draft = JSON.parse(msg.content.slice(EMAIL_DRAFT_PREFIX.length));
               return <EmailDraftCard subject={draft.subject} body={draft.body} recipient={draft.recipient} />;
-            } catch { /* fall through to plain render */ }
+            } catch { /* fall through */ }
+          }
+          // Inline email draft in LLM text reply
+          if (!isUser) {
+            const inline = extractInlineEmail(msg.content);
+            if (inline) {
+              return (
+                <div className="flex flex-col gap-2 max-w-xl">
+                  {inline.before && (
+                    <div className={`rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${color.bubble} text-foreground rounded-bl-sm`}>
+                      <div dangerouslySetInnerHTML={{ __html: renderMarkdown(inline.before) }} />
+                    </div>
+                  )}
+                  <EmailDraftCard subject={inline.subject} body={inline.body} />
+                  {inline.after && (
+                    <div className={`rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${color.bubble} text-foreground rounded-bl-sm`}>
+                      <div dangerouslySetInnerHTML={{ __html: renderMarkdown(inline.after) }} />
+                    </div>
+                  )}
+                </div>
+              );
+            }
           }
           return (
             <div className={`rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
