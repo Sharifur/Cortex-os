@@ -10,9 +10,10 @@ import { LivechatInboundService } from './livechat-inbound.service';
 
 export interface SendTranscriptResult {
   ok: boolean;
-  reason?: 'no_visitor_email' | 'site_disabled' | 'no_messages' | 'sent';
+  reason?: 'no_visitor_email' | 'site_disabled' | 'no_messages' | 'sent' | 'send_failed';
   messageId?: string;
   to?: string;
+  error?: string;
 }
 
 @Injectable()
@@ -68,15 +69,22 @@ export class LivechatTranscriptService {
     // matching In-Reply-To against this header.
     // Note: the standard SES SDK doesn't expose Message-Id directly on
     // SendEmailCommand; we set it as a Reply-To-shaped fallback only.
-    const messageId = await this.ses.sendEmail({
-      to: visitorEmail,
-      from: fromAddress,
-      subject: `Transcript of your conversation with ${site.botName?.trim() || site.label}`,
-      textBody: text,
-      htmlBody: html,
-      bcc: bccList.length ? bccList : undefined,
-      replyTo,
-    });
+    let messageId: string;
+    try {
+      messageId = await this.ses.sendEmail({
+        to: visitorEmail,
+        from: fromAddress,
+        subject: `Transcript of your conversation with ${site.botName?.trim() || site.label}`,
+        textBody: text,
+        htmlBody: html,
+        bcc: bccList.length ? bccList : undefined,
+        replyTo,
+      });
+    } catch (err) {
+      const msg = (err as Error).message ?? String(err);
+      this.logger.warn(`Transcript send failed for ${sessionId}: ${msg}`);
+      return { ok: false, reason: 'send_failed', error: msg };
+    }
 
     await this.db.db
       .update(livechatSessions)

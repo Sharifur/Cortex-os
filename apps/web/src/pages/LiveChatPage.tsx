@@ -1853,10 +1853,12 @@ function SessionPane({
   const transcriptMut = useMutation({
     mutationFn: () =>
       apiFetch(token, `/agents/livechat/sessions/${sessionId}/send-transcript`, { method: 'POST' }),
-    onSuccess: (res: { ok: boolean; reason?: string; to?: string }) => {
+    onSuccess: (res: { ok: boolean; reason?: string; to?: string; error?: string }) => {
       if (res.ok) alert(`Transcript sent to ${res.to}`);
       else if (res.reason === 'no_visitor_email') alert('No visitor email on file — capture one first.');
       else if (res.reason === 'no_messages') alert('No messages to send.');
+      else if (res.reason === 'site_disabled') alert('Transcript emails are disabled for this site.');
+      else if (res.reason === 'send_failed') alert(`Send failed: ${res.error ?? 'unknown error'}`);
       else alert(`Skipped: ${res.reason ?? 'unknown'}`);
     },
     onError: (err: Error) => alert(`Failed: ${err.message}`),
