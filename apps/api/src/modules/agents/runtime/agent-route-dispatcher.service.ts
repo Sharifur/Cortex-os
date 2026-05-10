@@ -80,11 +80,26 @@ export class AgentRouteDispatcherService implements OnApplicationBootstrap {
             if (isWebhookTrigger) {
               this.runtime
                 .triggerAgent(agent.key, 'WEBHOOK', request.body ?? {})
-                .catch((err) =>
-                  this.logger.warn(
-                    `Webhook trigger failed for ${agent.key}: ${err}`,
-                  ),
-                );
+                .catch(async (err) => {
+                  const msg = err instanceof Error ? err.message : String(err);
+                  this.logger.warn(`Webhook trigger failed for ${agent.key}: ${msg}`);
+                  try {
+                    const [agentRecord] = await this.db.db
+                      .select({ id: agents.id })
+                      .from(agents)
+                      .where(eq(agents.key, agent.key));
+                    if (agentRecord) {
+                      await this.db.db.insert(agentRuns).values({
+                        agentId: agentRecord.id,
+                        triggerType: 'WEBHOOK',
+                        triggerPayload: request.body ?? {},
+                        status: 'FAILED',
+                        error: msg,
+                        finishedAt: new Date(),
+                      });
+                    }
+                  } catch { /* best-effort */ }
+                });
             }
 
             reply.send(result ?? { ok: true });

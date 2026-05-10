@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.5.0',
+    date: '2026-05-10',
+    entries: [
+      { tag: 'fix', scope: 'gmail', description: 'OAuth callback popup no longer shows React 404 — /gmail/oauth/callback is now a public React route that POSTs the code/state to POST /gmail/oauth/exchange and relays the result via postMessage.' },
+      { tag: 'fix', scope: 'support', description: 'Webhook deliveries now always create a visible run entry in the activity panel — if triggerAgent fails (e.g. agent disabled), a FAILED run is written so the delivery is traceable.' },
+    ],
+  },
+  {
     version: 'v4.4.8',
     date: '2026-05-10',
     entries: [

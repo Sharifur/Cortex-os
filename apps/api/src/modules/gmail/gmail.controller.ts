@@ -110,6 +110,19 @@ export class GmailController {
   }
 
   /**
+   * SPA popup exchanges the code for tokens by POSTing here. Same security
+   * guarantee as the GET callback — the state token is the guard.
+   */
+  @Post('oauth/exchange')
+  @HttpCode(HttpStatus.OK)
+  async oauthExchange(@Body() body: { code?: string; state?: string; error?: string }) {
+    if (body.error) throw new BadRequestException(`Google returned: ${body.error}`);
+    if (!body.code || !body.state) throw new BadRequestException('Missing code or state');
+    const { email } = await this.oauth.handleCallback(body.code, body.state);
+    return { ok: true, email };
+  }
+
+  /**
    * Google redirects here after consent. This is a public endpoint by design
    * — Google can't carry our JWT — but the `state` token issued in /start is
    * the security guard: it's a 192-bit random string that is single-use and
