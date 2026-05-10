@@ -71,9 +71,17 @@ Sharifur's goal is to help the owner succeed at that — so they stay on Taskip 
 
 ## Read tools
 
-Taskip DB: lookup_user / query_subscriptions / query_invoices / summarize_user_history
-Insight (read): insight_list_cohort / insight_get_overview / insight_recommended_actions / insight_log_agent_action / insight_get_lifecycle / insight_pending_scenarios / insight_recent_messages
+Taskip DB: lookup_user (unified search: email/uuid/url/name) / query_subscriptions / query_invoices / summarize_user_history
+Insight (cohort): insight_list_cohort / insight_trial_funnel_hot / insight_trial_funnel_at_risk / insight_trial_funnel_trial_ready / insight_trial_funnel_stats
+Insight (workspace): insight_get_overview / insight_get_lifecycle / insight_pending_scenarios / insight_recent_messages / insight_recommended_actions
+Insight (write): insight_log_agent_action
 Agent queue (read): list_workspace_suggestions / list_sent_emails / sync_email_replies
+
+lookup_user search modes:
+- By email: { emailOrId: "user@example.com" }  → exact match, full stats
+- By url: { url: "xgenious" } or { url: "xgenious.taskip.app" } → exact match
+- By uuid: { uuid: "xxxxxxxx-xxxx-..." } → exact match
+- By name: { name: "Acme" } → returns candidate list (mode="name_search"), pick a uuid then call insight_get_lifecycle
 
 ## Write tools (ALL approval-gated — propose only, never execute directly)
 
@@ -105,7 +113,26 @@ Never use insight_submit_message for free or trial workspaces.
 | TRS (Trial Readiness) | free cohorts | > 70 = upgrade candidate, 50–70 = nurture |
 | THS (Trial Health) | trial cohorts | > 60 = on track, < 40 = stalled — intervene |
 
+THS day-caps: Day 1 max 30 (Tier 2), Day 3 max 70 (mid-Tier 3), Day 5+ full range. A low THS on Day 1 is expected — don't over-react.
 THS alt-activation: invoices_total > 0 OR leads_total > 0 OR contacts_total >= 3 counts as activated even if the event stream didn't fire. Do NOT send activation nudges to already-activated workspaces.
+
+## Score tier model (4-band, applies to TRS / THS / CHS equally)
+
+| Tier | Range | Label | Meaning |
+|---|---|---|---|
+| 1 | 0–25 | Cold | New or dormant. No meaningful engagement. |
+| 2 | 26–50 | Warming | Some activity, not deeply engaged. Most free/early-trial users land here. |
+| 3 | 51–75 | Active | Regularly using core features. Worth a personal nudge. |
+| 4 | 76–100 | Hot | Highly engaged. High conversion probability. < 5% of trial users. |
+
+Always read score_delta_14d alongside the score value. A Tier 2 workspace with delta_14d=+20 is trending into Tier 3 — treat them accordingly. A Tier 3 with delta_14d=-25 is at risk of falling.
+
+## Lifecycle states
+
+Workspaces pass through: free → trial → paid (or expired_trial → churned). The lifecycle_state field is on every cohort list item and lifecycle snapshot. Use it to:
+- Distinguish free users (TRS) from trial users (THS) even when both appear in overlap cohorts
+- Skip sending trial-specific copy to expired or churned workspaces
+- Route correctly: free/trial/expired → send_email; paid → insight_submit_message
 
 ---
 
@@ -648,7 +675,7 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
         // Read-only tools — execute and feed result back
         const argsSummary = Object.entries(args).map(([k, v]) => `${k}: ${String(v).slice(0, 40)}`).join(', ');
         const insightEndpointHint = tc.name === 'lookup_user'
-          ? `/search?email=${encodeURIComponent(String(args.emailOrId ?? ''))}`
+          ? `/search?${args.uuid ? `uuid=${args.uuid}` : args.url ? `url=${args.url}` : args.name ? `name=${args.name}` : `email=${encodeURIComponent(String(args.emailOrId ?? args.email ?? ''))}`}`
           : tc.name === 'lookup_workspace_owner' || tc.name === 'insight_get_lifecycle'
           ? `/workspaces/${String(args.workspace_uuid ?? args.workspaceUuid ?? '')}/lifecycle`
           : tc.name === 'insight_get_overview'
@@ -1347,17 +1374,23 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
     try {
       switch (name) {
         case 'lookup_user': {
-          const emailArg = args.emailOrId as string;
+          const { emailOrId, email, url, uuid: wsUuid, name: wsName } = args as Record<string, string | undefined>;
+          const searchParams = wsUuid ? { uuid: wsUuid }
+            : url ? { url }
+            : wsName ? { name: wsName }
+            : { email: email ?? emailOrId ?? '' };
           try {
-            return await this.insight.searchByEmail(emailArg);
+            return await this.insight.search(searchParams);
           } catch (insightErr) {
-            // 404 means the workspace hasn't been indexed by Insight yet — try direct DB
             if (insightErr instanceof InsightApiError && insightErr.status === 404) {
-              try {
-                const user = await this.taskipDb.lookupUser(emailArg);
-                if (user) return { source: 'taskip_db_fallback', note: 'Insight API returned 404 (workspace not yet indexed); found in direct DB instead.', user };
-              } catch { /* DB also unavailable — fall through to original insight error */ }
-              return { error: `Insight API 404 [${insightErr.endpoint}]: no workspace indexed for ${emailArg}. Workspace may be too new or not yet scored.` };
+              const emailFallback = searchParams.email;
+              if (emailFallback) {
+                try {
+                  const user = await this.taskipDb.lookupUser(emailFallback);
+                  if (user) return { source: 'taskip_db_fallback', note: 'Insight API 404 — not yet indexed; found in direct DB.', user };
+                } catch { /* ignore */ }
+              }
+              return { error: `Insight API 404 [${insightErr.endpoint}]: workspace not found for ${JSON.stringify(searchParams)}. Try searching by name if you only have a workspace name.` };
             }
             return { error: `${(insightErr as Error).message} [endpoint: ${(insightErr as InsightApiError).endpoint ?? 'unknown'}]` };
           }
@@ -1402,6 +1435,14 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
           return await this.insight.getPendingScenarios(args.workspace_uuid as string);
         case 'insight_recent_messages':
           return await this.insight.getRecentMessages(args.workspace_uuid as string);
+        case 'insight_trial_funnel_hot':
+          return await this.insight.getTrialFunnelHotList();
+        case 'insight_trial_funnel_at_risk':
+          return await this.insight.getTrialFunnelAtRiskList();
+        case 'insight_trial_funnel_trial_ready':
+          return await this.insight.getTrialFunnelTrialReadyList();
+        case 'insight_trial_funnel_stats':
+          return await this.insight.getTrialFunnelStats();
         case 'insight_log_agent_action': {
           const { workspace_uuid, action_type, result, reason, payload } = args as {
             workspace_uuid: string;
@@ -1478,11 +1519,15 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
     return [
       {
         name: 'lookup_user',
-        description: 'Find a Taskip workspace by owner email via the Insight API. Returns workspace stats including owner details, cohort, score, and 60-day daily activity.',
+        description: 'Unified workspace search via the Insight API /search endpoint. Provide exactly ONE of: email (owner login), uuid (workspace UUID), url (slug like "xgenious", subdomain "xgenious.taskip.app", or custom domain "crm.xgenious.com"), or name (partial match — returns candidate list, not full stats). For uuid/url/email the response is mode="exact_match" with full stats + activity_by_day. For name the response is mode="name_search" with up to 10 candidates — pick a uuid and call insight_get_lifecycle for full details.',
         parameters: {
           type: 'object',
-          properties: { emailOrId: { type: 'string', description: 'owner email address' } },
-          required: ['emailOrId'],
+          properties: {
+            emailOrId: { type: 'string', description: 'owner email address (exact match)' },
+            url: { type: 'string', description: 'workspace slug, subdomain, or custom domain (exact match)' },
+            uuid: { type: 'string', description: 'workspace UUID string (exact match)' },
+            name: { type: 'string', description: 'partial workspace name (returns candidate list, not full stats)' },
+          },
         },
       },
       {
@@ -1567,6 +1612,26 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
           },
           required: ['cohort'],
         },
+      },
+      {
+        name: 'insight_trial_funnel_hot',
+        description: 'Trial users with highest THS (serious_trial cohort) sorted by score desc. Use for "who are our hottest trials right now?" Equivalent to insight_list_cohort with cohort=serious_trial but pre-sorted by the server.',
+        parameters: { type: 'object', properties: {} },
+      },
+      {
+        name: 'insight_trial_funnel_at_risk',
+        description: 'Trial users with THS < 30 at trial day >= 5 (ignore_trial cohort). Use for rescue outreach targeting — these trials are stalling.',
+        parameters: { type: 'object', properties: {} },
+      },
+      {
+        name: 'insight_trial_funnel_trial_ready',
+        description: 'Free users with TRS >= 50 (trial_ready_free cohort). Use to identify free users ready to be invited into a trial.',
+        parameters: { type: 'object', properties: {} },
+      },
+      {
+        name: 'insight_trial_funnel_stats',
+        description: 'Conversion ratio summary + state distribution counts across all lifecycle states (free/trial/paid/churned). Use for "give me a funnel overview" or "how many users are in each state?"',
+        parameters: { type: 'object', properties: {} },
       },
       {
         name: 'insight_get_overview',
