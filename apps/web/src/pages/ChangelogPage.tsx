@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.4.2',
+    date: '2026-05-10',
+    entries: [
+      { tag: 'fix', scope: 'api', description: 'Client-disconnect (aborted) errors no longer log as 500 — global exception filter detects Error("aborted"), skips debug log, and returns 200 silently since the socket is already closed.' },
+    ],
+  },
+  {
     version: 'v4.4.1',
     date: '2026-05-10',
     entries: [

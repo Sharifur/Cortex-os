@@ -15,6 +15,14 @@ export class RequestLogExceptionFilter implements ExceptionFilter {
     const req = ctx.getRequest<FastifyRequest>();
     const res = ctx.getResponse<FastifyReply>();
 
+    const errorMessage = (exception as Error)?.message ?? String(exception);
+
+    // Client disconnected mid-request — no point logging or sending an error response
+    if (errorMessage === 'aborted') {
+      try { res.status(200).send({ ok: true }); } catch { /* socket already closed */ }
+      return;
+    }
+
     const status = exception instanceof HttpException
       ? exception.getStatus()
       : HttpStatus.INTERNAL_SERVER_ERROR;
@@ -23,7 +31,6 @@ export class RequestLogExceptionFilter implements ExceptionFilter {
       ? exception.getResponse()
       : { statusCode: status, message: 'Internal server error' };
 
-    const errorMessage = (exception as Error)?.message ?? String(exception);
     const errorStack = (exception as Error)?.stack;
 
     const path = stripQuery(req.url ?? '');
