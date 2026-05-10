@@ -16,6 +16,35 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.5.4',
+    date: '2026-05-10',
+    entries: [
+      { tag: 'feat', scope: 'taskip-internal', description: 'Full SPAR 8-step email reasoning system: Signal Inventory (behavior/gap/momentum with recency weighting), Persona Inference, Prior Email Check (angle memory), Cohort Tone Calibration, Angle Selection table, two formula-locked subject options (A/B), body rules with banned-phrase list, and a self-score "would I reply?" gate that forces a rewrite if score < 4.' },
+    ],
+  },
+  {
+    version: 'v4.5.3',
+    date: '2026-05-10',
+    entries: [
+      { tag: 'feat', scope: 'taskip-internal', description: 'Agent now shows a reasoning block (cohort, score, activity signals, last outreach, decision trigger) before every email draft so the operator can understand the rationale before approving.' },
+      { tag: 'feat', scope: 'taskip-internal', description: 'Email copy rules enforced in system prompt: no generic Welcome subjects, subject must reference a real behavior/gap, body must cite at least one data point, under 80 words, signed as "Sharifur" only.' },
+    ],
+  },
+  {
+    version: 'v4.5.2',
+    date: '2026-05-10',
+    entries: [
+      { tag: 'feat', scope: 'chat', description: 'Agent messages containing an inline email draft (Subject:/Body: pattern from LLM text replies) are now rendered as a styled EmailDraftCard with Copy and Open in Mail actions instead of raw text.' },
+    ],
+  },
+  {
+    version: 'v4.5.1',
+    date: '2026-05-10',
+    entries: [
+      { tag: 'fix', scope: 'taskip-internal', description: 'list_sent_emails, getDetail, syncReplies now use explicit column selection — excludes tracking_token/open_count columns that are only on dev (migration 0063). send() also falls back to inserting without tracking columns when the column is missing on production.' },
+    ],
+  },
+  {
     version: 'v4.5.0',
     date: '2026-05-10',
     entries: [
