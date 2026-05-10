@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.5.8',
+    date: '2026-05-10',
+    entries: [
+      { tag: 'fix', scope: 'taskip-internal', description: 'System prompt now explains Taskip is a client portal for freelancers/agencies: invoices are sent TO clients, contacts are clients, leads are prospects. Agent no longer misinterprets invoices_paid=0 as the owner owing money. Angle table, persona table, signal inventory, and banned-framing list all updated to reflect correct product context.' },
+    ],
+  },
+  {
     version: 'v4.5.7',
     date: '2026-05-10',
     entries: [
