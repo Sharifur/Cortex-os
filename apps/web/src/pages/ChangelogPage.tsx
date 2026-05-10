@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.5.7',
+    date: '2026-05-10',
+    entries: [
+      { tag: 'feat', scope: 'chat', description: 'EmailDraftCard: "Open in Mail" replaced with "Send Email" — clicking opens an account-picker modal that lists connected Gmail accounts (default pre-selected), allows editing the To address, and sends via POST /gmail/send.' },
+      { tag: 'feat', scope: 'gmail', description: 'POST /gmail/send — authenticated endpoint that sends an email through a specified (or default) Gmail account. Used by the chat EmailDraftCard send flow.' },
+    ],
+  },
+  {
     version: 'v4.5.6',
     date: '2026-05-10',
     entries: [
