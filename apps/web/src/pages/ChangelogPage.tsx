@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.8.8',
+    date: '2026-05-10',
+    entries: [
+      { tag: 'fix', scope: 'inbox', description: 'AI drawer close button now works: overflow-hidden moved from the two-panel container to the outer inbox div so the drawer interior is never pointer-event clipped. Added pointer-events-none when drawer is closed. Email list display restored.' },
+    ],
+  },
+  {
     version: 'v4.8.7',
     date: '2026-05-10',
     entries: [
