@@ -373,7 +373,7 @@ function parseLogsToTimeline(logs: RunLog[]): ActivityEntry[] {
         label: String(meta.tool ?? 'tool'),
         status: meta.success ? 'success' : 'failed',
         durationMs: meta.duration_ms ? Number(meta.duration_ms) : undefined,
-        detail: meta.error ? String(meta.error).slice(0, 60) : undefined,
+        detail: meta.error ? String(meta.error) : undefined,
       });
       continue;
     }
@@ -536,7 +536,7 @@ function RunActivityPanel({
                 </span>
               </div>
               {entry.detail && (
-                <p className="text-[10px] text-muted-foreground/60 truncate mt-0.5">{entry.detail}</p>
+                <p className={`text-[10px] mt-0.5 break-all leading-tight ${entry.status === 'failed' ? 'text-red-300/70' : 'text-muted-foreground/60'}`}>{entry.detail}</p>
               )}
               {entry.durationMs !== undefined && (
                 <span className="text-[9px] text-muted-foreground/40">{entry.durationMs}ms</span>
@@ -619,6 +619,9 @@ function ChatTab({
     if (history && !historyApplied.current) {
       historyApplied.current = true;
       setMessages(history);
+      // Seed activity panel from the most recent agent run in this conversation
+      const lastAgentMsg = [...history].reverse().find((m) => m.role === 'agent' && m.runId);
+      if (lastAgentMsg?.runId) setLastRunId(lastAgentMsg.runId);
     }
   }, [history]);
 

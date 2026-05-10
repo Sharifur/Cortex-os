@@ -7,7 +7,7 @@ import { AgentLogService } from '../runtime/agent-log.service';
 import { LlmRouterService } from '../../llm/llm-router.service';
 import { TelegramService } from '../../telegram/telegram.service';
 import { TaskipInternalDbService } from './taskip-internal-db.service';
-import { TaskipInsightService, type InsightCohort, type InsightMarketingSuggestion, type InsightSubmitMessage } from './taskip-insight.service';
+import { TaskipInsightService, InsightApiError, type InsightCohort, type InsightMarketingSuggestion, type InsightSubmitMessage } from './taskip-insight.service';
 import { TaskipInternalEmailService, type TaskipEmailPurpose } from './taskip-internal-email.service';
 import { TaskipInternalSuggestionSweepService } from './taskip-internal-suggestion-sweep.service';
 import { TASKIP_SUGGESTION_SWEEP_QUEUE } from './taskip-internal-suggestion-sweep.processor';
@@ -295,12 +295,13 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
         const durationMs = Date.now() - toolCallStart;
         const isError = toolResult && typeof toolResult === 'object' && 'error' in (toolResult as object);
         if (runId) {
+          const errorMsg = isError ? String((toolResult as { error: unknown }).error) : undefined;
           await this.logSvc.debug(runId, `Tool result: ${tc.name}`, {
             event_type: 'tool_call_end',
             tool: tc.name,
             duration_ms: durationMs,
             success: !isError,
-            error: isError ? String((toolResult as { error: unknown }).error) : undefined,
+            error: errorMsg,
           });
         }
         messages.push({
@@ -874,8 +875,22 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
   private async executeReadTool(name: string, args: Record<string, unknown>): Promise<unknown> {
     try {
       switch (name) {
-        case 'lookup_user':
-          return await this.insight.searchByEmail(args.emailOrId as string);
+        case 'lookup_user': {
+          const emailArg = args.emailOrId as string;
+          try {
+            return await this.insight.searchByEmail(emailArg);
+          } catch (insightErr) {
+            // 404 means the workspace hasn't been indexed by Insight yet — try direct DB
+            if (insightErr instanceof InsightApiError && insightErr.status === 404) {
+              try {
+                const user = await this.taskipDb.lookupUser(emailArg);
+                if (user) return { source: 'taskip_db_fallback', note: 'Insight API returned 404 (workspace not yet indexed); found in direct DB instead.', user };
+              } catch { /* DB also unavailable — fall through to original insight error */ }
+              return { error: `Insight API 404 [${insightErr.endpoint}]: no workspace indexed for ${emailArg}. Workspace may be too new or not yet scored.` };
+            }
+            return { error: `${(insightErr as Error).message} [endpoint: ${(insightErr as InsightApiError).endpoint ?? 'unknown'}]` };
+          }
+        }
         case 'lookup_workspace_owner':
           return await this.insight.getLifecycle(args.workspaceUuid as string);
         case 'query_subscriptions':
@@ -959,6 +974,9 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
           return { error: `Unknown tool: ${name}` };
       }
     } catch (err) {
+      if (err instanceof InsightApiError) {
+        return { error: `${err.message} [endpoint: ${err.endpoint}]` };
+      }
       return { error: (err as Error).message };
     }
   }

@@ -16,6 +16,16 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.4.3',
+    date: '2026-05-10',
+    entries: [
+      { tag: 'fix', scope: 'taskip-internal', description: 'lookup_user: if Insight API returns 404 (workspace not yet indexed), agent falls back to direct DB lookup; on permanent failure the error now includes the endpoint path for easier debugging.' },
+      { tag: 'fix', scope: 'taskip-internal', description: 'All Insight API errors in executeReadTool now include [endpoint: /path] so the activity panel shows exactly which URL was called.' },
+      { tag: 'fix', scope: 'chat', description: 'Activity panel persists across page reloads — on conversation load, lastRunId is seeded from the most recent agent message runId so the timeline is always visible.' },
+      { tag: 'fix', scope: 'chat', description: 'Failed tool result detail in activity panel no longer truncates — full error message is shown in red so endpoint + error reason are both readable.' },
+    ],
+  },
+  {
     version: 'v4.4.2',
     date: '2026-05-10',
     entries: [
