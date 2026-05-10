@@ -16,6 +16,22 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.4.8',
+    date: '2026-05-10',
+    entries: [
+      { tag: 'fix', scope: 'taskip-internal', description: 'searchByEmail logs the full resolved URL (base + /search?email=) at debug level so you can see exactly which endpoint is hit.' },
+      { tag: 'feat', scope: 'chat', description: 'Activity panel tool_call entries now show the Insight endpoint being called (e.g. /search?email=...) alongside the args summary for easier debugging.' },
+      { tag: 'fix', scope: 'taskip-internal', description: 'Setup tab: insight_base_url description now shows the expected full module path format (https://api.taskip.net/api/internal/insight).' },
+    ],
+  },
+  {
+    version: 'v4.4.7',
+    date: '2026-05-10',
+    entries: [
+      { tag: 'fix', scope: 'chat', description: 'Activity panel: Thinking... entries no longer stay permanently spinning — marked as success when any subsequent entry follows them, or when the run is finished.' },
+    ],
+  },
+  {
     version: 'v4.4.6',
     date: '2026-05-10',
     entries: [

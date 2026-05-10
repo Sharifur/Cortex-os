@@ -349,18 +349,22 @@ interface ActivityEntry {
   durationMs?: number;
 }
 
-function parseLogsToTimeline(logs: RunLog[]): ActivityEntry[] {
+function parseLogsToTimeline(logs: RunLog[], finished: boolean): ActivityEntry[] {
   const entries: ActivityEntry[] = [];
   for (const log of logs) {
     const meta = log.meta as Record<string, unknown> | null;
     const at = log.createdAt;
     if (meta?.event_type === 'tool_call_start') {
+      const detail = [
+        meta.args_summary ? String(meta.args_summary) : null,
+        meta.endpoint ? `→ ${String(meta.endpoint)}` : null,
+      ].filter(Boolean).join('  ');
       entries.push({
         id: `tcs-${log.id}`,
         at,
         type: 'tool_call',
         label: String(meta.tool ?? 'tool'),
-        detail: meta.args_summary ? String(meta.args_summary) : undefined,
+        detail: detail || undefined,
         status: 'running',
       });
       continue;
@@ -414,6 +418,17 @@ function parseLogsToTimeline(logs: RunLog[]): ActivityEntry[] {
       continue;
     }
   }
+
+  // Resolve thinking entries: mark as success if something follows them, or if the run is finished
+  for (let i = 0; i < entries.length; i++) {
+    if (entries[i].type === 'thinking' && entries[i].status === 'running') {
+      const hasFollowingEntry = i < entries.length - 1;
+      if (hasFollowingEntry || finished) {
+        entries[i] = { ...entries[i], status: 'success' };
+      }
+    }
+  }
+
   return entries;
 }
 
@@ -473,7 +488,7 @@ function RunActivityPanel({
     staleTime: Infinity,
   });
 
-  const entries = logsData ? parseLogsToTimeline(logsData.logs) : [];
+  const entries = logsData ? parseLogsToTimeline(logsData.logs, !!logsData.finished) : [];
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
