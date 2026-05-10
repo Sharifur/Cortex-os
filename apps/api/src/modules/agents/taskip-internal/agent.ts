@@ -854,6 +854,32 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
           return this.emails.syncReplies(id);
         },
       },
+      {
+        method: 'POST',
+        path: '/taskip-internal/inbox/send',
+        requiresAuth: true,
+        handler: async (params) => {
+          const { recipient, subject, textBody, purpose, workspaceUuid, accountId } = params as {
+            recipient?: string;
+            subject?: string;
+            textBody?: string;
+            purpose?: string;
+            workspaceUuid?: string;
+            accountId?: string;
+          };
+          if (!recipient?.trim()) throw new Error('recipient is required');
+          if (!subject?.trim()) throw new Error('subject is required');
+          if (!textBody?.trim()) throw new Error('textBody is required');
+          return this.emails.send({
+            purpose: (purpose as any) ?? 'other',
+            recipient: recipient.trim(),
+            subject: subject.trim(),
+            body: textBody.trim(),
+            workspaceUuid: workspaceUuid?.trim() || undefined,
+            metadata: accountId ? { accountId } : undefined,
+          });
+        },
+      },
 
       // Suggestion sweep routes
       {

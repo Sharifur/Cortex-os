@@ -16,6 +16,15 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.6.3',
+    date: '2026-05-10',
+    entries: [
+      { tag: 'feat', scope: 'inbox', description: 'Inbox page: open tracking badge (Opened Nx · Xm ago / Not opened), opened count + timestamps in detail, "Draft reply with AI" button that pre-fills the agent chat with recipient context and SPAR instruction.' },
+      { tag: 'feat', scope: 'chat', description: 'Send Email from taskip_internal agent now calls tracked send endpoint (POST /taskip-internal/inbox/send) — email recorded in Inbox with open pixel. "Sent — view in inbox" badge links directly to the tracked row.' },
+      { tag: 'feat', scope: 'api', description: 'listSent / getDetail now include openCount, firstOpenAt, lastOpenAt. New POST /taskip-internal/inbox/send tracked send endpoint. AgentChatPage reads ?query= URL param to pre-fill chat from inbox.' },
+    ],
+  },
+  {
     version: 'v4.6.2',
     date: '2026-05-10',
     entries: [

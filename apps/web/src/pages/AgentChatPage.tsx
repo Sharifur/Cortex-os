@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useParams, Link, useLocation } from 'react-router-dom';
+import { useParams, Link, useLocation, useSearchParams } from 'react-router-dom';
 import {
   Bot, ArrowLeft, Send, Loader2, RefreshCw,
   Calendar, Clock, CheckCircle2, XCircle,
@@ -277,11 +277,12 @@ interface GmailAccountOption { id: string; label: string; email: string; isDefau
 
 function SendEmailModal({
   to, subject, body, token,
-  onClose, onSent,
+  onClose, onSent, trackedSend,
 }: {
   to?: string; subject: string; body: string; token: string;
   onClose: () => void;
-  onSent?: () => void;
+  onSent?: (emailId?: string) => void;
+  trackedSend?: boolean;
 }) {
   const { data: accounts, isLoading } = useQuery<GmailAccountOption[]>({
     queryKey: ['gmail-accounts-send'],
@@ -312,15 +313,19 @@ function SendEmailModal({
     setSending(true);
     setError(null);
     try {
-      const res = await fetch('/gmail/send', {
+      const endpoint = trackedSend ? '/taskip-internal/inbox/send' : '/gmail/send';
+      const payload = trackedSend
+        ? { recipient: toValue.trim(), subject: subjectValue, textBody: bodyValue, accountId: selectedId, purpose: 'marketing' }
+        : { accountId: selectedId, to: toValue.trim(), subject: subjectValue, textBody: bodyValue };
+      const res = await fetch(endpoint, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accountId: selectedId, to: toValue.trim(), subject: subjectValue, textBody: bodyValue }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error((data as any).message ?? `HTTP ${res.status}`);
       setDone(true);
-      onSent?.();
+      onSent?.((data as any).id);
       setTimeout(onClose, 1200);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -458,7 +463,7 @@ function SendEmailModal({
 // ─── Email draft card ─────────────────────────────────────────────────────────
 
 function EmailDraftCard({
-  subject, subjectAlt, body, recipient, selfScore, token,
+  subject, subjectAlt, body, recipient, selfScore, token, agentKey,
 }: {
   subject: string;
   subjectAlt?: string;
@@ -466,11 +471,14 @@ function EmailDraftCard({
   recipient?: string;
   selfScore?: string;
   token: string;
+  agentKey?: string;
 }) {
   const [copied, setCopied] = useState(false);
   const [useAlt, setUseAlt] = useState(false);
   const [showSendModal, setShowSendModal] = useState(false);
   const [sent, setSent] = useState(false);
+  const [sentEmailId, setSentEmailId] = useState<string | undefined>();
+  const trackedSend = agentKey === 'taskip_internal';
 
   const activeSubject = useAlt && subjectAlt ? subjectAlt : subject;
 
@@ -488,8 +496,9 @@ function EmailDraftCard({
           subject={activeSubject}
           body={body}
           token={token}
+          trackedSend={trackedSend}
           onClose={() => setShowSendModal(false)}
-          onSent={() => setSent(true)}
+          onSent={(id) => { setSent(true); setSentEmailId(id); }}
         />
       )}
       <div className="rounded-xl border border-border bg-card overflow-hidden w-full max-w-xl text-sm">
@@ -537,9 +546,18 @@ function EmailDraftCard({
               </span>
             )}
             {sent && (
-              <span className="inline-flex items-center gap-1 text-[10px] text-emerald-500 font-medium border border-emerald-500/30 rounded px-1.5 py-0.5">
-                <CheckCircle2 className="w-3 h-3" /> Sent
-              </span>
+              sentEmailId ? (
+                <Link
+                  to={`/inbox?highlight=${sentEmailId}`}
+                  className="inline-flex items-center gap-1 text-[10px] text-emerald-500 font-medium border border-emerald-500/30 rounded px-1.5 py-0.5 hover:bg-emerald-500/10 transition-colors"
+                >
+                  <CheckCircle2 className="w-3 h-3" /> Sent — view in inbox
+                </Link>
+              ) : (
+                <span className="inline-flex items-center gap-1 text-[10px] text-emerald-500 font-medium border border-emerald-500/30 rounded px-1.5 py-0.5">
+                  <CheckCircle2 className="w-3 h-3" /> Sent
+                </span>
+              )
             )}
           </div>
           <div className="flex items-center gap-2">
@@ -600,13 +618,14 @@ function TypingBubble({ color }: { color: ReturnType<typeof agentColor> }) {
 // ─── Message bubble ───────────────────────────────────────────────────────────
 
 function MessageBubble({
-  msg, color, agentName, onFeedback, token,
+  msg, color, agentName, onFeedback, token, agentKey,
 }: {
   msg: ConvMessage & { pending?: boolean; feedback?: 'up' | 'down' };
   color: ReturnType<typeof agentColor>;
   agentName: string;
   onFeedback?: (msgId: string, rating: 'up' | 'down') => void;
   token: string;
+  agentKey?: string;
 }) {
   const isUser = msg.role === 'user';
 
@@ -623,7 +642,7 @@ function MessageBubble({
           if (!isUser && msg.content.startsWith(EMAIL_DRAFT_PREFIX)) {
             try {
               const draft = JSON.parse(msg.content.slice(EMAIL_DRAFT_PREFIX.length));
-              return <EmailDraftCard subject={draft.subject} body={draft.body} recipient={draft.recipient} token={token} />;
+              return <EmailDraftCard subject={draft.subject} body={draft.body} recipient={draft.recipient} token={token} agentKey={agentKey} />;
             } catch { /* fall through */ }
           }
           // Inline email draft in LLM text reply
@@ -637,7 +656,7 @@ function MessageBubble({
                       <div dangerouslySetInnerHTML={{ __html: renderMarkdown(inline.before) }} />
                     </div>
                   )}
-                  <EmailDraftCard subject={inline.subject} subjectAlt={inline.subjectAlt} body={inline.body} selfScore={inline.selfScore} recipient={inline.to} token={token} />
+                  <EmailDraftCard subject={inline.subject} subjectAlt={inline.subjectAlt} body={inline.body} selfScore={inline.selfScore} recipient={inline.to} token={token} agentKey={agentKey} />
                   {inline.after && (
                     <div className={`rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${color.bubble} text-foreground rounded-bl-sm`}>
                       <div dangerouslySetInnerHTML={{ __html: renderMarkdown(inline.after) }} />
@@ -1323,7 +1342,7 @@ function ChatTab({
         )}
 
         {messages.map((msg) => (
-          <MessageBubble key={msg.id} msg={msg} color={color} agentName={agent.name} onFeedback={handleFeedback} token={token ?? ''} />
+          <MessageBubble key={msg.id} msg={msg} color={color} agentName={agent.name} onFeedback={handleFeedback} token={token ?? ''} agentKey={agent.key} />
         ))}
 
         {isThinking && <TypingBubble color={color} />}
@@ -1742,7 +1761,8 @@ export default function AgentChatPage() {
   const { key } = useParams<{ key: string }>();
   const token = useAuthStore((s) => s.token)!;
   const location = useLocation();
-  const initialQuery = (location.state as { query?: string } | null)?.query;
+  const [searchParams] = useSearchParams();
+  const initialQuery = searchParams.get('query') ?? (location.state as { query?: string } | null)?.query;
   const [activeTab, setActiveTab] = useState<ChatTabKey>('chat');
   const [convId, setConvIdState] = useState(() => getConvId(key!));
   const color = agentColor(key!);
