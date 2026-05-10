@@ -6,7 +6,7 @@ import {
   Calendar, Clock, CheckCircle2, XCircle,
   AlertCircle, MessageSquare, ListTodo, RotateCcw, History, X,
   ThumbsUp, ThumbsDown, ImagePlus, Copy, Mail, Check, Wrench, Zap,
-  Bold, Italic, List,
+  Bold, Italic, List, Radio,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -1847,6 +1847,141 @@ function ScheduleTab({
   );
 }
 
+// ─── Webhook Logs Tab (support agent only) ────────────────────────────────────
+
+interface WebhookLog {
+  id: string;
+  status: string;
+  externalId: string | null;
+  ticketId: string | null;
+  rawPayload: string | null;
+  error: string | null;
+  receivedAt: string;
+}
+
+function WebhookLogsTab({ token }: { token: string }) {
+  const [expanded, setExpanded] = useState<string | null>(null);
+
+  const { data: logs = [], isLoading, refetch, isFetching } = useQuery<WebhookLog[]>({
+    queryKey: ['support-webhook-logs'],
+    queryFn: () => apiFetch(token, '/support/webhook-logs?limit=100'),
+    staleTime: 30_000,
+  });
+
+  function statusChip(status: string) {
+    if (status === 'ok') return 'bg-emerald-500/15 text-emerald-400';
+    if (status === 'duplicate') return 'bg-amber-500/15 text-amber-400';
+    return 'bg-rose-500/15 text-rose-400';
+  }
+
+  function timeAgo(iso: string) {
+    const diff = Date.now() - new Date(iso).getTime();
+    const m = Math.floor(diff / 60000);
+    if (m < 1) return 'just now';
+    if (m < 60) return `${m}m ago`;
+    const h = Math.floor(m / 60);
+    if (h < 24) return `${h}h ago`;
+    return `${Math.floor(h / 24)}d ago`;
+  }
+
+  return (
+    <div className="p-4 sm:p-6 max-w-3xl mx-auto">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h2 className="text-sm font-semibold">Webhook Logs</h2>
+          <p className="text-xs text-muted-foreground mt-0.5">Incoming events from your CRM via <code className="bg-muted px-1 rounded">/support/ingest-ticket</code></p>
+        </div>
+        <button
+          onClick={() => refetch()}
+          disabled={isFetching}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border text-xs text-muted-foreground hover:text-foreground disabled:opacity-50 transition-colors"
+        >
+          <RefreshCw className={`w-3 h-3 ${isFetching ? 'animate-spin' : ''}`} />
+          Refresh
+        </button>
+      </div>
+
+      {isLoading && (
+        <div className="space-y-2">
+          {[0, 1, 2, 3].map(i => (
+            <div key={i} className="rounded-lg border border-border p-3 flex items-center gap-3">
+              <Skeleton className="w-16 h-5 rounded-full" />
+              <Skeleton className="h-3 w-24" />
+              <Skeleton className="h-3 w-32 ml-auto" />
+            </div>
+          ))}
+        </div>
+      )}
+
+      {!isLoading && logs.length === 0 && (
+        <div className="rounded-xl border border-border bg-card p-10 text-center">
+          <Radio className="w-8 h-8 text-muted-foreground/30 mx-auto mb-3" />
+          <p className="text-sm text-muted-foreground">No webhook events received yet.</p>
+          <p className="text-xs text-muted-foreground/60 mt-1">Events will appear here once your CRM starts sending tickets.</p>
+        </div>
+      )}
+
+      {!isLoading && logs.length > 0 && (
+        <div className="space-y-1.5">
+          {logs.map(log => (
+            <div key={log.id} className="rounded-lg border border-border bg-card overflow-hidden">
+              <button
+                className="w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-muted/20 transition-colors"
+                onClick={() => setExpanded(expanded === log.id ? null : log.id)}
+              >
+                <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold uppercase tracking-wide shrink-0 ${statusChip(log.status)}`}>
+                  {log.status}
+                </span>
+                <span className="text-xs font-medium truncate flex-1 min-w-0">
+                  {log.externalId ? `Ticket #${log.externalId}` : 'Unknown ticket'}
+                </span>
+                {log.error && (
+                  <span className="text-[11px] text-rose-400 truncate max-w-[200px]">{log.error}</span>
+                )}
+                <span className="text-[11px] text-muted-foreground shrink-0">{timeAgo(log.receivedAt)}</span>
+                <ChevronIcon expanded={expanded === log.id} />
+              </button>
+
+              {expanded === log.id && (
+                <div className="border-t border-border px-4 py-3 space-y-3">
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
+                    <div><span className="text-muted-foreground">Received:</span> {new Date(log.receivedAt).toLocaleString()}</div>
+                    <div><span className="text-muted-foreground">CRM ticket ID:</span> {log.externalId ?? '—'}</div>
+                    <div><span className="text-muted-foreground">Internal ID:</span> {log.ticketId ?? '—'}</div>
+                    <div><span className="text-muted-foreground">Status:</span> {log.status}</div>
+                  </div>
+                  {log.error && (
+                    <div className="rounded-md bg-rose-500/10 border border-rose-500/20 px-3 py-2 text-xs text-rose-400">{log.error}</div>
+                  )}
+                  {log.rawPayload && (
+                    <div>
+                      <p className="text-[11px] text-muted-foreground mb-1.5 font-medium">Raw payload</p>
+                      <pre className="text-[11px] bg-muted rounded-lg p-3 overflow-x-auto max-h-48 text-foreground/80 font-mono leading-relaxed">
+                        {(() => { try { return JSON.stringify(JSON.parse(log.rawPayload), null, 2); } catch { return log.rawPayload; } })()}
+                      </pre>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ChevronIcon({ expanded }: { expanded: boolean }) {
+  return (
+    <svg
+      className={`w-3.5 h-3.5 text-muted-foreground transition-transform shrink-0 ${expanded ? 'rotate-180' : ''}`}
+      fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+    >
+      <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+    </svg>
+  );
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function AgentChatPage() {
@@ -1855,7 +1990,11 @@ export default function AgentChatPage() {
   const location = useLocation();
   const [searchParams] = useSearchParams();
   const initialQuery = searchParams.get('query') ?? (location.state as { query?: string } | null)?.query;
-  const [activeTab, setActiveTab] = useState<ChatTabKey>('chat');
+  type AllTabKey = ChatTabKey | 'webhooks';
+  const [activeTab, setActiveTab] = useState<AllTabKey>('chat');
+  const visibleTabs: { key: AllTabKey; label: string; icon: React.ElementType }[] = key === 'support'
+    ? [...CHAT_TABS, { key: 'webhooks', label: 'Webhooks', icon: Radio }]
+    : [...CHAT_TABS];
   const [convId, setConvIdState] = useState(() => getConvId(key!));
   const color = agentColor(key!);
 
@@ -1905,7 +2044,7 @@ export default function AgentChatPage() {
 
           {/* Tab bar — desktop (shown inline) */}
           <div className="hidden sm:flex items-center gap-1 border border-border rounded-lg p-0.5 bg-muted/30 ml-auto shrink-0">
-            {CHAT_TABS.map(({ key: tabKey, label, icon: Icon }) => (
+            {visibleTabs.map(({ key: tabKey, label, icon: Icon }) => (
               <button
                 key={tabKey}
                 onClick={() => setActiveTab(tabKey)}
@@ -1924,7 +2063,7 @@ export default function AgentChatPage() {
 
         {/* Tab bar — mobile (shown below name row) */}
         <div className="flex sm:hidden items-center gap-1 border border-border rounded-lg p-0.5 bg-muted/30 mt-2">
-          {CHAT_TABS.map(({ key: tabKey, label, icon: Icon }) => (
+          {visibleTabs.map(({ key: tabKey, label, icon: Icon }) => (
             <button
               key={tabKey}
               onClick={() => setActiveTab(tabKey)}
@@ -1942,7 +2081,7 @@ export default function AgentChatPage() {
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-hidden">
+      <div className="flex-1 overflow-hidden overflow-y-auto">
         {agent && activeTab === 'chat' && (
           <ChatTab key={convId} agent={agent} token={token} color={color} convId={convId} onNewConv={handleNewConv} onSwitchConv={handleSwitchConv} initialQuery={initialQuery} />
         )}
@@ -1951,6 +2090,9 @@ export default function AgentChatPage() {
         )}
         {agent && activeTab === 'schedule' && (
           <ScheduleTab agent={agent} token={token} color={color} />
+        )}
+        {activeTab === 'webhooks' && (
+          <WebhookLogsTab token={token} />
         )}
         {isLoading && (
           <div className="p-6 space-y-4">

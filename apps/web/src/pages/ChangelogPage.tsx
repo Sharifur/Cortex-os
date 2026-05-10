@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.8.6',
+    date: '2026-05-10',
+    entries: [
+      { tag: 'feat', scope: 'support', description: 'Webhook Logs tab in Support Ticket Manager chat page. Shows all incoming CRM webhook events with status (ok / duplicate / error), CRM ticket ID, internal ID, timestamp, and expandable raw payload viewer.' },
+      { tag: 'feat', scope: 'api', description: 'support_webhook_logs table (migration 0064). ingestWebhook now writes a row for every event — success, duplicate, and error cases. GET /support/webhook-logs endpoint (auth required, limit 100).' },
+    ],
+  },
+  {
     version: 'v4.8.5',
     date: '2026-05-10',
     entries: [

@@ -2,7 +2,7 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { eq, desc, sql, and, ilike, or } from 'drizzle-orm';
 import { DbService } from '../../../db/db.service';
 import { agents } from '../../../db/schema';
-import { supportTickets } from './schema';
+import { supportTickets, supportWebhookLogs } from './schema';
 import { AgentRegistryService } from '../runtime/agent-registry.service';
 import { LlmRouterService } from '../../llm/llm-router.service';
 import { TelegramService } from '../../telegram/telegram.service';
@@ -345,6 +345,12 @@ export class SupportAgent implements IAgent, OnModuleInit {
         requiresAuth: true,
         handler: async (params) => this.getTicket((params as any).id),
       },
+      {
+        method: 'GET',
+        path: '/support/webhook-logs',
+        requiresAuth: true,
+        handler: async (query) => this.listWebhookLogs((query as any)?.limit),
+      },
     ];
   }
 
@@ -362,12 +368,32 @@ export class SupportAgent implements IAgent, OnModuleInit {
     return row;
   }
 
+  private async writeWebhookLog(entry: {
+    status: string;
+    externalId?: string | null;
+    ticketId?: string | null;
+    rawPayload?: string | null;
+    error?: string | null;
+  }) {
+    await this.db.db.insert(supportWebhookLogs).values({
+      status: entry.status,
+      externalId: entry.externalId ?? null,
+      ticketId: entry.ticketId ?? null,
+      rawPayload: entry.rawPayload ?? null,
+      error: entry.error ?? null,
+    }).catch(() => {});
+  }
+
   private async ingestWebhook(payload: any) {
     this.logger.log(`ingestWebhook called — payload keys: ${Object.keys(payload ?? {}).join(', ')}`);
+    const rawPayload = JSON.stringify(payload).slice(0, 5000);
     const { ticket, contact } = payload ?? {};
+
     if (!ticket?.id || !ticket?.subject) {
-      this.logger.warn(`ingestWebhook: missing ticket.id or ticket.subject — received: ${JSON.stringify(payload).slice(0, 200)}`);
-      return { ok: false, error: 'Missing ticket.id or ticket.subject' };
+      const errMsg = 'Missing ticket.id or ticket.subject';
+      this.logger.warn(`ingestWebhook: ${errMsg} — received: ${rawPayload.slice(0, 200)}`);
+      await this.writeWebhookLog({ status: 'error', rawPayload, error: errMsg });
+      return { ok: false, error: errMsg };
     }
 
     this.logger.log(`Webhook received: ticket #${ticket.id} "${ticket.subject}" from ${contact?.email ?? '(no contact)'}`);
@@ -396,13 +422,29 @@ export class SupportAgent implements IAgent, OnModuleInit {
       .onConflictDoNothing()
       .returning();
 
+    const status = row ? 'ok' : 'duplicate';
     if (row) {
       this.logger.log(`Ticket stored: internal id=${row.id} external=${ticket.id} priority=${priority}`);
     } else {
       this.logger.warn(`Ticket #${ticket.id} already exists (onConflictDoNothing) — skipped`);
     }
 
+    await this.writeWebhookLog({
+      status,
+      externalId: String(ticket.id),
+      ticketId: row?.id ?? null,
+      rawPayload,
+    });
+
     return { ok: true, id: row?.id ?? null };
+  }
+
+  async listWebhookLogs(limit?: number) {
+    return this.db.db
+      .select()
+      .from(supportWebhookLogs)
+      .orderBy(desc(supportWebhookLogs.receivedAt))
+      .limit(Math.min(Number(limit ?? 100), 500));
   }
 
   private async crmHeaders(): Promise<Record<string, string>> {
