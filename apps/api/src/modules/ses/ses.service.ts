@@ -27,22 +27,38 @@ export class SesService {
   ) {}
 
   async isSuppressed(email: string): Promise<boolean> {
-    const [row] = await this.db.db
-      .select({ id: emailSuppressions.id })
-      .from(emailSuppressions)
-      .where(eq(emailSuppressions.email, email.toLowerCase().trim()));
-    return !!row;
+    try {
+      const [row] = await this.db.db
+        .select({ id: emailSuppressions.id })
+        .from(emailSuppressions)
+        .where(eq(emailSuppressions.email, email.toLowerCase().trim()));
+      return !!row;
+    } catch (err) {
+      if ((err as Error).message?.includes('email_suppressions')) {
+        this.logger.warn('email_suppressions table not found — migration pending; skipping suppression check');
+        return false;
+      }
+      throw err;
+    }
   }
 
   async suppress(email: string, reason: string, source = 'ses'): Promise<void> {
     const normalized = email.toLowerCase().trim();
-    const [existing] = await this.db.db
-      .select({ id: emailSuppressions.id })
-      .from(emailSuppressions)
-      .where(eq(emailSuppressions.email, normalized));
-    if (existing) return;
-    await this.db.db.insert(emailSuppressions).values({ email: normalized, reason, source });
-    this.logger.log(`Suppressed ${normalized} (${reason})`);
+    try {
+      const [existing] = await this.db.db
+        .select({ id: emailSuppressions.id })
+        .from(emailSuppressions)
+        .where(eq(emailSuppressions.email, normalized));
+      if (existing) return;
+      await this.db.db.insert(emailSuppressions).values({ email: normalized, reason, source });
+      this.logger.log(`Suppressed ${normalized} (${reason})`);
+    } catch (err) {
+      if ((err as Error).message?.includes('email_suppressions')) {
+        this.logger.warn('email_suppressions table not found — migration pending; suppression not recorded');
+        return;
+      }
+      throw err;
+    }
   }
 
   async sendEmail(params: SendEmailParams): Promise<string> {

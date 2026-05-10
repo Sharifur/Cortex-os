@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.4.4',
+    date: '2026-05-10',
+    entries: [
+      { tag: 'fix', scope: 'ses', description: 'isSuppressed() and suppress() now catch missing email_suppressions table gracefully — log a warning and proceed instead of crashing with 500. Fixes send-transcript and any SES email while migration 0062 is pending on production.' },
+    ],
+  },
+  {
     version: 'v4.4.3',
     date: '2026-05-10',
     entries: [
