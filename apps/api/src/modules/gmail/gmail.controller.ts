@@ -78,6 +78,29 @@ export class GmailController {
     return this.gmail.testAccount(id);
   }
 
+  // ─── Direct send ─────────────────────────────────────────────────────────
+
+  @Post('send')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async send(
+    @Body() body: {
+      accountId?: string;
+      to: string;
+      subject: string;
+      textBody: string;
+    },
+  ) {
+    if (!body?.to?.trim()) throw new BadRequestException('to is required');
+    if (!body?.subject?.trim()) throw new BadRequestException('subject is required');
+    if (!body?.textBody?.trim()) throw new BadRequestException('textBody is required');
+    const messageId = await this.gmail.sendEmail(
+      { to: body.to, from: '', subject: body.subject, textBody: body.textBody },
+      body.accountId,
+    );
+    return { ok: true, messageId };
+  }
+
   // ─── OAuth2 connect flow ─────────────────────────────────────────────────
 
   /**
