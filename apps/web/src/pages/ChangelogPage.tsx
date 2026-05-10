@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.4.6',
+    date: '2026-05-10',
+    entries: [
+      { tag: 'fix', scope: 'livechat', description: 'send-transcript: SES errors (bad credentials, domain invalid, quota, etc.) are now caught and returned as { ok: false, reason: "send_failed", error: "..." } instead of throwing 500. Frontend shows the actual error reason in the alert.' },
+    ],
+  },
+  {
     version: 'v4.4.5',
     date: '2026-05-10',
     entries: [
