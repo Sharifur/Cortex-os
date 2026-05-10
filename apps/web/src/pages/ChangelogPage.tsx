@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.8.3',
+    date: '2026-05-10',
+    entries: [
+      { tag: 'fix', scope: 'agent', description: 'Insight API 404 fix: executeReadTool now validates workspace_uuid is a UUID string before calling the API — returns a clear error if a numeric id is passed, preventing /workspaces/1/lifecycle 404s. Tool descriptions updated to explicitly name the `uuid` field from insight_list_cohort results.' },
+    ],
+  },
+  {
     version: 'v4.8.2',
     date: '2026-05-10',
     entries: [
