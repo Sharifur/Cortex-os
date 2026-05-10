@@ -16,6 +16,20 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.5.9',
+    date: '2026-05-10',
+    entries: [
+      { tag: 'feat', scope: 'taskip-internal', description: 'Agent now has live KB access scoped to site "Taskip": always-on product facts (features, pricing, personas) and per-query semantic search are injected into the system prompt at runtime. Admins can populate KB entries tagged site_keys=Taskip to teach the agent anything about the product without a deploy.' },
+    ],
+  },
+  {
+    version: 'v4.5.8',
+    date: '2026-05-10',
+    entries: [
+      { tag: 'fix', scope: 'taskip-internal', description: 'System prompt now explains Taskip is a client portal for freelancers/agencies: invoices are sent TO clients, contacts are clients, leads are prospects. Agent no longer misinterprets invoices_paid=0 as the owner owing money. Angle table, persona table, signal inventory, and banned-framing list all updated to reflect correct product context.' },
+    ],
+  },
+  {
     version: 'v4.5.7',
     date: '2026-05-10',
     entries: [

@@ -13,6 +13,7 @@ import { TelegramModule } from '../../telegram/telegram.module';
 import { GmailModule } from '../../gmail/gmail.module';
 import { SettingsModule } from '../../settings/settings.module';
 import { SafetyModule } from '../../safety/safety.module';
+import { KnowledgeBaseModule } from '../../knowledge-base/knowledge-base.module';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { SafetyModule } from '../../safety/safety.module';
     GmailModule,
     SettingsModule,
     SafetyModule,
+    KnowledgeBaseModule,
     BullModule.registerQueue({ name: TASKIP_EMAIL_SWEEP_QUEUE }),
     BullModule.registerQueue({ name: TASKIP_SUGGESTION_SWEEP_QUEUE }),
   ],
