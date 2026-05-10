@@ -16,6 +16,21 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.5.6',
+    date: '2026-05-10',
+    entries: [
+      { tag: 'fix', scope: 'chat', description: 'Parser: emailMarkerRe no longer requires trailing newline; makeSubjectRe handles Subject A/B with or without space; Subject A/B/Recommended lines stripped from reasoning bubble to avoid duplication.' },
+      { tag: 'feat', scope: 'chat', description: 'EmailDraftCard: A/B subject switcher — shows both options, active subject in header, other as small hint; self-score badge (e.g. "5/5") shown bottom-left of card; Copy/Open in Mail use whichever subject is selected.' },
+    ],
+  },
+  {
+    version: 'v4.5.5',
+    date: '2026-05-10',
+    entries: [
+      { tag: 'fix', scope: 'chat', description: 'extractInlineEmail now handles the SPAR output format (**Email:** marker, **Subject A/B:** with **Recommended:** picker) in addition to the legacy Subject:/Body: format. Self-score line is omitted from the rendered output.' },
+    ],
+  },
+  {
     version: 'v4.5.4',
     date: '2026-05-10',
     entries: [

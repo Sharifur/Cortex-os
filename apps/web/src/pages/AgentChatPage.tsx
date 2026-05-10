@@ -100,9 +100,80 @@ async function apiFetch(token: string, path: string, opts?: RequestInit) {
 
 const EMAIL_DRAFT_PREFIX = '__EMAIL_DRAFT__:';
 
-// Detects inline "Subject: ... Body: ..." patterns in agent text replies
-function extractInlineEmail(text: string): { before: string; subject: string; body: string; after: string } | null {
-  // Match Subject: (with optional bold markdown) anywhere in the text
+interface InlineEmail {
+  before: string;       // reasoning block shown above the card
+  subject: string;      // recommended subject
+  subjectAlt?: string;  // alternate subject (B when A recommended, or vice versa)
+  body: string;
+  after: string;
+  selfScore?: string;   // e.g. "5/5"
+}
+
+function cleanSubject(raw: string): string {
+  return raw.trim().replace(/^["']|["']$/g, '').replace(/\*+$/g, '').trim();
+}
+
+// Strip Subject A/B / Recommended lines from the reasoning block so the
+// "before" bubble only shows Signal/Persona/Angle, not duplicated subject lines.
+function stripSubjectLines(text: string): string {
+  return text
+    .split('\n')
+    .filter(line => !/^\*{0,2}Subject\s*[AB]?\s*:/i.test(line.trim()) &&
+                    !/^\*{0,2}Recommended:/i.test(line.trim()))
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+// Handles two formats:
+//   SPAR:   **Subject A/B:** … **Recommended:** A … **Email:** \n body **Self-score:** …
+//   Legacy: **Subject:** … **Body:** \n body
+function extractInlineEmail(text: string): InlineEmail | null {
+  // ── SPAR format ──────────────────────────────────────────────────────────────
+  // emailMarkerRe: **Email:** optionally followed by a space/newline, or body on same line
+  const emailMarkerRe = /\*{0,2}Email:\*{0,2}\s*\n?/i;
+  const emailMarkerIdx = text.search(emailMarkerRe);
+
+  if (emailMarkerIdx >= 0) {
+    const markerMatch = text.match(emailMarkerRe)!;
+    const bodyStart = emailMarkerIdx + markerMatch[0].length;
+    const afterEmail = text.slice(bodyStart);
+
+    // Body ends at **Self-score:**, **Recommended:**, or another **bold:** meta-line
+    const selfScoreRe = /\n\*{0,2}Self-score:/i;
+    const selfScoreIdx = afterEmail.search(selfScoreRe);
+    const body = (selfScoreIdx >= 0 ? afterEmail.slice(0, selfScoreIdx) : afterEmail).trim();
+
+    // Extract self-score value e.g. "5/5"
+    let selfScore: string | undefined;
+    if (selfScoreIdx >= 0) {
+      const scoreMatch = afterEmail.slice(selfScoreIdx).match(/Self-score:\*{0,2}\s*(\d\/\d)/i);
+      if (scoreMatch) selfScore = scoreMatch[1];
+    }
+
+    // Recommended: pick A or B — match first letter after the colon, ignoring — dashes
+    const recommendedMatch = text.match(/\*{0,2}Recommended:\*{0,2}\s*([AB])\b/i);
+    const pick = recommendedMatch ? recommendedMatch[1].toUpperCase() : 'A';
+    const other = pick === 'A' ? 'B' : 'A';
+
+    // Subject regex: **Subject A:** or **SubjectA:** (with or without space)
+    const makeSubjectRe = (letter: string) =>
+      new RegExp(`\\*{0,2}Subject\\s*${letter}:\\*{0,2}\\s*([^\\n]+)`, 'i');
+
+    const subjectMatch = text.match(makeSubjectRe(pick));
+    const altMatch = text.match(makeSubjectRe(other));
+
+    const subject = subjectMatch ? cleanSubject(subjectMatch[1]) : '';
+    const subjectAlt = altMatch ? cleanSubject(altMatch[1]) : undefined;
+
+    // "before" = reasoning block only (strip Subject A/B/Recommended lines)
+    const rawBefore = text.slice(0, emailMarkerIdx).replace(/\n?---\s*$/, '');
+    const before = stripSubjectLines(rawBefore);
+
+    if (subject && body) return { before, subject, subjectAlt, body, after: '', selfScore };
+  }
+
+  // ── Legacy format (Subject: / Body:) ─────────────────────────────────────────
   const subjectRe = /\*{0,2}Subject:\*{0,2}\s*(.+)/i;
   const bodyRe = /\*{0,2}Body:\*{0,2}\s*\n?([\s\S]+)/i;
 
@@ -114,22 +185,11 @@ function extractInlineEmail(text: string): { before: string; subject: string; bo
   const bodyMatch = afterSubject.match(bodyRe);
   if (!bodyMatch) return null;
 
-  const subject = subjectMatch[1].replace(/\*{0,2}$/, '').trim();
-
-  // Body content ends at a trailing separator line (---) or "Would you" style follow-up
+  const subject = cleanSubject(subjectMatch[1]);
   const rawBody = bodyMatch[1];
   const separatorIdx = rawBody.search(/\n---\s*\n|\n\n(?=\w{1,30}\s+you\b|\[|\*\*)/);
-  let body: string;
-  let after: string;
-  if (separatorIdx >= 0) {
-    body = rawBody.slice(0, separatorIdx).trim();
-    after = rawBody.slice(separatorIdx).replace(/^[\s-]+/, '').trim();
-  } else {
-    body = rawBody.trim();
-    after = '';
-  }
-
-  // "before" is everything up to the Subject line, stripping trailing --- separators
+  const body = separatorIdx >= 0 ? rawBody.slice(0, separatorIdx).trim() : rawBody.trim();
+  const after = separatorIdx >= 0 ? rawBody.slice(separatorIdx).replace(/^[\s-]+/, '').trim() : '';
   const before = text.slice(0, subjectIdx).replace(/\n?---\s*$/, '').trim();
 
   if (!subject || !body) return null;
@@ -205,25 +265,58 @@ function renderMarkdown(text: string): string {
 
 // ─── Email draft card ─────────────────────────────────────────────────────────
 
-function EmailDraftCard({ subject, body, recipient }: { subject: string; body: string; recipient?: string }) {
+function EmailDraftCard({
+  subject, subjectAlt, body, recipient, selfScore,
+}: {
+  subject: string;
+  subjectAlt?: string;
+  body: string;
+  recipient?: string;
+  selfScore?: string;
+}) {
   const [copied, setCopied] = useState(false);
+  const [useAlt, setUseAlt] = useState(false);
+
+  const activeSubject = useAlt && subjectAlt ? subjectAlt : subject;
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(`Subject: ${subject}\n\n${body}`).catch(() => {});
+    navigator.clipboard.writeText(`Subject: ${activeSubject}\n\n${body}`).catch(() => {});
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
   const handleOpenMail = () => {
-    const mailto = `mailto:${recipient ?? ''}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    const mailto = `mailto:${recipient ?? ''}?subject=${encodeURIComponent(activeSubject)}&body=${encodeURIComponent(body)}`;
     window.open(mailto, '_blank');
   };
 
   return (
     <div className="rounded-xl border border-border bg-card overflow-hidden w-full max-w-xl text-sm">
-      <div className="flex items-baseline gap-2 px-4 py-3 border-b border-border bg-muted/30">
-        <span className="text-muted-foreground shrink-0 text-xs font-medium w-14">Subject:</span>
-        <span className="font-medium text-foreground">{subject}</span>
+      {/* Subject row with optional A/B toggle */}
+      <div className="px-4 py-3 border-b border-border bg-muted/30">
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex items-baseline gap-2 min-w-0">
+            <span className="text-muted-foreground shrink-0 text-xs font-medium w-14">Subject:</span>
+            <span className="font-medium text-foreground">{activeSubject}</span>
+          </div>
+          {subjectAlt && (
+            <div className="flex items-center gap-0.5 shrink-0">
+              <button
+                onClick={() => setUseAlt(false)}
+                className={`px-2 py-0.5 rounded-l text-xs border border-border transition-colors ${!useAlt ? 'bg-primary text-primary-foreground border-primary' : 'text-muted-foreground hover:text-foreground'}`}
+              >A</button>
+              <button
+                onClick={() => setUseAlt(true)}
+                className={`px-2 py-0.5 rounded-r text-xs border-y border-r border-border transition-colors ${useAlt ? 'bg-primary text-primary-foreground border-primary' : 'text-muted-foreground hover:text-foreground'}`}
+              >B</button>
+            </div>
+          )}
+        </div>
+        {subjectAlt && (
+          <p className="text-[10px] text-muted-foreground mt-1 ml-16">
+            {useAlt ? subject : subjectAlt}
+          </p>
+        )}
       </div>
       {recipient && (
         <div className="flex items-baseline gap-2 px-4 py-2 border-b border-border bg-muted/20">
@@ -235,21 +328,31 @@ function EmailDraftCard({ subject, body, recipient }: { subject: string; body: s
         className="px-4 py-4 text-foreground leading-relaxed prose-sm max-w-none"
         dangerouslySetInnerHTML={{ __html: renderMarkdown(body) }}
       />
-      <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-border bg-muted/20">
-        <button
-          onClick={handleCopy}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border text-xs text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-        >
-          {copied ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5" />}
-          {copied ? 'Copied' : 'Copy'}
-        </button>
-        <button
-          onClick={handleOpenMail}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs hover:bg-primary/90 transition-colors"
-        >
-          <Mail className="w-3.5 h-3.5" />
-          Open in Mail
-        </button>
+      <div className="flex items-center justify-between gap-2 px-4 py-3 border-t border-border bg-muted/20">
+        {/* Self-score badge */}
+        <div>
+          {selfScore && (
+            <span className="inline-flex items-center gap-1 text-[10px] text-emerald-500 font-medium">
+              <Check className="w-3 h-3" /> {selfScore}
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleCopy}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border text-xs text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+          >
+            {copied ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5" />}
+            {copied ? 'Copied' : 'Copy'}
+          </button>
+          <button
+            onClick={handleOpenMail}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs hover:bg-primary/90 transition-colors"
+          >
+            <Mail className="w-3.5 h-3.5" />
+            Open in Mail
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -317,7 +420,7 @@ function MessageBubble({
                       <div dangerouslySetInnerHTML={{ __html: renderMarkdown(inline.before) }} />
                     </div>
                   )}
-                  <EmailDraftCard subject={inline.subject} body={inline.body} />
+                  <EmailDraftCard subject={inline.subject} subjectAlt={inline.subjectAlt} body={inline.body} selfScore={inline.selfScore} />
                   {inline.after && (
                     <div className={`rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${color.bubble} text-foreground rounded-bl-sm`}>
                       <div dangerouslySetInnerHTML={{ __html: renderMarkdown(inline.after) }} />
