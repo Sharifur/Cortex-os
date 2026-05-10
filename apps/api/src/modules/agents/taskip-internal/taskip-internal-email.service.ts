@@ -55,40 +55,66 @@ export class TaskipInternalEmailService {
         this.logger.warn(`could not fetch threadId for ${messageId}: ${(err as Error).message}`);
       }
 
-      const [row] = await this.db.db
-        .insert(taskipInternalEmails)
-        .values({
-          purpose: input.purpose,
-          workspaceUuid: input.workspaceUuid ?? null,
-          recipient: input.recipient,
-          subject: input.subject,
-          body: input.body,
-          gmailMessageId: messageId,
-          gmailThreadId: threadId,
-          status: 'sent',
-          metadata: input.metadata ?? null,
-          trackingToken,
-        })
-        .returning({ id: taskipInternalEmails.id });
+      const baseValues = {
+        purpose: input.purpose,
+        workspaceUuid: input.workspaceUuid ?? null,
+        recipient: input.recipient,
+        subject: input.subject,
+        body: input.body,
+        gmailMessageId: messageId,
+        gmailThreadId: threadId,
+        status: 'sent' as const,
+        metadata: input.metadata ?? null,
+      };
 
-      return { id: row.id, gmailMessageId: messageId, status: 'sent' };
+      let row: { id: string };
+      try {
+        [row] = await this.db.db
+          .insert(taskipInternalEmails)
+          .values({ ...baseValues, trackingToken })
+          .returning({ id: taskipInternalEmails.id });
+      } catch (colErr) {
+        // tracking_token column not yet migrated on this environment
+        if ((colErr as Error).message?.includes('tracking_token')) {
+          [row] = await this.db.db
+            .insert(taskipInternalEmails)
+            .values(baseValues)
+            .returning({ id: taskipInternalEmails.id });
+        } else {
+          throw colErr;
+        }
+      }
+
+      return { id: row!.id, gmailMessageId: messageId, status: 'sent' };
     } catch (err) {
       const message = (err as Error).message;
-      const [row] = await this.db.db
-        .insert(taskipInternalEmails)
-        .values({
-          purpose: input.purpose,
-          workspaceUuid: input.workspaceUuid ?? null,
-          recipient: input.recipient,
-          subject: input.subject,
-          body: input.body,
-          status: 'failed',
-          error: message,
-          metadata: input.metadata ?? null,
-          trackingToken,
-        })
-        .returning({ id: taskipInternalEmails.id });
-      return { id: row.id, gmailMessageId: null, status: 'failed', error: message };
+      const baseFailValues = {
+        purpose: input.purpose,
+        workspaceUuid: input.workspaceUuid ?? null,
+        recipient: input.recipient,
+        subject: input.subject,
+        body: input.body,
+        status: 'failed' as const,
+        error: message,
+        metadata: input.metadata ?? null,
+      };
+      let row: { id: string };
+      try {
+        [row] = await this.db.db
+          .insert(taskipInternalEmails)
+          .values({ ...baseFailValues, trackingToken })
+          .returning({ id: taskipInternalEmails.id });
+      } catch (colErr) {
+        if ((colErr as Error).message?.includes('tracking_token')) {
+          [row] = await this.db.db
+            .insert(taskipInternalEmails)
+            .values(baseFailValues)
+            .returning({ id: taskipInternalEmails.id });
+        } else {
+          throw colErr;
+        }
+      }
+      return { id: row!.id, gmailMessageId: null, status: 'failed', error: message };
     }
   }
 
@@ -99,7 +125,23 @@ export class TaskipInternalEmailService {
     if (opts.workspaceUuid) where.push(eq(taskipInternalEmails.workspaceUuid, opts.workspaceUuid));
 
     const rows = await this.db.db
-      .select()
+      .select({
+        id: taskipInternalEmails.id,
+        purpose: taskipInternalEmails.purpose,
+        workspaceUuid: taskipInternalEmails.workspaceUuid,
+        recipient: taskipInternalEmails.recipient,
+        subject: taskipInternalEmails.subject,
+        body: taskipInternalEmails.body,
+        gmailMessageId: taskipInternalEmails.gmailMessageId,
+        gmailThreadId: taskipInternalEmails.gmailThreadId,
+        status: taskipInternalEmails.status,
+        error: taskipInternalEmails.error,
+        replyCount: taskipInternalEmails.replyCount,
+        lastReplyAt: taskipInternalEmails.lastReplyAt,
+        lastSyncedAt: taskipInternalEmails.lastSyncedAt,
+        metadata: taskipInternalEmails.metadata,
+        sentAt: taskipInternalEmails.sentAt,
+      })
       .from(taskipInternalEmails)
       .where(where.length ? and(...where) : undefined)
       .orderBy(desc(taskipInternalEmails.sentAt))
@@ -109,7 +151,23 @@ export class TaskipInternalEmailService {
 
   async getDetail(id: string) {
     const [email] = await this.db.db
-      .select()
+      .select({
+        id: taskipInternalEmails.id,
+        purpose: taskipInternalEmails.purpose,
+        workspaceUuid: taskipInternalEmails.workspaceUuid,
+        recipient: taskipInternalEmails.recipient,
+        subject: taskipInternalEmails.subject,
+        body: taskipInternalEmails.body,
+        gmailMessageId: taskipInternalEmails.gmailMessageId,
+        gmailThreadId: taskipInternalEmails.gmailThreadId,
+        status: taskipInternalEmails.status,
+        error: taskipInternalEmails.error,
+        replyCount: taskipInternalEmails.replyCount,
+        lastReplyAt: taskipInternalEmails.lastReplyAt,
+        lastSyncedAt: taskipInternalEmails.lastSyncedAt,
+        metadata: taskipInternalEmails.metadata,
+        sentAt: taskipInternalEmails.sentAt,
+      })
       .from(taskipInternalEmails)
       .where(eq(taskipInternalEmails.id, id))
       .limit(1);
@@ -125,7 +183,14 @@ export class TaskipInternalEmailService {
 
   async syncReplies(emailId: string): Promise<{ added: number; total: number }> {
     const [email] = await this.db.db
-      .select()
+      .select({
+        id: taskipInternalEmails.id,
+        gmailMessageId: taskipInternalEmails.gmailMessageId,
+        gmailThreadId: taskipInternalEmails.gmailThreadId,
+        status: taskipInternalEmails.status,
+        replyCount: taskipInternalEmails.replyCount,
+        lastReplyAt: taskipInternalEmails.lastReplyAt,
+      })
       .from(taskipInternalEmails)
       .where(eq(taskipInternalEmails.id, emailId))
       .limit(1);

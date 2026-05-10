@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.5.1',
+    date: '2026-05-10',
+    entries: [
+      { tag: 'fix', scope: 'taskip-internal', description: 'list_sent_emails, getDetail, syncReplies now use explicit column selection — excludes tracking_token/open_count columns that are only on dev (migration 0063). send() also falls back to inserting without tracking columns when the column is missing on production.' },
+    ],
+  },
+  {
     version: 'v4.5.0',
     date: '2026-05-10',
     entries: [
