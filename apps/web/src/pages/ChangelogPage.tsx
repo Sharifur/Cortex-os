@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.8.2',
+    date: '2026-05-10',
+    entries: [
+      { tag: 'feat', scope: 'agent', description: 'Batch send gap: 100–300s random delay between consecutive emails in a batch to avoid bulk-send patterns and improve deliverability. Telegram notifies before each wait with the countdown.' },
+    ],
+  },
+  {
     version: 'v4.8.1',
     date: '2026-05-10',
     entries: [

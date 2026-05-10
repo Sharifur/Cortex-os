@@ -846,11 +846,17 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
         if (!Array.isArray(emails) || emails.length === 0) {
           return { success: false, error: 'batch_send_email: emails array is empty' };
         }
-        await this.telegram.sendMessage(`Starting batch: ${emails.length} email${emails.length !== 1 ? 's' : ''}`);
+        await this.telegram.sendMessage(`Starting batch: ${emails.length} email${emails.length !== 1 ? 's' : ''} — 100–300s gap between sends`);
         let sent = 0;
         const failedEmails: Array<{ recipient: string; subject: string; error: string }> = [];
         const results: unknown[] = [];
         for (const [idx, email] of emails.entries()) {
+          // Human-paced delay between emails (skip before the first one)
+          if (idx > 0) {
+            const delaySec = 100 + Math.floor(Math.random() * 201); // 100–300s
+            await this.telegram.sendMessage(`[${idx}/${emails.length}] Waiting ${delaySec}s before next send…`);
+            await new Promise(resolve => setTimeout(resolve, delaySec * 1000));
+          }
           try {
             const result = await this.emails.send({
               purpose: email.purpose ?? 'followup',
