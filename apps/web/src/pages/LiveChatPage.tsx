@@ -46,6 +46,7 @@ import {
   Flag,
   RefreshCw,
   Loader2,
+  Search,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -1339,6 +1340,28 @@ function ConversationsTab() {
             )}
           </div>
         )}
+
+        {/* Inline search */}
+        <div className="px-3 py-2 border-b border-border">
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
+            <input
+              type="text"
+              placeholder="Search name, email, message…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full bg-muted/40 border border-border rounded-md pl-8 pr-3 py-1.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/50"
+            />
+            {search && (
+              <button
+                onClick={() => setSearch('')}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+        </div>
 
         <LiveVisitorsPanel
           visitors={liveVisitors}

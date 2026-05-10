@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.6.0',
+    date: '2026-05-10',
+    entries: [
+      { tag: 'feat', scope: 'livechat', description: 'Inline search input added to the conversation list sidebar — always visible between the stats bar and the online visitors panel. Filters by visitor name, email, or last message; clear button appears when there is input.' },
+    ],
+  },
+  {
     version: 'v4.5.9',
     date: '2026-05-10',
     entries: [
