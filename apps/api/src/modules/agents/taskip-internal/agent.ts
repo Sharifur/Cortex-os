@@ -1332,6 +1332,18 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
   }
 
   private async executeReadTool(name: string, args: Record<string, unknown>): Promise<unknown> {
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const WORKSPACE_UUID_TOOLS = [
+      'lookup_workspace_owner', 'insight_get_lifecycle', 'insight_get_overview',
+      'insight_recommended_actions', 'insight_pending_scenarios', 'insight_recent_messages',
+      'insight_log_agent_action', 'list_workspace_suggestions',
+    ];
+    if (WORKSPACE_UUID_TOOLS.includes(name)) {
+      const raw = String(args.workspace_uuid ?? '');
+      if (!UUID_RE.test(raw)) {
+        return { error: `workspace_uuid must be a UUID string (e.g. "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx") — got "${raw}". Use the \`uuid\` field from insight_list_cohort results, not a numeric id.` };
+      }
+    }
     try {
       switch (name) {
         case 'lookup_user': {
@@ -1535,7 +1547,7 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
       },
       {
         name: 'insight_list_cohort',
-        description: 'List workspaces in a lifecycle cohort. Use for Phase 1 segmentation. Returns minimal per-workspace data, paginated.',
+        description: 'List workspaces in a lifecycle cohort. Use for Phase 1 segmentation. Returns minimal per-workspace data, paginated. Each item has a `uuid` field (string UUID like "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx") — always use that as workspace_uuid for all subsequent insight calls. Never use the numeric id.',
         parameters: {
           type: 'object',
           properties: {
@@ -1682,10 +1694,10 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
       },
       {
         name: 'insight_get_lifecycle',
-        description: 'Read the full lifecycle snapshot (state, owner, score, signals, recent_messages) for a workspace. Use to compose personalized copy.',
+        description: 'Read the full lifecycle snapshot (state, owner, score, signals, recent_messages) for a workspace. Use to compose personalized copy. workspace_uuid must be the UUID string (from the `uuid` field of insight_list_cohort results) — never a numeric id.',
         parameters: {
           type: 'object',
-          properties: { workspace_uuid: { type: 'string' } },
+          properties: { workspace_uuid: { type: 'string', description: 'UUID string from insight_list_cohort result.uuid — never a numeric id' } },
           required: ['workspace_uuid'],
         },
       },

@@ -16,6 +16,29 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.8.5',
+    date: '2026-05-10',
+    entries: [
+      { tag: 'feat', scope: 'inbox', description: 'AI draft drawer now instructs the agent to call insight_get_lifecycle with the workspace UUID before drafting — so the email is based on live engagement stats, not cached inbox data.' },
+    ],
+  },
+  {
+    version: 'v4.8.4',
+    date: '2026-05-10',
+    entries: [
+      { tag: 'feat', scope: 'inbox', description: 'Draft reply with AI: clicking the button opens an in-page right-side drawer with a live AI chat (taskip_internal agent). Pre-seeds the context from the selected email and auto-sends the initial draft query. No navigation away from the inbox.' },
+      { tag: 'feat', scope: 'inbox', description: 'Reply loading skeleton: replaced "Loading replies..." text with two animated skeleton reply cards while replies are fetching.' },
+      { tag: 'feat', scope: 'inbox', description: 'AI thinking skeleton: while the agent is processing, the drawer shows animated skeleton lines instead of a plain loading indicator.' },
+    ],
+  },
+  {
+    version: 'v4.8.3',
+    date: '2026-05-10',
+    entries: [
+      { tag: 'fix', scope: 'agent', description: 'Insight API 404 fix: executeReadTool now validates workspace_uuid is a UUID string before calling the API — returns a clear error if a numeric id is passed, preventing /workspaces/1/lifecycle 404s. Tool descriptions updated to explicitly name the `uuid` field from insight_list_cohort results.' },
+    ],
+  },
+  {
     version: 'v4.8.2',
     date: '2026-05-10',
     entries: [
