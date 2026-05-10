@@ -16,6 +16,18 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.8.0',
+    date: '2026-05-10',
+    entries: [
+      { tag: 'feat', scope: 'agent', description: 'Continuation intent detection: when the prior agent message asked for confirmation and the user replies with "yes/go/proceed", the agent now injects a CONTINUATION MODE directive into the system prompt — bypassing re-read and re-listing entirely, executing the queued action immediately.' },
+      { tag: 'feat', scope: 'agent', description: 'Selection intent: when the user sends numbers like "2,4,5,6,7", the agent maps them back to the workspace names from the prior numbered list and processes only those workspaces through SPAR.' },
+      { tag: 'feat', scope: 'agent', description: 'batch_send_email action: new approval-gated action type that holds an array of SPAR-generated email drafts. Single Telegram approval sends the whole batch. Each email is individually tracked in the Inbox.' },
+      { tag: 'feat', scope: 'agent', description: 'Workspace list format standardised: agent now numbers lists as "1. Name — Score: N" and ends with reply instructions, making number-selection parsing reliable.' },
+      { tag: 'feat', scope: 'agent', description: 'MAX_TOOL_ITERATIONS raised from 14 to 25 to support multi-workspace batch processing (7 workspaces × ~3 tool calls each).' },
+      { tag: 'feat', scope: 'chat', description: 'Batch email action shown in chat as a preview list of all recipients + subjects with Telegram approval reminder.' },
+    ],
+  },
+  {
     version: 'v4.7.2',
     date: '2026-05-10',
     entries: [

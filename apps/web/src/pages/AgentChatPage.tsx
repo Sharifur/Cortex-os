@@ -223,6 +223,17 @@ function extractResponse(run: RunDetail): string {
   );
   if (notify?.payload?.['message']) return String(notify.payload['message']);
 
+  const batchAction = actions.find((a) => a.type === 'batch_send_email');
+  if (batchAction) {
+    const emails = (batchAction.payload as any)?.emails ?? [];
+    const lines = [`Batch email ready — ${emails.length} email${emails.length !== 1 ? 's' : ''} awaiting Telegram approval:`, ''];
+    for (const [i, e] of emails.entries()) {
+      lines.push(`${i + 1}. **${e.recipient}** — ${e.subject}`);
+    }
+    lines.push('', 'Approve or reject via Telegram.');
+    return lines.join('\n');
+  }
+
   const approval = actions.find((a) => ['extend_trial', 'mark_refund', 'send_reply'].includes(a.type));
   if (approval) return `Awaiting Telegram approval: ${approval.summary}`;
 
