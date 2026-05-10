@@ -28,6 +28,7 @@ import AdminPage from '@/pages/AdminPage';
 import ChangelogPage from '@/pages/ChangelogPage';
 import EmailSuppressionsPage from '@/pages/EmailSuppressionsPage';
 import NotFoundPage from '@/pages/NotFoundPage';
+import GmailOAuthCallbackPage from '@/pages/GmailOAuthCallbackPage';
 import AppLayout from '@/components/AppLayout';
 import { useAuthStore } from '@/stores/authStore';
 
@@ -52,6 +53,7 @@ export default function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
+          <Route path="/gmail/oauth/callback" element={<GmailOAuthCallbackPage />} />
           <Route
             element={
               <ProtectedRoute>
