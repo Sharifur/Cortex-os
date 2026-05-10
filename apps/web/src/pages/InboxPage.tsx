@@ -317,7 +317,10 @@ export default function InboxPage() {
     const replyInfo = r.replyCount > 0
       ? ` They replied ${r.replyCount} time${r.replyCount > 1 ? 's' : ''}, last ${timeAgo(r.lastReplyAt!)}.`
       : '';
-    const query = `Draft a follow-up email to ${r.recipient} about the email "${r.subject}" sent ${timeAgo(r.sentAt)}. They ${openInfo}.${replyInfo} Use the SPAR system.`;
+    const insightHint = r.workspaceUuid
+      ? ` Before drafting, call insight_get_lifecycle with workspace_uuid="${r.workspaceUuid}" to get the latest engagement stats for this workspace, then use those in the draft.`
+      : '';
+    const query = `Draft a follow-up email to ${r.recipient} about the email "${r.subject}" sent ${timeAgo(r.sentAt)}. They ${openInfo}.${replyInfo}${insightHint} Use the SPAR system.`;
     setAiMessages([]);
     setAiRunId(null);
     setAiThinking(false);

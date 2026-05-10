@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.8.5',
+    date: '2026-05-10',
+    entries: [
+      { tag: 'feat', scope: 'inbox', description: 'AI draft drawer now instructs the agent to call insight_get_lifecycle with the workspace UUID before drafting — so the email is based on live engagement stats, not cached inbox data.' },
+    ],
+  },
+  {
     version: 'v4.8.4',
     date: '2026-05-10',
     entries: [
