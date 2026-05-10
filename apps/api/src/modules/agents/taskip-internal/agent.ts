@@ -125,15 +125,29 @@ Check for CONTINUATION intent FIRST before anything else.
 → Do NOT re-run cohort queries. Do NOT re-list workspaces. Do NOT ask for confirmation again.
 → Process the specified workspaces through SPAR, accumulate all emails, call batch_send_email once.
 
+**RETRY intent** — When the system message includes "CONTINUATION MODE ACTIVE — RETRY":
+→ Re-process only the listed failed recipients. Look each one up, run SPAR, call batch_send_email.
+
 **SELECTION intent** — When the user sends only numbers (e.g. "2,4,5,6,7") and the prior assistant message showed a numbered workspace list:
 → Treat as a workspace selection. Map numbers to workspace names from the prior list.
 → Run SPAR for each selected workspace and call batch_send_email.
+
+**DRY-RUN intent** — keywords: "show me first", "preview", "draft only", "what would you send", "dry run", "don't send yet", "let me see"
+→ Run the full SPAR workflow for each relevant workspace. Do NOT call batch_send_email or send_email.
+→ Instead, output all generated drafts as formatted text: for each workspace show "**Workspace**: Name | **To**: email | **Subject**: ... | **Body**: first 2 lines..."
+→ End with: "Reply 'send them' to dispatch all, or give a number selection to send specific ones."
 
 **READ intent** — keywords: list, show, find, get, what, how many, check, who, display, summarize, overview, drill into, look up, give me, tell me
 → Run read tools only. Return the data. STOP. Do NOT propose any write action unless the user explicitly asked for one.
 
 **ACTION intent** — keywords: propose, suggest, send, submit, draft, extend, refund, reach out, outreach, write email, create suggestion
 → Follow the outreach workflow below. Use batch_send_email when multiple workspaces are confirmed.
+
+**TONE OVERRIDE** — If the user includes a tone modifier anywhere in their message, override SPAR Step 4 for all emails in this session:
+- "aggressive" / "direct" / "push hard" → shorter, assertive, question is pointed
+- "soft" / "gentle" / "low-pressure" → exploratory, no pressure, one soft observation
+- "ultra-brief" / "very short" → max 3 sentences + sign-off, single blunt question
+- "warm" / "friendly" / "casual" → conversational, genuine, like a founder to a peer
 
 If the message is ambiguous and there is NO prior conversation context, treat it as READ. Never auto-escalate to an action.
 
@@ -143,6 +157,9 @@ Examples:
 - "Propose retention outreach for workspace Y" → ACTION — draft and propose
 - "2,4,5,6,7" after a numbered workspace list → SELECTION — process those 5 workspaces
 - "yes" / "go" / "proceed" after a confirmation prompt → CONTINUATION — execute immediately
+- "show me first" / "dry run" → DRY-RUN — generate drafts, do not send
+- "retry" / "retry failed" → RETRY — resend only the failed ones from the last batch
+- "send them aggressive" → CONTINUATION + TONE OVERRIDE aggressive
 
 ---
 
@@ -158,29 +175,31 @@ Call the relevant read tool(s), format the results clearly, and reply. Do not ca
 
 **Multi-workspace batch (CONTINUATION / SELECTION mode):**
 Phase 1 — For each selected workspace: call insight_get_lifecycle to get owner email + full metrics.
-Phase 2 — Skip any workspace contacted in the last 7 days (check insight_recent_messages).
+Phase 2 — Dedup + reply-aware skip:
+  - Call insight_recent_messages: if a message was sent in the last 7 days → note "recently contacted, skipping" and move on.
+  - Call list_sent_emails(workspaceUuid=...): if any email has replyCount > 0 → note "already engaged (replied), skipping" and move on.
+  - Only process workspaces that pass both checks.
 Phase 3 — Run full SPAR workflow (Steps 1-8) per workspace. Accumulate all email drafts.
 Phase 4 — Call batch_send_email once with ALL accumulated emails. Single approval for the whole batch.
-Phase 5 — insight_log_agent_action for each workspace processed.
+  - If ALL workspaces were skipped (all contacted/replied) → return a notify_result explaining why each was skipped instead.
+Phase 5 — insight_log_agent_action for each workspace (success or skipped with reason).
 
-**Standard single-workspace flow (when user asks for one workspace):**
+**Standard single-workspace flow:**
 Phase 1 — insight_list_cohort(cohort, per_page=5, min_score=0). Pick top 3-5 by score/urgency.
 Phase 2 — for each candidate: insight_get_overview → insight_recent_messages → list_workspace_suggestions.
-  Skip workspace if: a message was sent in the last 7 days OR a pending suggestion already exists in the queue.
-Phase 3 — insight_pending_scenarios to confirm the scenario is eligible.
+  Skip if: contacted in the last 7 days OR pending suggestion exists OR replyCount > 0 on a recent email.
+Phase 3 — insight_pending_scenarios to confirm scenario eligibility.
 Phase 4 — propose ONE action using the correct channel. Stop.
-Phase 5 — insight_log_agent_action(result=success|skipped, reason=...) to record the decision.
-
-Before ANY outreach proposal:
-- Call list_sent_emails(workspaceUuid=...) or insight_recent_messages first.
-- If contacted in the last 7 days → log skipped, move on.
-- Never propose more than one action per workspace per session.
+Phase 5 — insight_log_agent_action(result=success|skipped, reason=...).
 
 **When presenting a workspace list for selection:**
-- Always number items: "1. WorkspaceName — Score: N" (one per line, consistent format)
+- Always number items: "1. WorkspaceName — Score: N [contacted 2d ago]" — flag recently-contacted workspaces inline.
+- Include ALL workspaces in the list (don't pre-filter) — the user decides whether to include contacted ones.
 - End with: "Reply with numbers to select (e.g. '1,3,5') or 'all' to process everything."
-- Do NOT pre-filter out any workspaces — let the user choose.
 - The numbering must be sequential starting from 1 with no gaps.
+
+**Dedup annotation when listing:**
+For each workspace in the list, check insight_recent_messages in parallel. If contacted in last 7 days, append "[contacted Xd ago]". If any prior email has replyCount > 0, append "[replied — engaged]". This annotation is informational only.
 
 insight_get_overview returns: plan, cohort, score, score_type, score_delta_14d, activation_event_hit, volume_metrics (invoices_total, invoices_paid, contacts_total, leads_total, projects_total, tasks_total), session (last_active_at, is_active_now). Ground all outreach copy in these real numbers.
 
@@ -369,7 +388,20 @@ const MAX_TOOL_ITERATIONS = 25; // raised to support batch processing (up to 7 w
 // ─── Continuation helpers ─────────────────────────────────────────────────────
 
 function isAffirmative(text: string): boolean {
-  return /^(yes|y|go|proceed|confirm|ok|sure|do it|send|approve|let'?s go|send them|send it|yep|yeah|continue|start|execute|all of them|all|fire away)[\s.,!]*$/i.test(text.trim());
+  return /^(yes|y|go|proceed|confirm|ok|sure|do it|send|approve|let'?s go|send them|send it|yep|yeah|continue|start|execute|all of them|all|fire away|retry|retry failed|try again|resend|re-?send)[\s.,!]*$/i.test(text.trim());
+}
+
+function detectToneOverride(text: string): string | null {
+  const t = text.toLowerCase();
+  if (/\b(aggressive|direct|push hard|assertive)\b/.test(t)) return 'aggressive';
+  if (/\b(soft|gentle|low.?pressure|subtle)\b/.test(t)) return 'soft';
+  if (/\b(ultra.?brief|very short|2.?3 sentences|one.?liner)\b/.test(t)) return 'ultra-brief';
+  if (/\b(warm|friendly|personal|casual)\b/.test(t)) return 'warm';
+  return null;
+}
+
+function isRetry(text: string): boolean {
+  return /\b(retry|try again|resend|re-?send|retry failed|send failed|failed ones)\b/i.test(text.trim());
 }
 
 function parseSelectionNumbers(text: string): number[] | null {
@@ -394,25 +426,45 @@ function extractNumberedItems(text: string): Map<number, string> {
   return map;
 }
 
+function extractFailedEmails(text: string): string[] {
+  // Parse failed recipients from batch result messages like "[2/5] Failed: email@example.com — reason"
+  const matches = [...text.matchAll(/Failed:\s*([^\s,—–]+@[^\s,—–]+)/gi)];
+  return matches.map(m => m[1].trim()).filter(Boolean);
+}
+
 function buildContinuationHint(query: string, lastAgentMsg: string | null | undefined): string | null {
   if (!lastAgentMsg) return null;
 
   const affirmative = isAffirmative(query);
   const numbers = parseSelectionNumbers(query);
   const hasPendingPrompt = /would you like|shall i|want to proceed|say.{0,20}(yes|go|confirm)|pick numbers|proceed\?|confirm\?|which.*would you/i.test(lastAgentMsg);
+  const toneOverride = detectToneOverride(query);
+  const toneNote = toneOverride ? `\nTONE OVERRIDE: Use "${toneOverride}" tone — override SPAR Step 4 cohort calibration with this tone for all emails in this batch.` : '';
 
-  if (!affirmative && !numbers?.length) return null;
-  if (!hasPendingPrompt && !numbers?.length) return null;
+  // ─── Retry failed ────────────────────────────────────────────────────────
+  if (isRetry(query)) {
+    const failedEmails = extractFailedEmails(lastAgentMsg);
+    if (failedEmails.length > 0) {
+      return `\n\nCONTINUATION MODE ACTIVE — RETRY: The prior batch had ${failedEmails.length} failure(s). Re-process ONLY these recipients: ${failedEmails.join(', ')}. Look up each workspace by email, run SPAR, call batch_send_email with the retried emails only. Do NOT re-process the ones that succeeded.${toneNote}`;
+    }
+  }
 
+  // ─── Number selection ────────────────────────────────────────────────────
   if (numbers?.length) {
     const items = extractNumberedItems(lastAgentMsg);
     const selected = numbers.map(n => ({ n, name: items.get(n) ?? `item ${n}` }));
     const names = selected.map(s => `${s.n}. ${s.name}`).join(', ');
-    return `\n\nCONTINUATION MODE ACTIVE: The user selected ${numbers.length} item(s) from your prior numbered list: ${names}. Process ONLY these ${numbers.length} workspace(s) through the full SPAR workflow. For each: call insight_get_lifecycle (or insight_get_overview) to get the owner email and metrics, run SPAR Steps 1-8, generate the email draft, then call batch_send_email once with ALL emails accumulated. Do NOT list workspaces again. Do NOT ask for confirmation. Start processing immediately.`;
+    return `\n\nCONTINUATION MODE ACTIVE: The user selected ${numbers.length} item(s) from your prior numbered list: ${names}. Process ONLY these ${numbers.length} workspace(s) through the full SPAR workflow. For each: call insight_get_lifecycle to get the owner email and metrics, run SPAR Steps 1-8, generate the email draft, then call batch_send_email once with ALL emails accumulated. Do NOT list workspaces again. Do NOT ask for confirmation. Start processing immediately.${toneNote}`;
   }
 
+  // ─── Affirmative confirmation ─────────────────────────────────────────────
   if (affirmative && hasPendingPrompt) {
-    return `\n\nCONTINUATION MODE ACTIVE: The user confirmed with "${query}". Resume the action you were about to propose in your prior turn. Do NOT re-list workspaces. Do NOT re-ask for confirmation. Execute the outreach workflow immediately and call batch_send_email with the generated emails.`;
+    return `\n\nCONTINUATION MODE ACTIVE: The user confirmed with "${query}". Resume the action you were about to propose in your prior turn. Do NOT re-list workspaces. Do NOT re-ask for confirmation. Execute the outreach workflow immediately and call batch_send_email with the generated emails.${toneNote}`;
+  }
+
+  // ─── Tone-only on an existing selection context ───────────────────────────
+  if (toneOverride && hasPendingPrompt) {
+    return `\n\nCONTINUATION MODE ACTIVE: Apply "${toneOverride}" tone override and resume the pending action from the prior turn.${toneNote}`;
   }
 
   return null;
@@ -796,7 +848,7 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
         }
         await this.telegram.sendMessage(`Starting batch: ${emails.length} email${emails.length !== 1 ? 's' : ''}`);
         let sent = 0;
-        let failed = 0;
+        const failedEmails: Array<{ recipient: string; subject: string; error: string }> = [];
         const results: unknown[] = [];
         for (const [idx, email] of emails.entries()) {
           try {
@@ -812,18 +864,24 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
               sent++;
               await this.telegram.sendMessage(`[${idx + 1}/${emails.length}] Sent to ${email.recipient}`);
             } else {
-              failed++;
+              failedEmails.push({ recipient: email.recipient, subject: email.subject, error: result.error ?? 'send failed' });
               await this.telegram.sendMessage(`[${idx + 1}/${emails.length}] Failed: ${email.recipient} — ${result.error ?? 'unknown error'}`);
             }
             results.push(result);
           } catch (err) {
-            failed++;
+            failedEmails.push({ recipient: email.recipient, subject: email.subject, error: (err as Error).message });
             await this.telegram.sendMessage(`[${idx + 1}/${emails.length}] Error: ${email.recipient} — ${(err as Error).message}`);
             results.push({ error: (err as Error).message });
           }
         }
-        await this.telegram.sendMessage(`Batch complete: ${sent} sent, ${failed} failed`);
-        return { success: failed === 0, data: { sent, failed, results } };
+        const failedCount = failedEmails.length;
+        let summaryMsg = `Batch complete: ${sent} sent, ${failedCount} failed`;
+        if (failedCount > 0) {
+          const failedList = failedEmails.map(f => `Failed: ${f.recipient} — ${f.error}`).join('\n');
+          summaryMsg += `\n\nFailed recipients:\n${failedList}\n\nReply "retry failed" to re-attempt these ${failedCount} email${failedCount !== 1 ? 's' : ''}.`;
+        }
+        await this.telegram.sendMessage(summaryMsg);
+        return { success: failedCount === 0, data: { sent, failed: failedCount, failedEmails, results } };
       }
 
       case 'insight_submit_marketing_suggestion': {

@@ -16,6 +16,17 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.8.1',
+    date: '2026-05-10',
+    entries: [
+      { tag: 'feat', scope: 'agent', description: 'Dry-run mode: say "show me first" / "dry run" / "preview" — agent runs the full SPAR workflow per workspace and outputs all drafts as formatted text without calling batch_send_email. Reply "send them" or a number selection to dispatch.' },
+      { tag: 'feat', scope: 'agent', description: 'Tone presets: append a tone modifier to any message — "aggressive", "soft", "ultra-brief", "warm". Overrides SPAR Step 4 cohort calibration for all emails in that batch.' },
+      { tag: 'feat', scope: 'agent', description: 'Dedup pre-filter: workspace list now shows "[contacted Xd ago]" and "[replied — engaged]" annotations. Agent checks insight_recent_messages in parallel while listing, but still includes all workspaces — user decides whether to include flagged ones.' },
+      { tag: 'feat', scope: 'agent', description: 'Reply-aware skip in batch: before generating each email, checks list_sent_emails for replyCount > 0. Workspaces with active replies are skipped automatically (they are already engaged).' },
+      { tag: 'feat', scope: 'agent', description: 'Partial batch recovery: when a batch has failures, Telegram summary lists each failed recipient with error. Say "retry failed" or "retry" to re-process only the failed ones — CONTINUATION MODE targets them specifically.' },
+    ],
+  },
+  {
     version: 'v4.8.0',
     date: '2026-05-10',
     entries: [
