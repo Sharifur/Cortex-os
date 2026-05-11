@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.12.1',
+    date: '2026-05-11',
+    entries: [
+      { tag: 'feat', scope: 'debug-logs', description: 'All agent API route calls (GET/POST/etc on /taskip-internal/*, /livechat/*, /support/*, and every other agent route) are now recorded in the Debug Logs page. Success calls log at 200 with duration. Errors log at 500 with the error message, stack trace, and request body. Auth failures (missing/invalid JWT, invalid webhook signature) also log at 401.' },
+    ],
+  },
+  {
     version: 'v4.12.0',
     date: '2026-05-11',
     entries: [
