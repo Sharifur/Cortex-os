@@ -13,6 +13,8 @@ import { TaskipInternalSuggestionSweepService } from './taskip-internal-suggesti
 import { TASKIP_SUGGESTION_SWEEP_QUEUE } from './taskip-internal-suggestion-sweep.processor';
 import { KillSwitchService, type KillSwitchAction } from '../../safety/kill-switch.service';
 import { KnowledgeBaseService } from '../../knowledge-base/knowledge-base.service';
+import { SpamCheckerService } from '../../spam-checker/spam-checker.service';
+import { SettingsService } from '../../settings/settings.service';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import type { LlmToolMessage, ToolDefinition } from '../../llm/llm.types';
@@ -590,6 +592,8 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
   readonly name = 'Taskip Internal';
   private readonly logger = new Logger(TaskipInternalAgent.name);
 
+  private fromDomainCache: string | null = null;
+
   constructor(
     private db: DbService,
     private llm: LlmRouterService,
@@ -602,8 +606,20 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
     private registry: AgentRegistryService,
     private logSvc: AgentLogService,
     private kb: KnowledgeBaseService,
+    private spamChecker: SpamCheckerService,
+    private settings: SettingsService,
     @InjectQueue(TASKIP_SUGGESTION_SWEEP_QUEUE) private readonly suggestionSweepQueue: Queue,
   ) {}
+
+  private async getFromDomain(): Promise<string> {
+    if (this.fromDomainCache) return this.fromDomainCache;
+    const raw = (await this.settings.getDecrypted('ses_default_from')) ?? '';
+    const match = raw.match(/<([^>]+)>/) ?? raw.match(/^(\S+@\S+)$/);
+    const email = match?.[1] ?? raw;
+    const domain = email.includes('@') ? email.split('@')[1].trim() : '';
+    this.fromDomainCache = domain;
+    return domain;
+  }
 
   onModuleInit() {
     this.registry.register(this);
@@ -662,6 +678,9 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
       ...priorMessages,
       { role: 'user', content: effectiveQuery },
     ];
+
+    let spamRevisions = 0;
+    const MAX_SPAM_REVISIONS = 2;
 
     for (let i = 0; i < MAX_TOOL_ITERATIONS; i++) {
       if (runId) {
@@ -737,15 +756,65 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
 
         if (tc.name === 'batch_send_email') {
           const emails = args.emails as Array<{ recipient: string; subject: string; body: string; workspace_uuid?: string; purpose?: string }>;
-          const count = Array.isArray(emails) ? emails.length : 0;
-          const preview = Array.isArray(emails)
-            ? emails.slice(0, 3).map(e => `${e.recipient} — "${(e.subject ?? '').slice(0, 40)}"`).join(', ')
-            : '';
-          const summary = `Send ${count} email${count !== 1 ? 's' : ''} (batch): ${preview}${count > 3 ? ` + ${count - 3} more` : ''}`;
+          if (!Array.isArray(emails) || emails.length === 0) {
+            messages.push({ role: 'tool', content: JSON.stringify({ error: 'emails array is empty' }), tool_call_id: tc.id });
+            break;
+          }
+
+          const fromDomain = await this.getFromDomain();
+          const spamResults = await Promise.all(
+            emails.map(async (e) => {
+              const result = await this.spamChecker.score({
+                subject: e.subject ?? '',
+                textBody: e.body ?? '',
+                fromAddress: '',
+                fromDomain,
+                recipient: e.recipient ?? '',
+                isTransactional: false,
+              });
+              return { recipient: e.recipient, subject: e.subject, score: result.score, grade: result.grade, issues: result.issues, criticalFailures: result.criticalFailures };
+            }),
+          );
+
+          const failures = spamResults.filter(r => r.score < 60);
+
+          if (failures.length > 0 && spamRevisions < MAX_SPAM_REVISIONS) {
+            spamRevisions++;
+            const feedbackLines = failures.map(r => {
+              const topIssues = r.issues
+                .filter(i => i.severity === 'critical' || i.severity === 'high')
+                .slice(0, 5)
+                .map(i => `  - [${i.ruleId}] ${i.message} → ${i.suggestedFix}`)
+                .join('\n');
+              return `${r.recipient} — grade: ${r.grade} (score: ${r.score})\n${topIssues}`;
+            }).join('\n\n');
+
+            this.logger.warn(`Spam check blocked batch: ${failures.length}/${emails.length} emails failed — revision ${spamRevisions}/${MAX_SPAM_REVISIONS}`);
+            messages.push({
+              role: 'tool',
+              content: JSON.stringify({
+                ok: false,
+                spamCheckFailed: true,
+                message: `SPAM CHECK FAILED — ${failures.length} of ${emails.length} email(s) scored below inbox threshold (grade SPAM_RISK or BLOCK). Revise the flagged emails and call batch_send_email again. Do NOT send as-is.\n\n${feedbackLines}`,
+              }),
+              tool_call_id: tc.id,
+            });
+            break;
+          }
+
+          // All passed (or max revisions reached — proceed with grade warnings)
+          const count = emails.length;
+          const preview = emails.slice(0, 3).map(e => `${e.recipient} — "${(e.subject ?? '').slice(0, 40)}"`).join(', ');
+          const scoresSummary = spamResults.map(r => `${r.grade}(${r.score})`).join(', ');
+          const hasWarnings = spamResults.some(r => r.score < 75);
+          const summary = `Send ${count} email${count !== 1 ? 's' : ''} (batch): ${preview}${count > 3 ? ` + ${count - 3} more` : ''} | Spam: ${scoresSummary}`;
+          if (hasWarnings) {
+            this.logger.warn(`Batch proceeding with spam warnings: ${scoresSummary}`);
+          }
           return [{
             type: 'batch_send_email',
             summary,
-            payload: { emails, _query: query },
+            payload: { emails, _query: query, spamScores: spamResults.map(r => ({ recipient: r.recipient, score: r.score, grade: r.grade })) },
             riskLevel: 'high',
           }];
         }

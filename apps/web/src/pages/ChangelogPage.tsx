@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.11.1',
+    date: '2026-05-11',
+    entries: [
+      { tag: 'feat', scope: 'taskip-internal', description: 'Pre-send spam gate in decide(): every batch_send_email call now scores all emails via SpamCheckerService before proposing for Telegram approval. Emails scoring below 60 (SPAM_RISK/BLOCK) feed back top issues to the LLM as a tool result so it revises — up to 2 revision attempts. Only clean drafts (score ≥60) surface as ProposedAction. Spam scores included in the Telegram approval summary (e.g. INBOX_LIKELY(82)).' },
+    ],
+  },
+  {
     version: 'v4.11.0',
     date: '2026-05-11',
     entries: [
