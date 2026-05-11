@@ -124,15 +124,6 @@ export class AgentRouteDispatcherService implements OnApplicationBootstrap {
                 });
             }
 
-            void this.requestLogs.record({
-              method: logMethod,
-              path: logPath,
-              statusCode: 200,
-              durationMs: Date.now() - startMs,
-              ip: logIp,
-              userAgent: logUserAgent,
-              queryString: logQuery,
-            });
             reply.send(result ?? { ok: true });
           } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);

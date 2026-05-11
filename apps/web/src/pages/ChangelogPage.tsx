@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.12.2',
+    date: '2026-05-11',
+    entries: [
+      { tag: 'fix', scope: 'debug-logs', description: 'Agent route logging: only record 4xx and 500 errors — successful 200 calls are no longer written to Debug Logs to avoid noise.' },
+    ],
+  },
+  {
     version: 'v4.12.1',
     date: '2026-05-11',
     entries: [
