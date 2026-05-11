@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.9.0',
+    date: '2026-05-11',
+    entries: [
+      { tag: 'feat', scope: 'support', description: 'Webhooks tab added to the Support agent detail page (/agents/support). Shows all incoming CRM webhook events (status, ticket ID, timestamp, raw payload) with expandable rows — same data as the chat page webhook tab but accessible directly from the agent page.' },
+    ],
+  },
+  {
     version: 'v4.8.9',
     date: '2026-05-11',
     entries: [
