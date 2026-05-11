@@ -16,6 +16,15 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.11.3',
+    date: '2026-05-11',
+    entries: [
+      { tag: 'fix', scope: 'chat', description: 'Suggestion chips no longer shown constantly — only appear when the chat is empty (no messages and no typed input). Hidden once conversation starts.' },
+      { tag: 'feat', scope: 'chat', description: 'Email draft card now shows live spam score: calls /spam-checker/score on render and displays grade + numeric score (color-coded) next to the SPAR self-score in the card footer. Only active for taskip_internal agent.' },
+      { tag: 'feat', scope: 'taskip-internal', description: 'Spam check results now recorded in run activity log (event_type: spam_check_start / spam_check_end) with email count, per-recipient scores, failed count, revision number, and duration. Visible in the Activity panel.' },
+    ],
+  },
+  {
     version: 'v4.11.2',
     date: '2026-05-11',
     entries: [

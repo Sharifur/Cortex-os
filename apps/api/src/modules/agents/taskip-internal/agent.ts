@@ -762,6 +762,13 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
           }
 
           const fromDomain = await this.getFromDomain();
+          if (runId) {
+            await this.logSvc.debug(runId, `Spam check: scoring ${emails.length} email(s)`, {
+              event_type: 'spam_check_start',
+              email_count: emails.length,
+            });
+          }
+          const spamCheckStart = Date.now();
           const spamResults = await Promise.all(
             emails.map(async (e) => {
               const result = await this.spamChecker.score({
@@ -775,8 +782,20 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
               return { recipient: e.recipient, subject: e.subject, score: result.score, grade: result.grade, issues: result.issues, criticalFailures: result.criticalFailures };
             }),
           );
+          const spamCheckMs = Date.now() - spamCheckStart;
 
           const failures = spamResults.filter(r => r.score < 60);
+
+          if (runId) {
+            const scoresSummaryLog = spamResults.map(r => `${r.recipient}: ${r.grade}(${r.score})`).join(', ');
+            await this.logSvc.debug(runId, `Spam check: ${failures.length > 0 ? `${failures.length} failed` : 'all passed'}`, {
+              event_type: 'spam_check_end',
+              duration_ms: spamCheckMs,
+              scores: scoresSummaryLog,
+              failed_count: failures.length,
+              revision: spamRevisions,
+            });
+          }
 
           if (failures.length > 0 && spamRevisions < MAX_SPAM_REVISIONS) {
             spamRevisions++;
