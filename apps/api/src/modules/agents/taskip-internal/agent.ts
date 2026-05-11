@@ -673,6 +673,31 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
           }];
         }
 
+        // Auto-resolve numeric workspace_uuid → real UUID from prior cohort list results
+        const NEEDS_WORKSPACE_UUID = [
+          'insight_get_lifecycle', 'insight_get_overview', 'insight_recommended_actions',
+          'insight_pending_scenarios', 'insight_recent_messages', 'insight_log_agent_action',
+          'list_workspace_suggestions', 'lookup_workspace_owner',
+        ];
+        if (NEEDS_WORKSPACE_UUID.includes(tc.name) && /^\d+$/.test(String(args.workspace_uuid ?? ''))) {
+          const position = parseInt(String(args.workspace_uuid), 10);
+          for (let i = messages.length - 1; i >= 0; i--) {
+            const msg = messages[i] as { role: string; content?: string };
+            if (msg.role === 'tool' && typeof msg.content === 'string') {
+              try {
+                const parsed = JSON.parse(msg.content);
+                const items: Array<{ uuid?: string }> | null = Array.isArray(parsed)
+                  ? parsed
+                  : Array.isArray(parsed?.data) ? parsed.data : null;
+                if (items && items.length > 0 && items[0]?.uuid) {
+                  const item = items[position - 1];
+                  if (item?.uuid) { args = { ...args, workspace_uuid: item.uuid }; break; }
+                }
+              } catch { /* skip non-JSON tool results */ }
+            }
+          }
+        }
+
         // Read-only tools — execute and feed result back
         const argsSummary = Object.entries(args).map(([k, v]) => `${k}: ${String(v).slice(0, 40)}`).join(', ');
         const insightEndpointHint = tc.name === 'lookup_user'

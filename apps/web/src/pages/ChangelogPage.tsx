@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.9.3',
+    date: '2026-05-11',
+    entries: [
+      { tag: 'fix', scope: 'taskip-internal', description: 'Auto-resolve numeric workspace_uuid to real UUID before any insight tool call: if the LLM passes a list position (e.g. "4") instead of a UUID, the runtime now scans prior cohort list tool results and substitutes the correct uuid field automatically.' },
+    ],
+  },
+  {
     version: 'v4.9.2',
     date: '2026-05-11',
     entries: [
