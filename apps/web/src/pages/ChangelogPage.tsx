@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.12.5',
+    date: '2026-05-11',
+    entries: [
+      { tag: 'fix', scope: 'gmail', description: 'Non-ASCII characters in email subjects (em dash, smart quotes, etc.) were arriving garbled (Ã¢Â€Â" instead of —) when sent via Gmail OAuth API. Raw MIME headers now RFC 2047-encode subjects that contain non-ASCII bytes using =?UTF-8?B?...?= encoding, so all mail clients decode them correctly.' },
+    ],
+  },
+  {
     version: 'v4.12.4',
     date: '2026-05-11',
     entries: [

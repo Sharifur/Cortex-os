@@ -8,6 +8,11 @@ import { DbService } from '../../db/db.service';
 import { gmailAccounts } from './schema';
 import { encrypt, decrypt } from '../../common/crypto/crypto.util';
 
+function encodeSubject(subject: string): string {
+  if (/^[\x00-\x7F]*$/.test(subject)) return subject;
+  return `=?UTF-8?B?${Buffer.from(subject, 'utf-8').toString('base64')}?=`;
+}
+
 export interface GmailSendParams {
   to: string;
   from: string;
@@ -227,7 +232,7 @@ export class GmailService {
       rawParts = [
         `From: ${fromHeader}`,
         `To: ${params.to}`,
-        `Subject: ${params.subject}`,
+        `Subject: ${encodeSubject(params.subject)}`,
         `MIME-Version: 1.0`,
         `Content-Type: multipart/alternative; boundary="${boundary}"`,
         ``,
@@ -247,7 +252,7 @@ export class GmailService {
       rawParts = [
         `From: ${fromHeader}`,
         `To: ${params.to}`,
-        `Subject: ${params.subject}`,
+        `Subject: ${encodeSubject(params.subject)}`,
         `MIME-Version: 1.0`,
         `Content-Type: text/plain; charset=UTF-8`,
         ``,
