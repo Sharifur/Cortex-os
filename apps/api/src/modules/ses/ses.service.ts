@@ -104,6 +104,10 @@ export class SesService {
       Body.Html = { Data: params.htmlBody, Charset: 'UTF-8' };
     }
 
+    this.logger.debug(
+      `SES send — to: "${params.to}" | from: "${params.from}" | replyTo: "${params.replyTo ?? ''}" | bcc: "${(params.bcc ?? []).join(', ')}" | subject: "${params.subject.slice(0, 60)}"`,
+    );
+
     const cmd = new SendEmailCommand({
       Destination: {
         ToAddresses: [params.to],
@@ -119,7 +123,15 @@ export class SesService {
       ...(params.configurationSet ? { ConfigurationSetName: params.configurationSet } : {}),
     });
 
-    const result = await client.send(cmd);
+    let result;
+    try {
+      result = await client.send(cmd);
+    } catch (err) {
+      this.logger.error(
+        `SES SDK error — to: "${params.to}" | from: "${params.from}" | replyTo: "${params.replyTo ?? ''}" | error: ${(err as Error).message}`,
+      );
+      throw err;
+    }
     this.logger.log(`SES sent to ${params.to} — messageId: ${result.MessageId}`);
     return result.MessageId ?? '';
   }

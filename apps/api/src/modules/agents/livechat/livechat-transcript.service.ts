@@ -65,6 +65,10 @@ export class LivechatTranscriptService {
 
     // Reply-To threads visitor replies back into this session via SES inbound.
     const replyTo = (await this.inbound.buildReplyTo(sessionId)) ?? undefined;
+
+    this.logger.debug(
+      `Transcript send attempt — session: ${sessionId.slice(-8)} | to: "${visitorEmail}" | from: "${fromAddress}" | replyTo: "${replyTo ?? 'none'}" | bcc: "${bccList.join(', ') || 'none'}"`,
+    );
     // Message-ID lets clients that don't use the To address still thread by
     // matching In-Reply-To against this header.
     // Note: the standard SES SDK doesn't expose Message-Id directly on

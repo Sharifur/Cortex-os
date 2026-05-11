@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.9.7',
+    date: '2026-05-11',
+    entries: [
+      { tag: 'fix', scope: 'ses', description: 'SES sendEmail now logs a DEBUG line before calling the SDK (to/from/replyTo/bcc/subject) and an ERROR line on SDK failure with the exact address fields — making "Domain contains illegal character" diagnosable from server logs.' },
+    ],
+  },
+  {
     version: 'v4.9.6',
     date: '2026-05-11',
     entries: [
