@@ -383,7 +383,29 @@ export default function InboxPage() {
       <div className="flex flex-1 min-h-0">
         {/* Left: email list */}
         <div className="w-80 shrink-0 border-r border-border flex flex-col overflow-y-auto">
-          {isLoading && <p className="text-xs text-muted-foreground p-6">Loading…</p>}
+          {isLoading && (
+            <div className="space-y-px">
+              {[0, 1, 2, 3, 4, 5].map(i => (
+                <div key={i} className="px-4 py-3 border-b border-border">
+                  <div className="flex items-start gap-2.5">
+                    <Skeleton className="w-8 h-8 rounded-full shrink-0 mt-0.5" />
+                    <div className="flex-1 min-w-0 space-y-1.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <Skeleton className="h-3 w-32" />
+                        <Skeleton className="h-2.5 w-10" />
+                      </div>
+                      <Skeleton className="h-2.5 w-48" />
+                      <Skeleton className="h-2.5 w-40" />
+                      <div className="flex gap-1.5 pt-0.5">
+                        <Skeleton className="h-3.5 w-14 rounded-full" />
+                        <Skeleton className="h-3.5 w-10 rounded-full" />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
           {!isLoading && rows.length === 0 && (
             <div className="p-8 text-center">
               <p className="text-sm text-muted-foreground">No emails yet.</p>
