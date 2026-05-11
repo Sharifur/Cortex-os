@@ -2918,7 +2918,10 @@ function LivechatSetupSubTab({ agent }: { agent: AgentDetail }) {
           </ol>
           <div className="flex items-center gap-2 bg-muted/60 border border-border rounded-lg px-3 py-2 mt-1">
             <code className="text-xs font-mono flex-1 break-all text-foreground">{inboundUrl}</code>
-            <CopyButton text={inboundUrl} />
+            <button
+              onClick={() => navigator.clipboard.writeText(inboundUrl)}
+              className="shrink-0 text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded border border-border bg-background"
+            >Copy</button>
           </div>
           <p className="mt-1 text-xs text-muted-foreground">Replace <code className="bg-muted px-1 rounded">&lt;livechat_inbound_token&gt;</code> with the actual value you set above. Enable "Include original headers" in the SES action.</p>
         </SetupStep>
