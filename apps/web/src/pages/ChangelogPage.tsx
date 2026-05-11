@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.9.5',
+    date: '2026-05-11',
+    entries: [
+      { tag: 'fix', scope: 'taskip-internal', description: 'DETAIL LOOKUP intent: "share details about 1" / "tell me about 2" now correctly resolves the number as a list position from the prior shown list — not a fresh cohort query. READ intent now explicitly guards against re-running insight_list_cohort when a numbered list is already in context.' },
+    ],
+  },
+  {
     version: 'v4.9.4',
     date: '2026-05-11',
     entries: [
