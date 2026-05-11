@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.12.4',
+    date: '2026-05-11',
+    entries: [
+      { tag: 'fix', scope: 'runtime', description: 'Agent route dispatcher was omitting request.params from the handler params object — every route with a path parameter (e.g. /inbox/:id, /inbox/:id/mark-opened) received undefined for those params, causing UNDEFINED_VALUE postgres errors. Fixed by spreading request.params first in the merge.' },
+    ],
+  },
+  {
     version: 'v4.12.3',
     date: '2026-05-11',
     entries: [
