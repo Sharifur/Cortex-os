@@ -5,7 +5,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
-  Mail, Eye, EyeOff, MessageSquare, RefreshCw, Bot, Loader2, Clock, ChevronRight, Reply, Send, X,
+  Mail, Eye, EyeOff, MessageSquare, RefreshCw, Bot, Loader2, Clock, ChevronRight, Reply, Send, X, Search,
 } from 'lucide-react';
 
 interface InboxRow {
@@ -161,6 +161,7 @@ export default function InboxPage() {
   const highlightId = searchParams.get('highlight') ?? '';
 
   const [purpose, setPurpose] = useState<string>('');
+  const [search, setSearch] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(highlightId || null);
 
   // AI chat drawer
@@ -256,8 +257,15 @@ export default function InboxPage() {
     }
   }, [highlightId, data]);
 
-  const rows = data ?? [];
-  const selected = rows.find((r) => r.id === selectedId) ?? null;
+  const allRows = data ?? [];
+  const needle = search.trim().toLowerCase();
+  const rows = needle
+    ? allRows.filter(r =>
+        r.recipient.toLowerCase().includes(needle) ||
+        r.subject.toLowerCase().includes(needle)
+      )
+    : allRows;
+  const selected = allRows.find((r) => r.id === selectedId) ?? null;
 
   const [replyOpen, setReplyOpen] = useState(false);
   const [replyBody, setReplyBody] = useState('');
@@ -330,7 +338,7 @@ export default function InboxPage() {
   }
 
   return (
-    <div className="flex flex-col h-[calc(100vh-64px)] overflow-hidden">
+    <div className="flex flex-col h-[calc(100vh-64px)]">
       {/* Top bar */}
       <div className="flex items-center justify-between gap-4 px-6 py-3 border-b border-border shrink-0">
         <div className="flex items-center gap-3">
@@ -362,28 +370,70 @@ export default function InboxPage() {
         </div>
       </div>
 
-      {/* Filter tabs */}
-      <div className="flex items-center gap-1.5 px-6 py-2 border-b border-border shrink-0">
-        {(['', 'marketing', 'followup', 'offer', 'other'] as const).map((p) => (
-          <button
-            key={p || 'all'}
-            onClick={() => setPurpose(p)}
-            className={`text-[11px] px-3 py-1 rounded-full border transition-colors ${
-              purpose === p
-                ? 'bg-primary text-primary-foreground border-primary'
-                : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground/30'
-            }`}
-          >
-            {p ? p.charAt(0).toUpperCase() + p.slice(1) : 'All'}
-          </button>
-        ))}
+      {/* Filter tabs + search */}
+      <div className="flex items-center gap-2 px-6 py-2 border-b border-border shrink-0">
+        <div className="flex items-center gap-1.5 flex-1 min-w-0 flex-wrap">
+          {(['', 'marketing', 'followup', 'offer', 'other'] as const).map((p) => (
+            <button
+              key={p || 'all'}
+              onClick={() => setPurpose(p)}
+              className={`text-[11px] px-3 py-1 rounded-full border transition-colors shrink-0 ${
+                purpose === p
+                  ? 'bg-primary text-primary-foreground border-primary'
+                  : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground/30'
+              }`}
+            >
+              {p ? p.charAt(0).toUpperCase() + p.slice(1) : 'All'}
+            </button>
+          ))}
+        </div>
+        <div className="relative shrink-0">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground pointer-events-none" />
+          <input
+            type="text"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search email or subject…"
+            className="h-7 pl-7 pr-7 w-52 rounded-md border border-border bg-muted/30 text-[11px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+          />
+          {search && (
+            <button
+              onClick={() => setSearch('')}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Two-panel body */}
-      <div className="flex flex-1 min-h-0 relative">
+      <div className="flex flex-1 min-h-0">
         {/* Left: email list */}
         <div className="w-80 shrink-0 border-r border-border flex flex-col overflow-y-auto">
-          {isLoading && <p className="text-xs text-muted-foreground p-6">Loading…</p>}
+          {isLoading && (
+            <div className="space-y-px">
+              {[0, 1, 2, 3, 4, 5].map(i => (
+                <div key={i} className="px-4 py-3 border-b border-border">
+                  <div className="flex items-start gap-2.5">
+                    <Skeleton className="w-8 h-8 rounded-full shrink-0 mt-0.5" />
+                    <div className="flex-1 min-w-0 space-y-1.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <Skeleton className="h-3 w-32" />
+                        <Skeleton className="h-2.5 w-10" />
+                      </div>
+                      <Skeleton className="h-2.5 w-48" />
+                      <Skeleton className="h-2.5 w-40" />
+                      <div className="flex gap-1.5 pt-0.5">
+                        <Skeleton className="h-3.5 w-14 rounded-full" />
+                        <Skeleton className="h-3.5 w-10 rounded-full" />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
           {!isLoading && rows.length === 0 && (
             <div className="p-8 text-center">
               <p className="text-sm text-muted-foreground">No emails yet.</p>
@@ -444,7 +494,10 @@ export default function InboxPage() {
           })}
         </div>
 
-        {/* Right: detail panel */}
+        {/* Right area: detail panel + AI drawer sidebar */}
+        <div className="flex flex-1 min-w-0">
+
+        {/* Detail panel */}
         <div className="flex-1 min-w-0 overflow-y-auto">
           {!selected && (
             <div className="flex items-center justify-center h-full">
@@ -655,12 +708,9 @@ export default function InboxPage() {
           )}
         </div>
 
-        {/* AI Chat Drawer */}
-        <div
-          className={`absolute top-0 right-0 bottom-0 w-[420px] bg-background border-l border-border flex flex-col shadow-2xl z-30 transition-transform duration-300 ${
-            aiOpen ? 'translate-x-0' : 'translate-x-full pointer-events-none'
-          }`}
-        >
+        {/* AI Chat Drawer — flex sidebar, width-animated */}
+        <div className={`shrink-0 overflow-hidden border-l border-border transition-all duration-300 ${aiOpen ? 'w-[420px]' : 'w-0'}`}>
+          <div className="w-[420px] bg-background flex flex-col h-full">
           {/* Drawer header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
             <div className="flex items-center gap-2">
@@ -738,6 +788,8 @@ export default function InboxPage() {
             </div>
             <p className="text-[10px] text-muted-foreground mt-1.5">Cmd+Enter to send</p>
           </div>
+          </div>
+        </div>
         </div>
       </div>
     </div>

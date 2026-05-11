@@ -149,9 +149,9 @@ const AGENT_SEEDS = [
 ];
 
 async function seed() {
-  // Seed default admin — update email/password from the Settings → Account panel after first login
-  const DEFAULT_EMAIL = 'admin@cortex.local';
-  const DEFAULT_PASSWORD = 'changeme123';
+  // Seed default admin — reads OWNER_EMAIL / OWNER_PASSWORD from .env, falls back to hardcoded defaults
+  const DEFAULT_EMAIL = process.env.OWNER_EMAIL || 'admin@cortex.local';
+  const DEFAULT_PASSWORD = process.env.OWNER_PASSWORD || 'changeme123';
 
   const existing = await db.select().from(users).limit(1);
   if (existing.length === 0) {

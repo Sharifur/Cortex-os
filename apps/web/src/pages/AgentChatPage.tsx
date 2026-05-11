@@ -1410,7 +1410,8 @@ function ChatTab({
       )}
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      <div className="flex-1 overflow-y-auto flex flex-col">
+        <div className="max-w-3xl mx-auto w-full px-4 py-4 flex-1 flex flex-col gap-4">
         {histLoading && (
           <div className="space-y-3 pt-2">
             {[1, 2, 3].map((i) => (
@@ -1422,7 +1423,7 @@ function ChatTab({
         )}
 
         {!histLoading && messages.length === 0 && (
-          <div className="flex flex-col items-center justify-center h-full text-center gap-3 py-12">
+          <div className="flex flex-col items-center justify-center flex-1 text-center gap-3 py-12">
             <div className={`w-14 h-14 rounded-2xl ${color.iconBg} flex items-center justify-center`}>
               <Bot className={`w-7 h-7 ${color.iconText}`} />
             </div>
@@ -1439,10 +1440,12 @@ function ChatTab({
 
         {isThinking && <TypingBubble color={color} />}
         <div ref={bottomRef} />
+        </div>
       </div>
 
       {/* Input */}
       <div className="shrink-0 border-t border-border p-3">
+        <div className="max-w-3xl mx-auto w-full">
         {!agent.enabled && (
           <p className="text-xs text-amber-500 mb-2 px-1">Agent is disabled — enable it in Settings to chat.</p>
         )}
@@ -1499,6 +1502,7 @@ function ChatTab({
             {isBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
           </Button>
         </div>
+        </div>{/* end max-w wrapper */}
       </div>
       </div>{/* end left chat column */}
 

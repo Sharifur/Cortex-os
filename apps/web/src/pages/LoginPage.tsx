@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Bot, Mail, Lock, Eye, EyeOff, LogIn, AlertCircle } from 'lucide-react';
+import { Bot, Mail, Lock, Eye, EyeOff, LogIn, AlertCircle, Info } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -11,6 +11,8 @@ export default function LoginPage() {
   const navigate = useNavigate();
   const setToken = useAuthStore((s) => s.setToken);
   const setRole = useAuthStore((s) => s.setRole);
+
+  const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -83,6 +85,27 @@ export default function LoginPage() {
               Sign in to your agent platform
             </p>
           </div>
+
+          {/* Local dev hint */}
+          {isLocal && (
+            <div className="flex items-start gap-2.5 text-xs bg-blue-500/8 border border-blue-500/20 rounded-lg px-3 py-2.5 mb-5">
+              <Info className="w-3.5 h-3.5 text-blue-400 shrink-0 mt-0.5" />
+              <div className="flex-1 min-w-0">
+                <p className="text-blue-300 font-medium mb-1">Default credentials (from .env)</p>
+                <div className="text-blue-300/70 space-y-0.5 font-mono">
+                  <p>admin@example.com</p>
+                  <p>changeme123</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => { setEmail('admin@example.com'); setPassword('changeme123'); }}
+                className="shrink-0 text-[11px] px-2 py-1 rounded border border-blue-500/30 text-blue-400 hover:bg-blue-500/10 transition-colors"
+              >
+                Use
+              </button>
+            </div>
+          )}
 
           {/* Error */}
           {error && (

@@ -7,7 +7,7 @@ import {
   Mail, Cpu, Layers, Info, BookOpen,
   CheckCircle2, Circle, MessageSquare,
   Bug, AlertTriangle, AlertCircle,
-  Plus, Loader2,
+  Plus, Loader2, RefreshCw, Radio,
   CalendarClock, Zap, RotateCcw, ListTodo, ExternalLink,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -4452,12 +4452,147 @@ function CanvaSetupTab({ agent, token }: { agent: AgentDetail; token: string }) 
   );
 }
 
+// ─── Webhook Logs Tab ─────────────────────────────────────────────────────────
+
+interface WebhookLog {
+  id: string;
+  status: string;
+  externalId: string | null;
+  ticketId: string | null;
+  rawPayload: string | null;
+  error: string | null;
+  receivedAt: string;
+}
+
+function WebhookLogsTab({ token }: { token: string }) {
+  const [expanded, setExpanded] = useState<string | null>(null);
+
+  const { data: logs = [], isLoading, refetch, isFetching } = useQuery<WebhookLog[]>({
+    queryKey: ['support-webhook-logs'],
+    queryFn: async () => {
+      const res = await fetch('/support/webhook-logs?limit=200', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error('Failed');
+      return res.json();
+    },
+    staleTime: 30_000,
+  });
+
+  function statusChip(status: string) {
+    if (status === 'ok') return 'bg-emerald-500/15 text-emerald-400';
+    if (status === 'duplicate') return 'bg-amber-500/15 text-amber-400';
+    return 'bg-rose-500/15 text-rose-400';
+  }
+
+  function timeAgo(iso: string) {
+    const diff = Date.now() - new Date(iso).getTime();
+    const m = Math.floor(diff / 60000);
+    if (m < 1) return 'just now';
+    if (m < 60) return `${m}m ago`;
+    const h = Math.floor(m / 60);
+    if (h < 24) return `${h}h ago`;
+    return `${Math.floor(h / 24)}d ago`;
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h2 className="text-sm font-semibold">Webhook Logs</h2>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Incoming events from your CRM via{' '}
+            <code className="bg-muted px-1 rounded">/support/ingest-ticket</code>
+          </p>
+        </div>
+        <button
+          onClick={() => refetch()}
+          disabled={isFetching}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border text-xs text-muted-foreground hover:text-foreground disabled:opacity-50 transition-colors"
+        >
+          <RefreshCw className={`w-3 h-3 ${isFetching ? 'animate-spin' : ''}`} />
+          Refresh
+        </button>
+      </div>
+
+      {isLoading && (
+        <div className="space-y-2">
+          {[0, 1, 2, 3].map(i => (
+            <div key={i} className="rounded-lg border border-border p-3 flex items-center gap-3">
+              <Skeleton className="w-16 h-5 rounded-full" />
+              <Skeleton className="h-3 w-24" />
+              <Skeleton className="h-3 w-32 ml-auto" />
+            </div>
+          ))}
+        </div>
+      )}
+
+      {!isLoading && logs.length === 0 && (
+        <div className="rounded-xl border border-border bg-card p-10 text-center">
+          <Radio className="w-8 h-8 text-muted-foreground/30 mx-auto mb-3" />
+          <p className="text-sm text-muted-foreground">No webhook events received yet.</p>
+          <p className="text-xs text-muted-foreground/60 mt-1">Events will appear here once your CRM starts sending tickets.</p>
+        </div>
+      )}
+
+      {!isLoading && logs.length > 0 && (
+        <div className="space-y-1.5">
+          {logs.map(log => (
+            <div key={log.id} className="rounded-lg border border-border bg-card overflow-hidden">
+              <button
+                className="w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-muted/20 transition-colors"
+                onClick={() => setExpanded(expanded === log.id ? null : log.id)}
+              >
+                <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold uppercase tracking-wide shrink-0 ${statusChip(log.status)}`}>
+                  {log.status}
+                </span>
+                <span className="text-xs font-medium truncate flex-1 min-w-0">
+                  {log.externalId ? `Ticket #${log.externalId}` : 'Unknown ticket'}
+                </span>
+                {log.error && (
+                  <span className="text-[11px] text-rose-400 truncate max-w-[200px]">{log.error}</span>
+                )}
+                <span className="text-[11px] text-muted-foreground shrink-0">{timeAgo(log.receivedAt)}</span>
+                <ChevronDown className={`w-3.5 h-3.5 text-muted-foreground shrink-0 transition-transform ${expanded === log.id ? 'rotate-180' : ''}`} />
+              </button>
+
+              {expanded === log.id && (
+                <div className="border-t border-border px-4 py-3 space-y-3">
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
+                    <div><span className="text-muted-foreground">Received:</span> {new Date(log.receivedAt).toLocaleString()}</div>
+                    <div><span className="text-muted-foreground">CRM ticket ID:</span> {log.externalId ?? '—'}</div>
+                    <div><span className="text-muted-foreground">Internal ticket ID:</span> {log.ticketId ?? '—'}</div>
+                    <div><span className="text-muted-foreground">Status:</span> {log.status}</div>
+                  </div>
+                  {log.error && (
+                    <div className="rounded-md bg-rose-500/10 border border-rose-500/20 px-3 py-2 text-xs text-rose-400">
+                      {log.error}
+                    </div>
+                  )}
+                  {log.rawPayload && (
+                    <div>
+                      <p className="text-[11px] font-medium text-muted-foreground mb-1.5">Raw payload</p>
+                      <pre className="text-[11px] bg-muted rounded-lg p-3 overflow-x-auto leading-relaxed">
+                        {(() => { try { return JSON.stringify(JSON.parse(log.rawPayload), null, 2); } catch { return log.rawPayload; } })()}
+                      </pre>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function AgentDetailPage() {
   const { key } = useParams<{ key: string }>();
   const token = useAuthStore((s) => s.token)!;
-  const [activeTab, setActiveTab] = useState<'runs' | 'settings'>('runs');
+  const [activeTab, setActiveTab] = useState<'runs' | 'settings' | 'webhooks'>('runs');
   const color = agentColor(key!);
 
   const { data: agent, isLoading, isError } = useQuery<AgentDetail>({
@@ -4539,10 +4674,24 @@ export default function AgentDetailPage() {
               <Settings className="w-4 h-4" />
               Settings
             </button>
+            {key === 'support' && (
+              <button
+                onClick={() => setActiveTab('webhooks')}
+                className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
+                  activeTab === 'webhooks'
+                    ? 'border-primary text-foreground'
+                    : 'border-transparent text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                <Radio className="w-4 h-4" />
+                Webhooks
+              </button>
+            )}
           </div>
 
           {activeTab === 'runs' && <RunsTab agentKey={key!} token={token} />}
           {activeTab === 'settings' && <SettingsTab agent={agent} token={token} />}
+          {activeTab === 'webhooks' && key === 'support' && <WebhookLogsTab token={token} />}
         </>
       )}
     </div>

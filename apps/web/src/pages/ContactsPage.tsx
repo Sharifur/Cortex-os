@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Users, Search, Plus, Mail, Phone, MessageSquare, Tag, Trash2, Loader2, X, Save, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Skeleton } from '@/components/ui/skeleton';
 import { useAuthStore } from '@/stores/authStore';
 
 const PAGE_SIZE = 25;
@@ -172,7 +173,20 @@ export default function ContactsPage() {
           </select>
         </div>
 
-        {list.isLoading && <p className="p-6 text-xs text-muted-foreground">Loading…</p>}
+        {list.isLoading && (
+          <div className="divide-y divide-border">
+            {[0, 1, 2, 3, 4, 5].map(i => (
+              <div key={i} className="flex items-center gap-3 px-4 py-3">
+                <Skeleton className="w-10 h-4 rounded shrink-0" />
+                <div className="flex-1 min-w-0 space-y-1.5">
+                  <Skeleton className="h-3 w-36" />
+                  <Skeleton className="h-2.5 w-52" />
+                </div>
+                <Skeleton className="h-2.5 w-16 shrink-0" />
+              </div>
+            ))}
+          </div>
+        )}
         {!list.isLoading && (list.data?.data ?? []).length === 0 && (
           <div className="p-12 text-center">
             <p className="text-sm text-muted-foreground">No contacts yet.</p>

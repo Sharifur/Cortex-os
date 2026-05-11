@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Trash2, Plus, ShieldOff } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
+import { Skeleton } from '@/components/ui/skeleton';
 
 interface Suppression {
   id: string;
@@ -123,7 +124,22 @@ export default function EmailSuppressionsPage() {
 
       <div className="border border-border rounded-lg overflow-hidden">
         {isLoading ? (
-          <div className="p-8 text-center text-sm text-muted-foreground">Loading…</div>
+          <div>
+            <div className="border-b border-border bg-muted/40 grid grid-cols-[1fr_120px_100px_120px_40px] gap-4 px-4 py-2.5">
+              {['Email', 'Reason', 'Source', 'Date', ''].map((h, i) => (
+                <Skeleton key={i} className={`h-3 ${i === 4 ? 'w-4' : 'w-16'}`} />
+              ))}
+            </div>
+            {[0, 1, 2, 3].map(i => (
+              <div key={i} className={`grid grid-cols-[1fr_120px_100px_120px_40px] gap-4 px-4 py-3 border-b border-border last:border-0 ${i % 2 !== 0 ? 'bg-muted/20' : ''}`}>
+                <Skeleton className="h-3 w-48" />
+                <Skeleton className="h-5 w-20 rounded-full" />
+                <Skeleton className="h-3 w-16" />
+                <Skeleton className="h-3 w-20" />
+                <Skeleton className="h-4 w-4 rounded" />
+              </div>
+            ))}
+          </div>
         ) : !data?.length ? (
           <div className="p-8 text-center text-sm text-muted-foreground">
             No suppressed addresses yet. Hard bounces and spam complaints are added automatically.
