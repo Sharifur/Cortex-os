@@ -156,8 +156,9 @@ Check for CONTINUATION intent FIRST before anything else.
 → Re-process only the listed failed recipients. Look each one up, run SPAR, call batch_send_email.
 
 **SELECTION intent** — When the user sends only numbers (e.g. "2,4,5,6,7") and the prior assistant message showed a numbered workspace list:
-→ Treat as a workspace selection. Map numbers to workspace names from the prior list.
-→ Run SPAR for each selected workspace and call batch_send_email.
+→ The numbers are LIST POSITIONS (1-indexed), NOT workspace IDs or UUIDs.
+→ Map each position to the workspace `uuid` field from the prior insight_list_cohort results. NEVER pass a position number as workspace_uuid.
+→ Run SPAR for each selected workspace using its UUID, then call batch_send_email.
 
 **DRY-RUN intent** — keywords: "show me first", "preview", "draft only", "what would you send", "dry run", "don't send yet", "let me see"
 → Run the full SPAR workflow for each relevant workspace. Do NOT call batch_send_email or send_email.
@@ -1368,7 +1369,7 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
     if (WORKSPACE_UUID_TOOLS.includes(name)) {
       const raw = String(args.workspace_uuid ?? '');
       if (!UUID_RE.test(raw)) {
-        return { error: `workspace_uuid must be a UUID string (e.g. "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx") — got "${raw}". Use the \`uuid\` field from insight_list_cohort results, not a numeric id.` };
+        return { error: `workspace_uuid must be a UUID string — got "${raw}". STOP. Do NOT retry with other numeric IDs. Use the \`uuid\` field from the prior insight_list_cohort results for each selected workspace position.` };
       }
     }
     try {
