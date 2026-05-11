@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.9.2',
+    date: '2026-05-11',
+    entries: [
+      { tag: 'fix', scope: 'taskip-internal', description: 'SELECTION intent now correctly maps list position numbers to workspace UUIDs from prior insight_list_cohort results instead of passing numeric positions as workspace_uuid. UUID error message strengthened to halt LLM retry loops.' },
+    ],
+  },
+  {
     version: 'v4.9.1',
     date: '2026-05-11',
     entries: [
