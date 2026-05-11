@@ -4,6 +4,7 @@ import { eq } from 'drizzle-orm';
 import { SettingsService } from '../settings/settings.service';
 import { DbService } from '../../db/db.service';
 import { emailSuppressions } from './ses-suppressions.schema';
+import { EmailSpamCheckerService } from './email-spam-checker.service';
 
 export interface SendEmailParams {
   to: string;
@@ -24,6 +25,7 @@ export class SesService {
   constructor(
     private readonly settings: SettingsService,
     private readonly db: DbService,
+    private readonly spamChecker: EmailSpamCheckerService,
   ) {}
 
   async isSuppressed(email: string): Promise<boolean> {
@@ -92,6 +94,19 @@ export class SesService {
       return '';
     }
 
+    // Spam check — sanitize subject + warn on spam signals
+    const spamResult = this.spamChecker.check(params.subject, params.textBody ?? '');
+    const subject = spamResult.sanitizedSubject;
+    if (subject !== params.subject) {
+      this.logger.warn(`Subject sanitized (non-ASCII removed) — original: "${params.subject}" | sanitized: "${subject}"`);
+    }
+    if (spamResult.blockers.length > 0) {
+      this.logger.warn(`Spam blockers detected (score ${spamResult.score}): ${spamResult.blockers.join(' | ')}`);
+    }
+    if (spamResult.warnings.length > 0) {
+      this.logger.debug(`Spam warnings: ${spamResult.warnings.join(' | ')}`);
+    }
+
     const client = new SESClient({
       region: region ?? 'ap-south-1',
       credentials: { accessKeyId, secretAccessKey },
@@ -105,7 +120,7 @@ export class SesService {
     }
 
     this.logger.debug(
-      `SES send — to: "${params.to}" | from: "${params.from}" | replyTo: "${params.replyTo ?? ''}" | bcc: "${(params.bcc ?? []).join(', ')}" | subject: "${params.subject.slice(0, 60)}"`,
+      `SES send — to: "${params.to}" | from: "${params.from}" | replyTo: "${params.replyTo ?? ''}" | bcc: "${(params.bcc ?? []).join(', ')}" | subject: "${subject.slice(0, 60)}"`,
     );
 
     const cmd = new SendEmailCommand({
@@ -115,7 +130,7 @@ export class SesService {
         ...(params.bcc?.length ? { BccAddresses: params.bcc } : {}),
       },
       Message: {
-        Subject: { Data: params.subject, Charset: 'UTF-8' },
+        Subject: { Data: subject, Charset: 'UTF-8' },
         Body,
       },
       Source: params.from,

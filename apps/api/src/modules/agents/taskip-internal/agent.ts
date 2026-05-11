@@ -296,7 +296,7 @@ Classify every data point you have into three buckets. Be specific — include a
 - is_active_now vs last_active_at gap: active today but score dropping = friction
 - invoices_paid vs invoices_total: low paid ratio = owner is having trouble collecting from clients
 
-Then: **underline the single strongest signal** — the one that most explains why this person is where they are. Everything else in the email flows from this one signal.
+Then: **rank ALL valid signals** from strongest to weakest. Do NOT stop at the first signal. List at least 2-3 candidates before deciding. A single invoice with 0 paid is WEAK unless it is the ONLY signal — because a workspace with any active behavior (tasks, projects, contacts, recent login) has stronger non-financial signals. Invoice data alone does not justify payment_collection angle if other activity signals are present.
 
 ---
 
@@ -324,9 +324,12 @@ Before picking an angle: check list_sent_emails for this workspace.
 
 - If a gap-nudge was sent before → do NOT send another gap-nudge. Pick a different angle.
 - If an achievement email was sent before → follow up on what happened next, don't repeat the same praise.
+- If a payment_collection email was sent before → ELIMINATE payment_collection from Step 5 candidates entirely — use any other angle.
 - If nothing was sent → any angle is valid.
 
-State: "Prior angle used: [gap/achievement/question/none]" and confirm you're picking a different one.
+State: "Prior angle used: [angle or none]". If prior angle was used, explicitly confirm it is eliminated from Step 5.
+
+**ANGLE DIVERSITY RULE:** Even when nothing was sent before, do NOT default to payment_collection when other activity signals exist. Different workspaces must receive different angles based on their specific strongest signal — not the same template applied to everyone with invoices_paid=0. Variety is not optional.
 
 ---
 
@@ -347,18 +350,25 @@ Adjust email length and directness based on cohort:
 
 ### Step 5 — Angle Selection
 
-Pick exactly ONE angle from this table based on the strongest signal from Step 1:
+**PRIORITY ORDER — evaluate top-to-bottom, stop at the first match. payment_collection is LAST RESORT.**
 
-| Strongest signal | Angle | Opening line pattern |
-|---|---|---|
-| invoices > 0, invoices_paid = 0 | Payment collection | "You've got [N] invoice out — has your client seen it?" → Help owner follow up with their client, or surface the payment link / reminder feature |
-| High invoices, 0 contacts in portal | Client portal adoption | "You're billing [N] clients but they're not in the portal yet — they're missing the full picture." |
-| Projects running, 0 invoices | Billing gap | "You've got [N] projects active but haven't billed yet — do you normally invoice outside Taskip?" |
-| 0 contacts, 0 leads | Pipeline gap | "No clients or leads yet — have you tried the client invite feature?" |
-| Gap that contradicts active behavior | Gap-contrast | "You've got [behavior] going — noticed [gap] hasn't been touched." |
-| Positive behavior + obvious next step | Achievement-bridge | "Saw you've got [metric] set up — [next feature] is what most people do next." |
-| Momentum declining (score_delta negative) | Re-engagement | "You were active on [thing] — went quiet after [date]. Something block you?" |
-| Score very low (<35) + recent activity | Friction probe | "You've been in there — is something not clicking?" |
+| Priority | Condition | Angle | Opening line pattern |
+|---|---|---|---|
+| 1 | Momentum declining (score_delta negative) AND recent activity | Re-engagement | "You were active on [thing] — went quiet after [date]. Something block you?" |
+| 2 | Score < 35 AND active in last 7 days | Friction probe | "You've been in there — is something not clicking?" |
+| 3 | Projects running + tasks + 0 invoices | Billing gap | "You've got [N] projects active but haven't billed yet — do you normally invoice outside Taskip?" |
+| 4 | High contacts + active + 0 leads | Pipeline gap | "No clients or leads yet — have you tried the client invite feature?" |
+| 5 | Gap that contradicts active behavior (tasks/projects exist but something key is zero) | Gap-contrast | "You've got [behavior] going — noticed [gap] hasn't been touched." |
+| 6 | Positive behavior + obvious next feature | Achievement-bridge | "Saw you've got [metric] set up — [next feature] is what most people do next." |
+| 7 | High invoices + 0 contacts in portal | Client portal adoption | "You're billing [N] clients but they're not in the portal yet — they're missing the full picture." |
+| 8 (LAST RESORT) | invoices > 0, invoices_paid = 0, AND no other signal from priorities 1-7 qualifies | Payment collection | "You've got [N] invoice out — has your client seen it?" |
+
+**CRITICAL RULES:**
+- payment_collection (priority 8) ONLY fires when ALL higher-priority conditions failed AND the invoice gap is literally the only activity signal.
+- If a workspace has tasks, projects, contacts, or any recent activity alongside invoices_paid=0, it does NOT qualify for priority 8 — use the behavior signal instead.
+- If prior outreach angle was payment_collection: skip priority 8 entirely, use the next available priority.
+- Different workspaces in the same batch MUST use different angles where signals differ. Never apply the same angle to two workspaces without explicitly checking that their signals are identical.
+- State which priority matched and why all higher priorities were skipped.
 
 No mixing. One angle, one focus.
 
@@ -406,7 +416,11 @@ Write the body following these rules exactly:
 
 Under 80 words total. Tighter is better.
 
-Banned words/phrases in body: "cohort", "score", "trial", "expired", "platform", "onboarding", "system", "automated", "just wanted to", "hope this finds you", "feel free to reach out", "don't hesitate", "let me know if you have any questions"
+Banned words/phrases in body: "cohort", "score", "trial", "expired", "platform", "onboarding", "system", "automated", "just wanted to", "hope this finds you", "feel free to reach out", "don't hesitate", "let me know if you have any questions", "get what you're owed", "ensure you get", "what you're owed", "following up could help", "speed up the process", "outstanding invoice", "overdue", "unpaid invoice", "payment is due", "reminder to pay"
+
+Banned words/phrases in subject: "invoice out", "invoice overdue", "payment due", "unpaid", "outstanding", "reminder", "following up" — these trigger spam filters.
+
+Subject must use plain ASCII only — no em dashes (—), no smart quotes, no ellipsis (...). Use a plain hyphen (-) instead of any dash character.
 
 Product framing — NEVER write these framings:
 - WRONG: "you haven't made a payment" / "you owe" / "complete the payment" → owner is not paying Taskip

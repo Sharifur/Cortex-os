@@ -16,6 +16,17 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.9.9',
+    date: '2026-05-11',
+    entries: [
+      { tag: 'feat', scope: 'ses', description: 'New EmailSpamCheckerService: scores email subject + body against spam phrase lists, auto-sanitizes non-ASCII characters in subject (em dash, smart quotes, ellipsis) to plain ASCII before SES send, and logs blockers/warnings. Prevents encoding-corrupted subjects and spam-trigger phrases from reaching inboxes.' },
+      { tag: 'fix', scope: 'taskip-internal', description: 'SPAR Step 5 angle priority reordered — payment_collection is now last resort (priority 8), only fires when no other behavioral signal qualifies. Re-engagement, friction, billing gap, pipeline gap all take precedence. Prevents all workspaces with invoices_paid=0 from receiving identical payment-angle emails.' },
+      { tag: 'fix', scope: 'taskip-internal', description: 'SPAR Step 3 angle diversity enforced: if prior email used payment_collection angle, it is eliminated from Step 5 candidates entirely. Angle diversity rule added — different workspaces in same batch must receive different angles based on their specific strongest signal.' },
+      { tag: 'fix', scope: 'taskip-internal', description: 'SPAR Step 1 signal ranking now requires listing 2-3 candidates before deciding; invoice-only signals are explicitly marked weak when other activity signals are present.' },
+      { tag: 'fix', scope: 'taskip-internal', description: 'SPAR Step 7 banned phrases expanded: "get what you\'re owed", "ensure you get", "following up could help", "speed up the process", "outstanding invoice" added to body ban list. Subject ban list added: "invoice out", "invoice overdue", "payment due", "unpaid", "outstanding", "reminder". Subject must use plain ASCII only.' },
+    ],
+  },
+  {
     version: 'v4.9.8',
     date: '2026-05-11',
     entries: [
