@@ -4,6 +4,7 @@ import { eq } from 'drizzle-orm';
 import { SettingsService } from '../settings/settings.service';
 import { DbService } from '../../db/db.service';
 import { emailSuppressions } from './ses-suppressions.schema';
+import { SpamCheckerService } from '../spam-checker/spam-checker.service';
 
 export interface SendEmailParams {
   to: string;
@@ -24,6 +25,7 @@ export class SesService {
   constructor(
     private readonly settings: SettingsService,
     private readonly db: DbService,
+    private readonly spamChecker: SpamCheckerService,
   ) {}
 
   async isSuppressed(email: string): Promise<boolean> {
@@ -92,6 +94,27 @@ export class SesService {
       return '';
     }
 
+    // Pre-send spam scoring — sanitize subject, log issues, never block (advisory)
+    const spamResult = await this.spamChecker.score({
+      subject: params.subject,
+      textBody: params.textBody ?? '',
+      htmlBody: params.htmlBody,
+      fromAddress: params.from,
+      fromDomain,
+      recipient: params.to,
+    });
+    const subject = spamResult.sanitizedSubject;
+    if (subject !== params.subject) {
+      this.logger.warn(`Subject sanitized — original: "${params.subject}" | sanitized: "${subject}"`);
+    }
+    if (spamResult.criticalFailures.length > 0) {
+      this.logger.error(`Spam CRITICAL (score ${spamResult.score} / ${spamResult.grade}): ${spamResult.criticalFailures.join(' | ')}`);
+    } else if (spamResult.grade === 'SPAM_RISK' || spamResult.grade === 'BLOCK') {
+      this.logger.warn(`Spam ${spamResult.grade} (score ${spamResult.score}) | top issues: ${spamResult.issues.slice(0, 3).map(i => i.ruleId).join(', ')}`);
+    } else {
+      this.logger.debug(`Spam score: ${spamResult.score} (${spamResult.grade})`);
+    }
+
     const client = new SESClient({
       region: region ?? 'ap-south-1',
       credentials: { accessKeyId, secretAccessKey },
@@ -104,6 +127,10 @@ export class SesService {
       Body.Html = { Data: params.htmlBody, Charset: 'UTF-8' };
     }
 
+    this.logger.debug(
+      `SES send — to: "${params.to}" | from: "${params.from}" | replyTo: "${params.replyTo ?? ''}" | bcc: "${(params.bcc ?? []).join(', ')}" | subject: "${subject.slice(0, 60)}"`,
+    );
+
     const cmd = new SendEmailCommand({
       Destination: {
         ToAddresses: [params.to],
@@ -111,7 +138,7 @@ export class SesService {
         ...(params.bcc?.length ? { BccAddresses: params.bcc } : {}),
       },
       Message: {
-        Subject: { Data: params.subject, Charset: 'UTF-8' },
+        Subject: { Data: subject, Charset: 'UTF-8' },
         Body,
       },
       Source: params.from,
@@ -119,7 +146,15 @@ export class SesService {
       ...(params.configurationSet ? { ConfigurationSetName: params.configurationSet } : {}),
     });
 
-    const result = await client.send(cmd);
+    let result;
+    try {
+      result = await client.send(cmd);
+    } catch (err) {
+      this.logger.error(
+        `SES SDK error — to: "${params.to}" | from: "${params.from}" | replyTo: "${params.replyTo ?? ''}" | error: ${(err as Error).message}`,
+      );
+      throw err;
+    }
     this.logger.log(`SES sent to ${params.to} — messageId: ${result.MessageId}`);
     return result.MessageId ?? '';
   }

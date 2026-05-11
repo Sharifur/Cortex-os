@@ -16,6 +16,64 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.11.2',
+    date: '2026-05-11',
+    entries: [
+      { tag: 'feat', scope: 'taskip-internal', description: 'Chat mode batch_send_email: no Telegram notifications when source=chat. All progress messages (start, per-email, summary) are suppressed. Telegram approval step skipped entirely — batch executes immediately from chat. Spam score (score + grade) stored in email metadata and surfaced in InboxPage as a badge per email row and in the detail panel header.' },
+      { tag: 'feat', scope: 'inbox', description: 'Spam score badge on email rows and detail panel: shows grade (Inbox/Promo/Spam risk/Blocked) + numeric score, color-coded. Populated from email metadata.spamScore/spamGrade written at send time.' },
+      { tag: 'feat', scope: 'inbox', description: 'Chat AI response for batch_send_email now shows sent count + per-email spam scores inline instead of "Approve via Telegram" prompt.' },
+    ],
+  },
+  {
+    version: 'v4.11.1',
+    date: '2026-05-11',
+    entries: [
+      { tag: 'feat', scope: 'taskip-internal', description: 'Pre-send spam gate in decide(): every batch_send_email call now scores all emails via SpamCheckerService before proposing for Telegram approval. Emails scoring below 60 (SPAM_RISK/BLOCK) feed back top issues to the LLM as a tool result so it revises — up to 2 revision attempts. Only clean drafts (score ≥60) surface as ProposedAction. Spam scores included in the Telegram approval summary (e.g. INBOX_LIKELY(82)).' },
+    ],
+  },
+  {
+    version: 'v4.11.0',
+    date: '2026-05-11',
+    entries: [
+      { tag: 'feat', scope: 'spam-checker', description: 'Full SRS v1.0 spam-risk scoring engine (Phase 1 MVP). 7-category weighted scoring: Authentication (SPF/DKIM/DMARC DNS, weight 25), Reputation (Spamhaus DBL + Barracuda DNSBL, weight 25), List Hygiene (MX lookup + role/disposable detection, weight 15), Content (46 rule-based checks across phishing-mimic / debt-collection / urgency / TGTBT / financial / clickbait categories, weight 20), Technical (URL shorteners / link density / image ratio / subject length / non-ASCII, weight 10), Compliance (List-Unsubscribe header + body link + postal address, weight 5). Returns score 0-100, grade (INBOX_STRONG / INBOX_LIKELY / PROMOTIONS_RISK / SPAM_RISK / BLOCK), per-category breakdown, criticalFailures[], suggestedFix per issue. Critical-failure cap: Spamhaus hit caps at 30 (BLOCK), missing SPF+DMARC caps at 45 (SPAM_RISK).' },
+      { tag: 'feat', scope: 'spam-checker', description: 'REST endpoints: POST /spam-checker/score (full pre-send analysis) + GET /spam-checker/audit/domain?domain= (SPF/DKIM/DMARC + blocklist audit for a domain alone). All DNS lookups run in parallel with 3s timeout and 5-min in-memory cache (p95 < 400ms warm).' },
+      { tag: 'feat', scope: 'ses', description: 'SES sendEmail now calls SpamCheckerService.score() (async, full engine) before every send. CRITICAL failures logged at ERROR level, SPAM_RISK/BLOCK at WARN, clean sends at DEBUG. Subject is auto-sanitized (non-ASCII stripped) in all cases.' },
+      { tag: 'chore', scope: 'ses', description: 'Removed EmailSpamCheckerService (basic phrase-list only). Replaced by SpamCheckerModule which SesModule now imports.' },
+    ],
+  },
+  {
+    version: 'v4.10.0',
+    date: '2026-05-11',
+    entries: [
+      { tag: 'feat', scope: 'inbox', description: 'Mark as opened button: when an email shows "Not opened yet" (e.g. landed in spam — pixel blocked by Gmail), click "Mark as opened" to manually record an open event. Increments open_count, sets first_open_at/last_open_at. New POST /taskip-internal/inbox/:id/mark-opened endpoint.' },
+    ],
+  },
+  {
+    version: 'v4.9.9',
+    date: '2026-05-11',
+    entries: [
+      { tag: 'feat', scope: 'ses', description: 'New EmailSpamCheckerService: scores email subject + body against spam phrase lists, auto-sanitizes non-ASCII characters in subject (em dash, smart quotes, ellipsis) to plain ASCII before SES send, and logs blockers/warnings. Prevents encoding-corrupted subjects and spam-trigger phrases from reaching inboxes.' },
+      { tag: 'fix', scope: 'taskip-internal', description: 'SPAR Step 5 angle priority reordered — payment_collection is now last resort (priority 8), only fires when no other behavioral signal qualifies. Re-engagement, friction, billing gap, pipeline gap all take precedence. Prevents all workspaces with invoices_paid=0 from receiving identical payment-angle emails.' },
+      { tag: 'fix', scope: 'taskip-internal', description: 'SPAR Step 3 angle diversity enforced: if prior email used payment_collection angle, it is eliminated from Step 5 candidates entirely. Angle diversity rule added — different workspaces in same batch must receive different angles based on their specific strongest signal.' },
+      { tag: 'fix', scope: 'taskip-internal', description: 'SPAR Step 1 signal ranking now requires listing 2-3 candidates before deciding; invoice-only signals are explicitly marked weak when other activity signals are present.' },
+      { tag: 'fix', scope: 'taskip-internal', description: 'SPAR Step 7 banned phrases expanded: "get what you\'re owed", "ensure you get", "following up could help", "speed up the process", "outstanding invoice" added to body ban list. Subject ban list added: "invoice out", "invoice overdue", "payment due", "unpaid", "outstanding", "reminder". Subject must use plain ASCII only.' },
+    ],
+  },
+  {
+    version: 'v4.9.8',
+    date: '2026-05-11',
+    entries: [
+      { tag: 'feat', scope: 'taskip-internal', description: 'User type badge [PAID]/[TRIAL]/[FREE] now prepended to every workspace in single-detail responses and numbered lists, derived from cohort name. Makes plan tier instantly visible without reading the cohort field.' },
+    ],
+  },
+  {
+    version: 'v4.9.7',
+    date: '2026-05-11',
+    entries: [
+      { tag: 'fix', scope: 'ses', description: 'SES sendEmail now logs a DEBUG line before calling the SDK (to/from/replyTo/bcc/subject) and an ERROR line on SDK failure with the exact address fields — making "Domain contains illegal character" diagnosable from server logs.' },
+    ],
+  },
+  {
     version: 'v4.9.6',
     date: '2026-05-11',
     entries: [

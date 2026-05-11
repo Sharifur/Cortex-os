@@ -146,6 +146,9 @@ export class TaskipInternalEmailService {
         lastSyncedAt: taskipInternalEmails.lastSyncedAt,
         metadata: taskipInternalEmails.metadata,
         sentAt: taskipInternalEmails.sentAt,
+        openCount: taskipInternalEmails.openCount,
+        firstOpenAt: taskipInternalEmails.firstOpenAt,
+        lastOpenAt: taskipInternalEmails.lastOpenAt,
       })
       .from(taskipInternalEmails)
       .where(where.length ? and(...where) : undefined)
@@ -277,6 +280,25 @@ export class TaskipInternalEmailService {
       }
     }
     return { scanned: candidates.length, updated };
+  }
+
+  async markOpened(id: string): Promise<{ ok: boolean }> {
+    const [row] = await this.db.db
+      .select({ id: taskipInternalEmails.id, firstOpenAt: taskipInternalEmails.firstOpenAt })
+      .from(taskipInternalEmails)
+      .where(eq(taskipInternalEmails.id, id))
+      .limit(1);
+    if (!row) return { ok: false };
+    const now = new Date();
+    await this.db.db
+      .update(taskipInternalEmails)
+      .set({
+        openCount: sql`COALESCE(${taskipInternalEmails.openCount}, 0) + 1`,
+        firstOpenAt: row.firstOpenAt ?? now,
+        lastOpenAt: now,
+      })
+      .where(eq(taskipInternalEmails.id, id));
+    return { ok: true };
   }
 
   private fromIsSelf(from: string): boolean {

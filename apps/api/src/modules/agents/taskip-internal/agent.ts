@@ -13,6 +13,8 @@ import { TaskipInternalSuggestionSweepService } from './taskip-internal-suggesti
 import { TASKIP_SUGGESTION_SWEEP_QUEUE } from './taskip-internal-suggestion-sweep.processor';
 import { KillSwitchService, type KillSwitchAction } from '../../safety/kill-switch.service';
 import { KnowledgeBaseService } from '../../knowledge-base/knowledge-base.service';
+import { SpamCheckerService } from '../../spam-checker/spam-checker.service';
+import { SettingsService } from '../../settings/settings.service';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import type { LlmToolMessage, ToolDefinition } from '../../llm/llm.types';
@@ -211,6 +213,26 @@ Examples:
 
 ---
 
+## User type badge
+
+Every time you present a workspace (single detail, list item, or batch result), prepend a tier badge on the FIRST line:
+- Cohort contains "paid" → badge: [PAID]
+- Cohort contains "trial" → badge: [TRIAL]
+- Cohort contains "free" → badge: [FREE]
+- Cohort is "uncategorized" or unknown → badge: [UNKNOWN]
+
+Format a single workspace header as:
+[PAID] WorkspaceName — Score: N — at_risk_paid
+
+In a numbered list, format as:
+1. [PAID] WorkspaceName — Score: N
+2. [TRIAL] WorkspaceName — Score: N
+3. [FREE] WorkspaceName — Score: N
+
+Never omit the badge. It must be the first thing on the line.
+
+---
+
 ## Workflow for READ queries
 
 Call the relevant read tool(s), format the results clearly, and reply. Do not call any write tool. Do not propose any action at the end.
@@ -241,7 +263,7 @@ Phase 4 — propose ONE action using the correct channel. Stop.
 Phase 5 — insight_log_agent_action(result=success|skipped, reason=...).
 
 **When presenting a workspace list for selection:**
-- Always number items: "1. WorkspaceName — Score: N [contacted 2d ago]" — flag recently-contacted workspaces inline.
+- Always number items: "1. [PAID] WorkspaceName — Score: N [contacted 2d ago]" — include the tier badge ([PAID]/[TRIAL]/[FREE]) and flag recently-contacted workspaces inline.
 - Include ALL workspaces in the list (don't pre-filter) — the user decides whether to include contacted ones.
 - End with: "Reply with numbers to select (e.g. '1,3,5') or 'all' to process everything."
 - The numbering must be sequential starting from 1 with no gaps.
@@ -276,7 +298,7 @@ Classify every data point you have into three buckets. Be specific — include a
 - is_active_now vs last_active_at gap: active today but score dropping = friction
 - invoices_paid vs invoices_total: low paid ratio = owner is having trouble collecting from clients
 
-Then: **underline the single strongest signal** — the one that most explains why this person is where they are. Everything else in the email flows from this one signal.
+Then: **rank ALL valid signals** from strongest to weakest. Do NOT stop at the first signal. List at least 2-3 candidates before deciding. A single invoice with 0 paid is WEAK unless it is the ONLY signal — because a workspace with any active behavior (tasks, projects, contacts, recent login) has stronger non-financial signals. Invoice data alone does not justify payment_collection angle if other activity signals are present.
 
 ---
 
@@ -304,9 +326,12 @@ Before picking an angle: check list_sent_emails for this workspace.
 
 - If a gap-nudge was sent before → do NOT send another gap-nudge. Pick a different angle.
 - If an achievement email was sent before → follow up on what happened next, don't repeat the same praise.
+- If a payment_collection email was sent before → ELIMINATE payment_collection from Step 5 candidates entirely — use any other angle.
 - If nothing was sent → any angle is valid.
 
-State: "Prior angle used: [gap/achievement/question/none]" and confirm you're picking a different one.
+State: "Prior angle used: [angle or none]". If prior angle was used, explicitly confirm it is eliminated from Step 5.
+
+**ANGLE DIVERSITY RULE:** Even when nothing was sent before, do NOT default to payment_collection when other activity signals exist. Different workspaces must receive different angles based on their specific strongest signal — not the same template applied to everyone with invoices_paid=0. Variety is not optional.
 
 ---
 
@@ -327,18 +352,25 @@ Adjust email length and directness based on cohort:
 
 ### Step 5 — Angle Selection
 
-Pick exactly ONE angle from this table based on the strongest signal from Step 1:
+**PRIORITY ORDER — evaluate top-to-bottom, stop at the first match. payment_collection is LAST RESORT.**
 
-| Strongest signal | Angle | Opening line pattern |
-|---|---|---|
-| invoices > 0, invoices_paid = 0 | Payment collection | "You've got [N] invoice out — has your client seen it?" → Help owner follow up with their client, or surface the payment link / reminder feature |
-| High invoices, 0 contacts in portal | Client portal adoption | "You're billing [N] clients but they're not in the portal yet — they're missing the full picture." |
-| Projects running, 0 invoices | Billing gap | "You've got [N] projects active but haven't billed yet — do you normally invoice outside Taskip?" |
-| 0 contacts, 0 leads | Pipeline gap | "No clients or leads yet — have you tried the client invite feature?" |
-| Gap that contradicts active behavior | Gap-contrast | "You've got [behavior] going — noticed [gap] hasn't been touched." |
-| Positive behavior + obvious next step | Achievement-bridge | "Saw you've got [metric] set up — [next feature] is what most people do next." |
-| Momentum declining (score_delta negative) | Re-engagement | "You were active on [thing] — went quiet after [date]. Something block you?" |
-| Score very low (<35) + recent activity | Friction probe | "You've been in there — is something not clicking?" |
+| Priority | Condition | Angle | Opening line pattern |
+|---|---|---|---|
+| 1 | Momentum declining (score_delta negative) AND recent activity | Re-engagement | "You were active on [thing] — went quiet after [date]. Something block you?" |
+| 2 | Score < 35 AND active in last 7 days | Friction probe | "You've been in there — is something not clicking?" |
+| 3 | Projects running + tasks + 0 invoices | Billing gap | "You've got [N] projects active but haven't billed yet — do you normally invoice outside Taskip?" |
+| 4 | High contacts + active + 0 leads | Pipeline gap | "No clients or leads yet — have you tried the client invite feature?" |
+| 5 | Gap that contradicts active behavior (tasks/projects exist but something key is zero) | Gap-contrast | "You've got [behavior] going — noticed [gap] hasn't been touched." |
+| 6 | Positive behavior + obvious next feature | Achievement-bridge | "Saw you've got [metric] set up — [next feature] is what most people do next." |
+| 7 | High invoices + 0 contacts in portal | Client portal adoption | "You're billing [N] clients but they're not in the portal yet — they're missing the full picture." |
+| 8 (LAST RESORT) | invoices > 0, invoices_paid = 0, AND no other signal from priorities 1-7 qualifies | Payment collection | "You've got [N] invoice out — has your client seen it?" |
+
+**CRITICAL RULES:**
+- payment_collection (priority 8) ONLY fires when ALL higher-priority conditions failed AND the invoice gap is literally the only activity signal.
+- If a workspace has tasks, projects, contacts, or any recent activity alongside invoices_paid=0, it does NOT qualify for priority 8 — use the behavior signal instead.
+- If prior outreach angle was payment_collection: skip priority 8 entirely, use the next available priority.
+- Different workspaces in the same batch MUST use different angles where signals differ. Never apply the same angle to two workspaces without explicitly checking that their signals are identical.
+- State which priority matched and why all higher priorities were skipped.
 
 No mixing. One angle, one focus.
 
@@ -386,7 +418,11 @@ Write the body following these rules exactly:
 
 Under 80 words total. Tighter is better.
 
-Banned words/phrases in body: "cohort", "score", "trial", "expired", "platform", "onboarding", "system", "automated", "just wanted to", "hope this finds you", "feel free to reach out", "don't hesitate", "let me know if you have any questions"
+Banned words/phrases in body: "cohort", "score", "trial", "expired", "platform", "onboarding", "system", "automated", "just wanted to", "hope this finds you", "feel free to reach out", "don't hesitate", "let me know if you have any questions", "get what you're owed", "ensure you get", "what you're owed", "following up could help", "speed up the process", "outstanding invoice", "overdue", "unpaid invoice", "payment is due", "reminder to pay"
+
+Banned words/phrases in subject: "invoice out", "invoice overdue", "payment due", "unpaid", "outstanding", "reminder", "following up" — these trigger spam filters.
+
+Subject must use plain ASCII only — no em dashes (—), no smart quotes, no ellipsis (...). Use a plain hyphen (-) instead of any dash character.
 
 Product framing — NEVER write these framings:
 - WRONG: "you haven't made a payment" / "you owe" / "complete the payment" → owner is not paying Taskip
@@ -556,6 +592,8 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
   readonly name = 'Taskip Internal';
   private readonly logger = new Logger(TaskipInternalAgent.name);
 
+  private fromDomainCache: string | null = null;
+
   constructor(
     private db: DbService,
     private llm: LlmRouterService,
@@ -568,8 +606,20 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
     private registry: AgentRegistryService,
     private logSvc: AgentLogService,
     private kb: KnowledgeBaseService,
+    private spamChecker: SpamCheckerService,
+    private settings: SettingsService,
     @InjectQueue(TASKIP_SUGGESTION_SWEEP_QUEUE) private readonly suggestionSweepQueue: Queue,
   ) {}
+
+  private async getFromDomain(): Promise<string> {
+    if (this.fromDomainCache) return this.fromDomainCache;
+    const raw = (await this.settings.getDecrypted('ses_default_from')) ?? '';
+    const match = raw.match(/<([^>]+)>/) ?? raw.match(/^(\S+@\S+)$/);
+    const email = match?.[1] ?? raw;
+    const domain = email.includes('@') ? email.split('@')[1].trim() : '';
+    this.fromDomainCache = domain;
+    return domain;
+  }
 
   onModuleInit() {
     this.registry.register(this);
@@ -628,6 +678,9 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
       ...priorMessages,
       { role: 'user', content: effectiveQuery },
     ];
+
+    let spamRevisions = 0;
+    const MAX_SPAM_REVISIONS = 2;
 
     for (let i = 0; i < MAX_TOOL_ITERATIONS; i++) {
       if (runId) {
@@ -703,15 +756,65 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
 
         if (tc.name === 'batch_send_email') {
           const emails = args.emails as Array<{ recipient: string; subject: string; body: string; workspace_uuid?: string; purpose?: string }>;
-          const count = Array.isArray(emails) ? emails.length : 0;
-          const preview = Array.isArray(emails)
-            ? emails.slice(0, 3).map(e => `${e.recipient} — "${(e.subject ?? '').slice(0, 40)}"`).join(', ')
-            : '';
-          const summary = `Send ${count} email${count !== 1 ? 's' : ''} (batch): ${preview}${count > 3 ? ` + ${count - 3} more` : ''}`;
+          if (!Array.isArray(emails) || emails.length === 0) {
+            messages.push({ role: 'tool', content: JSON.stringify({ error: 'emails array is empty' }), tool_call_id: tc.id });
+            break;
+          }
+
+          const fromDomain = await this.getFromDomain();
+          const spamResults = await Promise.all(
+            emails.map(async (e) => {
+              const result = await this.spamChecker.score({
+                subject: e.subject ?? '',
+                textBody: e.body ?? '',
+                fromAddress: '',
+                fromDomain,
+                recipient: e.recipient ?? '',
+                isTransactional: false,
+              });
+              return { recipient: e.recipient, subject: e.subject, score: result.score, grade: result.grade, issues: result.issues, criticalFailures: result.criticalFailures };
+            }),
+          );
+
+          const failures = spamResults.filter(r => r.score < 60);
+
+          if (failures.length > 0 && spamRevisions < MAX_SPAM_REVISIONS) {
+            spamRevisions++;
+            const feedbackLines = failures.map(r => {
+              const topIssues = r.issues
+                .filter(i => i.severity === 'critical' || i.severity === 'high')
+                .slice(0, 5)
+                .map(i => `  - [${i.ruleId}] ${i.message} → ${i.suggestedFix}`)
+                .join('\n');
+              return `${r.recipient} — grade: ${r.grade} (score: ${r.score})\n${topIssues}`;
+            }).join('\n\n');
+
+            this.logger.warn(`Spam check blocked batch: ${failures.length}/${emails.length} emails failed — revision ${spamRevisions}/${MAX_SPAM_REVISIONS}`);
+            messages.push({
+              role: 'tool',
+              content: JSON.stringify({
+                ok: false,
+                spamCheckFailed: true,
+                message: `SPAM CHECK FAILED — ${failures.length} of ${emails.length} email(s) scored below inbox threshold (grade SPAM_RISK or BLOCK). Revise the flagged emails and call batch_send_email again. Do NOT send as-is.\n\n${feedbackLines}`,
+              }),
+              tool_call_id: tc.id,
+            });
+            break;
+          }
+
+          // All passed (or max revisions reached — proceed with grade warnings)
+          const count = emails.length;
+          const preview = emails.slice(0, 3).map(e => `${e.recipient} — "${(e.subject ?? '').slice(0, 40)}"`).join(', ');
+          const scoresSummary = spamResults.map(r => `${r.grade}(${r.score})`).join(', ');
+          const hasWarnings = spamResults.some(r => r.score < 75);
+          const summary = `Send ${count} email${count !== 1 ? 's' : ''} (batch): ${preview}${count > 3 ? ` + ${count - 3} more` : ''} | Spam: ${scoresSummary}`;
+          if (hasWarnings) {
+            this.logger.warn(`Batch proceeding with spam warnings: ${scoresSummary}`);
+          }
           return [{
             type: 'batch_send_email',
             summary,
-            payload: { emails, _query: query },
+            payload: { emails, _query: query, spamScores: spamResults.map(r => ({ recipient: r.recipient, score: r.score, grade: r.grade })), source },
             riskLevel: 'high',
           }];
         }
@@ -799,12 +902,15 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
   }
 
   requiresApproval(action: ProposedAction): boolean {
+    if (action.type === 'batch_send_email') {
+      const p = action.payload as { source?: string };
+      return p.source !== 'chat';
+    }
     return action.type === 'extend_trial'
       || action.type === 'mark_refund'
       || action.type === 'insight_submit_marketing_suggestion'
       || action.type === 'insight_submit_message'
-      || action.type === 'send_email'
-      || action.type === 'batch_send_email';
+      || action.type === 'send_email';
   }
 
   async execute(action: ProposedAction): Promise<ActionResult> {
@@ -941,7 +1047,7 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
       }
 
       case 'batch_send_email': {
-        const { emails, _query } = action.payload as {
+        const { emails, _query, source: batchSource, spamScores } = action.payload as {
           emails: Array<{
             recipient: string;
             subject: string;
@@ -950,11 +1056,16 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
             purpose?: TaskipEmailPurpose;
           }>;
           _query?: string;
+          source?: string;
+          spamScores?: Array<{ recipient: string; score: number; grade: string }>;
         };
+        const isChatBatch = batchSource === 'chat';
         if (!Array.isArray(emails) || emails.length === 0) {
           return { success: false, error: 'batch_send_email: emails array is empty' };
         }
-        await this.telegram.sendMessage(`Starting batch: ${emails.length} email${emails.length !== 1 ? 's' : ''} — 100–300s gap between sends`);
+        if (!isChatBatch) {
+          await this.telegram.sendMessage(`Starting batch: ${emails.length} email${emails.length !== 1 ? 's' : ''} — 100–300s gap between sends`);
+        }
         let sent = 0;
         const failedEmails: Array<{ recipient: string; subject: string; error: string }> = [];
         const results: unknown[] = [];
@@ -962,9 +1073,12 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
           // Human-paced delay between emails (skip before the first one)
           if (idx > 0) {
             const delaySec = 100 + Math.floor(Math.random() * 201); // 100–300s
-            await this.telegram.sendMessage(`[${idx}/${emails.length}] Waiting ${delaySec}s before next send…`);
+            if (!isChatBatch) {
+              await this.telegram.sendMessage(`[${idx}/${emails.length}] Waiting ${delaySec}s before next send…`);
+            }
             await new Promise(resolve => setTimeout(resolve, delaySec * 1000));
           }
+          const spamMeta = spamScores?.find(s => s.recipient === email.recipient);
           try {
             const result = await this.emails.send({
               purpose: email.purpose ?? 'followup',
@@ -972,29 +1086,41 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
               subject: email.subject,
               body: email.body,
               workspaceUuid: email.workspace_uuid,
-              metadata: _query ? { query: _query, batchIndex: idx } : { batchIndex: idx },
+              metadata: {
+                ...(_query ? { query: _query } : {}),
+                batchIndex: idx,
+                ...(spamMeta ? { spamScore: spamMeta.score, spamGrade: spamMeta.grade } : {}),
+              },
             });
             if (result.status === 'sent') {
               sent++;
-              await this.telegram.sendMessage(`[${idx + 1}/${emails.length}] Sent to ${email.recipient}`);
+              if (!isChatBatch) {
+                await this.telegram.sendMessage(`[${idx + 1}/${emails.length}] Sent to ${email.recipient}`);
+              }
             } else {
               failedEmails.push({ recipient: email.recipient, subject: email.subject, error: result.error ?? 'send failed' });
-              await this.telegram.sendMessage(`[${idx + 1}/${emails.length}] Failed: ${email.recipient} — ${result.error ?? 'unknown error'}`);
+              if (!isChatBatch) {
+                await this.telegram.sendMessage(`[${idx + 1}/${emails.length}] Failed: ${email.recipient} — ${result.error ?? 'unknown error'}`);
+              }
             }
             results.push(result);
           } catch (err) {
             failedEmails.push({ recipient: email.recipient, subject: email.subject, error: (err as Error).message });
-            await this.telegram.sendMessage(`[${idx + 1}/${emails.length}] Error: ${email.recipient} — ${(err as Error).message}`);
+            if (!isChatBatch) {
+              await this.telegram.sendMessage(`[${idx + 1}/${emails.length}] Error: ${email.recipient} — ${(err as Error).message}`);
+            }
             results.push({ error: (err as Error).message });
           }
         }
         const failedCount = failedEmails.length;
-        let summaryMsg = `Batch complete: ${sent} sent, ${failedCount} failed`;
-        if (failedCount > 0) {
-          const failedList = failedEmails.map(f => `Failed: ${f.recipient} — ${f.error}`).join('\n');
-          summaryMsg += `\n\nFailed recipients:\n${failedList}\n\nReply "retry failed" to re-attempt these ${failedCount} email${failedCount !== 1 ? 's' : ''}.`;
+        if (!isChatBatch) {
+          let summaryMsg = `Batch complete: ${sent} sent, ${failedCount} failed`;
+          if (failedCount > 0) {
+            const failedList = failedEmails.map(f => `Failed: ${f.recipient} — ${f.error}`).join('\n');
+            summaryMsg += `\n\nFailed recipients:\n${failedList}\n\nReply "retry failed" to re-attempt these ${failedCount} email${failedCount !== 1 ? 's' : ''}.`;
+          }
+          await this.telegram.sendMessage(summaryMsg);
         }
-        await this.telegram.sendMessage(summaryMsg);
         return { success: failedCount === 0, data: { sent, failed: failedCount, failedEmails, results } };
       }
 
@@ -1169,6 +1295,15 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
         handler: async (params) => {
           const { id } = params as { id: string };
           return this.emails.syncReplies(id);
+        },
+      },
+      {
+        method: 'POST',
+        path: '/taskip-internal/inbox/:id/mark-opened',
+        requiresAuth: true,
+        handler: async (params) => {
+          const { id } = params as { id: string };
+          return this.emails.markOpened(id);
         },
       },
       {
