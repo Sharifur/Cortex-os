@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.12.0',
+    date: '2026-05-11',
+    entries: [
+      { tag: 'fix', scope: 'livechat', description: 'Transcript on close now fires for ALL sites consistently: (1) visitor-initiated close (widget close button) now also sends the transcript, matching operator-close behaviour. (2) maybeSendOnClose no longer force-bypasses transcriptEnabled — only sites with the flag enabled will send, preventing unsolicited emails for sites that have it turned off.' },
+    ],
+  },
+  {
     version: 'v4.11.9',
     date: '2026-05-11',
     entries: [

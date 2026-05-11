@@ -103,9 +103,9 @@ export class LivechatTranscriptService {
     return { ok: true, reason: 'sent', messageId, to: visitorEmail };
   }
 
-  /** Fire-and-forget wrapper used by the close flow — always attempts send (force: true); never throws. */
+  /** Fire-and-forget wrapper used by the close flow — respects per-site transcriptEnabled; never throws. */
   async maybeSendOnClose(sessionId: string): Promise<void> {
-    this.send(sessionId, { force: true })
+    this.send(sessionId)
       .then((res) => {
         if (res.ok) this.logger.log(`Transcript sent for ${sessionId.slice(-8)} → ${res.to}`);
         else this.logger.debug(`Transcript skipped for ${sessionId.slice(-8)}: ${res.reason}`);

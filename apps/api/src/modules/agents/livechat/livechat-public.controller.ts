@@ -8,6 +8,7 @@ import { LivechatRateLimitService } from './livechat-rate-limit.service';
 import { LivechatAttachmentsService } from './livechat-attachments.service';
 import { LivechatMetricsService } from './livechat-metrics.service';
 import { PushService } from '../../push/push.service';
+import { LivechatTranscriptService } from './livechat-transcript.service';
 
 interface PageviewBody {
   siteKey: string;
@@ -136,6 +137,7 @@ export class LivechatPublicController {
     private attachments: LivechatAttachmentsService,
     private metrics: LivechatMetricsService,
     private push: PushService,
+    private transcript: LivechatTranscriptService,
   ) {}
 
   @Get('config')
@@ -275,6 +277,7 @@ export class LivechatPublicController {
     await this.livechat.setSessionStatus(sessionId, 'closed');
     this.stream.publish(sessionId, { type: 'session_status', sessionId, status: 'closed' });
     this.stream.publishToOperators({ type: 'session_upserted', sessionId });
+    void this.transcript.maybeSendOnClose(sessionId);
     return { ok: true };
   }
 
