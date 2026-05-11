@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.11.9',
+    date: '2026-05-11',
+    entries: [
+      { tag: 'feat', scope: 'livechat', description: 'Setup step 5 for email reply-to-thread: shows the three required settings (Reply Domain, Reply HMAC Secret, Inbound Webhook Token) and the SNS inbound URL with a copy button. Visitors who reply to a transcript email now have that reply routed back into the live chat session once SES inbound is configured.' },
+    ],
+  },
+  {
     version: 'v4.11.8',
     date: '2026-05-11',
     entries: [
