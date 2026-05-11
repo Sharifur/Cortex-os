@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.9.1',
+    date: '2026-05-11',
+    entries: [
+      { tag: 'feat', scope: 'auth', description: 'Login page shows default credentials (admin@cortex.local / changeme123) with a one-click "Use" fill button when running on localhost or 127.0.0.1. Hidden in production.' },
+    ],
+  },
+  {
     version: 'v4.9.0',
     date: '2026-05-11',
     entries: [
