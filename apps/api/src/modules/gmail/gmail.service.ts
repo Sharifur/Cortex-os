@@ -7,6 +7,7 @@ import { google, gmail_v1 } from 'googleapis';
 import { DbService } from '../../db/db.service';
 import { gmailAccounts } from './schema';
 import { encrypt, decrypt } from '../../common/crypto/crypto.util';
+import { EmailSanitizerService } from '../email-sanitizer/email-sanitizer.service';
 
 export interface GmailSendParams {
   to: string;
@@ -79,7 +80,10 @@ type ResolvedAccount = ResolvedImapAccount | ResolvedOAuthAccount;
 export class GmailService {
   private readonly logger = new Logger(GmailService.name);
 
-  constructor(private readonly db: DbService) {}
+  constructor(
+    private readonly db: DbService,
+    private readonly sanitizer: EmailSanitizerService,
+  ) {}
 
   // ─── Account CRUD ────────────────────────────────────────────────────────
 
@@ -205,13 +209,14 @@ export class GmailService {
   async sendEmail(params: GmailSendParams, accountId?: string): Promise<string> {
     const acc = await this.resolveAccount(accountId);
     const fromHeader = params.from || (acc.displayName ? `${acc.displayName} <${acc.email}>` : acc.email);
+    const subject = this.sanitizer.sanitizeSubject(params.subject);
 
     if (acc.kind === 'imap') {
       const transporter = this.smtpTransport(acc);
       const info = await transporter.sendMail({
         from: fromHeader,
         to: params.to,
-        subject: params.subject,
+        subject,
         text: params.textBody,
         ...(params.htmlBody ? { html: params.htmlBody } : {}),
       });
@@ -227,7 +232,7 @@ export class GmailService {
       rawParts = [
         `From: ${fromHeader}`,
         `To: ${params.to}`,
-        `Subject: ${params.subject}`,
+        `Subject: ${subject}`,
         `MIME-Version: 1.0`,
         `Content-Type: multipart/alternative; boundary="${boundary}"`,
         ``,
@@ -247,7 +252,7 @@ export class GmailService {
       rawParts = [
         `From: ${fromHeader}`,
         `To: ${params.to}`,
-        `Subject: ${params.subject}`,
+        `Subject: ${subject}`,
         `MIME-Version: 1.0`,
         `Content-Type: text/plain; charset=UTF-8`,
         ``,

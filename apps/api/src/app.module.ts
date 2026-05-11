@@ -45,6 +45,7 @@ import { StorageModule } from './modules/storage/storage.module';
 import { PushModule } from './modules/push/push.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { TrackingModule } from './modules/tracking/tracking.module';
+import { EmailSanitizerModule } from './modules/email-sanitizer/email-sanitizer.module';
 
 @Module({
   imports: [
@@ -112,6 +113,7 @@ import { TrackingModule } from './modules/tracking/tracking.module';
     PushModule,
     NotificationsModule,
     TrackingModule,
+    EmailSanitizerModule,
   ],
 })
 export class AppModule {}

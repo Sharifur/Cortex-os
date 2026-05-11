@@ -487,7 +487,8 @@ export class SupportAgent implements IAgent, OnModuleInit {
       .select()
       .from(supportWebhookLogs)
       .orderBy(desc(supportWebhookLogs.receivedAt))
-      .limit(Math.min(Number(limit ?? 100), 500));
+      .limit(Math.min(Number(limit ?? 100), 500))
+      .catch(() => []);
   }
 
   private async crmHeaders(): Promise<Record<string, string>> {
