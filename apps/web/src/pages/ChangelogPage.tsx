@@ -16,6 +16,15 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.11.4',
+    date: '2026-05-11',
+    entries: [
+      { tag: 'fix', scope: 'livechat', description: 'Transcript "Domain contains illegal character" root cause fixed: buildReplyTo now trims livechat_reply_domain (removing trailing newlines/spaces from copy-paste) and validates the domain before building the address. If domain is invalid, Reply-To is dropped rather than passing a corrupt address to SES.' },
+      { tag: 'fix', scope: 'ses', description: 'Pre-send validation added for replyTo and BCC addresses: domain extracted and checked against [a-zA-Z0-9.-] before the SES SDK call. Throws a descriptive error naming the specific field and value rather than relying on the generic "Domain contains illegal character" from SES.' },
+      { tag: 'fix', scope: 'livechat', description: 'Transcript send failure log upgraded to ERROR and includes full context: session id, to, from, replyTo, BCC, and error message — so the problematic address is immediately visible in logs.' },
+    ],
+  },
+  {
     version: 'v4.11.3',
     date: '2026-05-11',
     entries: [
