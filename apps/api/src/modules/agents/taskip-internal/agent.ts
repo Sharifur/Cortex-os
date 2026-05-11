@@ -38,6 +38,7 @@ interface TaskipInternalSnapshot {
   config: TaskipInternalConfig;
   history?: string;
   runId?: string;
+  source?: string;
 }
 
 const SYSTEM_PROMPT = `You are an internal ops assistant for Sharifur Rahman, founder of Taskip.
@@ -155,26 +156,31 @@ Check for CONTINUATION intent FIRST before anything else.
 **RETRY intent** — When the system message includes "CONTINUATION MODE ACTIVE — RETRY":
 → Re-process only the listed failed recipients. Look each one up, run SPAR, call batch_send_email.
 
-**SELECTION intent** — When the user sends only numbers (e.g. "2,4,5,6,7") and the prior assistant message showed a numbered workspace list:
+**SELECTION intent** — When the user sends multiple comma-separated numbers (e.g. "2,4,5,6,7" or "1,3") AND the prior assistant message showed a numbered workspace list AND you just asked which workspaces to process:
 → The numbers are LIST POSITIONS (1-indexed), NOT workspace IDs or UUIDs.
 → Map each position to the workspace "uuid" field from the prior insight_list_cohort results. NEVER pass a position number as workspace_uuid.
 → Run SPAR for each selected workspace using its UUID, then call batch_send_email.
+→ Single bare number (e.g. "1") without a preceding outreach prompt = DETAIL LOOKUP, not SELECTION.
 
-**DETAIL LOOKUP intent** — When the user says something like "share details about 1", "tell me about 2", "details on 3", "more info on 1", "look up 4", "show me 2", "expand 3" — i.e. a phrase that references a NUMBER from a prior list:
-→ This is NOT a new query. Do NOT call insight_list_cohort again.
+**DETAIL LOOKUP intent** — When the user says something like "share details about 1", "tell me about 2", "details on 3", "more info on 1", "look up 4", "show me 2", "expand 3", "what about 5", "any updates on 3", "describe 4", "1?" — i.e. any phrase or single number referencing a position from a prior numbered workspace list:
+→ This is NOT a new query. Do NOT call insight_list_cohort again. NEVER.
 → The number is a LIST POSITION (1-indexed) from the most recently shown numbered workspace list in this conversation.
-→ Find the workspace at that position from the prior tool result, extract its "uuid" field.
-→ Call insight_get_lifecycle (or insight_get_overview) with that UUID to retrieve full details.
+→ The prior tool result JSON is NOT available in this turn — resolve via name: call lookup_user(name="WorkspaceName") where WorkspaceName is the name shown at that position in the prior assistant message.
+→ Then call insight_get_lifecycle with the UUID returned by lookup_user.
 → Return the details. STOP. Do not propose outreach unless the user asks.
+→ NEGATIVE EXAMPLES — these are DETAIL LOOKUP, not READ — do NOT re-run insight_list_cohort for:
+  "tell me about 1", "share details about 2", "what about 3", "1", "show me 2", "any updates on 5"
 
-**DRY-RUN intent** — keywords: "show me first", "preview", "draft only", "what would you send", "dry run", "don't send yet", "let me see"
+**DRY-RUN intent** — phrases: "show me first", "preview", "draft only", "what would you send", "dry run", "don't send yet", "let me see", "let me review"
 → Run the full SPAR workflow for each relevant workspace. Do NOT call batch_send_email or send_email.
 → Instead, output all generated drafts as formatted text: for each workspace show "**Workspace**: Name | **To**: email | **Subject**: ... | **Body**: first 2 lines..."
 → End with: "Reply 'send them' to dispatch all, or give a number selection to send specific ones."
+→ NOTE: "show me N" or "show me about N" with a position number = DETAIL LOOKUP, not DRY-RUN. DRY-RUN fires only when "show me first" / "preview" appears with no list-position number.
 
 **READ intent** — keywords: list, show, find, get, what, how many, check, who, display, summarize, overview, drill into, look up, give me, tell me
 → Run read tools only. Return the data. STOP. Do NOT propose any write action unless the user explicitly asked for one.
-→ EXCEPTION: if the message contains a number and there is a recently shown numbered workspace list, treat it as DETAIL LOOKUP intent, not READ. Do NOT re-run insight_list_cohort.
+→ MANDATORY EXCEPTION: if the user message contains a number AND a numbered workspace list appeared in the prior assistant message, it is ALWAYS DETAIL LOOKUP — never READ. Keywords like "share", "details", "tell me", "show me", "look up", "give me" followed by a list-position number are DETAIL LOOKUP, not READ. Do NOT re-run insight_list_cohort.
+→ READ fires only for queries with no number referencing a prior list (e.g. "list at_risk workspaces", "how many trial users", "show me user X's history").
 
 **ACTION intent** — keywords: propose, suggest, send, submit, draft, extend, refund, reach out, outreach, write email, create suggestion
 → Follow the outreach workflow below. Use batch_send_email when multiple workspaces are confirmed.
@@ -196,6 +202,12 @@ Examples:
 - "show me first" / "dry run" → DRY-RUN — generate drafts, do not send
 - "retry" / "retry failed" → RETRY — resend only the failed ones from the last batch
 - "send them aggressive" → CONTINUATION + TONE OVERRIDE aggressive
+- "share details about 1" after a numbered list → DETAIL LOOKUP — call lookup_user(name=pos1Name), then insight_get_lifecycle
+- "tell me about 2" after a numbered list → DETAIL LOOKUP — do NOT re-run insight_list_cohort
+- "what about 5" after a numbered list → DETAIL LOOKUP — not READ
+- "1" alone after a numbered list (no pending outreach prompt) → DETAIL LOOKUP — not SELECTION
+- "show me 3" after a numbered list → DETAIL LOOKUP — not DRY-RUN
+- "any updates?" with no number → READ — no outreach
 
 ---
 
@@ -468,6 +480,14 @@ function extractFailedEmails(text: string): string[] {
   return matches.map(m => m[1].trim()).filter(Boolean);
 }
 
+const DETAIL_LOOKUP_RE =
+  /\b(?:share|tell\s+me|show\s+me|give\s+me|look\s+up|more\s+info(?:rmation)?|what\s+about|any\s+updates?\s+on|expand|detail(?:s)?\s+(?:about|on|for)?|info\s+(?:about|on)?|describe)\s+(?:about\s+|on\s+|for\s+)?(?:#\s*)?(\d{1,2})\b/i;
+
+function isDetailLookup(text: string): number | null {
+  const m = text.trim().match(DETAIL_LOOKUP_RE);
+  return m ? parseInt(m[1], 10) : null;
+}
+
 function buildContinuationHint(query: string, lastAgentMsg: string | null | undefined): string | null {
   if (!lastAgentMsg) return null;
 
@@ -482,6 +502,30 @@ function buildContinuationHint(query: string, lastAgentMsg: string | null | unde
     const failedEmails = extractFailedEmails(lastAgentMsg);
     if (failedEmails.length > 0) {
       return `\n\nCONTINUATION MODE ACTIVE — RETRY: The prior batch had ${failedEmails.length} failure(s). Re-process ONLY these recipients: ${failedEmails.join(', ')}. Look up each workspace by email, run SPAR, call batch_send_email with the retried emails only. Do NOT re-process the ones that succeeded.${toneNote}`;
+    }
+  }
+
+  // ─── Detail lookup (phrase + number) ─────────────────────────────────────
+  const detailPosition = isDetailLookup(query);
+  if (detailPosition !== null) {
+    const items = extractNumberedItems(lastAgentMsg);
+    if (items.size > 0) {
+      const workspaceName = items.get(detailPosition);
+      if (workspaceName) {
+        return `\n\nDETAIL LOOKUP MODE: User wants details on position ${detailPosition} from the prior list = "${workspaceName}". Call lookup_user(name="${workspaceName}") to get the workspace UUID, then call insight_get_lifecycle with that UUID. Do NOT call insight_list_cohort. Do NOT propose outreach. Return the lifecycle details and stop.`;
+      }
+      return `\n\nDETAIL LOOKUP MODE: User wants details on position ${detailPosition} from the prior list but that position was not found. Ask the user to clarify or resend the list.`;
+    }
+  }
+
+  // ─── Single bare number without pending outreach prompt = detail lookup ───
+  if (numbers?.length === 1 && !hasPendingPrompt) {
+    const items = extractNumberedItems(lastAgentMsg);
+    if (items.size > 0) {
+      const workspaceName = items.get(numbers[0]);
+      if (workspaceName) {
+        return `\n\nDETAIL LOOKUP MODE: User replied with a single number "${numbers[0]}" referencing position ${numbers[0]} from the prior list = "${workspaceName}". Call lookup_user(name="${workspaceName}"), then call insight_get_lifecycle with the resolved UUID. Do NOT call insight_list_cohort. Do NOT propose outreach.`;
+      }
     }
   }
 
@@ -537,19 +581,20 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
 
   async buildContext(trigger: TriggerEvent, run: RunContext): Promise<AgentContext> {
     const config = await this.getConfig();
-    const payload = run.triggerPayload as { query?: string; history?: string } | null;
+    const payload = run.triggerPayload as { query?: string; history?: string; source?: string } | null;
     const query = payload?.query ?? 'No query provided';
     const history = payload?.history;
+    const source = payload?.source ?? 'run';
 
     return {
       source: trigger,
-      snapshot: { query, config, history, runId: run.id } satisfies TaskipInternalSnapshot,
+      snapshot: { query, config, history, runId: run.id, source } satisfies TaskipInternalSnapshot,
       followups: (run.context as AgentContext | null)?.followups ?? [],
     };
   }
 
   async decide(ctx: AgentContext): Promise<ProposedAction[]> {
-    const { query, config, history, runId } = ctx.snapshot as TaskipInternalSnapshot;
+    const { query, config, history, runId, source } = ctx.snapshot as TaskipInternalSnapshot;
     const followupNote = ctx.followups.at(-1)?.text;
 
     const effectiveQuery = followupNote
@@ -602,7 +647,7 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
         return [{
           type: 'notify_result',
           summary: 'Send query result via Telegram',
-          payload: { message: result.content, query },
+          payload: { message: result.content, query, source },
           riskLevel: 'low',
         }];
       }
@@ -748,7 +793,7 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
     return [{
       type: 'notify_result',
       summary: 'Send query result via Telegram',
-      payload: { message: 'Could not produce a final answer within the iteration limit.', query },
+      payload: { message: 'Could not produce a final answer within the iteration limit.', query, source },
       riskLevel: 'low',
     }];
   }
@@ -774,8 +819,10 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
     }
     switch (action.type) {
       case 'notify_result': {
-        const { message } = action.payload as { message: string; query: string };
-        await this.telegram.sendMessage(`Taskip Internal\n\n${message}`);
+        const p = action.payload as { message: string; query: string; source?: string };
+        if (p.source !== 'chat') {
+          await this.telegram.sendMessage(`Taskip Internal\n\n${p.message}`);
+        }
         return { success: true, data: { notified: true } };
       }
 
