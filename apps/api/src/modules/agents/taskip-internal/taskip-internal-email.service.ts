@@ -3,7 +3,21 @@ import { and, desc, eq, gte, isNotNull, isNull, lt, or, sql } from 'drizzle-orm'
 import { createId } from '@paralleldrive/cuid2';
 import { DbService } from '../../../db/db.service';
 import { taskipInternalEmails, taskipInternalEmailReplies } from '../../../db/schema';
+import { emailSuppressions } from '../../ses/ses-suppressions.schema';
 import { GmailService } from '../../gmail/gmail.service';
+
+const UNSUBSCRIBE_FOOTER_TEXT = '\n\n---\nReply STOP to unsubscribe.';
+const UNSUBSCRIBE_FOOTER_HTML = `<p style="margin:24px 0 0;padding-top:10px;border-top:1px solid #eee;font-size:11px;color:#aaa">Reply STOP to unsubscribe.</p>`;
+
+const UNSUBSCRIBE_SIGNALS = [
+  /\bstop\b/i,
+  /unsubscribe/i,
+  /remove me/i,
+  /opt.?out/i,
+  /don.?t (contact|email|send)/i,
+  /take me off/i,
+  /no more emails/i,
+];
 
 function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -30,7 +44,7 @@ function buildHtmlEmail(textBody: string, pixelUrl: string): string {
     return `<p style="margin:0 0 12px">${content}</p>`;
   });
   const body = htmlParts.join('');
-  return `<!DOCTYPE html><html><body style="font-family:sans-serif;font-size:14px;line-height:1.6;color:#222;max-width:600px;padding:16px">${body}<img src="${pixelUrl}" width="1" height="1" style="display:block;width:1px;height:1px;border:0" alt="" loading="eager"></body></html>`;
+  return `<!DOCTYPE html><html><body style="font-family:sans-serif;font-size:14px;line-height:1.6;color:#222;max-width:600px;padding:16px">${body}${UNSUBSCRIBE_FOOTER_HTML}<img src="${pixelUrl}" width="1" height="1" style="display:block;width:1px;height:1px;border:0" alt="" loading="eager"></body></html>`;
 }
 
 export type TaskipEmailPurpose = 'marketing' | 'followup' | 'offer' | 'other';
@@ -52,6 +66,17 @@ export class TaskipInternalEmailService {
   constructor(private readonly db: DbService, private readonly gmail: GmailService) {}
 
   async send(input: SendTrackedEmailInput): Promise<{ id: string; gmailMessageId: string | null; status: 'sent' | 'failed'; error?: string }> {
+    const suppressed = await this.db.db
+      .select({ id: emailSuppressions.id })
+      .from(emailSuppressions)
+      .where(eq(emailSuppressions.email, input.recipient))
+      .limit(1);
+    if (suppressed.length > 0) {
+      const id = createId();
+      return { id, gmailMessageId: null, status: 'failed', error: 'suppressed' };
+    }
+
+    const textBody = input.body + UNSUBSCRIBE_FOOTER_TEXT;
     const from = await this.gmail.getFromAddress();
     const trackingToken = createId();
 
@@ -59,7 +84,7 @@ export class TaskipInternalEmailService {
     if (!input.plainText) {
       const apiBase = (process.env.COOLIFY_URL ?? process.env.API_PUBLIC_URL ?? 'http://localhost:3000').replace(/\/$/, '');
       const pixelUrl = `${apiBase}/track/open/${trackingToken}.gif`;
-      htmlBody = buildHtmlEmail(input.body, pixelUrl);
+      htmlBody = buildHtmlEmail(textBody, pixelUrl);
     }
 
     try {
@@ -67,7 +92,7 @@ export class TaskipInternalEmailService {
         to: input.recipient,
         from,
         subject: input.subject,
-        textBody: input.body,
+        textBody,
         htmlBody,
       });
 
@@ -223,6 +248,17 @@ export class TaskipInternalEmailService {
         });
         added++;
         if (!lastReplyAt || msg.receivedAt > lastReplyAt) lastReplyAt = msg.receivedAt;
+
+        const replyText = ((msg.body ?? '') + ' ' + (msg.snippet ?? '')).trim();
+        if (replyText && UNSUBSCRIBE_SIGNALS.some(re => re.test(replyText))) {
+          const senderEmail = msg.from.match(/<([^>]+)>/)?.[1] ?? msg.from.trim();
+          await this.db.db.insert(emailSuppressions).values({
+            email: senderEmail,
+            reason: 'manual',
+            source: 'unsubscribe',
+          }).onConflictDoNothing();
+          this.logger.log(`unsubscribe: suppressed ${senderEmail}`);
+        }
       } catch (err) {
         // unique index on gmail_message_id — ignore conflicts (already recorded)
         const m = (err as Error).message;

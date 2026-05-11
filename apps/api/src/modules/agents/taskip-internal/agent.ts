@@ -298,7 +298,7 @@ Classify every data point you have into three buckets. Be specific — include a
 - is_active_now vs last_active_at gap: active today but score dropping = friction
 - invoices_paid vs invoices_total: low paid ratio = owner is having trouble collecting from clients
 
-Then: **rank ALL valid signals** from strongest to weakest. Do NOT stop at the first signal. List at least 2-3 candidates before deciding. A single invoice with 0 paid is WEAK unless it is the ONLY signal — because a workspace with any active behavior (tasks, projects, contacts, recent login) has stronger non-financial signals. Invoice data alone does not justify payment_collection angle if other activity signals are present.
+Then: **rank ALL valid signals** from strongest to weakest. Do NOT stop at the first signal. List at least 2-3 candidates before deciding. A single invoice with 0 paid is WEAK unless it is the ONLY signal — because a workspace with any active behavior (tasks, projects, contacts, recent login) has stronger non-financial signals. Invoice data alone does not justify invoice_followup angle if other activity signals are present.
 
 ---
 
@@ -326,12 +326,12 @@ Before picking an angle: check list_sent_emails for this workspace.
 
 - If a gap-nudge was sent before → do NOT send another gap-nudge. Pick a different angle.
 - If an achievement email was sent before → follow up on what happened next, don't repeat the same praise.
-- If a payment_collection email was sent before → ELIMINATE payment_collection from Step 5 candidates entirely — use any other angle.
+- If an invoice_followup email was sent before → ELIMINATE invoice_followup from Step 5 candidates entirely — use any other angle.
 - If nothing was sent → any angle is valid.
 
 State: "Prior angle used: [angle or none]". If prior angle was used, explicitly confirm it is eliminated from Step 5.
 
-**ANGLE DIVERSITY RULE:** Even when nothing was sent before, do NOT default to payment_collection when other activity signals exist. Different workspaces must receive different angles based on their specific strongest signal — not the same template applied to everyone with invoices_paid=0. Variety is not optional.
+**ANGLE DIVERSITY RULE:** Even when nothing was sent before, do NOT default to invoice_followup when other activity signals exist. Different workspaces must receive different angles based on their specific strongest signal — not the same template applied to everyone with invoices_paid=0. Variety is not optional.
 
 ---
 
@@ -352,7 +352,7 @@ Adjust email length and directness based on cohort:
 
 ### Step 5 — Angle Selection
 
-**PRIORITY ORDER — evaluate top-to-bottom, stop at the first match. payment_collection is LAST RESORT.**
+**PRIORITY ORDER — evaluate top-to-bottom, stop at the first match. invoice_followup is LAST RESORT.**
 
 | Priority | Condition | Angle | Opening line pattern |
 |---|---|---|---|
@@ -363,12 +363,12 @@ Adjust email length and directness based on cohort:
 | 5 | Gap that contradicts active behavior (tasks/projects exist but something key is zero) | Gap-contrast | "You've got [behavior] going — noticed [gap] hasn't been touched." |
 | 6 | Positive behavior + obvious next feature | Achievement-bridge | "Saw you've got [metric] set up — [next feature] is what most people do next." |
 | 7 | High invoices + 0 contacts in portal | Client portal adoption | "You're billing [N] clients but they're not in the portal yet — they're missing the full picture." |
-| 8 (LAST RESORT) | invoices > 0, invoices_paid = 0, AND no other signal from priorities 1-7 qualifies | Payment collection | "You've got [N] invoice out — has your client seen it?" |
+| 8 (LAST RESORT) | invoices > 0, invoices_paid = 0, AND no other signal from priorities 1-7 qualifies | Invoice followup | "You've got [N] invoice out — has your client seen it?" |
 
 **CRITICAL RULES:**
-- payment_collection (priority 8) ONLY fires when ALL higher-priority conditions failed AND the invoice gap is literally the only activity signal.
+- invoice_followup (priority 8) ONLY fires when ALL higher-priority conditions failed AND the invoice gap is literally the only activity signal.
 - If a workspace has tasks, projects, contacts, or any recent activity alongside invoices_paid=0, it does NOT qualify for priority 8 — use the behavior signal instead.
-- If prior outreach angle was payment_collection: skip priority 8 entirely, use the next available priority.
+- If prior outreach angle was invoice_followup: skip priority 8 entirely, use the next available priority.
 - Different workspaces in the same batch MUST use different angles where signals differ. Never apply the same angle to two workspaces without explicitly checking that their signals are identical.
 - State which priority matched and why all higher priorities were skipped.
 
@@ -421,6 +421,11 @@ Under 80 words total. Tighter is better.
 Banned words/phrases in body: "cohort", "score", "trial", "expired", "platform", "onboarding", "system", "automated", "just wanted to", "hope this finds you", "feel free to reach out", "don't hesitate", "let me know if you have any questions", "get what you're owed", "ensure you get", "what you're owed", "following up could help", "speed up the process", "outstanding invoice", "overdue", "unpaid invoice", "payment is due", "reminder to pay"
 
 Banned words/phrases in subject: "invoice out", "invoice overdue", "payment due", "unpaid", "outstanding", "reminder", "following up" — these trigger spam filters.
+
+For invoice_followup angle ONLY — use these subject formulas (fills in real data):
+- Formula A: "your client hasn't paid - quick check?" / "1 invoice open - heard back?" / "payment sitting - did they see it?"
+- Formula B: "did [ClientName / 'your client'] get the invoice?" / "still waiting on that payment?" / "any word on the open invoice?"
+- NEVER: "invoice out", "invoice pending", "payment due", "unpaid invoice" — these score < 60 in spam filters and will be auto-blocked.
 
 Subject must use plain ASCII only — no em dashes (—), no smart quotes, no ellipsis (...). Use a plain hyphen (-) instead of any dash character.
 
@@ -514,6 +519,37 @@ function extractFailedEmails(text: string): string[] {
   // Parse failed recipients from batch result messages like "[2/5] Failed: email@example.com — reason"
   const matches = [...text.matchAll(/Failed:\s*([^\s,—–]+@[^\s,—–]+)/gi)];
   return matches.map(m => m[1].trim()).filter(Boolean);
+}
+
+function extractEmailDraft(text: string): { subject: string; body: string; to?: string } | null {
+  // SPAR format: **Subject A/B:** ... **Email:** ... body ... **Self-score:**
+  const emailMarkerIdx = text.search(/\*{0,2}Email:\*{0,2}\s*\n?/i);
+  if (emailMarkerIdx >= 0) {
+    const markerMatch = text.match(/\*{0,2}Email:\*{0,2}\s*\n?/i)!;
+    const bodyRaw = text.slice(emailMarkerIdx + markerMatch[0].length);
+    const selfScoreIdx = bodyRaw.search(/\n\*{0,2}Self-score:/i);
+    const body = (selfScoreIdx >= 0 ? bodyRaw.slice(0, selfScoreIdx) : bodyRaw).trim();
+
+    const recommendedMatch = text.match(/\*{0,2}Recommended:\*{0,2}\s*([AB])\b/i);
+    const pick = recommendedMatch ? recommendedMatch[1].toUpperCase() : 'A';
+    const subjectMatch = text.match(new RegExp(`\\*{0,2}Subject\\s*${pick}:\\*{0,2}\\s*([^\\n]+)`, 'i'))
+      ?? text.match(/\*{0,2}Subject\s*[AB]?:\*{0,2}\s*([^\n]+)/i);
+    const subject = subjectMatch ? subjectMatch[1].trim().replace(/^["']|["']$/g, '').replace(/\*+$/g, '').trim() : '';
+    const toMatch = text.match(/\*{0,2}To:\*{0,2}\s*([^\s\n]+)/i);
+    if (subject && body) return { subject, body, to: toMatch?.[1]?.trim() };
+  }
+
+  // Legacy format: **Subject:** ... **Body:**
+  const subjectRe = /\*{0,2}Subject:\*{0,2}\s*(.+)/i;
+  const bodyRe = /\*{0,2}Body:\*{0,2}\s*\n?([\s\S]+)/i;
+  const subjectMatch = text.match(subjectRe);
+  if (!subjectMatch) return null;
+  const bodyMatch = text.slice(text.search(subjectRe)).match(bodyRe);
+  if (!bodyMatch) return null;
+  const subject = subjectMatch[1].trim().replace(/^["']|["']$/g, '').trim();
+  const body = bodyMatch[1].trim();
+  if (subject && body) return { subject, body };
+  return null;
 }
 
 const DETAIL_LOOKUP_RE =
@@ -697,6 +733,52 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
       });
 
       if (result.type === 'text') {
+        // Auto spam-check any email draft embedded in the text response
+        const draft = extractEmailDraft(result.content);
+        if (draft && spamRevisions < MAX_SPAM_REVISIONS) {
+          if (runId) {
+            await this.logSvc.debug(runId, 'Spam check: scoring chat draft', {
+              event_type: 'spam_check_start',
+              email_count: 1,
+              subject: draft.subject.slice(0, 60),
+            });
+          }
+          const spamCheckStart = Date.now();
+          const fromDomain = await this.getFromDomain();
+          const spamResult = await this.spamChecker.score({
+            subject: draft.subject,
+            textBody: draft.body,
+            fromAddress: '',
+            fromDomain,
+            recipient: draft.to ?? '',
+            isTransactional: true,
+          });
+          const spamCheckMs = Date.now() - spamCheckStart;
+          if (runId) {
+            await this.logSvc.debug(runId, `Spam check: draft ${spamResult.grade}(${spamResult.score})`, {
+              event_type: 'spam_check_end',
+              duration_ms: spamCheckMs,
+              scores: `${spamResult.grade}(${spamResult.score})`,
+              failed_count: spamResult.score < 60 ? 1 : 0,
+              revision: spamRevisions,
+            });
+          }
+          if (spamResult.score < 60) {
+            spamRevisions++;
+            const topIssues = spamResult.issues
+              .filter((iss: { severity: string }) => iss.severity === 'critical' || iss.severity === 'high')
+              .slice(0, 5)
+              .map((iss: { ruleId: string; message: string; suggestedFix: string }) => `  - [${iss.ruleId}] ${iss.message} -> ${iss.suggestedFix}`)
+              .join('\n');
+            this.logger.warn(`Chat draft spam check failed: ${spamResult.grade}(${spamResult.score}) — revision ${spamRevisions}/${MAX_SPAM_REVISIONS}`);
+            messages.push({ role: 'assistant', content: result.content });
+            messages.push({
+              role: 'user',
+              content: `SPAM CHECK FAILED — grade: ${spamResult.grade} (score: ${spamResult.score}/100). The draft above will likely be filtered as spam. Rewrite the email to fix these issues:\n\n${topIssues || 'Reduce urgency language, avoid invoice/payment keywords in subject, soften CTA.'}\n\nKeep the same recipient, intent, and tone. Output a new SPAR draft only.`,
+            });
+            continue;
+          }
+        }
         return [{
           type: 'notify_result',
           summary: 'Send query result via Telegram',
@@ -777,7 +859,7 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
                 fromAddress: '',
                 fromDomain,
                 recipient: e.recipient ?? '',
-                isTransactional: false,
+                isTransactional: true,
               });
               return { recipient: e.recipient, subject: e.subject, score: result.score, grade: result.grade, issues: result.issues, criticalFailures: result.criticalFailures };
             }),
