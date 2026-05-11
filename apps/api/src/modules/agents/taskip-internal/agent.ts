@@ -422,6 +422,11 @@ Banned words/phrases in body: "cohort", "score", "trial", "expired", "platform",
 
 Banned words/phrases in subject: "invoice out", "invoice overdue", "payment due", "unpaid", "outstanding", "reminder", "following up" — these trigger spam filters.
 
+For payment_collection angle ONLY — use these subject formulas (fills in real data):
+- Formula A: "your client hasn't paid - quick check?" / "1 invoice open - heard back?" / "payment sitting - did they see it?"
+- Formula B: "did [ClientName / 'your client'] get the invoice?" / "still waiting on that payment?" / "any word on the open invoice?"
+- NEVER: "invoice out", "invoice pending", "payment due", "unpaid invoice" — these score < 60 in spam filters and will be auto-blocked.
+
 Subject must use plain ASCII only — no em dashes (—), no smart quotes, no ellipsis (...). Use a plain hyphen (-) instead of any dash character.
 
 Product framing — NEVER write these framings:
@@ -514,6 +519,37 @@ function extractFailedEmails(text: string): string[] {
   // Parse failed recipients from batch result messages like "[2/5] Failed: email@example.com — reason"
   const matches = [...text.matchAll(/Failed:\s*([^\s,—–]+@[^\s,—–]+)/gi)];
   return matches.map(m => m[1].trim()).filter(Boolean);
+}
+
+function extractEmailDraft(text: string): { subject: string; body: string; to?: string } | null {
+  // SPAR format: **Subject A/B:** ... **Email:** ... body ... **Self-score:**
+  const emailMarkerIdx = text.search(/\*{0,2}Email:\*{0,2}\s*\n?/i);
+  if (emailMarkerIdx >= 0) {
+    const markerMatch = text.match(/\*{0,2}Email:\*{0,2}\s*\n?/i)!;
+    const bodyRaw = text.slice(emailMarkerIdx + markerMatch[0].length);
+    const selfScoreIdx = bodyRaw.search(/\n\*{0,2}Self-score:/i);
+    const body = (selfScoreIdx >= 0 ? bodyRaw.slice(0, selfScoreIdx) : bodyRaw).trim();
+
+    const recommendedMatch = text.match(/\*{0,2}Recommended:\*{0,2}\s*([AB])\b/i);
+    const pick = recommendedMatch ? recommendedMatch[1].toUpperCase() : 'A';
+    const subjectMatch = text.match(new RegExp(`\\*{0,2}Subject\\s*${pick}:\\*{0,2}\\s*([^\\n]+)`, 'i'))
+      ?? text.match(/\*{0,2}Subject\s*[AB]?:\*{0,2}\s*([^\n]+)/i);
+    const subject = subjectMatch ? subjectMatch[1].trim().replace(/^["']|["']$/g, '').replace(/\*+$/g, '').trim() : '';
+    const toMatch = text.match(/\*{0,2}To:\*{0,2}\s*([^\s\n]+)/i);
+    if (subject && body) return { subject, body, to: toMatch?.[1]?.trim() };
+  }
+
+  // Legacy format: **Subject:** ... **Body:**
+  const subjectRe = /\*{0,2}Subject:\*{0,2}\s*(.+)/i;
+  const bodyRe = /\*{0,2}Body:\*{0,2}\s*\n?([\s\S]+)/i;
+  const subjectMatch = text.match(subjectRe);
+  if (!subjectMatch) return null;
+  const bodyMatch = text.slice(text.search(subjectRe)).match(bodyRe);
+  if (!bodyMatch) return null;
+  const subject = subjectMatch[1].trim().replace(/^["']|["']$/g, '').trim();
+  const body = bodyMatch[1].trim();
+  if (subject && body) return { subject, body };
+  return null;
 }
 
 const DETAIL_LOOKUP_RE =
@@ -697,6 +733,52 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
       });
 
       if (result.type === 'text') {
+        // Auto spam-check any email draft embedded in the text response
+        const draft = extractEmailDraft(result.content);
+        if (draft && spamRevisions < MAX_SPAM_REVISIONS) {
+          if (runId) {
+            await this.logSvc.debug(runId, 'Spam check: scoring chat draft', {
+              event_type: 'spam_check_start',
+              email_count: 1,
+              subject: draft.subject.slice(0, 60),
+            });
+          }
+          const spamCheckStart = Date.now();
+          const fromDomain = await this.getFromDomain();
+          const spamResult = await this.spamChecker.score({
+            subject: draft.subject,
+            textBody: draft.body,
+            fromAddress: '',
+            fromDomain,
+            recipient: draft.to ?? '',
+            isTransactional: false,
+          });
+          const spamCheckMs = Date.now() - spamCheckStart;
+          if (runId) {
+            await this.logSvc.debug(runId, `Spam check: draft ${spamResult.grade}(${spamResult.score})`, {
+              event_type: 'spam_check_end',
+              duration_ms: spamCheckMs,
+              scores: `${spamResult.grade}(${spamResult.score})`,
+              failed_count: spamResult.score < 60 ? 1 : 0,
+              revision: spamRevisions,
+            });
+          }
+          if (spamResult.score < 60) {
+            spamRevisions++;
+            const topIssues = spamResult.issues
+              .filter((iss: { severity: string }) => iss.severity === 'critical' || iss.severity === 'high')
+              .slice(0, 5)
+              .map((iss: { ruleId: string; message: string; suggestedFix: string }) => `  - [${iss.ruleId}] ${iss.message} -> ${iss.suggestedFix}`)
+              .join('\n');
+            this.logger.warn(`Chat draft spam check failed: ${spamResult.grade}(${spamResult.score}) — revision ${spamRevisions}/${MAX_SPAM_REVISIONS}`);
+            messages.push({ role: 'assistant', content: result.content });
+            messages.push({
+              role: 'user',
+              content: `SPAM CHECK FAILED — grade: ${spamResult.grade} (score: ${spamResult.score}/100). The draft above will likely be filtered as spam. Rewrite the email to fix these issues:\n\n${topIssues || 'Reduce urgency language, avoid invoice/payment keywords in subject, soften CTA.'}\n\nKeep the same recipient, intent, and tone. Output a new SPAR draft only.`,
+            });
+            continue;
+          }
+        }
         return [{
           type: 'notify_result',
           summary: 'Send query result via Telegram',

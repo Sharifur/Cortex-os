@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.12.7',
+    date: '2026-05-11',
+    entries: [
+      { tag: 'feat', scope: 'taskip-internal', description: 'Server-side spam auto-rewrite in chat mode: when the LLM returns a text draft in the notify_result path, extractEmailDraft() parses the subject and body, SpamCheckerService scores it, and if score < 60 (SPAM_RISK/BLOCK) the feedback is injected back into the conversation as a user message asking for a rewrite. Runs up to 2 revisions. Each spam check is logged as spam_check_start/spam_check_end events visible in the Activity panel.' },
+      { tag: 'fix', scope: 'taskip-internal', description: 'Payment collection angle subjects: added concrete spam-safe subject formulas (e.g. "1 invoice open - heard back?", "did your client get the invoice?") and reinforced NEVER-use list for invoice/payment/reminder patterns that score below 60 in spam filters.' },
+    ],
+  },
+  {
     version: 'v4.12.6',
     date: '2026-05-11',
     entries: [
