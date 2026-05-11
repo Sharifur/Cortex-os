@@ -16,6 +16,7 @@ import { LlmModule } from './modules/llm/llm.module';
 import { TelegramModule } from './modules/telegram/telegram.module';
 import { McpModule } from './modules/mcp/mcp.module';
 import { SesModule } from './modules/ses/ses.module';
+import { SpamCheckerModule } from './modules/spam-checker/spam-checker.module';
 import { GmailModule } from './modules/gmail/gmail.module';
 import { TaskipTrialModule } from './modules/agents/taskip-trial/taskip-trial.module';
 import { DailyReminderModule } from './modules/agents/daily-reminder/daily-reminder.module';
@@ -82,6 +83,7 @@ import { TrackingModule } from './modules/tracking/tracking.module';
     TelegramModule,
     McpModule,
     SesModule,
+    SpamCheckerModule,
     GmailModule,
     TaskipTrialModule,
     DailyReminderModule,

@@ -4,7 +4,7 @@ import { eq } from 'drizzle-orm';
 import { SettingsService } from '../settings/settings.service';
 import { DbService } from '../../db/db.service';
 import { emailSuppressions } from './ses-suppressions.schema';
-import { EmailSpamCheckerService } from './email-spam-checker.service';
+import { SpamCheckerService } from '../spam-checker/spam-checker.service';
 
 export interface SendEmailParams {
   to: string;
@@ -25,7 +25,7 @@ export class SesService {
   constructor(
     private readonly settings: SettingsService,
     private readonly db: DbService,
-    private readonly spamChecker: EmailSpamCheckerService,
+    private readonly spamChecker: SpamCheckerService,
   ) {}
 
   async isSuppressed(email: string): Promise<boolean> {
@@ -94,17 +94,25 @@ export class SesService {
       return '';
     }
 
-    // Spam check — sanitize subject + warn on spam signals
-    const spamResult = this.spamChecker.check(params.subject, params.textBody ?? '');
+    // Pre-send spam scoring — sanitize subject, log issues, never block (advisory)
+    const spamResult = await this.spamChecker.score({
+      subject: params.subject,
+      textBody: params.textBody ?? '',
+      htmlBody: params.htmlBody,
+      fromAddress: params.from,
+      fromDomain,
+      recipient: params.to,
+    });
     const subject = spamResult.sanitizedSubject;
     if (subject !== params.subject) {
-      this.logger.warn(`Subject sanitized (non-ASCII removed) — original: "${params.subject}" | sanitized: "${subject}"`);
+      this.logger.warn(`Subject sanitized — original: "${params.subject}" | sanitized: "${subject}"`);
     }
-    if (spamResult.blockers.length > 0) {
-      this.logger.warn(`Spam blockers detected (score ${spamResult.score}): ${spamResult.blockers.join(' | ')}`);
-    }
-    if (spamResult.warnings.length > 0) {
-      this.logger.debug(`Spam warnings: ${spamResult.warnings.join(' | ')}`);
+    if (spamResult.criticalFailures.length > 0) {
+      this.logger.error(`Spam CRITICAL (score ${spamResult.score} / ${spamResult.grade}): ${spamResult.criticalFailures.join(' | ')}`);
+    } else if (spamResult.grade === 'SPAM_RISK' || spamResult.grade === 'BLOCK') {
+      this.logger.warn(`Spam ${spamResult.grade} (score ${spamResult.score}) | top issues: ${spamResult.issues.slice(0, 3).map(i => i.ruleId).join(', ')}`);
+    } else {
+      this.logger.debug(`Spam score: ${spamResult.score} (${spamResult.grade})`);
     }
 
     const client = new SESClient({

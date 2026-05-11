@@ -16,6 +16,16 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.11.0',
+    date: '2026-05-11',
+    entries: [
+      { tag: 'feat', scope: 'spam-checker', description: 'Full SRS v1.0 spam-risk scoring engine (Phase 1 MVP). 7-category weighted scoring: Authentication (SPF/DKIM/DMARC DNS, weight 25), Reputation (Spamhaus DBL + Barracuda DNSBL, weight 25), List Hygiene (MX lookup + role/disposable detection, weight 15), Content (46 rule-based checks across phishing-mimic / debt-collection / urgency / TGTBT / financial / clickbait categories, weight 20), Technical (URL shorteners / link density / image ratio / subject length / non-ASCII, weight 10), Compliance (List-Unsubscribe header + body link + postal address, weight 5). Returns score 0-100, grade (INBOX_STRONG / INBOX_LIKELY / PROMOTIONS_RISK / SPAM_RISK / BLOCK), per-category breakdown, criticalFailures[], suggestedFix per issue. Critical-failure cap: Spamhaus hit caps at 30 (BLOCK), missing SPF+DMARC caps at 45 (SPAM_RISK).' },
+      { tag: 'feat', scope: 'spam-checker', description: 'REST endpoints: POST /spam-checker/score (full pre-send analysis) + GET /spam-checker/audit/domain?domain= (SPF/DKIM/DMARC + blocklist audit for a domain alone). All DNS lookups run in parallel with 3s timeout and 5-min in-memory cache (p95 < 400ms warm).' },
+      { tag: 'feat', scope: 'ses', description: 'SES sendEmail now calls SpamCheckerService.score() (async, full engine) before every send. CRITICAL failures logged at ERROR level, SPAM_RISK/BLOCK at WARN, clean sends at DEBUG. Subject is auto-sanitized (non-ASCII stripped) in all cases.' },
+      { tag: 'chore', scope: 'ses', description: 'Removed EmailSpamCheckerService (basic phrase-list only). Replaced by SpamCheckerModule which SesModule now imports.' },
+    ],
+  },
+  {
     version: 'v4.10.0',
     date: '2026-05-11',
     entries: [
