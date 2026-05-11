@@ -224,10 +224,17 @@ export class LivechatService implements OnModuleInit {
     if (!site.enabled) throw new ForbiddenException(`Site disabled: ${siteKey}`);
     const requestHostname = this.extractHostname(requestOrigin ?? null);
     if (requestHostname) {
-      const siteHostname = this.extractHostname(site.origin);
-      if (requestHostname !== siteHostname) {
-        this.logger.warn(`Origin mismatch for site ${siteKey}: received '${requestOrigin}', expected '${site.origin}'`);
-        throw new ForbiddenException('Origin not allowed');
+      const rawSiteHostname = this.extractHostname(site.origin);
+      if (!rawSiteHostname) {
+        // site.origin is stored without a scheme — skip check but warn so the admin can fix it
+        this.logger.warn(`Site ${siteKey} has unparseable origin "${site.origin}" — origin check skipped. Add https:// in site settings.`);
+      } else {
+        // Strip www. prefix from both sides so www.example.com and example.com both pass
+        const normalize = (h: string) => h.replace(/^www\./, '');
+        if (normalize(requestHostname) !== normalize(rawSiteHostname)) {
+          this.logger.warn(`Origin mismatch for site ${siteKey}: received '${requestOrigin}' (${requestHostname}), expected '${site.origin}' (${rawSiteHostname})`);
+          throw new ForbiddenException('Origin not allowed');
+        }
       }
     }
     return site;

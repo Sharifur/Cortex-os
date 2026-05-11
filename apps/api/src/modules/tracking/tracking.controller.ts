@@ -1,4 +1,5 @@
 import { Controller, Get, Param, Req, Res } from '@nestjs/common';
+import { FastifyReply } from 'fastify';
 import { eq, sql } from 'drizzle-orm';
 import { DbService } from '../../db/db.service';
 import { taskipInternalEmails } from '../../db/schema';
@@ -22,7 +23,7 @@ export class TrackingController {
   async trackOpen(
     @Param('token') rawToken: string,
     @Req() req: { ip?: string; socket?: { remoteAddress?: string }; headers?: Record<string, string> },
-    @Res() res: { setHeader: (k: string, v: string) => void; send: (b: Buffer) => void },
+    @Res() res: FastifyReply,
   ) {
     const token = rawToken.replace(/\.gif$/, '');
     const ip = (req.ip ?? req.socket?.remoteAddress ?? '').toString();
@@ -59,9 +60,9 @@ export class TrackingController {
       // open tracking must never error-out — silently continue
     }
 
-    res.setHeader('Content-Type', 'image/gif');
-    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
-    res.setHeader('Pragma', 'no-cache');
+    res.header('Content-Type', 'image/gif');
+    res.header('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+    res.header('Pragma', 'no-cache');
     res.send(TRANSPARENT_GIF);
   }
 }

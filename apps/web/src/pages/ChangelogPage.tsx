@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.11.6',
+    date: '2026-05-11',
+    entries: [
+      { tag: 'fix', scope: 'tracking', description: 'trackOpen GIF pixel: res.setHeader is not a function — switched from Express-style res to FastifyReply (.header() + .send()). Tracking pixel now correctly returns a 1x1 transparent GIF.' },
+      { tag: 'fix', scope: 'livechat', description: 'pageview 403 "Origin not allowed": two root causes fixed. (1) When site.origin is stored without https:// scheme, extractHostname() returns null — origin check is now skipped with a WARN log instead of throwing. (2) www. prefix stripped from both hostnames before comparison so www.example.com and example.com both pass.' },
+    ],
+  },
+  {
     version: 'v4.11.5',
     date: '2026-05-11',
     entries: [
