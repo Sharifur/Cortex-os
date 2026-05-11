@@ -16,6 +16,21 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.9.4',
+    date: '2026-05-11',
+    entries: [
+      { tag: 'fix', scope: 'livechat', description: 'Transcript email now validates the from address domain before calling the SES SDK, surfacing a clear error instead of "Domain contains illegal character" from AWS. Check Settings → Email (SES) if from address is misconfigured.' },
+      { tag: 'feat', scope: 'livechat', description: 'Transcript is now always sent on chat close (force: true) — visitor just needs an email on file and at least one message. The per-site transcriptEnabled toggle is no longer required; it remains as an override only.' },
+    ],
+  },
+  {
+    version: 'v4.9.3',
+    date: '2026-05-11',
+    entries: [
+      { tag: 'fix', scope: 'taskip-internal', description: 'Auto-resolve numeric workspace_uuid to real UUID before any insight tool call: if the LLM passes a list position (e.g. "4") instead of a UUID, the runtime now scans prior cohort list tool results and substitutes the correct uuid field automatically.' },
+    ],
+  },
+  {
     version: 'v4.9.2',
     date: '2026-05-11',
     entries: [

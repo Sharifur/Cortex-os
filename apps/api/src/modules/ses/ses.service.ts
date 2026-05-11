@@ -75,8 +75,16 @@ export class SesService {
     const atIdx = params.to.indexOf('@');
     const domain = atIdx >= 0 ? params.to.slice(atIdx + 1) : '';
     if (!domain || !/^[a-zA-Z0-9.\-]+$/.test(domain)) {
-      this.logger.warn(`SES send skipped: non-ASCII or invalid domain in "${params.to}"`);
+      this.logger.warn(`SES send skipped: non-ASCII or invalid domain in to "${params.to}"`);
       return '';
+    }
+
+    // Validate from address — extract bare email from optional "Display Name <email>" format
+    const fromEmail = (params.from.match(/<([^>]+)>/) ?? params.from.match(/^(\S+@\S+)$/))?.[1] ?? params.from;
+    const fromAtIdx = fromEmail.indexOf('@');
+    const fromDomain = fromAtIdx >= 0 ? fromEmail.slice(fromAtIdx + 1).trim() : '';
+    if (!fromDomain || !/^[a-zA-Z0-9.\-]+$/.test(fromDomain)) {
+      throw new Error(`Invalid from address domain in "${params.from}" — check SES configuration in Settings → Email`);
     }
 
     if (await this.isSuppressed(params.to)) {
