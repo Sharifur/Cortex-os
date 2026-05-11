@@ -351,6 +351,15 @@ export class SupportAgent implements IAgent, OnModuleInit {
         requiresAuth: true,
         handler: async (query) => this.listWebhookLogs((query as any)?.limit),
       },
+      {
+        method: 'POST',
+        path: '/support/webhook-test',
+        requiresAuth: true,
+        handler: async (body) => {
+          this.logger.log(`webhook-test invoked — payload keys: ${Object.keys(body ?? {}).join(', ')}`);
+          return this.ingestWebhook(body);
+        },
+      },
     ];
   }
 
@@ -381,19 +390,53 @@ export class SupportAgent implements IAgent, OnModuleInit {
       ticketId: entry.ticketId ?? null,
       rawPayload: entry.rawPayload ?? null,
       error: entry.error ?? null,
-    }).catch(() => {});
+    }).catch((dbErr: unknown) => {
+      this.logger.error(`writeWebhookLog failed: ${(dbErr as Error).message} — entry: ${JSON.stringify({ status: entry.status, externalId: entry.externalId, error: entry.error })}`);
+    });
+  }
+
+  /** Normalize the CRM webhook payload into a flat { ticket, contact } shape.
+   *
+   * Supported formats:
+   *   1. Flat: { ticket: { id, subject }, contact: { email } }
+   *   2. Nested CRM (Laravel transformer): { event, data: { ticket: { "Modules\\...": { id, subject, created_by } } } }
+   */
+  private normalizeCrmPayload(payload: any): { ticket: any; contact: any; event: string | null; replyData: any } {
+    const event: string | null = payload?.event ?? null;
+
+    // Format 2: new nested CRM format
+    if (payload?.data?.ticket && typeof payload.data.ticket === 'object') {
+      const ticketWrapper = payload.data.ticket;
+      // Laravel wraps under a transformer class name — grab the first value
+      const ticket = Object.values(ticketWrapper)[0] as any;
+      const contact = {
+        email: ticket?.created_by?.email ?? ticket?.user?.email ?? '',
+        name: ticket?.created_by?.full_name ?? ticket?.created_by?.first_name ?? '',
+      };
+      return { ticket, contact, event, replyData: payload?.data?.reply ?? null };
+    }
+
+    // Format 1: flat legacy format
+    return { ticket: payload?.ticket ?? null, contact: payload?.contact ?? null, event, replyData: null };
   }
 
   private async ingestWebhook(payload: any) {
-    this.logger.log(`ingestWebhook called — payload keys: ${Object.keys(payload ?? {}).join(', ')}`);
+    this.logger.log(`ingestWebhook called — event: "${payload?.event ?? 'none'}" | payload keys: ${Object.keys(payload ?? {}).join(', ')}`);
     const rawPayload = JSON.stringify(payload).slice(0, 5000);
-    const { ticket, contact } = payload ?? {};
+    const { ticket, contact, event, replyData } = this.normalizeCrmPayload(payload);
 
     if (!ticket?.id || !ticket?.subject) {
-      const errMsg = 'Missing ticket.id or ticket.subject';
-      this.logger.warn(`ingestWebhook: ${errMsg} — received: ${rawPayload.slice(0, 200)}`);
+      const errMsg = `Missing ticket.id or ticket.subject after normalization (event="${event ?? 'none'}")`;
+      this.logger.warn(`ingestWebhook: ${errMsg} — raw keys: ${Object.keys(payload ?? {}).join(', ')}`);
       await this.writeWebhookLog({ status: 'error', rawPayload, error: errMsg });
       return { ok: false, error: errMsg };
+    }
+
+    // For reply events triggered by our own agent, just log and skip — avoid feedback loops
+    if (event === 'support.ticket.replied' && payload?.data?.replied_by?.type === 'agent') {
+      this.logger.log(`ingestWebhook: skipping agent-replied event for ticket #${ticket.id}`);
+      await this.writeWebhookLog({ status: 'skipped_agent_reply', externalId: String(ticket.id), rawPayload });
+      return { ok: true, skipped: 'agent_reply' };
     }
 
     this.logger.log(`Webhook received: ticket #${ticket.id} "${ticket.subject}" from ${contact?.email ?? '(no contact)'}`);

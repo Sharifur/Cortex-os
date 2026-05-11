@@ -16,6 +16,16 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.11.5',
+    date: '2026-05-11',
+    entries: [
+      { tag: 'fix', scope: 'support', description: 'Webhook payload parsing fixed for CRM nested format: ticket data was wrapped under payload.data.ticket["Modules\\\\SupportTicket\\\\Transformers\\\\SupportTicketResource"] (Laravel transformer key). normalizeCrmPayload() now unwraps both the nested CRM format and the legacy flat format. Contact email extracted from created_by.email.' },
+      { tag: 'fix', scope: 'support', description: 'Agent-replied events (replied_by.type === "agent") are now logged as status skipped_agent_reply instead of triggering ticket ingest — prevents feedback loops when the agent posts a reply.' },
+      { tag: 'fix', scope: 'support', description: 'writeWebhookLog no longer silently eats DB errors. Now logs at ERROR level with the full entry details so missing table migrations are immediately visible.' },
+      { tag: 'feat', scope: 'support', description: 'New POST /support/webhook-test endpoint (JWT auth) + Test webhook panel in Webhooks tab: paste any CRM JSON payload and replay it through ingestWebhook to debug parsing without needing the CRM to resend.' },
+    ],
+  },
+  {
     version: 'v4.11.4',
     date: '2026-05-11',
     entries: [
