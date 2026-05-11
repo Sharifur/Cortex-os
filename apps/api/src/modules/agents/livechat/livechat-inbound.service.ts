@@ -30,8 +30,13 @@ export class LivechatInboundService {
       this.settings.getDecrypted('livechat_reply_secret'),
     ]);
     if (!domain || !secret) return null;
+    const cleanDomain = domain.trim().replace(/^@/, '');
+    if (!cleanDomain || !/^[a-zA-Z0-9.\-]+$/.test(cleanDomain)) {
+      this.logger.warn(`buildReplyTo: livechat_reply_domain "${domain}" contains illegal characters — skipping Reply-To`);
+      return null;
+    }
     const token = this.signSessionId(sessionId, secret);
-    return `transcript+${sessionId}.${token}@${domain.replace(/^@/, '')}`;
+    return `transcript+${sessionId}.${token}@${cleanDomain}`;
   }
 
   /** Build a Message-ID header value for a transcript email. */

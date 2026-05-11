@@ -89,6 +89,22 @@ export class SesService {
       throw new Error(`Invalid from address domain in "${params.from}" — check SES configuration in Settings → Email`);
     }
 
+    if (params.replyTo) {
+      const replyToAtIdx = params.replyTo.indexOf('@');
+      const replyToDomain = replyToAtIdx >= 0 ? params.replyTo.slice(replyToAtIdx + 1).trim() : '';
+      if (!replyToDomain || !/^[a-zA-Z0-9.\-]+$/.test(replyToDomain)) {
+        throw new Error(`Invalid replyTo address domain in "${params.replyTo}" — check livechat_reply_domain in Settings`);
+      }
+    }
+
+    for (const bccAddr of params.bcc ?? []) {
+      const bccAtIdx = bccAddr.indexOf('@');
+      const bccDomain = bccAtIdx >= 0 ? bccAddr.slice(bccAtIdx + 1).trim() : '';
+      if (!bccDomain || !/^[a-zA-Z0-9.\-]+$/.test(bccDomain)) {
+        throw new Error(`Invalid BCC address domain in "${bccAddr}"`);
+      }
+    }
+
     if (await this.isSuppressed(params.to)) {
       this.logger.warn(`Skipping suppressed address: ${params.to}`);
       return '';

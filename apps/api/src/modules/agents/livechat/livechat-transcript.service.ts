@@ -86,7 +86,9 @@ export class LivechatTranscriptService {
       });
     } catch (err) {
       const msg = (err as Error).message ?? String(err);
-      this.logger.warn(`Transcript send failed for ${sessionId}: ${msg}`);
+      this.logger.error(
+        `Transcript send failed — session: ${sessionId.slice(-8)} | to: "${visitorEmail}" | from: "${fromAddress}" | replyTo: "${replyTo ?? 'none'}" | bcc: "${bccList.join(', ') || 'none'}" | error: ${msg}`,
+      );
       return { ok: false, reason: 'send_failed', error: msg };
     }
 

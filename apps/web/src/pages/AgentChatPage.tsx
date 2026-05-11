@@ -570,7 +570,20 @@ function EmailDraftCard({
   const [showSendModal, setShowSendModal] = useState(false);
   const [sent, setSent] = useState(false);
   const [sentEmailId, setSentEmailId] = useState<string | undefined>();
+  const [spamResult, setSpamResult] = useState<{ score: number; grade: string } | null>(null);
   const trackedSend = agentKey === 'taskip_internal';
+
+  useEffect(() => {
+    if (agentKey !== 'taskip_internal' || !subject || !body) return;
+    fetch('/spam-checker/score', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ subject, textBody: body, fromAddress: '', fromDomain: '', recipient: recipient ?? '' }),
+    })
+      .then(r => r.ok ? r.json() : null)
+      .then((d: any) => { if (d?.score != null) setSpamResult({ score: d.score, grade: d.grade }); })
+      .catch(() => {});
+  }, [subject, body, agentKey, token, recipient]);
 
   const activeSubject = useAlt && subjectAlt ? subjectAlt : subject;
 
@@ -637,6 +650,29 @@ function EmailDraftCard({
                 <Check className="w-3 h-3" /> {selfScore}
               </span>
             )}
+            {spamResult && (() => {
+              const gradeColors: Record<string, string> = {
+                INBOX_STRONG: 'text-emerald-400',
+                INBOX_LIKELY: 'text-green-400',
+                PROMOTIONS_RISK: 'text-amber-400',
+                SPAM_RISK: 'text-orange-400',
+                BLOCK: 'text-rose-400',
+              };
+              const gradeLabels: Record<string, string> = {
+                INBOX_STRONG: 'Inbox strong',
+                INBOX_LIKELY: 'Inbox likely',
+                PROMOTIONS_RISK: 'Promo risk',
+                SPAM_RISK: 'Spam risk',
+                BLOCK: 'Blocked',
+              };
+              const color = gradeColors[spamResult.grade] ?? 'text-muted-foreground';
+              const label = gradeLabels[spamResult.grade] ?? spamResult.grade;
+              return (
+                <span className={`inline-flex items-center gap-1 text-[10px] font-medium ${color}`}>
+                  Spam: {spamResult.score} — {label}
+                </span>
+              );
+            })()}
             {sent && (
               sentEmailId ? (
                 <Link
@@ -1449,13 +1485,15 @@ function ChatTab({
         {!agent.enabled && (
           <p className="text-xs text-amber-500 mb-2 px-1">Agent is disabled — enable it in Settings to chat.</p>
         )}
-        <SuggestionChips
-          agentKey={agent.key}
-          onPick={(s) => {
-            setInput(s);
-            textareaRef.current?.focus();
-          }}
-        />
+        {!input.trim() && messages.length === 0 && (
+          <SuggestionChips
+            agentKey={agent.key}
+            onPick={(s) => {
+              setInput(s);
+              textareaRef.current?.focus();
+            }}
+          />
+        )}
         {pastedImage && (
           <div className="mb-2 flex items-center gap-2">
             <img src={pastedImage.previewUrl} alt="pasted" className="h-14 rounded-lg border border-border object-cover" />

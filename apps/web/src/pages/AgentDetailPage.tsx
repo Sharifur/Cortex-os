@@ -4466,6 +4466,10 @@ interface WebhookLog {
 
 function WebhookLogsTab({ token }: { token: string }) {
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [testPayload, setTestPayload] = useState('');
+  const [testSending, setTestSending] = useState(false);
+  const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [showTestPanel, setShowTestPanel] = useState(false);
 
   const { data: logs = [], isLoading, refetch, isFetching } = useQuery<WebhookLog[]>({
     queryKey: ['support-webhook-logs'],
@@ -4479,9 +4483,35 @@ function WebhookLogsTab({ token }: { token: string }) {
     staleTime: 30_000,
   });
 
+  async function handleTestWebhook() {
+    setTestSending(true);
+    setTestResult(null);
+    try {
+      let body: object;
+      try { body = JSON.parse(testPayload || '{}'); } catch { setTestResult({ ok: false, message: 'Invalid JSON' }); setTestSending(false); return; }
+      const res = await fetch('/support/webhook-test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setTestResult({ ok: true, message: JSON.stringify(data, null, 2) });
+        refetch();
+      } else {
+        setTestResult({ ok: false, message: (data as any)?.message ?? `HTTP ${res.status}` });
+      }
+    } catch (e) {
+      setTestResult({ ok: false, message: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setTestSending(false);
+    }
+  }
+
   function statusChip(status: string) {
     if (status === 'ok') return 'bg-emerald-500/15 text-emerald-400';
     if (status === 'duplicate') return 'bg-amber-500/15 text-amber-400';
+    if (status === 'skipped_agent_reply') return 'bg-slate-500/15 text-slate-400';
     return 'bg-rose-500/15 text-rose-400';
   }
 
@@ -4505,15 +4535,51 @@ function WebhookLogsTab({ token }: { token: string }) {
             <code className="bg-muted px-1 rounded">/support/ingest-ticket</code>
           </p>
         </div>
-        <button
-          onClick={() => refetch()}
-          disabled={isFetching}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border text-xs text-muted-foreground hover:text-foreground disabled:opacity-50 transition-colors"
-        >
-          <RefreshCw className={`w-3 h-3 ${isFetching ? 'animate-spin' : ''}`} />
-          Refresh
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => { setShowTestPanel(v => !v); setTestResult(null); }}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <Radio className="w-3 h-3" />
+            Test webhook
+          </button>
+          <button
+            onClick={() => refetch()}
+            disabled={isFetching}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border text-xs text-muted-foreground hover:text-foreground disabled:opacity-50 transition-colors"
+          >
+            <RefreshCw className={`w-3 h-3 ${isFetching ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
+        </div>
       </div>
+
+      {showTestPanel && (
+        <div className="rounded-xl border border-border bg-card p-4 mb-4 space-y-3">
+          <p className="text-xs font-medium">Send a test webhook payload directly (bypasses secret check)</p>
+          <p className="text-[11px] text-muted-foreground">Paste any CRM webhook JSON to replay it through the ingestion logic.</p>
+          <textarea
+            value={testPayload}
+            onChange={e => setTestPayload(e.target.value)}
+            placeholder={'{\n  "event": "support.ticket.created",\n  "data": { ... }\n}'}
+            rows={8}
+            className="w-full rounded-lg border border-border bg-muted/20 px-3 py-2.5 text-[11px] font-mono focus:outline-none focus:ring-1 focus:ring-primary resize-y"
+          />
+          {testResult && (
+            <pre className={`text-[11px] rounded-lg px-3 py-2.5 overflow-x-auto ${testResult.ok ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>
+              {testResult.message}
+            </pre>
+          )}
+          <button
+            onClick={handleTestWebhook}
+            disabled={testSending}
+            className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-md bg-primary text-primary-foreground text-xs hover:bg-primary/90 disabled:opacity-50 transition-colors"
+          >
+            {testSending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Radio className="w-3 h-3" />}
+            {testSending ? 'Sending…' : 'Send test payload'}
+          </button>
+        </div>
+      )}
 
       {isLoading && (
         <div className="space-y-2">

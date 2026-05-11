@@ -16,6 +16,34 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.11.5',
+    date: '2026-05-11',
+    entries: [
+      { tag: 'fix', scope: 'support', description: 'Webhook payload parsing fixed for CRM nested format: ticket data was wrapped under payload.data.ticket["Modules\\\\SupportTicket\\\\Transformers\\\\SupportTicketResource"] (Laravel transformer key). normalizeCrmPayload() now unwraps both the nested CRM format and the legacy flat format. Contact email extracted from created_by.email.' },
+      { tag: 'fix', scope: 'support', description: 'Agent-replied events (replied_by.type === "agent") are now logged as status skipped_agent_reply instead of triggering ticket ingest — prevents feedback loops when the agent posts a reply.' },
+      { tag: 'fix', scope: 'support', description: 'writeWebhookLog no longer silently eats DB errors. Now logs at ERROR level with the full entry details so missing table migrations are immediately visible.' },
+      { tag: 'feat', scope: 'support', description: 'New POST /support/webhook-test endpoint (JWT auth) + Test webhook panel in Webhooks tab: paste any CRM JSON payload and replay it through ingestWebhook to debug parsing without needing the CRM to resend.' },
+    ],
+  },
+  {
+    version: 'v4.11.4',
+    date: '2026-05-11',
+    entries: [
+      { tag: 'fix', scope: 'livechat', description: 'Transcript "Domain contains illegal character" root cause fixed: buildReplyTo now trims livechat_reply_domain (removing trailing newlines/spaces from copy-paste) and validates the domain before building the address. If domain is invalid, Reply-To is dropped rather than passing a corrupt address to SES.' },
+      { tag: 'fix', scope: 'ses', description: 'Pre-send validation added for replyTo and BCC addresses: domain extracted and checked against [a-zA-Z0-9.-] before the SES SDK call. Throws a descriptive error naming the specific field and value rather than relying on the generic "Domain contains illegal character" from SES.' },
+      { tag: 'fix', scope: 'livechat', description: 'Transcript send failure log upgraded to ERROR and includes full context: session id, to, from, replyTo, BCC, and error message — so the problematic address is immediately visible in logs.' },
+    ],
+  },
+  {
+    version: 'v4.11.3',
+    date: '2026-05-11',
+    entries: [
+      { tag: 'fix', scope: 'chat', description: 'Suggestion chips no longer shown constantly — only appear when the chat is empty (no messages and no typed input). Hidden once conversation starts.' },
+      { tag: 'feat', scope: 'chat', description: 'Email draft card now shows live spam score: calls /spam-checker/score on render and displays grade + numeric score (color-coded) next to the SPAR self-score in the card footer. Only active for taskip_internal agent.' },
+      { tag: 'feat', scope: 'taskip-internal', description: 'Spam check results now recorded in run activity log (event_type: spam_check_start / spam_check_end) with email count, per-recipient scores, failed count, revision number, and duration. Visible in the Activity panel.' },
+    ],
+  },
+  {
     version: 'v4.11.2',
     date: '2026-05-11',
     entries: [
