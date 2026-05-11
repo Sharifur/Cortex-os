@@ -5,7 +5,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
-  Mail, Eye, EyeOff, MessageSquare, RefreshCw, Bot, Loader2, Clock, ChevronRight, Reply, Send, X,
+  Mail, Eye, EyeOff, MessageSquare, RefreshCw, Bot, Loader2, Clock, ChevronRight, Reply, Send, X, Search,
 } from 'lucide-react';
 
 interface InboxRow {
@@ -161,6 +161,7 @@ export default function InboxPage() {
   const highlightId = searchParams.get('highlight') ?? '';
 
   const [purpose, setPurpose] = useState<string>('');
+  const [search, setSearch] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(highlightId || null);
 
   // AI chat drawer
@@ -256,8 +257,15 @@ export default function InboxPage() {
     }
   }, [highlightId, data]);
 
-  const rows = data ?? [];
-  const selected = rows.find((r) => r.id === selectedId) ?? null;
+  const allRows = data ?? [];
+  const needle = search.trim().toLowerCase();
+  const rows = needle
+    ? allRows.filter(r =>
+        r.recipient.toLowerCase().includes(needle) ||
+        r.subject.toLowerCase().includes(needle)
+      )
+    : allRows;
+  const selected = allRows.find((r) => r.id === selectedId) ?? null;
 
   const [replyOpen, setReplyOpen] = useState(false);
   const [replyBody, setReplyBody] = useState('');
@@ -362,21 +370,41 @@ export default function InboxPage() {
         </div>
       </div>
 
-      {/* Filter tabs */}
-      <div className="flex items-center gap-1.5 px-6 py-2 border-b border-border shrink-0">
-        {(['', 'marketing', 'followup', 'offer', 'other'] as const).map((p) => (
-          <button
-            key={p || 'all'}
-            onClick={() => setPurpose(p)}
-            className={`text-[11px] px-3 py-1 rounded-full border transition-colors ${
-              purpose === p
-                ? 'bg-primary text-primary-foreground border-primary'
-                : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground/30'
-            }`}
-          >
-            {p ? p.charAt(0).toUpperCase() + p.slice(1) : 'All'}
-          </button>
-        ))}
+      {/* Filter tabs + search */}
+      <div className="flex items-center gap-2 px-6 py-2 border-b border-border shrink-0">
+        <div className="flex items-center gap-1.5 flex-1 min-w-0 flex-wrap">
+          {(['', 'marketing', 'followup', 'offer', 'other'] as const).map((p) => (
+            <button
+              key={p || 'all'}
+              onClick={() => setPurpose(p)}
+              className={`text-[11px] px-3 py-1 rounded-full border transition-colors shrink-0 ${
+                purpose === p
+                  ? 'bg-primary text-primary-foreground border-primary'
+                  : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground/30'
+              }`}
+            >
+              {p ? p.charAt(0).toUpperCase() + p.slice(1) : 'All'}
+            </button>
+          ))}
+        </div>
+        <div className="relative shrink-0">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground pointer-events-none" />
+          <input
+            type="text"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search email or subject…"
+            className="h-7 pl-7 pr-7 w-52 rounded-md border border-border bg-muted/30 text-[11px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+          />
+          {search && (
+            <button
+              onClick={() => setSearch('')}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Two-panel body */}
