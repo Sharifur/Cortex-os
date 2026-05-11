@@ -2866,6 +2866,8 @@ function Phase4SetupSubTab({ agent, title, description, steps }: {
 }
 
 function LivechatSetupSubTab({ agent }: { agent: AgentDetail }) {
+  const apiOrigin = ((import.meta.env.VITE_API_URL ?? '') as string).replace(/\/$/, '') || window.location.origin;
+  const inboundUrl = `${apiOrigin}/livechat/inbound?t=<livechat_inbound_token>`;
   return (
     <Phase4SetupSubTab
       agent={agent}
@@ -2900,6 +2902,25 @@ function LivechatSetupSubTab({ agent }: { agent: AgentDetail }) {
         <SetupStep n={4} title="Enable and test" done={agent.enabled}>
           <p>Enable this agent and open your site in a browser. Send a test message in the chat widget — the agent should reply within 2 seconds.</p>
           <p className="mt-1">Check <a href="/livechat" className="text-primary hover:underline font-medium">Live Chat → Conversations</a> to see the session and take over if needed.</p>
+        </SetupStep>
+        <SetupStep n={5} title="Enable email reply-to-thread (optional)" done={false}>
+          <p>When enabled, visitors who receive a conversation transcript can reply by email — the reply lands back in the live chat session automatically.</p>
+          <p className="mt-2 font-medium">1. Configure three settings in <a href="/integrations?tab=ses" className="text-primary hover:underline">Integrations → Email (SES)</a>:</p>
+          <ul className="list-disc list-inside space-y-1 ml-1 mt-1 text-xs">
+            <li><strong>Reply Domain</strong> — subdomain where SES receives inbound email (e.g. <code className="bg-muted px-1 rounded">reply.taskip.net</code>). MX record must point to the AWS SES inbound SMTP endpoint for your region.</li>
+            <li><strong>Reply HMAC Secret</strong> — any random 32+ character string. Signs reply addresses so they cannot be forged.</li>
+            <li><strong>Inbound Webhook Token</strong> — any random string. Becomes the <code className="bg-muted px-1 rounded">?t=</code> query parameter on the SNS endpoint below.</li>
+          </ul>
+          <p className="mt-2 font-medium">2. Create an SES Receipt Rule:</p>
+          <ol className="list-decimal list-inside space-y-0.5 ml-1 mt-1 text-xs">
+            <li>In SES → Configuration → Email receiving, add a receipt rule for <code className="bg-muted px-1 rounded">transcript+*@&lt;Reply Domain&gt;</code></li>
+            <li>Add an <strong>SNS</strong> action — subscribe to an SNS topic with an HTTPS endpoint pointing at:</li>
+          </ol>
+          <div className="flex items-center gap-2 bg-muted/60 border border-border rounded-lg px-3 py-2 mt-1">
+            <code className="text-xs font-mono flex-1 break-all text-foreground">{inboundUrl}</code>
+            <CopyButton text={inboundUrl} />
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">Replace <code className="bg-muted px-1 rounded">&lt;livechat_inbound_token&gt;</code> with the actual value you set above. Enable "Include original headers" in the SES action.</p>
         </SetupStep>
       </>}
     />

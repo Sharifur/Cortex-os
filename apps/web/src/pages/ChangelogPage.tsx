@@ -16,6 +16,56 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.12.2',
+    date: '2026-05-11',
+    entries: [
+      { tag: 'fix', scope: 'debug-logs', description: 'Agent route logging: only record 4xx and 500 errors — successful 200 calls are no longer written to Debug Logs to avoid noise.' },
+    ],
+  },
+  {
+    version: 'v4.12.1',
+    date: '2026-05-11',
+    entries: [
+      { tag: 'feat', scope: 'debug-logs', description: 'All agent API route calls (GET/POST/etc on /taskip-internal/*, /livechat/*, /support/*, and every other agent route) are now recorded in the Debug Logs page. Success calls log at 200 with duration. Errors log at 500 with the error message, stack trace, and request body. Auth failures (missing/invalid JWT, invalid webhook signature) also log at 401.' },
+    ],
+  },
+  {
+    version: 'v4.12.0',
+    date: '2026-05-11',
+    entries: [
+      { tag: 'fix', scope: 'livechat', description: 'Transcript on close now fires for ALL sites consistently: (1) visitor-initiated close (widget close button) now also sends the transcript, matching operator-close behaviour. (2) maybeSendOnClose no longer force-bypasses transcriptEnabled — only sites with the flag enabled will send, preventing unsolicited emails for sites that have it turned off.' },
+    ],
+  },
+  {
+    version: 'v4.11.9',
+    date: '2026-05-11',
+    entries: [
+      { tag: 'feat', scope: 'livechat', description: 'Setup step 5 for email reply-to-thread: shows the three required settings (Reply Domain, Reply HMAC Secret, Inbound Webhook Token) and the SNS inbound URL with a copy button. Visitors who reply to a transcript email now have that reply routed back into the live chat session once SES inbound is configured.' },
+    ],
+  },
+  {
+    version: 'v4.11.8',
+    date: '2026-05-11',
+    entries: [
+      { tag: 'fix', scope: 'livechat', description: 'Transcript sender display name: emails now appear as "SiteName <livechat@domain>" instead of a bare email address. Display name is taken from site.botName, falling back to site.label, then "Support".' },
+    ],
+  },
+  {
+    version: 'v4.11.7',
+    date: '2026-05-11',
+    entries: [
+      { tag: 'fix', scope: 'livechat', description: 'pageview 403 actual root cause: extractRequestOrigin fell back to the HTTP Referer header when Origin was absent. Server-side/prerender requests (e.g. from AWS IPs) have no Origin but do have Referer set to the navigation source (Google). This caused google.com to be compared against xgenious.com → ForbiddenException. Origin validation now uses ONLY the Origin header; if absent the check is skipped entirely.' },
+    ],
+  },
+  {
+    version: 'v4.11.6',
+    date: '2026-05-11',
+    entries: [
+      { tag: 'fix', scope: 'tracking', description: 'trackOpen GIF pixel: res.setHeader is not a function — switched from Express-style res to FastifyReply (.header() + .send()). Tracking pixel now correctly returns a 1x1 transparent GIF.' },
+      { tag: 'fix', scope: 'livechat', description: 'pageview 403 "Origin not allowed": two root causes fixed. (1) When site.origin is stored without https:// scheme, extractHostname() returns null — origin check is now skipped with a WARN log instead of throwing. (2) www. prefix stripped from both hostnames before comparison so www.example.com and example.com both pass.' },
+    ],
+  },
+  {
     version: 'v4.11.5',
     date: '2026-05-11',
     entries: [

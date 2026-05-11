@@ -47,10 +47,13 @@ export class LivechatTranscriptService {
     }
     if (!detail.messages.length) return { ok: false, reason: 'no_messages' };
 
-    const fromAddress = await this.resolveFromAddress(site.transcriptFrom);
-    if (!fromAddress) {
+    const rawFrom = await this.resolveFromAddress(site.transcriptFrom);
+    if (!rawFrom) {
       throw new BadRequestException('No transcript_from address configured (per-site or platform default)');
     }
+    // Add display name if rawFrom is a bare email address (no "Name <email>" wrapper already)
+    const senderLabel = (site.botName?.trim() || site.label?.trim() || 'Support');
+    const fromAddress = rawFrom.includes('<') ? rawFrom : `"${senderLabel}" <${rawFrom}>`;
 
     const attachmentsByMsg = await this.attachments.getForMessages(detail.messages.map((m) => m.id));
     const visitorLabel = detail.session.visitorName?.trim() || visitorEmail.split('@')[0];
@@ -100,9 +103,9 @@ export class LivechatTranscriptService {
     return { ok: true, reason: 'sent', messageId, to: visitorEmail };
   }
 
-  /** Fire-and-forget wrapper used by the close flow — always attempts send (force: true); never throws. */
+  /** Fire-and-forget wrapper used by the close flow — respects per-site transcriptEnabled; never throws. */
   async maybeSendOnClose(sessionId: string): Promise<void> {
-    this.send(sessionId, { force: true })
+    this.send(sessionId)
       .then((res) => {
         if (res.ok) this.logger.log(`Transcript sent for ${sessionId.slice(-8)} → ${res.to}`);
         else this.logger.debug(`Transcript skipped for ${sessionId.slice(-8)}: ${res.reason}`);

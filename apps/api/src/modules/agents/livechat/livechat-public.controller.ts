@@ -8,6 +8,7 @@ import { LivechatRateLimitService } from './livechat-rate-limit.service';
 import { LivechatAttachmentsService } from './livechat-attachments.service';
 import { LivechatMetricsService } from './livechat-metrics.service';
 import { PushService } from '../../push/push.service';
+import { LivechatTranscriptService } from './livechat-transcript.service';
 
 interface PageviewBody {
   siteKey: string;
@@ -88,12 +89,12 @@ function detectBot(meta: MessageBody['meta'], isFirstMessage: boolean): string |
  * GeoLite2 reads the visitor's IP, not the proxy's.
  */
 function extractRequestOrigin(req: FastifyRequest): string | null {
+  // Use only the Origin header for CORS origin validation. The HTTP Referer header
+  // is the navigation referrer (e.g. Google) for server-side/prerender requests and
+  // must NOT be used for origin checks — it would block legitimate widget requests
+  // from pages visited via search engines.
   const origin = req.headers.origin;
   if (typeof origin === 'string' && origin.trim()) return origin.trim();
-  const referer = req.headers.referer ?? req.headers.referrer;
-  if (typeof referer === 'string' && referer.trim()) {
-    try { return new URL(referer.trim()).origin; } catch { /* ignore */ }
-  }
   return null;
 }
 
@@ -136,6 +137,7 @@ export class LivechatPublicController {
     private attachments: LivechatAttachmentsService,
     private metrics: LivechatMetricsService,
     private push: PushService,
+    private transcript: LivechatTranscriptService,
   ) {}
 
   @Get('config')
@@ -275,6 +277,7 @@ export class LivechatPublicController {
     await this.livechat.setSessionStatus(sessionId, 'closed');
     this.stream.publish(sessionId, { type: 'session_status', sessionId, status: 'closed' });
     this.stream.publishToOperators({ type: 'session_upserted', sessionId });
+    void this.transcript.maybeSendOnClose(sessionId);
     return { ok: true };
   }
 
