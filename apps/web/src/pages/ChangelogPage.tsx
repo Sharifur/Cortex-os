@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.12.8',
+    date: '2026-05-11',
+    entries: [
+      { tag: 'feat', scope: 'taskip-internal', description: 'Unsubscribe footer auto-appended to every outbound email: plain-text gets "Reply STOP to unsubscribe" appended; HTML emails get a styled footer line before the tracking pixel. send() gates on the email_suppressions table — suppressed recipients are rejected immediately with status failed/suppressed. Reply sync now detects STOP/unsubscribe signals in incoming replies and inserts the sender into email_suppressions automatically.' },
+      { tag: 'fix', scope: 'taskip-internal', description: 'Renamed "payment_collection" angle to "invoice_followup" throughout the system prompt to remove semantic anchor that was pulling subject lines toward banned vocabulary. Both spam check calls (chat draft path and batch SPAR path) now pass isTransactional: true so bulk-email compliance rules (no unsub link, no address) do not penalise 1:1 personal outreach.' },
+    ],
+  },
+  {
     version: 'v4.12.7',
     date: '2026-05-11',
     entries: [
