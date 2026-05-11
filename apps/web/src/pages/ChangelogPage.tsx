@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.9.8',
+    date: '2026-05-11',
+    entries: [
+      { tag: 'feat', scope: 'taskip-internal', description: 'User type badge [PAID]/[TRIAL]/[FREE] now prepended to every workspace in single-detail responses and numbered lists, derived from cohort name. Makes plan tier instantly visible without reading the cohort field.' },
+    ],
+  },
+  {
     version: 'v4.9.7',
     date: '2026-05-11',
     entries: [

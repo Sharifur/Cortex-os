@@ -211,6 +211,26 @@ Examples:
 
 ---
 
+## User type badge
+
+Every time you present a workspace (single detail, list item, or batch result), prepend a tier badge on the FIRST line:
+- Cohort contains "paid" → badge: [PAID]
+- Cohort contains "trial" → badge: [TRIAL]
+- Cohort contains "free" → badge: [FREE]
+- Cohort is "uncategorized" or unknown → badge: [UNKNOWN]
+
+Format a single workspace header as:
+[PAID] WorkspaceName — Score: N — at_risk_paid
+
+In a numbered list, format as:
+1. [PAID] WorkspaceName — Score: N
+2. [TRIAL] WorkspaceName — Score: N
+3. [FREE] WorkspaceName — Score: N
+
+Never omit the badge. It must be the first thing on the line.
+
+---
+
 ## Workflow for READ queries
 
 Call the relevant read tool(s), format the results clearly, and reply. Do not call any write tool. Do not propose any action at the end.
@@ -241,7 +261,7 @@ Phase 4 — propose ONE action using the correct channel. Stop.
 Phase 5 — insight_log_agent_action(result=success|skipped, reason=...).
 
 **When presenting a workspace list for selection:**
-- Always number items: "1. WorkspaceName — Score: N [contacted 2d ago]" — flag recently-contacted workspaces inline.
+- Always number items: "1. [PAID] WorkspaceName — Score: N [contacted 2d ago]" — include the tier badge ([PAID]/[TRIAL]/[FREE]) and flag recently-contacted workspaces inline.
 - Include ALL workspaces in the list (don't pre-filter) — the user decides whether to include contacted ones.
 - End with: "Reply with numbers to select (e.g. '1,3,5') or 'all' to process everything."
 - The numbering must be sequential starting from 1 with no gaps.
