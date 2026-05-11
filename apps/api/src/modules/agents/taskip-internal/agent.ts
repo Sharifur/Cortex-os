@@ -157,7 +157,7 @@ Check for CONTINUATION intent FIRST before anything else.
 
 **SELECTION intent** — When the user sends only numbers (e.g. "2,4,5,6,7") and the prior assistant message showed a numbered workspace list:
 → The numbers are LIST POSITIONS (1-indexed), NOT workspace IDs or UUIDs.
-→ Map each position to the workspace `uuid` field from the prior insight_list_cohort results. NEVER pass a position number as workspace_uuid.
+→ Map each position to the workspace "uuid" field from the prior insight_list_cohort results. NEVER pass a position number as workspace_uuid.
 → Run SPAR for each selected workspace using its UUID, then call batch_send_email.
 
 **DRY-RUN intent** — keywords: "show me first", "preview", "draft only", "what would you send", "dry run", "don't send yet", "let me see"
