@@ -709,10 +709,10 @@ export class SpamCheckerService {
         fn(),
         new Promise<never>((_, reject) => setTimeout(() => reject(new Error('dns timeout')), 3000)),
       ]);
-      this.dnsCache.set(key, { value: result, expiresAt: Date.now() + 5 * 60_000 });
+      this.dnsCache.set(key, { value: result, expiresAt: Date.now() + 24 * 60 * 60_000 });
       return result as T;
     } catch {
-      this.dnsCache.set(key, { value: null, expiresAt: Date.now() + 60_000 });
+      this.dnsCache.set(key, { value: null, expiresAt: Date.now() + 60 * 60_000 });
       return null;
     }
   }
