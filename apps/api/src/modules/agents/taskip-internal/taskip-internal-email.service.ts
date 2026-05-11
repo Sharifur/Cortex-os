@@ -146,9 +146,6 @@ export class TaskipInternalEmailService {
         lastSyncedAt: taskipInternalEmails.lastSyncedAt,
         metadata: taskipInternalEmails.metadata,
         sentAt: taskipInternalEmails.sentAt,
-        openCount: taskipInternalEmails.openCount,
-        firstOpenAt: taskipInternalEmails.firstOpenAt,
-        lastOpenAt: taskipInternalEmails.lastOpenAt,
       })
       .from(taskipInternalEmails)
       .where(where.length ? and(...where) : undefined)
@@ -284,20 +281,20 @@ export class TaskipInternalEmailService {
 
   async markOpened(id: string): Promise<{ ok: boolean }> {
     const [row] = await this.db.db
-      .select({ id: taskipInternalEmails.id, firstOpenAt: taskipInternalEmails.firstOpenAt })
+      .select({ id: taskipInternalEmails.id })
       .from(taskipInternalEmails)
       .where(eq(taskipInternalEmails.id, id))
       .limit(1);
     if (!row) return { ok: false };
     const now = new Date();
-    await this.db.db
-      .update(taskipInternalEmails)
-      .set({
-        openCount: sql`COALESCE(${taskipInternalEmails.openCount}, 0) + 1`,
-        firstOpenAt: row.firstOpenAt ?? now,
-        lastOpenAt: now,
-      })
-      .where(eq(taskipInternalEmails.id, id));
+    // Raw SQL so this gracefully no-ops if migration 0063 hasn't run yet.
+    await this.db.db.execute(sql`
+      UPDATE taskip_internal_emails
+      SET open_count   = COALESCE(open_count, 0) + 1,
+          first_open_at = COALESCE(first_open_at, ${now}),
+          last_open_at  = ${now}
+      WHERE id = ${id}
+    `).catch(() => { /* columns not yet migrated */ });
     return { ok: true };
   }
 
