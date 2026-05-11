@@ -24,7 +24,11 @@ interface InboxRow {
   openCount?: number;
   firstOpenAt?: string | null;
   lastOpenAt?: string | null;
-  metadata?: { spamScore?: number; spamGrade?: string; [key: string]: unknown } | null;
+  metadata?: { spamScore?: number; spamGrade?: string; manuallyOpened?: boolean; manuallyOpenedAt?: string; [key: string]: unknown } | null;
+}
+
+function isOpened(r: InboxRow): boolean {
+  return (r.openCount ?? 0) > 0 || r.metadata?.manuallyOpened === true;
 }
 
 interface InboxReply {
@@ -366,8 +370,8 @@ export default function InboxPage() {
 
   function handleDraftReply(r: InboxRow) {
     const opens = r.openCount ?? 0;
-    const openInfo = opens > 0
-      ? `opened it ${opens} time${opens > 1 ? 's' : ''} (first opened ${timeAgo(r.firstOpenAt!)})`
+    const openInfo = isOpened(r)
+      ? opens > 0 ? `opened it ${opens} time${opens > 1 ? 's' : ''} (first opened ${timeAgo(r.firstOpenAt!)})` : 'opened it (manually marked)'
       : 'has not opened it yet';
     const replyInfo = r.replyCount > 0
       ? ` They replied ${r.replyCount} time${r.replyCount > 1 ? 's' : ''}, last ${timeAgo(r.lastReplyAt!)}.`
@@ -403,7 +407,7 @@ export default function InboxPage() {
             {rows.length} sent
           </span>
           <span className="text-[11px] text-emerald-400 border border-emerald-500/30 rounded-full px-2.5 py-0.5">
-            {rows.filter((r) => (r.openCount ?? 0) > 0).length} opened
+            {rows.filter(isOpened).length} opened
           </span>
           <span className="text-[11px] text-blue-400 border border-blue-400/30 rounded-full px-2.5 py-0.5">
             {rows.filter((r) => r.replyCount > 0).length} replied
@@ -490,6 +494,7 @@ export default function InboxPage() {
             const isSelected = selectedId === r.id;
             const isHighlighted = r.id === highlightId;
             const opens = r.openCount ?? 0;
+            const opened = isOpened(r);
             return (
               <button
                 key={r.id}
@@ -520,7 +525,7 @@ export default function InboxPage() {
                           {spamGradeLabel(r.metadata.spamGrade as string)} {r.metadata.spamScore}
                         </span>
                       )}
-                      {opens > 0 ? (
+                      {opened ? (
                         <span className="inline-flex items-center gap-0.5 text-[9px] text-emerald-400">
                           <Eye className="w-2.5 h-2.5" /> {opens > 1 ? `${opens}x` : 'Opened'}
                         </span>
@@ -586,18 +591,18 @@ export default function InboxPage() {
               {/* Open tracking */}
               {selected.status !== 'failed' && (
                 <div className={`rounded-lg border px-3 py-2 mb-4 text-xs flex items-center gap-2 ${
-                  (selected.openCount ?? 0) > 0
+                  isOpened(selected)
                     ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-400'
                     : 'border-border bg-muted/10 text-muted-foreground'
                 }`}>
-                  {(selected.openCount ?? 0) > 0 ? (
+                  {isOpened(selected) ? (
                     <>
                       <Eye className="w-3.5 h-3.5 shrink-0" />
                       <span>
-                        Opened {selected.openCount}x — first {selected.firstOpenAt ? new Date(selected.firstOpenAt).toLocaleString() : '—'}
-                        {selected.lastOpenAt && selected.firstOpenAt !== selected.lastOpenAt
-                          ? ` · last ${new Date(selected.lastOpenAt).toLocaleString()}`
-                          : ''}
+                        {(selected.openCount ?? 0) > 0
+                          ? `Opened ${selected.openCount}x — first ${selected.firstOpenAt ? new Date(selected.firstOpenAt).toLocaleString() : '—'}${selected.lastOpenAt && selected.firstOpenAt !== selected.lastOpenAt ? ` · last ${new Date(selected.lastOpenAt).toLocaleString()}` : ''}`
+                          : `Marked as opened${selected.metadata?.manuallyOpenedAt ? ` — ${new Date(selected.metadata.manuallyOpenedAt as string).toLocaleString()}` : ''}`
+                        }
                       </span>
                     </>
                   ) : (

@@ -287,10 +287,17 @@ export class TaskipInternalEmailService {
       .limit(1);
     if (!row) return { ok: false };
     const now = new Date();
-    // Raw SQL so this gracefully no-ops if migration 0063 hasn't run yet.
+    // Always write to metadata JSONB (exists on all envs — no migration needed).
     await this.db.db.execute(sql`
       UPDATE taskip_internal_emails
-      SET open_count   = COALESCE(open_count, 0) + 1,
+      SET metadata = COALESCE(metadata, '{}'::jsonb)
+                     || jsonb_build_object('manuallyOpened', true, 'manuallyOpenedAt', ${now.toISOString()})
+      WHERE id = ${id}
+    `);
+    // Also update dedicated columns when migration 0063 has run.
+    await this.db.db.execute(sql`
+      UPDATE taskip_internal_emails
+      SET open_count    = COALESCE(open_count, 0) + 1,
           first_open_at = COALESCE(first_open_at, ${now}),
           last_open_at  = ${now}
       WHERE id = ${id}
