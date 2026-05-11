@@ -24,11 +24,11 @@ interface InboxRow {
   openCount?: number;
   firstOpenAt?: string | null;
   lastOpenAt?: string | null;
-  metadata?: { spamScore?: number; spamGrade?: string; manuallyOpened?: boolean; manuallyOpenedAt?: string; [key: string]: unknown } | null;
+  metadata?: { spamScore?: number; spamGrade?: string; manuallyOpened?: boolean; manuallyOpenedAt?: string; pixelOpened?: boolean; pixelOpenedAt?: string; [key: string]: unknown } | null;
 }
 
 function isOpened(r: InboxRow): boolean {
-  return (r.openCount ?? 0) > 0 || r.metadata?.manuallyOpened === true;
+  return (r.openCount ?? 0) > 0 || r.metadata?.manuallyOpened === true || r.metadata?.pixelOpened === true;
 }
 
 interface InboxReply {
@@ -601,6 +601,8 @@ export default function InboxPage() {
                       <span>
                         {(selected.openCount ?? 0) > 0
                           ? `Opened ${selected.openCount}x — first ${selected.firstOpenAt ? new Date(selected.firstOpenAt).toLocaleString() : '—'}${selected.lastOpenAt && selected.firstOpenAt !== selected.lastOpenAt ? ` · last ${new Date(selected.lastOpenAt).toLocaleString()}` : ''}`
+                          : selected.metadata?.pixelOpened
+                          ? `Opened via tracking pixel${selected.metadata.pixelOpenedAt ? ` — ${new Date(selected.metadata.pixelOpenedAt as string).toLocaleString()}` : ''}`
                           : `Marked as opened${selected.metadata?.manuallyOpenedAt ? ` — ${new Date(selected.metadata.manuallyOpenedAt as string).toLocaleString()}` : ''}`
                         }
                       </span>

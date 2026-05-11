@@ -16,6 +16,16 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.12.6',
+    date: '2026-05-11',
+    entries: [
+      { tag: 'feat', scope: 'email', description: 'Dedicated EmailSanitizerService replaces non-ASCII characters (em dash, en dash, smart quotes, ellipsis, bullets, non-breaking spaces) with ASCII equivalents before any email is sent via Gmail (both IMAP/SMTP and OAuth raw MIME paths). Subject is sanitized once at the entry point of sendEmail() so all send paths are covered.' },
+      { tag: 'fix', scope: 'tracking', description: 'Tracking pixel controller now uses raw SQL to update open counts — avoids PostgresError when migration 0063 columns (open_count, first_open_at, etc.) are absent on the deployment. Falls back to metadata JSONB on column error so opens are still recorded. InboxPage isOpened() now also checks metadata.pixelOpened for this fallback path.' },
+      { tag: 'fix', scope: 'support', description: 'GET /support/webhook-logs returns empty array instead of 500 when the support_webhook_logs table does not exist (migration 0064 not yet on main branch).' },
+      { tag: 'fix', scope: 'inbox', description: 'markOpened() now guards against undefined id to prevent UNDEFINED_VALUE postgres errors when the dispatcher path params fix is not yet deployed.' },
+    ],
+  },
+  {
     version: 'v4.12.5',
     date: '2026-05-11',
     entries: [

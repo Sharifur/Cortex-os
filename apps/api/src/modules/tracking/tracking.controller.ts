@@ -1,19 +1,12 @@
 import { Controller, Get, Param, Req, Res } from '@nestjs/common';
 import { FastifyReply } from 'fastify';
-import { eq, sql } from 'drizzle-orm';
+import { sql } from 'drizzle-orm';
 import { DbService } from '../../db/db.service';
-import { taskipInternalEmails } from '../../db/schema';
 
 const TRANSPARENT_GIF = Buffer.from(
   'R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7',
   'base64',
 );
-
-interface OpenEvent {
-  at: string;
-  ip: string;
-  ua: string;
-}
 
 @Controller('track')
 export class TrackingController {
@@ -26,38 +19,25 @@ export class TrackingController {
     @Res() res: FastifyReply,
   ) {
     const token = rawToken.replace(/\.gif$/, '');
-    const ip = (req.ip ?? req.socket?.remoteAddress ?? '').toString();
-    const ua = (req.headers?.['user-agent'] ?? '').toString().slice(0, 200);
-    const at = new Date().toISOString();
+    const now = new Date();
 
     try {
-      const [row] = await this.db.db
-        .select({
-          id: taskipInternalEmails.id,
-          openCount: taskipInternalEmails.openCount,
-          firstOpenAt: taskipInternalEmails.firstOpenAt,
-          openEvents: taskipInternalEmails.openEvents,
-        })
-        .from(taskipInternalEmails)
-        .where(eq(taskipInternalEmails.trackingToken, token))
-        .limit(1);
-
-      if (row) {
-        const existingEvents = (row.openEvents as OpenEvent[] | null) ?? [];
-        const updatedEvents: OpenEvent[] = [...existingEvents, { at, ip, ua }];
-
-        await this.db.db
-          .update(taskipInternalEmails)
-          .set({
-            openCount: sql`${taskipInternalEmails.openCount} + 1`,
-            firstOpenAt: row.firstOpenAt ?? new Date(),
-            lastOpenAt: new Date(),
-            openEvents: updatedEvents,
-          })
-          .where(eq(taskipInternalEmails.trackingToken, token));
-      }
+      // Try dedicated columns (migration 0063+)
+      await this.db.db.execute(sql`
+        UPDATE taskip_internal_emails
+        SET open_count    = COALESCE(open_count, 0) + 1,
+            first_open_at = COALESCE(first_open_at, ${now}),
+            last_open_at  = ${now}
+        WHERE tracking_token = ${token}
+      `);
     } catch {
-      // open tracking must never error-out — silently continue
+      // migration 0063 not yet applied — fall back to metadata JSONB
+      await this.db.db.execute(sql`
+        UPDATE taskip_internal_emails
+        SET metadata = COALESCE(metadata, '{}'::jsonb)
+                       || jsonb_build_object('pixelOpened', true, 'pixelOpenedAt', ${now.toISOString()})
+        WHERE tracking_token = ${token}
+      `).catch(() => {});
     }
 
     res.header('Content-Type', 'image/gif');

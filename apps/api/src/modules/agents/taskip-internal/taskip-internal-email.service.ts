@@ -280,6 +280,7 @@ export class TaskipInternalEmailService {
   }
 
   async markOpened(id: string): Promise<{ ok: boolean }> {
+    if (!id) return { ok: false };
     const [row] = await this.db.db
       .select({ id: taskipInternalEmails.id })
       .from(taskipInternalEmails)

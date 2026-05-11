@@ -4,9 +4,10 @@ import { GmailService } from './gmail.service';
 import { GmailOAuthService } from './gmail-oauth.service';
 import { GmailController } from './gmail.controller';
 import { DbModule } from '../../db/db.module';
+import { EmailSanitizerModule } from '../email-sanitizer/email-sanitizer.module';
 
 @Module({
-  imports: [DbModule],
+  imports: [DbModule, EmailSanitizerModule],
   controllers: [GmailController],
   providers: [
     GmailService,
