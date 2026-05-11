@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.12.3',
+    date: '2026-05-11',
+    entries: [
+      { tag: 'fix', scope: 'inbox', description: 'Remove open_count/first_open_at/last_open_at from listSent() SELECT — migration 0063 is on dev but not yet on main, so these columns do not exist in production. markOpened() also rewritten as raw SQL with a .catch() so the tracking pixel never 500s on missing columns. Both will resume full functionality once dev is merged to main.' },
+    ],
+  },
+  {
     version: 'v4.12.2',
     date: '2026-05-11',
     entries: [
