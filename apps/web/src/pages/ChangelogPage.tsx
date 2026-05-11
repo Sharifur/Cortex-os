@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.11.7',
+    date: '2026-05-11',
+    entries: [
+      { tag: 'fix', scope: 'livechat', description: 'pageview 403 actual root cause: extractRequestOrigin fell back to the HTTP Referer header when Origin was absent. Server-side/prerender requests (e.g. from AWS IPs) have no Origin but do have Referer set to the navigation source (Google). This caused google.com to be compared against xgenious.com → ForbiddenException. Origin validation now uses ONLY the Origin header; if absent the check is skipped entirely.' },
+    ],
+  },
+  {
     version: 'v4.11.6',
     date: '2026-05-11',
     entries: [

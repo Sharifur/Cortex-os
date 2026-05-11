@@ -88,12 +88,12 @@ function detectBot(meta: MessageBody['meta'], isFirstMessage: boolean): string |
  * GeoLite2 reads the visitor's IP, not the proxy's.
  */
 function extractRequestOrigin(req: FastifyRequest): string | null {
+  // Use only the Origin header for CORS origin validation. The HTTP Referer header
+  // is the navigation referrer (e.g. Google) for server-side/prerender requests and
+  // must NOT be used for origin checks — it would block legitimate widget requests
+  // from pages visited via search engines.
   const origin = req.headers.origin;
   if (typeof origin === 'string' && origin.trim()) return origin.trim();
-  const referer = req.headers.referer ?? req.headers.referrer;
-  if (typeof referer === 'string' && referer.trim()) {
-    try { return new URL(referer.trim()).origin; } catch { /* ignore */ }
-  }
   return null;
 }
 
