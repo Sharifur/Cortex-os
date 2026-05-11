@@ -195,6 +195,14 @@ export default function InboxPage() {
     },
   });
 
+  const markOpenedMutation = useMutation({
+    mutationFn: (id: string) => api(token, `/taskip-internal/inbox/${id}/mark-opened`, { method: 'POST' }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['inbox'] });
+      qc.invalidateQueries({ queryKey: ['inbox-detail', selectedId] });
+    },
+  });
+
   const aiRunQuery = useQuery<RunDetail>({
     queryKey: ['ai-drawer-run', aiRunId],
     queryFn: () => api<RunDetail>(token, `/runs/${aiRunId}`),
@@ -546,7 +554,15 @@ export default function InboxPage() {
                   ) : (
                     <>
                       <EyeOff className="w-3.5 h-3.5 shrink-0" />
-                      <span>Not opened yet</span>
+                      <span className="flex-1">Not opened yet</span>
+                      <button
+                        onClick={() => selected && markOpenedMutation.mutate(selected.id)}
+                        disabled={markOpenedMutation.isPending}
+                        className="ml-auto text-[10px] px-2 py-0.5 rounded border border-border hover:border-foreground/30 hover:text-foreground transition-colors disabled:opacity-50"
+                        title="Email landed in spam — pixel blocked. Mark as opened manually."
+                      >
+                        {markOpenedMutation.isPending ? 'Marking...' : 'Mark as opened'}
+                      </button>
                     </>
                   )}
                 </div>

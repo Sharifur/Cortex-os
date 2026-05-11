@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.10.0',
+    date: '2026-05-11',
+    entries: [
+      { tag: 'feat', scope: 'inbox', description: 'Mark as opened button: when an email shows "Not opened yet" (e.g. landed in spam — pixel blocked by Gmail), click "Mark as opened" to manually record an open event. Increments open_count, sets first_open_at/last_open_at. New POST /taskip-internal/inbox/:id/mark-opened endpoint.' },
+    ],
+  },
+  {
     version: 'v4.9.9',
     date: '2026-05-11',
     entries: [

@@ -1207,6 +1207,15 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
       },
       {
         method: 'POST',
+        path: '/taskip-internal/inbox/:id/mark-opened',
+        requiresAuth: true,
+        handler: async (params) => {
+          const { id } = params as { id: string };
+          return this.emails.markOpened(id);
+        },
+      },
+      {
+        method: 'POST',
         path: '/taskip-internal/inbox/send',
         requiresAuth: true,
         handler: async (params) => {
