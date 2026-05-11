@@ -16,10 +16,17 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.8.9',
+    date: '2026-05-11',
+    entries: [
+      { tag: 'fix', scope: 'inbox', description: 'Inbox layout rebuilt: email list always visible on left, AI drawer is now a proper flex sidebar (width-animated 0→420px) instead of an absolute overlay — eliminates all overflow-hidden clipping issues, close button always works, drawer only opens when "Draft reply with AI" is clicked.' },
+    ],
+  },
+  {
     version: 'v4.8.8',
     date: '2026-05-10',
     entries: [
-      { tag: 'fix', scope: 'inbox', description: 'AI drawer close button now works: overflow-hidden moved from the two-panel container to the outer inbox div so the drawer interior is never pointer-event clipped. Added pointer-events-none when drawer is closed. Email list display restored.' },
+      { tag: 'fix', scope: 'inbox', description: 'AI drawer close button fix: moved overflow-hidden to outer container, added pointer-events-none when drawer is closed.' },
     ],
   },
   {

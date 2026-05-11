@@ -330,7 +330,7 @@ export default function InboxPage() {
   }
 
   return (
-    <div className="flex flex-col h-[calc(100vh-64px)] overflow-hidden">
+    <div className="flex flex-col h-[calc(100vh-64px)]">
       {/* Top bar */}
       <div className="flex items-center justify-between gap-4 px-6 py-3 border-b border-border shrink-0">
         <div className="flex items-center gap-3">
@@ -380,7 +380,7 @@ export default function InboxPage() {
       </div>
 
       {/* Two-panel body */}
-      <div className="flex flex-1 min-h-0 relative">
+      <div className="flex flex-1 min-h-0">
         {/* Left: email list */}
         <div className="w-80 shrink-0 border-r border-border flex flex-col overflow-y-auto">
           {isLoading && <p className="text-xs text-muted-foreground p-6">Loading…</p>}
@@ -444,7 +444,10 @@ export default function InboxPage() {
           })}
         </div>
 
-        {/* Right: detail panel */}
+        {/* Right area: detail panel + AI drawer sidebar */}
+        <div className="flex flex-1 min-w-0">
+
+        {/* Detail panel */}
         <div className="flex-1 min-w-0 overflow-y-auto">
           {!selected && (
             <div className="flex items-center justify-center h-full">
@@ -655,12 +658,9 @@ export default function InboxPage() {
           )}
         </div>
 
-        {/* AI Chat Drawer */}
-        <div
-          className={`absolute top-0 right-0 bottom-0 w-[420px] bg-background border-l border-border flex flex-col shadow-2xl z-30 transition-transform duration-300 ${
-            aiOpen ? 'translate-x-0' : 'translate-x-full pointer-events-none'
-          }`}
-        >
+        {/* AI Chat Drawer — flex sidebar, width-animated */}
+        <div className={`shrink-0 overflow-hidden border-l border-border transition-all duration-300 ${aiOpen ? 'w-[420px]' : 'w-0'}`}>
+          <div className="w-[420px] bg-background flex flex-col h-full">
           {/* Drawer header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
             <div className="flex items-center gap-2">
@@ -738,6 +738,8 @@ export default function InboxPage() {
             </div>
             <p className="text-[10px] text-muted-foreground mt-1.5">Cmd+Enter to send</p>
           </div>
+          </div>
+        </div>
         </div>
       </div>
     </div>
