@@ -5,6 +5,7 @@ import {
   Mail, Phone, User, Hash, Clock, MessageSquare, AlertTriangle,
 } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
+import { Skeleton } from '@/components/ui/skeleton';
 
 interface SupportTicket {
   id: string;
@@ -266,7 +267,39 @@ export default function SupportTicketsPage() {
       {/* Table */}
       <div className="rounded-xl border border-border bg-card overflow-hidden">
         {isLoading ? (
-          <div className="py-16 text-center text-sm text-muted-foreground">Loading tickets...</div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border text-[11px] text-muted-foreground uppercase tracking-wide">
+                  <th className="py-2.5 pl-4 pr-3 text-left font-medium">Ticket #</th>
+                  <th className="py-2.5 px-3 text-left font-medium">Subject</th>
+                  <th className="py-2.5 px-3 text-left font-medium">Contact</th>
+                  <th className="py-2.5 px-3 text-left font-medium">Priority</th>
+                  <th className="py-2.5 px-3 text-left font-medium">Status</th>
+                  <th className="py-2.5 px-3 text-left font-medium">Created</th>
+                  <th className="py-2.5 px-3 text-left font-medium">Replied</th>
+                  <th className="py-2.5 pl-3 pr-4 w-8" />
+                </tr>
+              </thead>
+              <tbody>
+                {[0, 1, 2, 3, 4].map(i => (
+                  <tr key={i} className="border-b border-border last:border-0">
+                    <td className="py-3 pl-4 pr-3"><Skeleton className="h-3 w-14" /></td>
+                    <td className="py-3 px-3"><Skeleton className="h-3 w-48" /></td>
+                    <td className="py-3 px-3">
+                      <Skeleton className="h-3 w-28 mb-1.5" />
+                      <Skeleton className="h-2.5 w-36" />
+                    </td>
+                    <td className="py-3 px-3"><Skeleton className="h-5 w-16 rounded-full" /></td>
+                    <td className="py-3 px-3"><Skeleton className="h-5 w-16 rounded-full" /></td>
+                    <td className="py-3 px-3"><Skeleton className="h-3 w-20" /></td>
+                    <td className="py-3 px-3"><Skeleton className="h-3 w-20" /></td>
+                    <td className="py-3 pl-3 pr-4"><Skeleton className="h-4 w-4 rounded" /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         ) : isError ? (
           <div className="py-16 text-center text-sm text-red-400">Failed to load tickets. Check backend connection.</div>
         ) : tickets.length === 0 ? (
