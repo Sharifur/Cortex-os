@@ -92,7 +92,7 @@ export class AgentRouteDispatcherService implements OnApplicationBootstrap {
               }
               this.logger.log(`Webhook signature OK: ${route.path}`);
             }
-            const params = { ...(request.query ?? {}), ...(request.body ?? {}) };
+            const params = { ...(request.params ?? {}), ...(request.query ?? {}), ...(request.body ?? {}) };
             this.logger.debug(
               `${route.method} ${route.path} params=${JSON.stringify(params)}`,
             );
