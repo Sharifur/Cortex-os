@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.11.8',
+    date: '2026-05-11',
+    entries: [
+      { tag: 'fix', scope: 'livechat', description: 'Transcript sender display name: emails now appear as "SiteName <livechat@domain>" instead of a bare email address. Display name is taken from site.botName, falling back to site.label, then "Support".' },
+    ],
+  },
+  {
     version: 'v4.11.7',
     date: '2026-05-11',
     entries: [

@@ -47,10 +47,13 @@ export class LivechatTranscriptService {
     }
     if (!detail.messages.length) return { ok: false, reason: 'no_messages' };
 
-    const fromAddress = await this.resolveFromAddress(site.transcriptFrom);
-    if (!fromAddress) {
+    const rawFrom = await this.resolveFromAddress(site.transcriptFrom);
+    if (!rawFrom) {
       throw new BadRequestException('No transcript_from address configured (per-site or platform default)');
     }
+    // Add display name if rawFrom is a bare email address (no "Name <email>" wrapper already)
+    const senderLabel = (site.botName?.trim() || site.label?.trim() || 'Support');
+    const fromAddress = rawFrom.includes('<') ? rawFrom : `"${senderLabel}" <${rawFrom}>`;
 
     const attachmentsByMsg = await this.attachments.getForMessages(detail.messages.map((m) => m.id));
     const visitorLabel = detail.session.visitorName?.trim() || visitorEmail.split('@')[0];
