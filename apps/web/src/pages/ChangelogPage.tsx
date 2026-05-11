@@ -16,6 +16,21 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.9.6',
+    date: '2026-05-11',
+    entries: [
+      { tag: 'fix', scope: 'taskip-internal', description: 'Code-level DETAIL LOOKUP detection in buildContinuationHint(): "share details about 1", "tell me about 2", "what about 5", bare "1" all now inject a DETAIL LOOKUP MODE hint that calls lookup_user(name) then insight_get_lifecycle — never re-running insight_list_cohort.' },
+      { tag: 'fix', scope: 'taskip-internal', description: 'Chat-mode responses no longer sent to Telegram. source:"chat" is now threaded from trigger payload through snapshot → decide() → execute(), matching the HR agent pattern.' },
+    ],
+  },
+  {
+    version: 'v4.9.5',
+    date: '2026-05-11',
+    entries: [
+      { tag: 'fix', scope: 'taskip-internal', description: 'DETAIL LOOKUP intent: "share details about 1" / "tell me about 2" now correctly resolves the number as a list position from the prior shown list — not a fresh cohort query. READ intent now explicitly guards against re-running insight_list_cohort when a numbered list is already in context.' },
+    ],
+  },
+  {
     version: 'v4.9.4',
     date: '2026-05-11',
     entries: [
