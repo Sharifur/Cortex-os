@@ -814,7 +814,7 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
           return [{
             type: 'batch_send_email',
             summary,
-            payload: { emails, _query: query, spamScores: spamResults.map(r => ({ recipient: r.recipient, score: r.score, grade: r.grade })) },
+            payload: { emails, _query: query, spamScores: spamResults.map(r => ({ recipient: r.recipient, score: r.score, grade: r.grade })), source },
             riskLevel: 'high',
           }];
         }
@@ -902,12 +902,15 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
   }
 
   requiresApproval(action: ProposedAction): boolean {
+    if (action.type === 'batch_send_email') {
+      const p = action.payload as { source?: string };
+      return p.source !== 'chat';
+    }
     return action.type === 'extend_trial'
       || action.type === 'mark_refund'
       || action.type === 'insight_submit_marketing_suggestion'
       || action.type === 'insight_submit_message'
-      || action.type === 'send_email'
-      || action.type === 'batch_send_email';
+      || action.type === 'send_email';
   }
 
   async execute(action: ProposedAction): Promise<ActionResult> {
@@ -1044,7 +1047,7 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
       }
 
       case 'batch_send_email': {
-        const { emails, _query } = action.payload as {
+        const { emails, _query, source: batchSource, spamScores } = action.payload as {
           emails: Array<{
             recipient: string;
             subject: string;
@@ -1053,11 +1056,16 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
             purpose?: TaskipEmailPurpose;
           }>;
           _query?: string;
+          source?: string;
+          spamScores?: Array<{ recipient: string; score: number; grade: string }>;
         };
+        const isChatBatch = batchSource === 'chat';
         if (!Array.isArray(emails) || emails.length === 0) {
           return { success: false, error: 'batch_send_email: emails array is empty' };
         }
-        await this.telegram.sendMessage(`Starting batch: ${emails.length} email${emails.length !== 1 ? 's' : ''} — 100–300s gap between sends`);
+        if (!isChatBatch) {
+          await this.telegram.sendMessage(`Starting batch: ${emails.length} email${emails.length !== 1 ? 's' : ''} — 100–300s gap between sends`);
+        }
         let sent = 0;
         const failedEmails: Array<{ recipient: string; subject: string; error: string }> = [];
         const results: unknown[] = [];
@@ -1065,9 +1073,12 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
           // Human-paced delay between emails (skip before the first one)
           if (idx > 0) {
             const delaySec = 100 + Math.floor(Math.random() * 201); // 100–300s
-            await this.telegram.sendMessage(`[${idx}/${emails.length}] Waiting ${delaySec}s before next send…`);
+            if (!isChatBatch) {
+              await this.telegram.sendMessage(`[${idx}/${emails.length}] Waiting ${delaySec}s before next send…`);
+            }
             await new Promise(resolve => setTimeout(resolve, delaySec * 1000));
           }
+          const spamMeta = spamScores?.find(s => s.recipient === email.recipient);
           try {
             const result = await this.emails.send({
               purpose: email.purpose ?? 'followup',
@@ -1075,29 +1086,41 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
               subject: email.subject,
               body: email.body,
               workspaceUuid: email.workspace_uuid,
-              metadata: _query ? { query: _query, batchIndex: idx } : { batchIndex: idx },
+              metadata: {
+                ...(_query ? { query: _query } : {}),
+                batchIndex: idx,
+                ...(spamMeta ? { spamScore: spamMeta.score, spamGrade: spamMeta.grade } : {}),
+              },
             });
             if (result.status === 'sent') {
               sent++;
-              await this.telegram.sendMessage(`[${idx + 1}/${emails.length}] Sent to ${email.recipient}`);
+              if (!isChatBatch) {
+                await this.telegram.sendMessage(`[${idx + 1}/${emails.length}] Sent to ${email.recipient}`);
+              }
             } else {
               failedEmails.push({ recipient: email.recipient, subject: email.subject, error: result.error ?? 'send failed' });
-              await this.telegram.sendMessage(`[${idx + 1}/${emails.length}] Failed: ${email.recipient} — ${result.error ?? 'unknown error'}`);
+              if (!isChatBatch) {
+                await this.telegram.sendMessage(`[${idx + 1}/${emails.length}] Failed: ${email.recipient} — ${result.error ?? 'unknown error'}`);
+              }
             }
             results.push(result);
           } catch (err) {
             failedEmails.push({ recipient: email.recipient, subject: email.subject, error: (err as Error).message });
-            await this.telegram.sendMessage(`[${idx + 1}/${emails.length}] Error: ${email.recipient} — ${(err as Error).message}`);
+            if (!isChatBatch) {
+              await this.telegram.sendMessage(`[${idx + 1}/${emails.length}] Error: ${email.recipient} — ${(err as Error).message}`);
+            }
             results.push({ error: (err as Error).message });
           }
         }
         const failedCount = failedEmails.length;
-        let summaryMsg = `Batch complete: ${sent} sent, ${failedCount} failed`;
-        if (failedCount > 0) {
-          const failedList = failedEmails.map(f => `Failed: ${f.recipient} — ${f.error}`).join('\n');
-          summaryMsg += `\n\nFailed recipients:\n${failedList}\n\nReply "retry failed" to re-attempt these ${failedCount} email${failedCount !== 1 ? 's' : ''}.`;
+        if (!isChatBatch) {
+          let summaryMsg = `Batch complete: ${sent} sent, ${failedCount} failed`;
+          if (failedCount > 0) {
+            const failedList = failedEmails.map(f => `Failed: ${f.recipient} — ${f.error}`).join('\n');
+            summaryMsg += `\n\nFailed recipients:\n${failedList}\n\nReply "retry failed" to re-attempt these ${failedCount} email${failedCount !== 1 ? 's' : ''}.`;
+          }
+          await this.telegram.sendMessage(summaryMsg);
         }
-        await this.telegram.sendMessage(summaryMsg);
         return { success: failedCount === 0, data: { sent, failed: failedCount, failedEmails, results } };
       }
 

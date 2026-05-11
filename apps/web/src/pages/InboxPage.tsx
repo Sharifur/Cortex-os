@@ -24,6 +24,7 @@ interface InboxRow {
   openCount?: number;
   firstOpenAt?: string | null;
   lastOpenAt?: string | null;
+  metadata?: { spamScore?: number; spamGrade?: string; [key: string]: unknown } | null;
 }
 
 interface InboxReply {
@@ -64,9 +65,25 @@ function extractRunResponse(run: RunDetail): string {
   if (!actions.length) return 'Done.';
   const batch = actions.find(a => a.type === 'batch_send_email');
   if (batch) {
-    const emails = (batch.payload as any)?.emails ?? [];
+    const p = batch.payload as any;
+    const emails: any[] = p?.emails ?? [];
+    const spamScores: any[] = p?.spamScores ?? [];
+    const isChatBatch = p?.source === 'chat';
+    if (isChatBatch) {
+      const lines = [`Sent ${emails.length} email${emails.length !== 1 ? 's' : ''}:`];
+      for (const [i, e] of emails.entries()) {
+        const spam = spamScores.find((s: any) => s.recipient === e.recipient);
+        const spamNote = spam ? ` (spam: ${spam.grade} ${spam.score})` : '';
+        lines.push(`${i + 1}. **${e.recipient}** — ${e.subject}${spamNote}`);
+      }
+      return lines.join('\n');
+    }
     const lines = [`Batch ready — ${emails.length} email${emails.length !== 1 ? 's' : ''} awaiting Telegram approval:`];
-    for (const [i, e] of emails.entries()) lines.push(`${i + 1}. **${e.recipient}** — ${e.subject}`);
+    for (const [i, e] of emails.entries()) {
+      const spam = spamScores.find((s: any) => s.recipient === e.recipient);
+      const spamNote = spam ? ` (spam: ${spam.grade} ${spam.score})` : '';
+      lines.push(`${i + 1}. **${e.recipient}** — ${e.subject}${spamNote}`);
+    }
     lines.push('', 'Approve via Telegram.');
     return lines.join('\n');
   }
@@ -141,6 +158,28 @@ function purposeColor(purpose: string): string {
     case 'followup': return 'bg-blue-500/15 text-blue-300';
     case 'offer': return 'bg-amber-500/15 text-amber-300';
     default: return 'bg-slate-500/15 text-slate-300';
+  }
+}
+
+function spamGradeColor(grade: string): string {
+  switch (grade) {
+    case 'INBOX_STRONG': return 'bg-emerald-500/15 text-emerald-400';
+    case 'INBOX_LIKELY': return 'bg-green-500/15 text-green-400';
+    case 'PROMOTIONS_RISK': return 'bg-amber-500/15 text-amber-400';
+    case 'SPAM_RISK': return 'bg-orange-500/15 text-orange-400';
+    case 'BLOCK': return 'bg-rose-500/15 text-rose-400';
+    default: return 'bg-slate-500/15 text-slate-400';
+  }
+}
+
+function spamGradeLabel(grade: string): string {
+  switch (grade) {
+    case 'INBOX_STRONG': return 'Inbox';
+    case 'INBOX_LIKELY': return 'Inbox';
+    case 'PROMOTIONS_RISK': return 'Promo';
+    case 'SPAM_RISK': return 'Spam risk';
+    case 'BLOCK': return 'Blocked';
+    default: return grade;
   }
 }
 
@@ -476,6 +515,11 @@ export default function InboxPage() {
                       <span className={`text-[9px] px-1.5 py-0.5 rounded-full uppercase tracking-wider font-semibold ${purposeColor(r.purpose)}`}>
                         {r.purpose}
                       </span>
+                      {r.metadata?.spamGrade && (
+                        <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-semibold ${spamGradeColor(r.metadata.spamGrade as string)}`}>
+                          {spamGradeLabel(r.metadata.spamGrade as string)} {r.metadata.spamScore}
+                        </span>
+                      )}
                       {opens > 0 ? (
                         <span className="inline-flex items-center gap-0.5 text-[9px] text-emerald-400">
                           <Eye className="w-2.5 h-2.5" /> {opens > 1 ? `${opens}x` : 'Opened'}
@@ -531,6 +575,11 @@ export default function InboxPage() {
                   <span className={`text-[10px] px-1.5 py-0.5 rounded-full uppercase tracking-wider font-semibold ${purposeColor(selected.purpose)}`}>
                     {selected.purpose}
                   </span>
+                  {selected.metadata?.spamGrade && (
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${spamGradeColor(selected.metadata.spamGrade as string)}`}>
+                      Spam score: {selected.metadata.spamScore} — {spamGradeLabel(selected.metadata.spamGrade as string)}
+                    </span>
+                  )}
                 </div>
               </div>
 

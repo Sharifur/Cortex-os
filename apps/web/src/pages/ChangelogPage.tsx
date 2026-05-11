@@ -16,6 +16,15 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.11.2',
+    date: '2026-05-11',
+    entries: [
+      { tag: 'feat', scope: 'taskip-internal', description: 'Chat mode batch_send_email: no Telegram notifications when source=chat. All progress messages (start, per-email, summary) are suppressed. Telegram approval step skipped entirely — batch executes immediately from chat. Spam score (score + grade) stored in email metadata and surfaced in InboxPage as a badge per email row and in the detail panel header.' },
+      { tag: 'feat', scope: 'inbox', description: 'Spam score badge on email rows and detail panel: shows grade (Inbox/Promo/Spam risk/Blocked) + numeric score, color-coded. Populated from email metadata.spamScore/spamGrade written at send time.' },
+      { tag: 'feat', scope: 'inbox', description: 'Chat AI response for batch_send_email now shows sent count + per-email spam scores inline instead of "Approve via Telegram" prompt.' },
+    ],
+  },
+  {
     version: 'v4.11.1',
     date: '2026-05-11',
     entries: [
