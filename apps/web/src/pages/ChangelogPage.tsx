@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.14.2',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'fix', scope: 'migrations', description: 'Added migration 0066_missing_tables.sql (registered in _journal.json) to create support_webhook_logs, post_formats, and post_renders tables. Migrations 0064 and 0065 were raw SQL files never added to the Drizzle journal — Drizzle silently skips files not in _journal.json so they never ran in production. The 0066 migration uses IF NOT EXISTS so it is safe to apply even if tables were created manually.' },
+    ],
+  },
+  {
     version: 'v4.14.1',
     date: '2026-05-12',
     entries: [

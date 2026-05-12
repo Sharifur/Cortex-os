@@ -449,6 +449,13 @@
       "when": 1747094400000,
       "tag": "0063_email_open_tracking",
       "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "6",
+      "when": 1747180800000,
+      "tag": "0066_missing_tables",
+      "breakpoints": true
     }
   ]
 }
