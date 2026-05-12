@@ -15,4 +15,8 @@ else
   echo "GeoLite2-City.mmdb already present, skipping download"
 fi
 
+echo "[entrypoint] running database migrations..."
+node dist/src/migrate
+echo "[entrypoint] migrations complete, starting app..."
+
 exec "$@"

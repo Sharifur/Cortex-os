@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.15.1',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'fix', scope: 'deploy', description: 'docker-entrypoint.sh now runs "node dist/src/migrate" automatically before starting the app on every container start. Eliminates the need for a manual Coolify post-deploy command — migrations (including missing post_renders and post_formats tables) apply on the next deploy.' },
+    ],
+  },
+  {
     version: 'v4.15.0',
     date: '2026-05-12',
     entries: [
