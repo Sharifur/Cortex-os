@@ -802,10 +802,111 @@ function RenderProgressBubble({
   );
 }
 
-function SlideThumb({ url, n }: { url: string; n: number }) {
+function SlideLightbox({
+  url, n, total, onClose, onPrev, onNext,
+}: {
+  url: string; n: number; total: number;
+  onClose: () => void; onPrev: () => void; onNext: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+      if (e.key === 'ArrowLeft') onPrev();
+      if (e.key === 'ArrowRight') onNext();
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [onClose, onPrev, onNext]);
+
+  async function copyImage() {
+    try {
+      const res = await fetch(url);
+      const blob = await res.blob();
+      const pngBlob = blob.type === 'image/png' ? blob : await new Promise<Blob>((resolve) => {
+        const img = new window.Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          canvas.width = img.naturalWidth;
+          canvas.height = img.naturalHeight;
+          canvas.getContext('2d')!.drawImage(img, 0, 0);
+          canvas.toBlob((b) => resolve(b!), 'image/png');
+        };
+        img.src = URL.createObjectURL(blob);
+      });
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': pngBlob })]);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // fallback: open image in new tab so user can right-click copy
+      window.open(url, '_blank');
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="relative max-w-2xl w-full mx-4 flex flex-col items-center gap-3"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* toolbar */}
+        <div className="flex items-center justify-between w-full px-1">
+          <span className="text-white/60 text-sm">Slide {n} / {total}</span>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={copyImage}
+              className="flex items-center gap-1.5 text-xs bg-white/10 hover:bg-white/20 text-white px-3 py-1.5 rounded-lg transition-colors"
+            >
+              {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+              {copied ? 'Copied' : 'Copy image'}
+            </button>
+            <button
+              onClick={onClose}
+              className="text-white/60 hover:text-white p-1 rounded transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+
+        {/* image */}
+        <img src={url} alt={`Slide ${n}`} className="w-full rounded-xl shadow-2xl" />
+
+        {/* prev / next */}
+        {total > 1 && (
+          <div className="flex gap-3">
+            <button
+              onClick={onPrev}
+              disabled={n === 1}
+              className="text-xs bg-white/10 hover:bg-white/20 disabled:opacity-30 text-white px-4 py-1.5 rounded-lg transition-colors"
+            >
+              Prev
+            </button>
+            <button
+              onClick={onNext}
+              disabled={n === total}
+              className="text-xs bg-white/10 hover:bg-white/20 disabled:opacity-30 text-white px-4 py-1.5 rounded-lg transition-colors"
+            >
+              Next
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SlideThumb({ url, n, onClick }: { url: string; n: number; onClick?: () => void }) {
   const [loaded, setLoaded] = useState(false);
   return (
-    <div className="aspect-square rounded-lg overflow-hidden bg-muted/50 relative">
+    <div
+      className="aspect-square rounded-lg overflow-hidden bg-muted/50 relative cursor-pointer group"
+      onClick={onClick}
+    >
       {!loaded && <div className="absolute inset-0 animate-pulse bg-muted/60" />}
       <img
         src={url}
@@ -813,20 +914,34 @@ function SlideThumb({ url, n }: { url: string; n: number }) {
         className={`w-full h-full object-cover transition-opacity duration-300 ${loaded ? 'opacity-100' : 'opacity-0'}`}
         onLoad={() => setLoaded(true)}
       />
+      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
+        <Image className="w-4 h-4 text-white opacity-0 group-hover:opacity-80 transition-opacity" />
+      </div>
     </div>
   );
 }
 
 function SlideGrid({ slideUrls, renderId }: { slideUrls: string[]; renderId?: string }) {
   void renderId;
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   return (
     <div className="space-y-2">
       <p className="text-xs text-muted-foreground">{slideUrls.length} slides rendered</p>
       <div className="grid grid-cols-3 gap-2">
         {slideUrls.map((url, i) => (
-          <SlideThumb key={i} url={url} n={i + 1} />
+          <SlideThumb key={i} url={url} n={i + 1} onClick={() => setLightboxIndex(i)} />
         ))}
       </div>
+      {lightboxIndex !== null && (
+        <SlideLightbox
+          url={slideUrls[lightboxIndex]}
+          n={lightboxIndex + 1}
+          total={slideUrls.length}
+          onClose={() => setLightboxIndex(null)}
+          onPrev={() => setLightboxIndex((p) => Math.max(0, (p ?? 0) - 1))}
+          onNext={() => setLightboxIndex((p) => Math.min(slideUrls.length - 1, (p ?? 0) + 1))}
+        />
+      )}
     </div>
   );
 }

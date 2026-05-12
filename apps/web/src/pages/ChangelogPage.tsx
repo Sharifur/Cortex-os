@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.16.8',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'feat', scope: 'chat', description: 'Slide thumbnails are now clickable — opens a full-size lightbox with prev/next navigation, keyboard arrow support, and a "Copy image" button that copies the PNG to clipboard for pasting directly into Canva.' },
+    ],
+  },
+  {
     version: 'v4.16.7',
     date: '2026-05-12',
     entries: [
