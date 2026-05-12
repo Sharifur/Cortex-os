@@ -16,13 +16,14 @@ import { PostContentService } from './post-content.service';
 import { ThemeContractService } from './theme-contract.service';
 import { ConsistencyValidator } from './consistency-validator';
 import { ImageGenService } from './image-gen.service';
+import { DesignPatternService } from './design-pattern.service';
 import { getFormat } from './post-format.registry';
 import { centeredLayout } from './layouts/centered.layout';
 import { leftAlignedLayout } from './layouts/left-aligned.layout';
 import { splitPanelLayout } from './layouts/split-panel.layout';
 import { overlayLayout } from './layouts/overlay.layout';
 import { listLayout } from './layouts/list.layout';
-import type { RenderRequest, RenderResult, FilledSlide, ThemeContract, LayoutType } from './types';
+import type { RenderRequest, RenderResult, FilledSlide, ThemeContract, LayoutType, DominantDNA } from './types';
 
 const LAYOUT_MAP: Record<LayoutType, (props: import('./layouts/layout.types').LayoutProps) => object> = {
   'centered': centeredLayout,
@@ -46,6 +47,7 @@ export class PostRendererService {
     private readonly themeSvc: ThemeContractService,
     private readonly validator: ConsistencyValidator,
     private readonly imageGen: ImageGenService,
+    private readonly designPattern: DesignPatternService,
   ) {}
 
   async render(req: RenderRequest, runId?: string): Promise<RenderResult> {
@@ -72,11 +74,21 @@ export class PostRendererService {
       { event_type: 'post_render_start', format_id: format.id, brand: req.brand, topic: req.topic, slide_count: format.slides.length, render_id: renderId },
     ).catch(() => {});
 
-    // Resolve brand identity
-    const brand = await this.brandSvc.resolve(req.brand);
+    // Resolve brand identity and dominant design DNA in parallel
+    const [brand, dominantDNA] = await Promise.all([
+      this.brandSvc.resolve(req.brand),
+      this.designPattern.getDominantDNA(req.brand).catch(() => null as DominantDNA | null),
+    ]);
 
-    // Derive ThemeContract (locked for all slides)
-    const contract = this.themeSvc.derive(brand, format);
+    if (dominantDNA) {
+      await this.logSvc.debug(runId ?? 'post-render',
+        `Design DNA loaded: ${dominantDNA.sampleCount} samples — tone:${dominantDNA.content_tone} cta:${dominantDNA.cta_style} radius:${dominantDNA.border_radius_style} icons:${dominantDNA.icon_style}`,
+        { event_type: 'post_dna_loaded', sample_count: dominantDNA.sampleCount, content_tone: dominantDNA.content_tone, cta_style: dominantDNA.cta_style },
+      ).catch(() => {});
+    }
+
+    // Derive ThemeContract (locked for all slides) — applies learned DNA
+    const contract = this.themeSvc.derive(brand, format, dominantDNA);
 
     await this.logSvc.debug(runId ?? 'post-render',
       `Theme locked: ${contract.headingFont} accent:${contract.accentColor} bg:${contract.backgroundCover}`,
@@ -94,6 +106,9 @@ export class PostRendererService {
       topic: req.topic,
       intent: req.intent,
       voiceProfile: brand.voiceProfile,
+      contentTone: dominantDNA?.content_tone,
+      moodKeywords: dominantDNA?.mood_keywords,
+      patternRules: dominantDNA?.pattern_rules,
       runId,
     });
 
@@ -140,7 +155,7 @@ export class PostRendererService {
       let backgroundImageBase64: string | undefined;
       if (schema.styleRules.backgroundType === 'ai-image') {
         const imgPrompt = (slide.slots['image_prompt'] as string | undefined) ??
-          `Abstract minimal professional background for ${req.topic ?? 'business'}, brand colors, no text, no faces`;
+          this._buildImagePrompt(req.topic, contract, dominantDNA);
         try {
           await this.logSvc.info(runId ?? 'post-render',
             `Image gen: ${req.imageProvider ?? 'auto'} — slide ${i + 1}`,
@@ -229,6 +244,59 @@ export class PostRendererService {
       filledContent,
       createdAt: new Date(),
     };
+  }
+
+  private _buildImagePrompt(topic: string | undefined, contract: ThemeContract, dna: DominantDNA | null): string {
+    const parts: string[] = [];
+
+    // Subject from topic
+    parts.push(`Background image for a social media post about "${topic ?? 'business'}"`);
+
+    // Visual style from DNA
+    if (dna?.photography_style && dna.photography_style !== 'none') {
+      const styleMap: Record<string, string> = {
+        lifestyle: 'lifestyle photography, candid and warm',
+        product: 'clean product photography, studio lighting',
+        abstract: 'abstract photography, artistic',
+        corporate: 'corporate photography, professional setting',
+        conceptual: 'conceptual photography, creative metaphor',
+        mockup: 'device mockup, clean background',
+      };
+      parts.push(styleMap[dna.photography_style] ?? dna.photography_style);
+    } else if (dna?.illustration_style && dna.illustration_style !== 'none') {
+      const styleMap: Record<string, string> = {
+        'vector-flat': 'flat vector illustration, clean shapes',
+        'vector-3d': '3D vector illustration, depth and shadows',
+        'hand-drawn': 'hand-drawn illustration style',
+        isometric: 'isometric illustration, geometric 3D',
+        'abstract-shape': 'abstract geometric shapes, minimal',
+        'pattern-based': 'repeating geometric pattern, decorative',
+        character: 'character illustration, friendly',
+      };
+      parts.push(styleMap[dna.illustration_style] ?? dna.illustration_style);
+    } else {
+      parts.push('abstract minimal background, geometric shapes');
+    }
+
+    // Background tone
+    if (dna?.background_style) {
+      if (dna.background_style.includes('dark')) parts.push('dark background');
+      else if (dna.background_style.includes('light')) parts.push('light background');
+      else if (dna.background_style === 'gradient-dark') parts.push('dark gradient background');
+    }
+
+    // Colors
+    parts.push(`brand color palette: ${contract.accentColor}, ${contract.backgroundCover}`);
+
+    // Mood
+    if (dna?.mood_keywords?.length) {
+      parts.push(dna.mood_keywords.slice(0, 3).join(', '));
+    }
+
+    // Constraints
+    parts.push('no text, no logos, no faces, no watermarks, suitable as background');
+
+    return parts.join('. ');
   }
 
   private async renderSlide(

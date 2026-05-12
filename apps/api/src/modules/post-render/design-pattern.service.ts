@@ -4,6 +4,7 @@ import { LlmRouterService } from '../llm/llm-router.service';
 import { KnowledgeBaseService } from '../knowledge-base/knowledge-base.service';
 import { DbService } from '../../db/db.service';
 import { knowledgeEntries } from '../knowledge-base/schema';
+import type { DesignDNA, DominantDNA } from './types';
 
 const MIN_SAMPLES_FOR_CLUSTERING = 3;
 
@@ -189,6 +190,108 @@ export class DesignPatternService {
 
     this.logger.log(`Clustering complete: ${patterns.length} patterns for ${effectiveBrand}`);
     return { patternCount: patterns.length, patterns };
+  }
+
+  async getDominantDNA(brand: string): Promise<DominantDNA | null> {
+    const effectiveBrand = brand || 'default';
+
+    const samples = await this.db.db
+      .select({ content: knowledgeEntries.content })
+      .from(knowledgeEntries)
+      .where(and(
+        eq(knowledgeEntries.entryType, 'design_sample'),
+        eq(knowledgeEntries.agentKeys, 'canva'),
+        eq(knowledgeEntries.siteKeys, effectiveBrand),
+      ));
+
+    if (!samples.length) return null;
+
+    const dnaList: DesignDNA[] = [];
+    for (const s of samples) {
+      const match = s.content.match(/DNA JSON: (\{[\s\S]+\})\s*$/m);
+      if (match) {
+        try { dnaList.push(JSON.parse(match[1]) as DesignDNA); } catch { /* skip */ }
+      }
+    }
+
+    if (!dnaList.length) return null;
+
+    const dominant = <K extends keyof DesignDNA>(field: K): DesignDNA[K] => {
+      const counts: Record<string, number> = {};
+      for (const d of dnaList) {
+        const val = String(d[field] ?? '');
+        if (val && val !== 'undefined') counts[val] = (counts[val] ?? 0) + 1;
+      }
+      const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0];
+      return (top ?? '') as DesignDNA[K];
+    };
+
+    const dominantArray = (field: keyof DesignDNA, topN = 4): string[] => {
+      const counts: Record<string, number> = {};
+      for (const d of dnaList) {
+        const arr = Array.isArray(d[field]) ? d[field] as string[] : [];
+        for (const v of arr) { if (v && v !== 'none') counts[v] = (counts[v] ?? 0) + 1; }
+      }
+      return Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, topN).map(([v]) => v);
+    };
+
+    // Collect representative shapes — one per shape_type, most frequent types first
+    const shapeTypeCount: Record<string, number> = {};
+    const shapeByType = new Map<string, DesignDNA['shape_elements'][0]>();
+    for (const d of dnaList) {
+      for (const s of d.shape_elements ?? []) {
+        shapeTypeCount[s.shape_type] = (shapeTypeCount[s.shape_type] ?? 0) + 1;
+        if (!shapeByType.has(s.shape_type)) shapeByType.set(s.shape_type, s);
+      }
+    }
+    const representativeShapes = Object.entries(shapeTypeCount)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([type]) => shapeByType.get(type)!)
+      .filter(Boolean);
+
+    const patternEntry = await this.db.db
+      .select({ content: knowledgeEntries.content })
+      .from(knowledgeEntries)
+      .where(and(
+        eq(knowledgeEntries.entryType, 'design_pattern'),
+        eq(knowledgeEntries.agentKeys, 'canva'),
+        eq(knowledgeEntries.siteKeys, effectiveBrand),
+      ))
+      .limit(1);
+
+    const patternRules = patternEntry[0]?.content
+      .split('\n')
+      .filter(l => /^\d+\./.test(l.trim()))
+      .map(l => l.replace(/^\d+\.\s*/, '').trim())
+      .filter(Boolean) ?? [];
+
+    return {
+      sampleCount: dnaList.length,
+      layout_type: dominant('layout_type') || 'left-aligned',
+      whitespace: dominant('whitespace') || 'moderate',
+      text_alignment: dominant('text_alignment') || 'left',
+      accent_elements: dominantArray('accent_elements'),
+      brand_bar: dominant('brand_bar') || 'none',
+      logo_placement: dominant('logo_placement') || 'bottom-left',
+      border_radius_style: dominant('border_radius_style') || 'rounded',
+      shadow_usage: dominant('shadow_usage') || 'none',
+      cta_style: dominant('cta_style') || 'pill-button',
+      font_size_heading: dominant('font_size_heading') || 'large',
+      font_weight_heading: dominant('font_weight_heading') || 'bold',
+      font_style: dominant('font_style') || 'modern-sans',
+      icon_style: dominant('icon_style') || 'none',
+      icon_count: dominant('icon_count') || 'none',
+      icon_size: dominant('icon_size') || 'none',
+      illustration_style: dominant('illustration_style') || 'none',
+      photography_style: dominant('photography_style') || 'none',
+      content_tone: dominant('content_tone') || 'professional',
+      mood_keywords: dominantArray('mood_keywords', 5),
+      decoration_elements: dominantArray('decoration_elements'),
+      background_style: dominant('background_style') || 'solid-dark',
+      representative_shapes: representativeShapes,
+      pattern_rules: patternRules,
+    };
   }
 
   async getPatterns(brand?: string): Promise<string[]> {

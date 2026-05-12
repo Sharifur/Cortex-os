@@ -16,6 +16,17 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.17.1',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'Learned design DNA is now fully applied during rendering. getDominantDNA() aggregates all samples and drives: heading size, padding, line height, accent bar position, logo placement, CTA button style/border-radius, content tone, mood keywords, and icon/illustration/photography style.' },
+      { tag: 'feat', scope: 'canva', description: 'Decorative shapes from design samples (circles, blobs, diagonal cuts, waves, etc.) are rendered in centered and left-aligned layouts using absolute-positioned divs — colours, gradients, opacity, and border-radius all from the learned shape_elements DNA.' },
+      { tag: 'feat', scope: 'canva', description: 'CTA buttons now adopt the learned ctaStyle: pill (borderRadius 999), flat (0), outlined (transparent bg with accent border), text-link, or arrow-link. Helper ctaStyle() centralises rendering logic across layouts.' },
+      { tag: 'feat', scope: 'canva', description: 'Image generation prompts now use learned photography_style, illustration_style, background_style and mood_keywords — produces contextually matching backgrounds instead of the generic fallback.' },
+      { tag: 'feat', scope: 'canva', description: 'Content generation receives learned content_tone, mood_keywords, and top-5 pattern rules — AI copy now matches the visual tone of the learned brand.' },
+    ],
+  },
+  {
     version: 'v4.17.0',
     date: '2026-05-12',
     entries: [

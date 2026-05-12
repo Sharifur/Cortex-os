@@ -20,6 +20,9 @@ export class PostContentService {
       intent?: string;
       voiceProfile?: string;
       designContext?: string;
+      contentTone?: string;
+      moodKeywords?: string[];
+      patternRules?: string[];
       runId?: string;
     },
   ): Promise<FilledSlide[]> {
@@ -37,10 +40,20 @@ export class PostContentService {
       })),
     }));
 
+    const toneInstruction = opts.contentTone
+      ? `Content tone: ${opts.contentTone}${opts.moodKeywords?.length ? ` — mood: ${opts.moodKeywords.join(', ')}` : ''}`
+      : '';
+
+    const patternContext = opts.patternRules?.length
+      ? `Learned brand design patterns (use for copy style):\n${opts.patternRules.slice(0, 5).map((r, i) => `${i + 1}. ${r}`).join('\n')}`
+      : '';
+
     const systemPrompt = [
       `You are a professional social media content strategist specialising in ${format.platform} ${format.category} posts.`,
       opts.voiceProfile ? `Brand voice: ${opts.voiceProfile}` : '',
-      opts.designContext ? `Design context (use these style cues for tone): ${opts.designContext}` : '',
+      toneInstruction,
+      patternContext,
+      opts.designContext ? `Design context: ${opts.designContext}` : '',
     ].filter(Boolean).join('\n');
 
     const userPrompt = [

@@ -119,6 +119,54 @@ export interface ThemeContract {
   brand: string;
   formatId: string;
   generatedAt: string;
+
+  // Visual DNA applied from learned design samples (defaults used when no samples)
+  borderRadius: number;           // px: 0=sharp, 6=slightly-rounded, 14=rounded, 999=pill
+  ctaStyle: 'pill-button' | 'flat-button' | 'outlined-button' | 'text-link' | 'arrow-link';
+  contentTone: string;
+  moodKeywords: string[];
+  iconStyle: string;
+  illustrationStyle: string;
+  photographyStyle: string;
+  decorations: Array<{
+    shape_type: string;
+    fill_type: string;
+    fill_colors: string[];
+    gradient_angle?: number;
+    stroke_color?: string;
+    stroke_width?: number;
+    opacity: number;
+    x: number; y: number; w: number; h: number;
+    border_radius?: number;
+  }>;
+}
+
+// Aggregated dominant values across all design samples for a brand
+export interface DominantDNA {
+  sampleCount: number;
+  layout_type: DesignDNA['layout_type'];
+  whitespace: DesignDNA['whitespace'];
+  text_alignment: DesignDNA['text_alignment'];
+  accent_elements: string[];
+  brand_bar: DesignDNA['brand_bar'];
+  logo_placement: DesignDNA['logo_placement'];
+  border_radius_style: DesignDNA['border_radius_style'];
+  shadow_usage: DesignDNA['shadow_usage'];
+  cta_style: DesignDNA['cta_style'];
+  font_size_heading: DesignDNA['font_size_heading'];
+  font_weight_heading: DesignDNA['font_weight_heading'];
+  font_style: DesignDNA['font_style'];
+  icon_style: DesignDNA['icon_style'];
+  icon_count: DesignDNA['icon_count'];
+  icon_size: DesignDNA['icon_size'];
+  illustration_style: DesignDNA['illustration_style'];
+  photography_style: DesignDNA['photography_style'];
+  content_tone: DesignDNA['content_tone'];
+  mood_keywords: string[];
+  decoration_elements: string[];
+  background_style: DesignDNA['background_style'];
+  representative_shapes: DesignDNA['shape_elements'];
+  pattern_rules: string[];
 }
 
 // Design DNA extracted from a sample image by vision LLM

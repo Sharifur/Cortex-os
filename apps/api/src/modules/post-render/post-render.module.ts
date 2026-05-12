@@ -28,6 +28,6 @@ import { DesignSampleController } from './design-sample.controller';
     DesignAnalysisService,
     DesignPatternService,
   ],
-  exports: [PostRendererService, ImageGenService, DesignAnalysisService],
+  exports: [PostRendererService, ImageGenService, DesignAnalysisService, DesignPatternService],
 })
 export class PostRenderModule {}

@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import type { ResolvedBrand, ThemeContract, PostFormat } from './types';
+import type { ResolvedBrand, ThemeContract, PostFormat, DominantDNA } from './types';
 
 function luminance(hex: string): number {
   const c = hex.replace('#', '');
@@ -34,7 +34,7 @@ function darken(hex: string, amount = 0.15): string {
 export class ThemeContractService {
   private readonly logger = new Logger(ThemeContractService.name);
 
-  derive(brand: ResolvedBrand, format: PostFormat, designContext?: string): ThemeContract {
+  derive(brand: ResolvedBrand, format: PostFormat, dna?: DominantDNA | null): ThemeContract {
     const primary = brand.palette[0] ?? '#1e1b4b';
     const secondary = brand.palette[1] ?? darken(primary, 0.1);
     const accent = brand.palette[2] ?? brand.palette[1] ?? '#6366f1';
@@ -43,20 +43,43 @@ export class ThemeContractService {
     const bodyColor = '#444444';
     const subtextColor = '#888888';
 
-    // Derive sizing from design context hints (if available)
-    let headingSize = 52;
-    let paddingX = 56;
-    let paddingY = 56;
-    if (designContext) {
-      if (designContext.includes('huge') || designContext.includes('xlarge')) headingSize = 68;
-      else if (designContext.includes('large')) headingSize = 60;
-      if (designContext.includes('tight')) { paddingX = 40; paddingY = 40; }
-      else if (designContext.includes('generous')) { paddingX = 64; paddingY = 64; }
-    }
+    // Heading size from DNA font_size_heading
+    const headingSizeMap: Record<string, number> = {
+      small: 36, medium: 44, large: 52, xlarge: 64, huge: 76, display: 92,
+    };
+    const headingSize = headingSizeMap[dna?.font_size_heading ?? ''] ?? 52;
 
+    // Padding from DNA whitespace
+    const paddingMap: Record<string, number> = { tight: 40, moderate: 56, generous: 72 };
+    const padding = paddingMap[dna?.whitespace ?? ''] ?? 56;
+
+    // Accent bar position from dominant accent_elements
+    const accentEls = dna?.accent_elements ?? [];
     const accentBarPosition: 'top' | 'left' | 'none' =
-      designContext?.includes('left-stripe') ? 'left' :
-      designContext?.includes('none') ? 'none' : 'top';
+      accentEls.includes('left-stripe') || accentEls.includes('right-stripe') ? 'left' :
+      accentEls.includes('top-bar') || accentEls.includes('bottom-bar') ? 'top' :
+      accentEls.includes('none') || accentEls.length === 0 ? 'none' : 'top';
+
+    // Logo position from DNA logo_placement
+    const logoPositionMap: Record<string, 'bottom-left' | 'bottom-right'> = {
+      'bottom-left': 'bottom-left', 'bottom-right': 'bottom-right',
+      'top-left': 'bottom-left', 'top-right': 'bottom-right',
+    };
+    const logoPosition = logoPositionMap[dna?.logo_placement ?? ''] ?? 'bottom-left';
+
+    // Border radius from DNA border_radius_style
+    const borderRadiusMap: Record<string, number> = {
+      sharp: 0, 'slightly-rounded': 6, rounded: 14, pill: 999,
+    };
+    const borderRadius = borderRadiusMap[dna?.border_radius_style ?? ''] ?? 10;
+
+    // CTA style from DNA
+    const ctaStyle = (dna?.cta_style && dna.cta_style !== 'none')
+      ? dna.cta_style
+      : 'pill-button' as const;
+
+    // Body size: slightly larger for display/huge, smaller for tight whitespace
+    const bodySize = headingSize >= 76 ? 18 : headingSize >= 64 ? 20 : 22;
 
     const totalSlides = format.slides.length;
 
@@ -74,28 +97,51 @@ export class ThemeContractService {
       headingFontData: brand.headingFontData,
       bodyFontData: brand.bodyFontData,
       headingSize,
-      bodySize: 20,
-      lineHeight: 1.4,
+      bodySize,
+      lineHeight: dna?.whitespace === 'tight' ? 1.25 : 1.4,
 
-      paddingX,
-      paddingY,
+      paddingX: padding,
+      paddingY: padding,
       accentBar: { position: accentBarPosition, thickness: 6, color: accent },
       logo: brand.logoBase64
-        ? { position: 'bottom-left', heightPx: 22, base64: brand.logoBase64 }
+        ? { position: logoPosition, heightPx: 22, base64: brand.logoBase64 }
         : null,
       indicator: { position: 'bottom-right', format: 'N/T' },
 
-      headlineMaxChars: 60,
-      bodyMaxChars: 200,
+      headlineMaxChars: headingSize >= 76 ? 45 : 65,
+      bodyMaxChars: 220,
       listItemsMax: 6,
 
       totalSlides,
       brand: brand.name,
       formatId: format.id,
       generatedAt: new Date().toISOString(),
+
+      borderRadius,
+      ctaStyle,
+      contentTone: dna?.content_tone ?? 'professional',
+      moodKeywords: dna?.mood_keywords ?? [],
+      iconStyle: dna?.icon_style ?? 'none',
+      illustrationStyle: dna?.illustration_style ?? 'none',
+      photographyStyle: dna?.photography_style ?? 'none',
+      decorations: (dna?.representative_shapes ?? []).map(s => ({
+        shape_type: s.shape_type,
+        fill_type: s.fill_type,
+        fill_colors: s.fill_colors,
+        gradient_angle: s.gradient_angle,
+        stroke_color: s.stroke_color,
+        stroke_width: s.stroke_width,
+        opacity: Math.min(s.opacity, 0.18), // cap opacity so decorations don't overwhelm content
+        x: s.x, y: s.y, w: s.w, h: s.h,
+        border_radius: s.border_radius,
+      })),
     };
 
-    this.logger.log(`Theme locked: ${brand.headingFont} accent:${accent} bg:${primary}`);
+    this.logger.log(
+      `Theme locked: ${brand.headingFont} accent:${accent} bg:${primary} ` +
+      `radius:${borderRadius} cta:${ctaStyle} tone:${contract.contentTone}` +
+      (dna ? ` [${dna.sampleCount} samples]` : ' [no samples]'),
+    );
     return contract;
   }
 }

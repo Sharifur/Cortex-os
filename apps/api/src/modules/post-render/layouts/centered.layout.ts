@@ -1,4 +1,4 @@
-import { resolveBackground, resolveTextColor, slideIndicatorText, getSlot } from './layout-helpers';
+import { resolveBackground, resolveTextColor, slideIndicatorText, getSlot, renderDecorations, ctaStyle as buildCtaStyle } from './layout-helpers';
 import type { LayoutProps } from './layout.types';
 
 // Returns a plain JS object tree that satori accepts (React element format)
@@ -70,19 +70,7 @@ export function centeredLayout({ slide, contract, width, height, slideNumber, ba
   if (cta) {
     contentChildren.push({
       type: 'div',
-      props: {
-        style: {
-          marginTop: 32,
-          padding: '12px 28px',
-          backgroundColor: contract.accentColor,
-          color: '#ffffff',
-          fontWeight: 700,
-          fontSize: 16,
-          borderRadius: 8,
-          display: 'flex',
-        },
-        children: cta,
-      },
+      props: { style: buildCtaStyle(cta, contract) },
     });
   }
 
@@ -118,10 +106,13 @@ export function centeredLayout({ slide, contract, width, height, slideNumber, ba
     });
   }
 
+  const decorationDivs = !backgroundImageBase64 ? renderDecorations(contract, width, height) : [];
+
   return {
     type: 'div',
     props: {
       style: {
+        position: 'relative' as const,
         display: 'flex',
         flexDirection: 'column',
         width,
@@ -131,8 +122,9 @@ export function centeredLayout({ slide, contract, width, height, slideNumber, ba
           : { backgroundColor: bg }),
         fontFamily: contract.bodyFont,
         paddingTop: contract.paddingY,
+        overflow: 'hidden',
       },
-      children,
+      children: [...decorationDivs, ...children],
     },
   };
 }
