@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.14.4',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'Design Samples upload now has a full drag-and-drop dropzone — drag images directly onto the zone to upload without clicking. Clicking still opens the file picker. Drag-over state highlights the border. Multiple files supported in both flows.' },
+    ],
+  },
+  {
     version: 'v4.14.3',
     date: '2026-05-12',
     entries: [

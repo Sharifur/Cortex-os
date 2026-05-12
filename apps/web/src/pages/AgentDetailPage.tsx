@@ -3847,6 +3847,7 @@ function DesignSamplesTab({ token }: { token: string }) {
   const [uploading, setUploading] = useState(false);
   const [clustering, setClustering] = useState(false);
   const [uploadResult, setUploadResult] = useState('');
+  const [isDragOver, setIsDragOver] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   async function loadData() {
@@ -3860,13 +3861,13 @@ function DesignSamplesTab({ token }: { token: string }) {
 
   useEffect(() => { loadData(); }, [brand, token]);
 
-  async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const files = e.target.files;
-    if (!files?.length) return;
+  async function uploadFiles(files: FileList | File[]) {
+    const list = Array.from(files).filter(f => f.type.startsWith('image/'));
+    if (!list.length) return;
     setUploading(true); setUploadResult('');
     try {
       const fd = new FormData();
-      for (const f of Array.from(files)) fd.append('files', f);
+      for (const f of list) fd.append('files', f);
       const res = await fetch(`/posts/design-samples/upload?brand=${brand}`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
@@ -3883,6 +3884,25 @@ function DesignSamplesTab({ token }: { token: string }) {
     }
   }
 
+  function handleFileInput(e: React.ChangeEvent<HTMLInputElement>) {
+    if (e.target.files?.length) uploadFiles(e.target.files);
+  }
+
+  function handleDragOver(e: React.DragEvent) {
+    e.preventDefault();
+    setIsDragOver(true);
+  }
+
+  function handleDragLeave(e: React.DragEvent) {
+    if (!e.currentTarget.contains(e.relatedTarget as Node)) setIsDragOver(false);
+  }
+
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault();
+    setIsDragOver(false);
+    if (e.dataTransfer.files?.length) uploadFiles(e.dataTransfer.files);
+  }
+
   async function cluster() {
     setClustering(true);
     try {
@@ -3896,7 +3916,7 @@ function DesignSamplesTab({ token }: { token: string }) {
   return (
     <div className="space-y-5">
       <div className="bg-card border border-border rounded-xl p-4 space-y-3">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center justify-between gap-3">
           <div>
             <label className="text-xs text-muted-foreground mb-1 block">Brand</label>
             <input
@@ -3905,27 +3925,38 @@ function DesignSamplesTab({ token }: { token: string }) {
               onChange={e => setBrand(e.target.value)}
             />
           </div>
-          <div className="mt-5">
-            <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={handleUpload} />
-            <button
-              onClick={() => fileRef.current?.click()}
-              disabled={uploading}
-              className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium disabled:opacity-50"
-            >
-              {uploading ? 'Analyzing...' : 'Upload samples'}
-            </button>
-          </div>
-          <div className="mt-5">
-            <button
-              onClick={cluster}
-              disabled={clustering || samples.length < 20}
-              className="px-4 py-2 border border-border rounded-lg text-sm font-medium disabled:opacity-50"
-              title={samples.length < 20 ? 'Need 20+ samples to cluster' : ''}
-            >
-              {clustering ? 'Clustering...' : 'Learn patterns'}
-            </button>
-          </div>
+          <button
+            onClick={cluster}
+            disabled={clustering || samples.length < 20}
+            className="px-4 py-2 border border-border rounded-lg text-sm font-medium disabled:opacity-50 mt-5"
+            title={samples.length < 20 ? 'Need 20+ samples to cluster' : ''}
+          >
+            {clustering ? 'Clustering...' : 'Learn patterns'}
+          </button>
         </div>
+
+        <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={handleFileInput} />
+        <div
+          onClick={() => !uploading && fileRef.current?.click()}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+          className={`border-2 border-dashed rounded-xl p-8 text-center transition-colors cursor-pointer ${
+            isDragOver
+              ? 'border-primary bg-primary/5'
+              : 'border-border hover:border-primary/50 hover:bg-muted/40'
+          } ${uploading ? 'pointer-events-none opacity-60' : ''}`}
+        >
+          {uploading ? (
+            <p className="text-sm text-muted-foreground">Analyzing images...</p>
+          ) : (
+            <>
+              <p className="text-sm font-medium">{isDragOver ? 'Drop images here' : 'Drop images or click to upload'}</p>
+              <p className="text-xs text-muted-foreground mt-1">PNG, JPG, WEBP — multiple files supported</p>
+            </>
+          )}
+        </div>
+
         {uploadResult && <p className="text-xs text-green-600">{uploadResult}</p>}
         <p className="text-xs text-muted-foreground">{samples.length} samples for {brand}</p>
       </div>
