@@ -4,6 +4,7 @@ import { eq, sql } from 'drizzle-orm';
 import { DbService } from '../../db/db.service';
 import { StorageService } from '../storage/storage.service';
 import { AgentLogService } from '../agents/runtime/agent-log.service';
+import { LlmUsageService } from '../llm/llm-usage.service';
 import { postRenders } from './schema';
 import { PostBrandService } from './post-brand.service';
 import { PostContentService } from './post-content.service';
@@ -34,6 +35,7 @@ export class PostRendererService {
     private readonly db: DbService,
     private readonly storage: StorageService,
     private readonly logSvc: AgentLogService,
+    private readonly usageSvc: LlmUsageService,
     private readonly brandSvc: PostBrandService,
     private readonly contentSvc: PostContentService,
     private readonly themeSvc: ThemeContractService,
@@ -129,6 +131,17 @@ export class PostRendererService {
             `Image ready: ${model} ${Date.now() - t0Img}ms ~$${estimatedCostUsd.toFixed(4)}`,
             { event_type: 'post_image_gen_end', provider, model, estimated_cost_usd: estimatedCostUsd, duration_ms: Date.now() - t0Img, size_bytes: buffer.length },
           ).catch(() => {});
+          if (estimatedCostUsd > 0) {
+            void this.usageSvc.record({
+              runId: runId ?? null,
+              agentKey: 'canva',
+              provider,
+              model,
+              inputTokens: 0,
+              outputTokens: 0,
+              costUsdOverride: estimatedCostUsd,
+            }).catch(() => {});
+          }
         } catch (err) {
           this.logger.warn(`image gen failed for slide ${i}: ${(err as Error).message}`);
           await this.logSvc.warn(runId ?? 'post-render',

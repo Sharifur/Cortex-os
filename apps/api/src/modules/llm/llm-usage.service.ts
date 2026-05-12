@@ -12,6 +12,8 @@ export interface UsageRecord {
   inputTokens?: number;
   outputTokens?: number;
   cachedInputTokens?: number;
+  /** Pre-computed cost in USD. Skips the pricing-table computation (use for image gen). */
+  costUsdOverride?: number;
 }
 
 @Injectable()
@@ -22,7 +24,8 @@ export class LlmUsageService {
 
   async record(entry: UsageRecord): Promise<void> {
     try {
-      const { costUsd } = computeCostUsd(entry.provider, entry.model, entry);
+      const { costUsd: computedCost } = computeCostUsd(entry.provider, entry.model, entry);
+      const costUsd = entry.costUsdOverride ?? computedCost;
       await this.db.db.insert(llmUsageLogs).values({
         runId: entry.runId ?? null,
         agentKey: entry.agentKey ?? null,

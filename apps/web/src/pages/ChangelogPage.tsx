@@ -16,6 +16,15 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.14.1',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'feat', scope: 'chat', description: 'Post-render engine events now appear in the chat activity panel: content generation, image gen (with cost), per-slide rendering, and render complete — each with a distinct icon and running/success/failed state.' },
+      { tag: 'feat', scope: 'llm-usage', description: 'Image generation cost now recorded to llm_usage_logs via LlmUsageService.record() with costUsdOverride, so image spend appears in the LLM Usage page by model and agent alongside text LLM calls.' },
+      { tag: 'feat', scope: 'llm-usage', description: 'UsageRecord now accepts costUsdOverride to bypass the token-based pricing table computation — needed for per-image pricing models.' },
+    ],
+  },
+  {
     version: 'v4.14.0',
     date: '2026-05-12',
     entries: [
