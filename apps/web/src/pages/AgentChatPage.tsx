@@ -578,7 +578,7 @@ function EmailDraftCard({
     fetch('/spam-checker/score', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ subject, textBody: body, fromAddress: '', fromDomain: '', recipient: recipient ?? '' }),
+      body: JSON.stringify({ subject, textBody: body, fromAddress: '', fromDomain: '', recipient: recipient ?? '', isTransactional: true }),
     })
       .then(r => r.ok ? r.json() : null)
       .then((d: any) => { if (d?.score != null) setSpamResult({ score: d.score, grade: d.grade }); })

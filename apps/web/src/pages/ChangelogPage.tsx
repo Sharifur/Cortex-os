@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.12.10',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'fix', scope: 'chat', description: 'Frontend spam score was always showing ~45 regardless of email content because the POST /spam-checker/score call was missing isTransactional: true. The compliance category was always firing -40 (no List-Unsubscribe header) + -35 (no unsub link) + -25 (no address) = constant -100 penalty. These bulk-email rules do not apply to 1:1 personal outreach via Gmail. Score now reflects actual content quality.' },
+    ],
+  },
+  {
     version: 'v4.12.9',
     date: '2026-05-12',
     entries: [
