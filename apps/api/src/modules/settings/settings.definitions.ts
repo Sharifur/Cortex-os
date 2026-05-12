@@ -5,6 +5,7 @@ export interface SettingDefinition {
   group: 'general' | 'llm' | 'telegram' | 'ses' | 'gmail' | 'whatsapp' | 'linkedin' | 'reddit' | 'license' | 'storage' | 'insight' | 'safety' | 'hr' | 'geoip' | 'support' | 'image';
   defaultValue?: string;
   provider?: 'openai' | 'gemini' | 'deepseek' | 'stability' | 'general';
+  options?: Array<{ value: string; label: string; desc?: string }>;
 }
 
 export const SETTING_DEFINITIONS: Record<string, SettingDefinition> = {
@@ -492,19 +493,58 @@ export const SETTING_DEFINITIONS: Record<string, SettingDefinition> = {
     group: 'support',
   },
 
-  // Image Generation
+  // Image Generation — general
+  image_gen_provider: {
+    label: 'Default Provider',
+    description: 'Provider for slide AI image backgrounds. auto = openai → stability → gemini → solid color.',
+    isSecret: false,
+    group: 'image',
+    defaultValue: 'auto',
+    provider: 'general',
+    options: [
+      { value: 'auto', label: 'Auto', desc: 'openai → stability → gemini cascade' },
+      { value: 'openai', label: 'OpenAI', desc: 'gpt-image-1 / dall-e-3' },
+      { value: 'stability', label: 'Stability AI', desc: 'SDXL / Stable Image Core' },
+      { value: 'gemini', label: 'Gemini', desc: 'Imagen via gemini-2.0-flash-exp' },
+    ],
+  },
+
+  // Image Generation — OpenAI
+  image_gen_openai_model: {
+    label: 'OpenAI Image Model',
+    description: 'gpt-image-1 ~$0.19/img  |  gpt-image-2 ~$0.211/img  |  dall-e-3-hd ~$0.08/img  |  dall-e-3 ~$0.04/img  |  dall-e-2 ~$0.018/img. Uses the same API key as the LLM OpenAI setting.',
+    isSecret: false,
+    group: 'image',
+    defaultValue: 'gpt-image-1',
+    provider: 'openai',
+    options: [
+      { value: 'gpt-image-1', label: 'gpt-image-1', desc: '~$0.19/img' },
+      { value: 'gpt-image-2', label: 'gpt-image-2', desc: '~$0.211/img' },
+      { value: 'dall-e-3-hd', label: 'DALL-E 3 HD', desc: '~$0.08/img' },
+      { value: 'dall-e-3', label: 'DALL-E 3', desc: '~$0.04/img' },
+      { value: 'dall-e-2', label: 'DALL-E 2', desc: '~$0.018/img — lowest cost' },
+    ],
+  },
+
+  // Image Generation — Stability AI
   stability_api_key: {
     label: 'Stability AI API Key',
-    description: 'Used for AI image backgrounds in post renders. Get from platform.stability.ai → API Keys. Format: sk-...',
+    description: 'Get from platform.stability.ai → API Keys. Format: sk-... Credits: $10 = 1,000 credits.',
     isSecret: true,
     group: 'image',
     provider: 'stability',
   },
-  image_gen_provider: {
-    label: 'Image Generation Provider',
-    description: 'Provider used for slide image backgrounds. auto tries in order: gpt-image-1 → dall-e-3 → stability → solid color fallback.',
+  image_gen_stability_model: {
+    label: 'Stability AI Model',
+    description: 'stable-image-core ~$0.003/img (0.3 cr)  |  SDXL ~$0.002/img (0.2 cr)  |  stable-image-ultra ~$0.008/img (0.8 cr).',
     isSecret: false,
     group: 'image',
-    defaultValue: 'auto',
+    defaultValue: 'stable-image-core',
+    provider: 'stability',
+    options: [
+      { value: 'stable-image-core', label: 'Stable Image Core', desc: '~$0.003/img — recommended' },
+      { value: 'stable-diffusion-xl-1024-v1-0', label: 'SDXL 1.0', desc: '~$0.002/img — cheapest' },
+      { value: 'stable-image-ultra', label: 'Stable Image Ultra', desc: '~$0.008/img — best quality' },
+    ],
   },
 };

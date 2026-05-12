@@ -16,7 +16,7 @@ export type ContentSlotType =
   | 'attribution'
   | 'image_prompt';
 
-export type ImageProvider = 'auto' | 'openai' | 'gemini' | 'dalle2';
+export type ImageProvider = 'auto' | 'openai' | 'gemini' | 'stability' | 'dalle2';
 export type RenderStatus = 'draft' | 'approved' | 'published' | 'rejected';
 
 export interface ContentSlot {

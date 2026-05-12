@@ -16,6 +16,15 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.14.0',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'feat', scope: 'settings', description: 'Image Generation settings rebuilt with provider sub-tabs (OpenAI / Stability AI / Gemini), model selector per provider with cost annotations, and a cost reference table. Settings definitions now carry options arrays for dropdown rendering.' },
+      { tag: 'feat', scope: 'image-gen', description: 'ImageGenService now supports Stability AI (Stable Image Core, SDXL, Stable Image Ultra) as a provider. Provider cascade updated to: openai → stability → gemini. Each generation logs model name, provider, and estimated cost in USD to activity log.' },
+      { tag: 'feat', scope: 'image-gen', description: 'Added configurable model selection: image_gen_openai_model (gpt-image-1, gpt-image-2, dall-e-3-hd, dall-e-3, dall-e-2) and image_gen_stability_model (stable-image-core, SDXL, stable-image-ultra) settings.' },
+    ],
+  },
+  {
     version: 'v4.13.7',
     date: '2026-05-12',
     entries: [

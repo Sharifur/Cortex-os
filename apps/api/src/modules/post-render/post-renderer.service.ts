@@ -121,13 +121,13 @@ export class PostRendererService {
             { event_type: 'post_image_gen_start', provider: req.imageProvider ?? 'auto', slide_index: i },
           ).catch(() => {});
           const t0Img = Date.now();
-          const { buffer, provider } = await this.imageGen.generate(imgPrompt, format.dimensions, req.imageProvider);
+          const { buffer, provider, model, estimatedCostUsd } = await this.imageGen.generate(imgPrompt, format.dimensions, req.imageProvider);
           if (buffer.length > 0) {
             backgroundImageBase64 = `data:image/png;base64,${buffer.toString('base64')}`;
           }
           await this.logSvc.info(runId ?? 'post-render',
-            `Image ready: ${provider} ${Date.now() - t0Img}ms`,
-            { event_type: 'post_image_gen_end', provider, duration_ms: Date.now() - t0Img, size_bytes: buffer.length },
+            `Image ready: ${model} ${Date.now() - t0Img}ms ~$${estimatedCostUsd.toFixed(4)}`,
+            { event_type: 'post_image_gen_end', provider, model, estimated_cost_usd: estimatedCostUsd, duration_ms: Date.now() - t0Img, size_bytes: buffer.length },
           ).catch(() => {});
         } catch (err) {
           this.logger.warn(`image gen failed for slide ${i}: ${(err as Error).message}`);
