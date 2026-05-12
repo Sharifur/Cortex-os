@@ -480,9 +480,9 @@ function SendEmailModal({
                 <button
                   type="button"
                   onClick={() => setPlainText(v => !v)}
-                  className={`w-9 h-5 rounded-full transition-colors relative shrink-0 ${plainText ? 'bg-emerald-500' : 'bg-muted-foreground/30'}`}
+                  className={`w-9 h-5 rounded-full transition-colors relative shrink-0 overflow-hidden ${plainText ? 'bg-emerald-500' : 'bg-muted-foreground/30'}`}
                 >
-                  <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform shadow ${plainText ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                  <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform shadow-sm ${plainText ? 'translate-x-[18px]' : 'translate-x-0.5'}`} />
                 </button>
               </div>
             )}

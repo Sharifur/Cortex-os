@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.13.4',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'fix', scope: 'chat', description: 'Plain text mode toggle in the Send Email dialog was visually broken: the thumb overflowed the right edge of the track when active. Fixed by adding overflow-hidden to the track element and correcting the ON translate from translate-x-4 (16px) to translate-x-[18px] (track 36px minus thumb 16px minus 2px right margin = 18px). Also reduced shadow to shadow-sm to avoid visual bleed.' },
+    ],
+  },
+  {
     version: 'v4.13.3',
     date: '2026-05-12',
     entries: [
