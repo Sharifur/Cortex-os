@@ -456,6 +456,13 @@
       "when": 1747180800000,
       "tag": "0066_missing_tables",
       "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "6",
+      "when": 1747267200000,
+      "tag": "0067_ensure_email_tables",
+      "breakpoints": true
     }
   ]
 }

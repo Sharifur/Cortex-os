@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.15.2',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'fix', scope: 'migrations', description: 'Added migration 0067_ensure_email_tables: creates email_suppressions table and adds open-tracking columns (tracking_token, open_count, first_open_at, last_open_at, open_events) with IF NOT EXISTS guards. Fixes persistent "relation email_suppressions does not exist" — 0062/0063 were recorded as applied in __drizzle_migrations but their DDL never committed.' },
+      { tag: 'fix', scope: 'inbox', description: 'Mark as opened no longer reverts after a second — removed the immediate inbox list invalidation from onSuccess. The optimistic cache patch is now stable; a simultaneous refetch was racing the DB write and returning stale data that overwrote the opened state.' },
+    ],
+  },
+  {
     version: 'v4.15.1',
     date: '2026-05-12',
     entries: [
