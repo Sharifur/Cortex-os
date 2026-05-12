@@ -12,6 +12,7 @@ import { ConsistencyValidator } from './consistency-validator';
 import { ImageGenService } from './image-gen.service';
 import { DesignAnalysisService } from './design-analysis.service';
 import { DesignPatternService } from './design-pattern.service';
+import { UnsplashService } from './unsplash.service';
 import { PostRenderController } from './post-render.controller';
 import { DesignSampleController } from './design-sample.controller';
 
@@ -27,7 +28,8 @@ import { DesignSampleController } from './design-sample.controller';
     ImageGenService,
     DesignAnalysisService,
     DesignPatternService,
+    UnsplashService,
   ],
-  exports: [PostRendererService, ImageGenService, DesignAnalysisService],
+  exports: [PostRendererService, ImageGenService, DesignAnalysisService, DesignPatternService, UnsplashService],
 })
 export class PostRenderModule {}

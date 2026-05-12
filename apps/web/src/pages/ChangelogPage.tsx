@@ -16,6 +16,153 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.17.2',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'Pattern learning now generates a holistic "Banner Brief" — a 3-5 sentence art-director paragraph synthesizing layout, color, typography, icons, shapes, and tone into a single actionable design description. Stored alongside pattern rules and surfaced in the Patterns tab.' },
+      { tag: 'feat', scope: 'canva', description: 'Banner Brief is passed to content generation as design context — AI copy now understands the full visual intent of the brand, not just individual rules.' },
+      { tag: 'feat', scope: 'canva', description: 'UnsplashService wired into PostRendererService — real photos are fetched via _buildUnsplashQuery() before AI generation when DNA indicates photography style. Unsplash is not listed as an image generation provider; it is a photo source for backgrounds and corporate imagery.' },
+      { tag: 'fix', scope: 'canva', description: 'UnsplashService added to post-render module providers and exports — was imported but missing from DI registration, causing runtime injection errors.' },
+    ],
+  },
+  {
+    version: 'v4.17.1',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'Learned design DNA is now fully applied during rendering. getDominantDNA() aggregates all samples and drives: heading size, padding, line height, accent bar position, logo placement, CTA button style/border-radius, content tone, mood keywords, and icon/illustration/photography style.' },
+      { tag: 'feat', scope: 'canva', description: 'Decorative shapes from design samples (circles, blobs, diagonal cuts, waves, etc.) are rendered in centered and left-aligned layouts using absolute-positioned divs — colours, gradients, opacity, and border-radius all from the learned shape_elements DNA.' },
+      { tag: 'feat', scope: 'canva', description: 'CTA buttons now adopt the learned ctaStyle: pill (borderRadius 999), flat (0), outlined (transparent bg with accent border), text-link, or arrow-link. Helper ctaStyle() centralises rendering logic across layouts.' },
+      { tag: 'feat', scope: 'canva', description: 'Image generation prompts now use learned photography_style, illustration_style, background_style and mood_keywords — produces contextually matching backgrounds instead of the generic fallback.' },
+      { tag: 'feat', scope: 'canva', description: 'Content generation receives learned content_tone, mood_keywords, and top-5 pattern rules — AI copy now matches the visual tone of the learned brand.' },
+    ],
+  },
+  {
+    version: 'v4.17.0',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'Design sample DNA extraction is now deeply detailed — icon style/count/size, illustration type, photography style, decoration elements, border radius, shadow, CTA shape, content tone, color count, background texture, and free-text pattern notes are all extracted per image.' },
+      { tag: 'feat', scope: 'canva', description: 'Spatial layout capture (Elementor-style): every visible element (logo, headline, icon, CTA, brand-bar, etc.) is recorded with x/y/w/h as canvas percentages, alignment, and z-layer. Grid column count and content zone bounds are also captured.' },
+      { tag: 'feat', scope: 'canva', description: 'Shape element capture: every decorative shape (circle, blob, wave, diagonal-cut, etc.) records shape type, fill type/colors, gradient angle, opacity, position, border-radius, and an SVG reconstruction hint — enough to regenerate the exact shape programmatically.' },
+      { tag: 'feat', scope: 'canva', description: 'Pattern clustering now aggregates full DNA JSON across all samples (not just 300-char text slices), computes field frequencies, collects SVG hints, and produces 8–12 category-organised rules covering layout, color, typography, icons, illustration/photo, shapes, content tone, and CTA.' },
+    ],
+  },
+  {
+    version: 'v4.16.9',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'fix', scope: 'activity', description: 'Activity panel no longer shows spinning progress icons for completed render_slide, content_gen, post_render and image_gen steps — they resolve to success icons once the paired done-event arrives or the run finishes.' },
+      { tag: 'feat', scope: 'chat', description: 'Slide lightbox redesigned — dot-strip slide counter, side chevron buttons for prev/next, separate Copy and Download action buttons, keyboard hint, rounded image with ring.' },
+    ],
+  },
+  {
+    version: 'v4.16.8',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'feat', scope: 'chat', description: 'Slide thumbnails are now clickable — opens a full-size lightbox with prev/next navigation, keyboard arrow support, and a "Copy image" button that copies the PNG to clipboard for pasting directly into Canva.' },
+    ],
+  },
+  {
+    version: 'v4.16.7',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'fix', scope: 'post-render', description: 'Local filesystem fallback for slide PNGs when R2 is not configured — slides saved to ~/Designs/AI-Agent/Renders/<renderId>/ and served via /posts/renders/:id/slides/:n/png.' },
+      { tag: 'fix', scope: 'post-render', description: 'Fixed "cannot cast type record to text[]" — replaced raw SQL INSERT with Drizzle ORM .insert().values() so slideUrls array is properly persisted.' },
+      { tag: 'fix', scope: 'post-render', description: 'Satori crash on undefined CSS values fixed in centered and overlay layouts — backgroundImage/backgroundColor now use conditional spread instead of explicit undefined.' },
+      { tag: 'fix', scope: 'post-render', description: 'Added missing journal entries for migrations 0064-0065 so Drizzle applies them on next db:migrate run.' },
+      { tag: 'feat', scope: 'chat', description: 'Progressive slide rendering in chat — while a render is in progress the chat shows a live grid with completed slide thumbnails and skeleton placeholders for pending slides. Final result renders a full SlideGrid.' },
+    ],
+  },
+  {
+    version: 'v4.16.6',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'Design Samples tab now has Samples / Patterns sub-tabs — patterns are no longer inline so the page stays readable with 200+ uploaded images. Sample thumbnails are fixed 60×60px squares; the Learned badge is now a small green BookOpen icon.' },
+    ],
+  },
+  {
+    version: 'v4.16.5',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'fix', scope: 'post-render', description: 'Removed children:null from all layout accent-bar and stripe elements — satori crashed with "Cannot read properties of undefined (reading trim)" when processing null children. Activity tab now emits an ERROR log entry when render fails so the panel shows a red error state instead of staying stuck on the last progress step.' },
+    ],
+  },
+  {
+    version: 'v4.16.4',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'fix', scope: 'canva', description: 'Learn patterns now works with 3+ samples — cluster() and getPatterns() replaced semantic search with direct DB queries. Frontend passes brand=default so uploaded samples are correctly matched.' },
+      { tag: 'feat', scope: 'canva', description: 'Design sample cards: removed title text, added green Learned badge on each thumbnail when patterns have been generated. Grid expanded to 4 columns.' },
+    ],
+  },
+  {
+    version: 'v4.16.3',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'Design Samples cards now show a 60x60 thumbnail. Clicking the thumbnail opens the full-size image in a lightbox overlay (click outside to close).' },
+      { tag: 'feat', scope: 'debug', description: 'DebugLogsPage stats and log list now show animated skeleton placeholders while loading instead of empty state.' },
+      { tag: 'fix', scope: 'post-render', description: 'Added error logging with stack traces to satori render crashes and postRenders SELECT failures — easier to diagnose render pipeline errors.' },
+    ],
+  },
+  {
+    version: 'v4.16.2',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'feat', scope: 'activity', description: 'Render pipeline steps now appear in the Activity tab in real time — runId is injected into the action payload by the execute processor so all post_render logs (theme locked, content ready, rendering slide N, render complete) attach to the correct run.' },
+      { tag: 'fix', scope: 'canva', description: 'Design Samples list now shows uploaded entries — listSamples() was using semantic search (searchEntries) which skipped non-matching entries. Replaced with a direct DB query filtering entryType=design_sample.' },
+      { tag: 'fix', scope: 'canva', description: 'Lower Learn patterns threshold from 20 to 3 so it can be tested with a small set of uploads.' },
+    ],
+  },
+  {
+    version: 'v4.16.1',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'fix', scope: 'chat', description: 'Chat now shows response messages from auto-executed agent actions (e.g. post_render) by reading run.result[].data.message when present.' },
+    ],
+  },
+  {
+    version: 'v4.16.0',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'fix', scope: 'inbox', description: 'Fixed mark-as-opened persisting across reloads — root cause was JSON.stringify() in the email send/seed paths causing metadata to be stored as a JSONB string scalar instead of an object. The || merge operator then produced a JSONB array on subsequent updates, so manuallyOpened was always undefined after reload. Fixed by passing JS objects directly (no JSON.stringify) in send() and seed so postgres.js serializes them correctly as JSONB objects.' },
+    ],
+  },
+  {
+    version: 'v4.15.9',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'fix', scope: 'inbox', description: 'listSent and getDetail now use raw SQL with a COALESCE fallback for open_count/first_open_at/last_open_at — these columns may not exist on local environments where migration 0063 has not run. Falls back to a query without those columns if they are missing, so the inbox loads instead of 500-ing.' },
+    ],
+  },
+  {
+    version: 'v4.15.8',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'fix', scope: 'dev', description: 'Added missing agent route prefixes to Vite dev proxy: /taskip-internal, /support, /canva, /email-manager, /linkedin, /reddit, /whatsapp. Without these the inbox and other agent pages returned empty data locally because requests were served by Vite instead of the API.' },
+    ],
+  },
+  {
+    version: 'v4.15.7',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'fix', scope: 'inbox', description: 'Mark as opened now persists across page reloads — listSent and getDetail queries now include openCount, firstOpenAt, lastOpenAt columns. Previously these were omitted from the SELECT so reload always showed openCount as undefined, and the opened badge relied only on the metadata JSONB field.' },
+      { tag: 'feat', scope: 'seed', description: 'Added 5 dummy inbox emails to the seed script for local development — covers marketing, trial_followup, and other purposes with varying open states (unopened, pixel-opened, manually-opened, failed send).' },
+    ],
+  },
+  {
+    version: 'v4.15.6',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'chore', scope: 'deploy', description: 'Revert migration step from nixpacks.toml start command — Coolify post-deploy command already runs node dist/src/migrate before traffic switches; adding it to the start cmd caused double-migration on every deploy.' },
+    ],
+  },
+  {
+    version: 'v4.15.5',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'chore', scope: 'deploy', description: 'Switch to Nixpacks for deployment: migrations now run automatically via nixpacks.toml start command ("node dist/src/migrate && node dist/src/main"). Removed Dockerfile, .dockerignore, docker-entrypoint.sh, and healthcheck.js — they are not used with Nixpacks.' },
+    ],
+  },
+  {
     version: 'v4.15.4',
     date: '2026-05-12',
     entries: [

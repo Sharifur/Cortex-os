@@ -288,14 +288,16 @@ Return ONLY a JSON array (no markdown):
     }
 
     if (action.type === 'post_render') {
-      const { formatId, brand, topic, intent } = action.payload as any;
+      const { formatId, brand, topic, intent, _runId } = action.payload as any;
       try {
-        const result = await this.renderer.render({ formatId, brand, topic, intent });
+        const result = await this.renderer.render({ formatId, brand, topic, intent }, _runId as string | undefined);
         const slideList = result.slideUrls.map((u, i) => `Slide ${i + 1}: ${u}`).join('\n');
         const message = `Render complete — ${result.slideUrls.length} slides generated\n\n${slideList}\n\nExports:\nPPTX (Canva layers): /posts/renders/${result.id}/pptx\nCSV (Bulk Create): /posts/renders/${result.id}/canva-csv\nPlain text: /posts/renders/${result.id}/text-export`;
         return { success: true, data: { message, slideUrls: result.slideUrls, renderId: result.id } };
       } catch (err) {
-        return { success: true, data: { message: `Render failed: ${(err as Error).message}` } };
+        const e = err as Error;
+        this.logger.error(`post_render failed: ${e.message}\n${e.stack ?? ''}`);
+        return { success: true, data: { message: `Render failed: ${e.message}` } };
       }
     }
 

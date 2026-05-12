@@ -1,4 +1,7 @@
-import { Controller, Post, Get, Body, Param, Query, Delete, Res, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller, Post, Get, Body, Param, Query, Delete, Res, HttpCode, HttpStatus, Logger } from '@nestjs/common';
+import * as fs from 'fs/promises';
+import * as path from 'path';
+import * as os from 'os';
 import type { FastifyReply } from 'fastify';
 import { PostRendererService } from './post-renderer.service';
 import { DesignAnalysisService } from './design-analysis.service';
@@ -8,6 +11,8 @@ import type { RenderRequest } from './types';
 
 @Controller('posts')
 export class PostRenderController {
+  private readonly logger = new Logger(PostRenderController.name);
+
   constructor(
     private readonly renderer: PostRendererService,
     private readonly designAnalysis: DesignAnalysisService,
@@ -28,7 +33,12 @@ export class PostRenderController {
     @Query('status') status?: string,
     @Query('limit') limit?: string,
   ) {
-    return this.renderer.list({ brand, status, limit: limit ? parseInt(limit, 10) : undefined });
+    try {
+      return await this.renderer.list({ brand, status, limit: limit ? parseInt(limit, 10) : undefined });
+    } catch (err) {
+      this.logger.error(`GET /posts/renders failed — brand=${brand ?? '-'} status=${status ?? '-'} limit=${limit ?? '-'}: ${(err as Error).message}`, (err as Error).stack);
+      throw err;
+    }
   }
 
   @Get('renders/:id')
@@ -50,6 +60,23 @@ export class PostRenderController {
   async reject(@Param('id') id: string) {
     await this.renderer.updateStatus(id, 'rejected');
     return { ok: true };
+  }
+
+  // ─── Local slide PNG (no R2 configured) ──────────────────────────────────────
+
+  @Get('renders/:id/slides/:n/png')
+  async serveLocalSlidePng(
+    @Param('id') id: string,
+    @Param('n') n: string,
+    @Res() reply: FastifyReply,
+  ) {
+    const localFile = path.join(os.homedir(), 'Designs', 'AI-Agent', 'Renders', id, `slide-${n}.png`);
+    try {
+      const bytes = await fs.readFile(localFile);
+      reply.header('Content-Type', 'image/png').send(bytes);
+    } catch {
+      reply.code(404).send({ error: 'slide not found locally' });
+    }
   }
 
   // ─── Export: SVG (single slide) ───────────────────────────────────────────────
@@ -280,6 +307,11 @@ export class PostRenderController {
   @Get('design-samples/patterns')
   async getPatterns(@Query('brand') brand: string) {
     return this.designPattern.getPatterns(brand);
+  }
+
+  @Get('design-samples/banner-brief')
+  async getBannerBrief(@Query('brand') brand: string) {
+    return { bannerBrief: await this.designPattern.getBannerBrief(brand) };
   }
 
   @Delete('design-samples/:id')

@@ -2,6 +2,9 @@ import { useState, useEffect, useRef } from 'react';
 import { useAuthStore } from '@/stores/authStore';
 import { Layers, Upload, RefreshCw, Download, Check, X, ChevronDown, ChevronUp, Sparkles, Image } from 'lucide-react';
 
+const API_BASE = (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, '');
+const apiHref = (path: string) => `${API_BASE}${path}`;
+
 async function apiFetch(token: string, path: string, opts?: RequestInit) {
   const res = await fetch(path, {
     ...opts,
@@ -142,21 +145,21 @@ function RenderRow({ render, token, onStatusChange }: { render: PostRender; toke
           {/* Export links */}
           <div className="flex flex-wrap gap-2">
             <a
-              href={`/posts/renders/${render.id}/pptx`}
+              href={apiHref(`/posts/renders/${render.id}/pptx`)}
               className="flex items-center gap-1.5 text-xs px-3 py-1.5 border border-border rounded-lg text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors"
             >
               <Download className="w-3 h-3" />
               PPTX (Canva layers)
             </a>
             <a
-              href={`/posts/renders/${render.id}/canva-csv`}
+              href={apiHref(`/posts/renders/${render.id}/canva-csv`)}
               className="flex items-center gap-1.5 text-xs px-3 py-1.5 border border-border rounded-lg text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors"
             >
               <Download className="w-3 h-3" />
               CSV (Bulk Create)
             </a>
             <a
-              href={`/posts/renders/${render.id}/text-export`}
+              href={apiHref(`/posts/renders/${render.id}/text-export`)}
               className="flex items-center gap-1.5 text-xs px-3 py-1.5 border border-border rounded-lg text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors"
             >
               <Download className="w-3 h-3" />

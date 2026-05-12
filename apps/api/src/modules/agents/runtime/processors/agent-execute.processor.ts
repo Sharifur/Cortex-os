@@ -36,7 +36,9 @@ export class AgentExecuteProcessor extends WorkerHost {
     await this.logSvc.info(runId, `Executing: ${action.summary}`, { type: action.type });
 
     try {
-      const result = await agent.execute(action);
+      // Inject runId into payload so agents can forward it to sub-services for activity logging.
+      const actionWithRunId = { ...action, payload: { ...(action.payload as object ?? {}), _runId: runId } };
+      const result = await agent.execute(actionWithRunId);
 
       const [run] = await this.db.db
         .select()

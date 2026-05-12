@@ -122,6 +122,9 @@ function RunRowSkeleton() {
   );
 }
 
+const _API_BASE = (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, '');
+const apiHref = (path: string) => `${_API_BASE}${path}`;
+
 async function apiFetch(token: string, path: string, opts?: RequestInit) {
   const res = await fetch(path, {
     ...opts,
@@ -3832,9 +3835,9 @@ function PostRendersTab({ token }: { token: string }) {
               </div>
               <div className="flex items-center gap-2">
                 <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${r.status === 'approved' ? 'bg-green-100 text-green-700' : r.status === 'rejected' ? 'bg-muted text-muted-foreground' : 'bg-amber-100 text-amber-700'}`}>{r.status}</span>
-                <a href={`/api/posts/renders/${r.id}/pptx`} className="text-xs text-primary underline">PPTX</a>
-                <a href={`/api/posts/renders/${r.id}/canva-csv`} className="text-xs text-primary underline">CSV</a>
-                <a href={`/api/posts/renders/${r.id}/text-export`} className="text-xs text-primary underline">Text</a>
+                <a href={apiHref(`/posts/renders/${r.id}/pptx`)} className="text-xs text-primary underline">PPTX</a>
+                <a href={apiHref(`/posts/renders/${r.id}/canva-csv`)} className="text-xs text-primary underline">CSV</a>
+                <a href={apiHref(`/posts/renders/${r.id}/text-export`)} className="text-xs text-primary underline">Text</a>
               </div>
             </div>
             {Array.isArray(r.slideUrls) && r.slideUrls.length > 0 && (
@@ -3857,19 +3860,24 @@ function PostRendersTab({ token }: { token: string }) {
 function DesignSamplesTab({ token }: { token: string }) {
   const [samples, setSamples] = useState<any[]>([]);
   const [patterns, setPatterns] = useState<string[]>([]);
+  const [bannerBrief, setBannerBrief] = useState('');
   const [uploading, setUploading] = useState(false);
   const [clustering, setClustering] = useState(false);
   const [uploadResult, setUploadResult] = useState('');
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [dsSubTab, setDsSubTab] = useState<'samples' | 'patterns'>('samples');
   const fileRef = useRef<HTMLInputElement>(null);
 
   async function loadData() {
-    const [s, p] = await Promise.all([
-      apiFetch(token, '/posts/design-samples').catch(() => []),
-      apiFetch(token, '/posts/design-samples/patterns').catch(() => []),
+    const [s, p, b] = await Promise.all([
+      apiFetch(token, '/posts/design-samples?brand=default').catch(() => []),
+      apiFetch(token, '/posts/design-samples/patterns?brand=default').catch(() => []),
+      apiFetch(token, '/posts/design-samples/banner-brief?brand=default').catch(() => ({ bannerBrief: '' })),
     ]);
     setSamples(Array.isArray(s) ? s : []);
     setPatterns(Array.isArray(p) ? p : []);
+    setBannerBrief(typeof b?.bannerBrief === 'string' ? b.bannerBrief : '');
   }
 
   useEffect(() => { loadData(); }, [token]);
@@ -3919,7 +3927,7 @@ function DesignSamplesTab({ token }: { token: string }) {
   async function cluster() {
     setClustering(true);
     try {
-      await apiFetch(token, '/posts/design-samples/cluster', { method: 'POST', body: JSON.stringify({}) });
+      await apiFetch(token, '/posts/design-samples/cluster', { method: 'POST', body: JSON.stringify({ brand: 'default' }) });
       await loadData();
     } finally {
       setClustering(false);
@@ -3928,66 +3936,125 @@ function DesignSamplesTab({ token }: { token: string }) {
 
   return (
     <div className="space-y-5">
-      <div className="bg-card border border-border rounded-xl p-4 space-y-3">
-        <div className="flex items-center justify-end">
+      {/* Sub-tab header */}
+      <div className="flex items-center gap-1 border-b border-border pb-0">
+        {(['samples', 'patterns'] as const).map(tab => (
+          <button
+            key={tab}
+            onClick={() => setDsSubTab(tab)}
+            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+              dsSubTab === tab
+                ? 'border-primary text-foreground'
+                : 'border-transparent text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            {tab === 'samples' ? `Samples (${samples.length})` : `Patterns (${patterns.length})`}
+          </button>
+        ))}
+        <div className="ml-auto pb-1">
           <button
             onClick={cluster}
-            disabled={clustering || samples.length < 20}
-            className="px-4 py-2 border border-border rounded-lg text-sm font-medium disabled:opacity-50"
-            title={samples.length < 20 ? 'Need 20+ samples to cluster' : ''}
+            disabled={clustering || samples.length < 3}
+            className="px-4 py-1.5 border border-border rounded-lg text-sm font-medium disabled:opacity-50"
+            title={samples.length < 3 ? 'Need 3+ samples to cluster' : ''}
           >
             {clustering ? 'Clustering...' : 'Learn patterns'}
           </button>
         </div>
+      </div>
 
-        <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={handleFileInput} />
-        <div
-          onClick={() => !uploading && fileRef.current?.click()}
-          onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
-          onDrop={handleDrop}
-          className={`border-2 border-dashed rounded-xl p-8 text-center transition-colors cursor-pointer ${
-            isDragOver
-              ? 'border-primary bg-primary/5'
-              : 'border-border hover:border-primary/50 hover:bg-muted/40'
-          } ${uploading ? 'pointer-events-none opacity-60' : ''}`}
-        >
-          {uploading ? (
-            <p className="text-sm text-muted-foreground">Analyzing images...</p>
+      {dsSubTab === 'samples' && (
+        <>
+          <div className="bg-card border border-border rounded-xl p-4 space-y-3">
+            <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={handleFileInput} />
+            <div
+              onClick={() => !uploading && fileRef.current?.click()}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              className={`border-2 border-dashed rounded-xl p-8 text-center transition-colors cursor-pointer ${
+                isDragOver
+                  ? 'border-primary bg-primary/5'
+                  : 'border-border hover:border-primary/50 hover:bg-muted/40'
+              } ${uploading ? 'pointer-events-none opacity-60' : ''}`}
+            >
+              {uploading ? (
+                <p className="text-sm text-muted-foreground">Analyzing images...</p>
+              ) : (
+                <>
+                  <p className="text-sm font-medium">{isDragOver ? 'Drop images here' : 'Drop images or click to upload'}</p>
+                  <p className="text-xs text-muted-foreground mt-1">PNG, JPG, WEBP — multiple files supported</p>
+                </>
+              )}
+            </div>
+            {uploadResult && <p className="text-xs text-green-600">{uploadResult}</p>}
+            <p className="text-xs text-muted-foreground">{samples.length} sample{samples.length !== 1 ? 's' : ''} total</p>
+          </div>
+
+          <div className="flex flex-wrap gap-3">
+            {samples.map((s: any) => (
+              <div key={s.id} className="relative w-[60px] h-[60px] shrink-0">
+                <button
+                  onClick={() => s.sourceUrl && setLightboxUrl(s.sourceUrl)}
+                  className="w-full h-full focus:outline-none"
+                  title="View full image"
+                  disabled={!s.sourceUrl}
+                >
+                  {s.sourceUrl ? (
+                    <img src={s.sourceUrl} alt="" className="w-[60px] h-[60px] object-cover rounded-lg border border-border" />
+                  ) : (
+                    <div className="w-[60px] h-[60px] rounded-lg bg-muted border border-border" />
+                  )}
+                </button>
+                {patterns.length > 0 && (
+                  <span className="absolute bottom-0.5 right-0.5 bg-green-600 rounded p-0.5 leading-none">
+                    <BookOpen className="w-2.5 h-2.5 text-white" />
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {dsSubTab === 'patterns' && (
+        <div className="space-y-3">
+          {patterns.length === 0 ? (
+            <div className="bg-card border border-border rounded-xl p-4">
+              <p className="text-sm text-muted-foreground">No patterns learned yet. Upload 3+ samples and click "Learn patterns".</p>
+            </div>
           ) : (
             <>
-              <p className="text-sm font-medium">{isDragOver ? 'Drop images here' : 'Drop images or click to upload'}</p>
-              <p className="text-xs text-muted-foreground mt-1">PNG, JPG, WEBP — multiple files supported</p>
+              {bannerBrief && (
+                <div className="bg-primary/5 border border-primary/20 rounded-xl p-4">
+                  <p className="text-xs font-semibold text-primary mb-1.5 uppercase tracking-wide">Banner Brief</p>
+                  <p className="text-sm text-foreground leading-relaxed">{bannerBrief}</p>
+                </div>
+              )}
+              <div className="bg-card border border-border rounded-xl p-4 space-y-3">
+                <p className="text-xs text-muted-foreground">{patterns.length} pattern{patterns.length !== 1 ? 's' : ''} from {samples.length} samples</p>
+                {patterns.map((p, i) => (
+                  <p key={i} className="text-xs text-muted-foreground border-l-2 border-primary pl-2">{p}</p>
+                ))}
+              </div>
             </>
           )}
         </div>
-
-        {uploadResult && <p className="text-xs text-green-600">{uploadResult}</p>}
-        <p className="text-xs text-muted-foreground">{samples.length} sample{samples.length !== 1 ? 's' : ''} total</p>
-      </div>
-
-      {patterns.length > 0 && (
-        <div className="bg-card border border-border rounded-xl p-4 space-y-2">
-          <p className="text-sm font-medium">Learned patterns</p>
-          {patterns.map((p, i) => (
-            <p key={i} className="text-xs text-muted-foreground border-l-2 border-primary pl-2">{p}</p>
-          ))}
-        </div>
       )}
 
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-        {samples.map((s: any) => (
-          <div key={s.id} className="bg-card border border-border rounded-xl overflow-hidden">
-            {s.sourceUrl && (
-              <img src={s.sourceUrl} alt={s.title} className="w-full h-32 object-cover" />
-            )}
-            <div className="p-2">
-              <p className="text-xs font-medium truncate">{s.title}</p>
-              <p className="text-xs text-muted-foreground truncate">{s.category}</p>
-            </div>
-          </div>
-        ))}
-      </div>
+      {lightboxUrl && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80"
+          onClick={() => setLightboxUrl(null)}
+        >
+          <img
+            src={lightboxUrl}
+            alt="Design sample"
+            className="max-w-[90vw] max-h-[90vh] rounded-xl shadow-2xl object-contain"
+            onClick={e => e.stopPropagation()}
+          />
+        </div>
+      )}
     </div>
   );
 }

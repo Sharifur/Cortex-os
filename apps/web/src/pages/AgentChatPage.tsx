@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, Link, useLocation, useSearchParams } from 'react-router-dom';
 import {
@@ -7,6 +7,7 @@ import {
   AlertCircle, MessageSquare, ListTodo, RotateCcw, History, X,
   ThumbsUp, ThumbsDown, ImagePlus, Copy, Mail, Check, Wrench, Zap,
   Bold, Italic, List, Radio, ShieldAlert, ShieldCheck, Image, FileImage, Layers,
+  ChevronLeft, ChevronRight, Download,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -57,6 +58,7 @@ interface RunDetail {
   id: string;
   status: string;
   proposedActions: { type: string; summary: string; payload?: Record<string, unknown> }[] | null;
+  result: Array<{ action: string; success: boolean; data?: Record<string, unknown> }> | null;
   error: string | null;
   finishedAt: string | null;
 }
@@ -100,6 +102,7 @@ async function apiFetch(token: string, path: string, opts?: RequestInit) {
 }
 
 const EMAIL_DRAFT_PREFIX = '__EMAIL_DRAFT__:';
+const SLIDE_RENDER_PREFIX = '__SLIDE_RENDER__:';
 
 interface InlineEmail {
   before: string;       // reasoning block shown above the card
@@ -231,6 +234,17 @@ function extractResponse(run: RunDetail): string {
     ['notify_result', 'send_telegram_brief', 'notify_email'].includes(a.type),
   );
   if (notify?.payload?.['message']) return String(notify.payload['message']);
+
+  // For auto-executed actions (e.g. post_render), the result message lives in run.result
+  const execResult = run.result?.find((r) => r.data?.['message']);
+  if (execResult?.data?.['message']) {
+    const slideUrls = execResult.data['slideUrls'] as string[] | undefined;
+    const renderId = execResult.data['renderId'] as string | undefined;
+    if (slideUrls?.length) {
+      return SLIDE_RENDER_PREFIX + JSON.stringify({ slideUrls, renderId, message: String(execResult.data['message']) });
+    }
+    return String(execResult.data['message']);
+  }
 
   const batchAction = actions.find((a) => a.type === 'batch_send_email');
   if (batchAction) {
@@ -752,6 +766,227 @@ function TypingBubble({ color }: { color: ReturnType<typeof agentColor> }) {
   );
 }
 
+// ─── Slide render progress bubble ────────────────────────────────────────────
+
+function RenderProgressBubble({
+  color, progress,
+}: {
+  color: ReturnType<typeof agentColor>;
+  progress: { totalSlides: number; renderId: string; doneCount: number };
+}) {
+  const { totalSlides, renderId, doneCount } = progress;
+  return (
+    <div className="flex items-end gap-2">
+      <div className={`w-7 h-7 rounded-lg ${color.iconBg} flex items-center justify-center shrink-0`}>
+        <Bot className={`w-3.5 h-3.5 ${color.iconText}`} />
+      </div>
+      <div className={`rounded-2xl rounded-bl-sm px-4 py-3 ${color.bubble} max-w-sm`}>
+        <p className="text-xs text-muted-foreground mb-2.5">
+          Rendering slides — {doneCount}/{totalSlides}
+        </p>
+        <div className="grid grid-cols-3 gap-2">
+          {Array.from({ length: totalSlides }).map((_, i) => {
+            const n = i + 1;
+            const isDone = n <= doneCount;
+            const url = renderId ? `/posts/renders/${renderId}/slides/${n}/png` : null;
+            return isDone && url ? (
+              <SlideThumb key={i} url={url} n={n} />
+            ) : (
+              <div key={i} className="aspect-square rounded-lg bg-muted/50 animate-pulse flex items-center justify-center">
+                <span className="text-[10px] text-muted-foreground/40">{n}</span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SlideLightbox({
+  url, n, total, onClose, onPrev, onNext,
+}: {
+  url: string; n: number; total: number;
+  onClose: () => void; onPrev: () => void; onNext: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+      if (e.key === 'ArrowLeft') onPrev();
+      if (e.key === 'ArrowRight') onNext();
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [onClose, onPrev, onNext]);
+
+  async function copyImage() {
+    try {
+      const res = await fetch(url);
+      const blob = await res.blob();
+      const pngBlob = blob.type === 'image/png' ? blob : await new Promise<Blob>((resolve) => {
+        const img = new window.Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          canvas.width = img.naturalWidth;
+          canvas.height = img.naturalHeight;
+          canvas.getContext('2d')!.drawImage(img, 0, 0);
+          canvas.toBlob((b) => resolve(b!), 'image/png');
+        };
+        img.src = URL.createObjectURL(blob);
+      });
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': pngBlob })]);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      window.open(url, '_blank');
+    }
+  }
+
+  function downloadImage() {
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `slide-${n}.png`;
+    a.click();
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/85 backdrop-blur-md"
+      onClick={onClose}
+    >
+      {/* top toolbar */}
+      <div
+        className="flex items-center justify-between w-full max-w-3xl px-4 pb-3"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* slide counter */}
+        <div className="flex items-center gap-2">
+          {Array.from({ length: total }).map((_, i) => (
+            <div
+              key={i}
+              className={`rounded-full transition-all ${i + 1 === n ? 'w-4 h-2 bg-white' : 'w-2 h-2 bg-white/30'}`}
+            />
+          ))}
+        </div>
+
+        {/* actions */}
+        <div className="flex items-center gap-1.5">
+          <span className="text-white/40 text-xs mr-2">{n} / {total}</span>
+
+          <button
+            onClick={copyImage}
+            title="Copy image"
+            className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all ${copied ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-white/10 hover:bg-white/20 text-white border border-white/10 hover:border-white/20'}`}
+          >
+            {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+            <span>{copied ? 'Copied' : 'Copy'}</span>
+          </button>
+
+          <button
+            onClick={downloadImage}
+            title="Download PNG"
+            className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium bg-white/10 hover:bg-white/20 text-white border border-white/10 hover:border-white/20 transition-all"
+          >
+            <Download className="w-4 h-4" />
+            <span>Download</span>
+          </button>
+
+          <button
+            onClick={onClose}
+            title="Close (Esc)"
+            className="flex items-center justify-center w-9 h-9 rounded-lg bg-white/10 hover:bg-white/20 text-white/70 hover:text-white border border-white/10 transition-all ml-1"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+
+      {/* image + side nav */}
+      <div className="flex items-center gap-3 w-full max-w-3xl px-2" onClick={(e) => e.stopPropagation()}>
+        {/* prev */}
+        <button
+          onClick={onPrev}
+          disabled={n === 1}
+          className="flex-shrink-0 flex items-center justify-center w-11 h-11 rounded-full bg-white/10 hover:bg-white/25 disabled:opacity-20 disabled:cursor-not-allowed text-white border border-white/10 hover:border-white/25 transition-all"
+        >
+          <ChevronLeft className="w-5 h-5" />
+        </button>
+
+        {/* image */}
+        <div className="flex-1 min-w-0">
+          <img
+            src={url}
+            alt={`Slide ${n}`}
+            className="w-full rounded-2xl shadow-2xl ring-1 ring-white/10"
+          />
+        </div>
+
+        {/* next */}
+        <button
+          onClick={onNext}
+          disabled={n === total}
+          className="flex-shrink-0 flex items-center justify-center w-11 h-11 rounded-full bg-white/10 hover:bg-white/25 disabled:opacity-20 disabled:cursor-not-allowed text-white border border-white/10 hover:border-white/25 transition-all"
+        >
+          <ChevronRight className="w-5 h-5" />
+        </button>
+      </div>
+
+      {/* hint */}
+      <p className="text-white/25 text-xs mt-4" onClick={(e) => e.stopPropagation()}>
+        Use arrow keys to navigate · Esc to close
+      </p>
+    </div>
+  );
+}
+
+function SlideThumb({ url, n, onClick }: { url: string; n: number; onClick?: () => void }) {
+  const [loaded, setLoaded] = useState(false);
+  return (
+    <div
+      className="aspect-square rounded-lg overflow-hidden bg-muted/50 relative cursor-pointer group"
+      onClick={onClick}
+    >
+      {!loaded && <div className="absolute inset-0 animate-pulse bg-muted/60" />}
+      <img
+        src={url}
+        alt={`Slide ${n}`}
+        className={`w-full h-full object-cover transition-opacity duration-300 ${loaded ? 'opacity-100' : 'opacity-0'}`}
+        onLoad={() => setLoaded(true)}
+      />
+      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
+        <Image className="w-4 h-4 text-white opacity-0 group-hover:opacity-80 transition-opacity" />
+      </div>
+    </div>
+  );
+}
+
+function SlideGrid({ slideUrls, renderId }: { slideUrls: string[]; renderId?: string }) {
+  void renderId;
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  return (
+    <div className="space-y-2">
+      <p className="text-xs text-muted-foreground">{slideUrls.length} slides rendered</p>
+      <div className="grid grid-cols-3 gap-2">
+        {slideUrls.map((url, i) => (
+          <SlideThumb key={i} url={url} n={i + 1} onClick={() => setLightboxIndex(i)} />
+        ))}
+      </div>
+      {lightboxIndex !== null && (
+        <SlideLightbox
+          url={slideUrls[lightboxIndex]}
+          n={lightboxIndex + 1}
+          total={slideUrls.length}
+          onClose={() => setLightboxIndex(null)}
+          onPrev={() => setLightboxIndex((p) => Math.max(0, (p ?? 0) - 1))}
+          onNext={() => setLightboxIndex((p) => Math.min(slideUrls.length - 1, (p ?? 0) + 1))}
+        />
+      )}
+    </div>
+  );
+}
+
 // ─── Message bubble ───────────────────────────────────────────────────────────
 
 function MessageBubble({
@@ -775,6 +1010,17 @@ function MessageBubble({
       )}
       <div className={`max-w-[80%] group`}>
         {(() => {
+          // Slide render result
+          if (!isUser && msg.content.startsWith(SLIDE_RENDER_PREFIX)) {
+            try {
+              const { slideUrls, renderId } = JSON.parse(msg.content.slice(SLIDE_RENDER_PREFIX.length));
+              return (
+                <div className={`rounded-2xl rounded-bl-sm px-4 py-3 ${color.bubble}`}>
+                  <SlideGrid slideUrls={slideUrls} renderId={renderId} />
+                </div>
+              );
+            } catch { /* fall through */ }
+          }
           // Structured email draft from proposedActions
           if (!isUser && msg.content.startsWith(EMAIL_DRAFT_PREFIX)) {
             try {
@@ -1050,12 +1296,14 @@ function parseLogsToTimeline(logs: RunLog[], finished: boolean): ActivityEntry[]
     }
   }
 
-  // Resolve thinking entries: mark as success if something follows them, or if the run is finished
+  // Resolve paired "running → done" entries: mark running as success once the next entry exists, or run is finished
+  const RESOLVE_TYPES = new Set(['thinking', 'render_slide', 'content_gen', 'post_render', 'image_gen']);
   for (let i = 0; i < entries.length; i++) {
-    if (entries[i].type === 'thinking' && entries[i].status === 'running') {
+    const e = entries[i];
+    if (RESOLVE_TYPES.has(e.type) && e.status === 'running') {
       const hasFollowingEntry = i < entries.length - 1;
       if (hasFollowingEntry || finished) {
-        entries[i] = { ...entries[i], status: 'success' };
+        entries[i] = { ...e, status: 'success' };
       }
     }
   }
@@ -1325,6 +1573,31 @@ function ChatTab({
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isThinking]);
+
+  // Poll active run logs to track render progress (shared cache with ActivityPanel)
+  const { data: activeRunLogs } = useQuery<{ logs: RunLog[]; finished: boolean }>({
+    queryKey: ['run-logs', activeRunId],
+    enabled: !!activeRunId,
+    queryFn: () => apiFetch(token, `/runs/${activeRunId}/logs`),
+    refetchInterval: (query) => (!activeRunId || query.state.data?.finished) ? false : 1500,
+  });
+
+  const renderProgress = useMemo(() => {
+    if (!activeRunLogs?.logs) return null;
+    let totalSlides = 0;
+    let renderId = '';
+    let doneCount = 0;
+    for (const log of activeRunLogs.logs) {
+      const meta = log.meta ?? {};
+      if (meta['event_type'] === 'post_render_start') {
+        totalSlides = Number(meta['slide_count']) || 0;
+        renderId = String(meta['render_id'] ?? '');
+      }
+      if (meta['event_type'] === 'post_render_slide_done') doneCount++;
+    }
+    if (!totalSlides) return null;
+    return { totalSlides, renderId, doneCount };
+  }, [activeRunLogs]);
 
   // Poll active run
   const { data: runData } = useQuery<RunDetail>({
@@ -1610,7 +1883,11 @@ function ChatTab({
           <MessageBubble key={msg.id} msg={msg} color={color} agentName={agent.name} onFeedback={handleFeedback} token={token ?? ''} agentKey={agent.key} />
         ))}
 
-        {isThinking && <TypingBubble color={color} />}
+        {isThinking && (
+  renderProgress
+    ? <RenderProgressBubble color={color} progress={renderProgress} />
+    : <TypingBubble color={color} />
+)}
         <div ref={bottomRef} />
         </div>
       </div>

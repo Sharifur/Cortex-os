@@ -1,12 +1,13 @@
-import { resolveBackground, resolveTextColor, slideIndicatorText, getSlot } from './layout-helpers';
+import { resolveBackground, resolveTextColor, slideIndicatorText, getSlot, renderDecorations, ctaStyle as buildCtaStyle } from './layout-helpers';
 import type { LayoutProps } from './layout.types';
 
-export function leftAlignedLayout({ slide, contract, width, height, slideNumber }: LayoutProps): object {
+export function leftAlignedLayout({ slide, contract, width, height, slideNumber, backgroundImageBase64 }: LayoutProps): object {
   const bg = resolveBackground(slide.styleRules, contract);
   const textColor = resolveTextColor(bg, contract);
   const mutedColor = textColor === '#ffffff' ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.55)';
   const headline = getSlot(slide, 'headline');
   const body = getSlot(slide, 'body');
+  const cta = getSlot(slide, 'cta');
 
   const topChildren: object[] = [];
 
@@ -16,7 +17,6 @@ export function leftAlignedLayout({ slide, contract, width, height, slideNumber 
       type: 'div',
       props: {
         style: { width: 6, backgroundColor: contract.accentColor, borderRadius: 3, marginRight: 24, alignSelf: 'stretch', flexShrink: 0 },
-        children: null,
       },
     });
   }
@@ -47,6 +47,13 @@ export function leftAlignedLayout({ slide, contract, width, height, slideNumber 
     });
   }
 
+  if (cta) {
+    textChildren.push({
+      type: 'div',
+      props: { style: buildCtaStyle(cta, contract) },
+    });
+  }
+
   topChildren.push({
     type: 'div',
     props: { style: { display: 'flex', flexDirection: 'column' }, children: textChildren },
@@ -60,19 +67,25 @@ export function leftAlignedLayout({ slide, contract, width, height, slideNumber 
     });
   }
 
+  const decorationDivs = !backgroundImageBase64 ? renderDecorations(contract, width, height) : [];
+
   return {
     type: 'div',
     props: {
       style: {
+        position: 'relative' as const,
         display: 'flex',
         flexDirection: 'column',
         width,
         height,
-        backgroundColor: bg,
+        ...(backgroundImageBase64
+          ? { backgroundImage: `url(${backgroundImageBase64})`, backgroundSize: 'cover', backgroundPosition: 'center' }
+          : { backgroundColor: bg }),
         fontFamily: contract.bodyFont,
         padding: `${contract.paddingY}px ${contract.paddingX}px`,
+        overflow: 'hidden',
       },
-      children: [
+      children: [...decorationDivs,
         {
           type: 'div',
           props: {

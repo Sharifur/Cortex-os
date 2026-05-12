@@ -52,10 +52,9 @@ export function overlayLayout({ slide, contract, width, height, backgroundImageB
         flexDirection: 'column',
         width,
         height,
-        backgroundImage: backgroundImageBase64 ? `url(${backgroundImageBase64})` : undefined,
-        backgroundSize: 'cover',
-        backgroundPosition: 'center',
-        backgroundColor: bg,
+        ...(backgroundImageBase64
+          ? { backgroundImage: `url(${backgroundImageBase64})`, backgroundSize: 'cover', backgroundPosition: 'center' }
+          : { backgroundColor: bg }),
         fontFamily: contract.bodyFont,
       },
       children: [
@@ -68,7 +67,6 @@ export function overlayLayout({ slide, contract, width, height, backgroundImageB
               inset: 0,
               background: 'linear-gradient(to top, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.3) 60%, rgba(0,0,0,0) 100%)',
             },
-            children: null,
           },
         },
         {
