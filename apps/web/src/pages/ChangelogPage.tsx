@@ -16,6 +16,15 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.12.9',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'feat', scope: 'activity', description: 'Spam check events now visible in the activity panel: spam_check_start shows "Spam check" with subject preview; spam_check_end shows grade/score and pass/fail; spam_rewrite_triggered shows an orange "Rewriting email" entry with the top spam issues. ShieldAlert/ShieldCheck/RotateCcw icons used.' },
+      { tag: 'feat', scope: 'activity', description: 'Tool result entries now show a response_preview (first 500 chars of the API response JSON) so lookup_user results are visible directly in the activity panel — making it easy to see what email/data the Insight API returned.' },
+      { tag: 'fix', scope: 'taskip-internal', description: 'lookup_user cross-references owner.email against Taskip DB. If the email is not found (e.g. contact@xgenious.com vs actual login xgenious51@gmail.com), a _email_warning is appended to the result telling the LLM not to use that address and to resolve via insight_get_lifecycle instead.' },
+    ],
+  },
+  {
     version: 'v4.12.8',
     date: '2026-05-11',
     entries: [
