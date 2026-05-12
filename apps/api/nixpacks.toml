@@ -8,4 +8,4 @@ cmds = ['npm run build', 'npm prune --omit=dev']
 NODE_ENV = 'production'
 
 [start]
-cmd = 'node dist/src/migrate && node dist/src/main'
+cmd = 'node dist/src/main'

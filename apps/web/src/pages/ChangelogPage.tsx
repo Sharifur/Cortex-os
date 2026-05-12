@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.15.6',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'chore', scope: 'deploy', description: 'Revert migration step from nixpacks.toml start command — Coolify post-deploy command already runs node dist/src/migrate before traffic switches; adding it to the start cmd caused double-migration on every deploy.' },
+    ],
+  },
+  {
     version: 'v4.15.5',
     date: '2026-05-12',
     entries: [
