@@ -90,29 +90,28 @@ export const AGENT_TASK_SUGGESTIONS: Record<string, string[]> = {
   ],
 
   canva: [
-    // Marketing
+    // Post Format Engine — LinkedIn carousels
+    'Generate a linkedin-tips-carousel for brand taskip about "5 ways to save time on client work"',
+    'Generate a linkedin-howto-carousel for brand taskip about "how to set up a client portal in 3 steps"',
+    'Generate a linkedin-list-carousel for brand taskip about "tools every freelancer needs in 2025"',
+    // Post Format Engine — LinkedIn single cards
+    'Generate a linkedin-stat-single for brand taskip about "87% of freelancers waste 4 hours a week on admin"',
+    'Generate a linkedin-quote-single for brand taskip with a quote about client management',
+    // Post Format Engine — Instagram
+    'Generate an instagram-carousel-edu for brand taskip about "why client portals beat email threads"',
+    'Generate an instagram-fact for brand taskip about Taskip customer growth',
+    'Generate an instagram-story-tip for brand taskip about "one habit that saves 2 hours a week"',
+    'Generate an instagram-story-announce for brand taskip — announce the new Insight analytics feature',
+    // Post Format Engine — other platforms
+    'Generate a twitter-announcement for brand taskip about a new feature launch',
+    'Generate a facebook-ad-banner for brand taskip targeting freelancers',
+    'Generate a generic-checklist for brand taskip about "before you launch: agency checklist"',
+    // Legacy Canva MCP designs
     'Create a Facebook banner carousel for our product launch',
-    'Design a promotional Instagram post — 50% off sale this week',
-    // Business
     'Make a LinkedIn carousel: 5 business growth tips for SaaS founders',
-    'Create a corporate LinkedIn banner showing our Q1 milestone',
-    // Infographic
-    'Generate a 6-slide infographic carousel: how our product works step by step',
-    'Create an infographic comparing our 3 pricing plans',
-    // Announcement
     'Design an announcement post: we just launched a new feature',
-    'Create a "We\'re hiring" announcement banner',
-    // Educational
-    'Make a 5-tip carousel: productivity tips for remote teams',
-    'Create an educational carousel: common mistakes founders make',
-    // Social Proof
     'Design a testimonial carousel with 3 customer quotes',
     'Create a social proof post: we just hit 10,000 customers',
-    // Product
-    'Generate a product showcase carousel for Taskip dashboard',
-    'Create a pricing comparison post for our 3 plans',
-    // Seasonal
-    'Design a festive Eid sale banner with our latest offer',
   ],
 };
 

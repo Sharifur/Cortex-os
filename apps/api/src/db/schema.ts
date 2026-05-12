@@ -26,3 +26,4 @@ export * from '../modules/llm/llm-usage.schema';
 export * from '../modules/push/push.schema';
 export * from '../modules/gmail/schema';
 export * from '../modules/ses/ses-suppressions.schema';
+export * from '../modules/post-render/schema';

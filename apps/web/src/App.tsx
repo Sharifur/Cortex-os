@@ -27,6 +27,7 @@ import SupportTicketsPage from '@/pages/SupportTicketsPage';
 import AdminPage from '@/pages/AdminPage';
 import ChangelogPage from '@/pages/ChangelogPage';
 import EmailSuppressionsPage from '@/pages/EmailSuppressionsPage';
+import PostRendersPage from '@/pages/PostRendersPage';
 import NotFoundPage from '@/pages/NotFoundPage';
 import GmailOAuthCallbackPage from '@/pages/GmailOAuthCallbackPage';
 import AppLayout from '@/components/AppLayout';
@@ -86,6 +87,7 @@ export default function App() {
             <Route path="/llm-usage" element={<LlmUsagePage />} />
             <Route path="/suppressions" element={<EmailSuppressionsPage />} />
             <Route path="/changelog" element={<ChangelogPage />} />
+            <Route path="/post-renders" element={<PostRendersPage />} />
             <Route path="/profile" element={<ProfilePage />} />
             <Route path="/change-password" element={<ChangePasswordPage />} />
             <Route path="*" element={<NotFoundPage />} />

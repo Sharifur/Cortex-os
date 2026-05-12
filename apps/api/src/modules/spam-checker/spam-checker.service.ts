@@ -250,6 +250,9 @@ export class SpamCheckerService {
 
   private async checkAuthentication(fromDomain: string): Promise<CategoryBreakdown> {
     const weight = 25;
+    if (!fromDomain) {
+      return { score: 100, weight, contribution: weight, issues: [] };
+    }
     const issues: SpamIssue[] = [];
     // SPF check omitted — sending provider (Gmail Workspace / SES) handles SPF
     // at the infrastructure level; we cannot know the provider at check time.
@@ -308,6 +311,9 @@ export class SpamCheckerService {
 
   private async checkReputation(fromDomain: string): Promise<CategoryBreakdown> {
     const weight = 25;
+    if (!fromDomain) {
+      return { score: 100, weight, contribution: weight, issues: [] };
+    }
     const issues: SpamIssue[] = [];
     let score = 100;
 

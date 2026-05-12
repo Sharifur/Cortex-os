@@ -1,0 +1,127 @@
+import { Injectable, Logger } from '@nestjs/common';
+import { LlmRouterService } from '../llm/llm-router.service';
+import { KnowledgeBaseService } from '../knowledge-base/knowledge-base.service';
+import { StorageService } from '../storage/storage.service';
+import type { DesignDNA } from './types';
+
+const DNA_PROMPT = `You are a design analyst. Extract the design DNA from this image and return ONLY valid JSON.
+
+JSON schema (respond with exactly this structure, no extra keys):
+{
+  "layout_type": "centered|left-aligned|split-panel|overlay|grid",
+  "background_style": "solid-light|solid-dark|gradient-dark|gradient-light|textured",
+  "primary_color": "#hexcode",
+  "accent_color": "#hexcode",
+  "font_weight_heading": "bold|black|semibold|regular",
+  "font_size_heading": "large|xlarge|huge",
+  "font_style": "modern-sans|classic-serif|geometric|rounded",
+  "element_density": "minimal|moderate|rich",
+  "visual_hierarchy": ["array", "of", "elements", "top-to-bottom"],
+  "composition": "rule-of-thirds|center-weighted|edge-anchored|full-bleed",
+  "text_alignment": "left|center|right",
+  "accent_elements": ["top-bar", "circle", "underline", "badge", "none"],
+  "whitespace": "generous|moderate|tight",
+  "mood_keywords": ["professional", "bold", "friendly", "premium", "playful"],
+  "platform_fit": ["linkedin", "instagram", "twitter", "facebook"],
+  "slide_type": "cover|content|cta|quote|stat|list",
+  "background_image_used": false
+}`;
+
+@Injectable()
+export class DesignAnalysisService {
+  private readonly logger = new Logger(DesignAnalysisService.name);
+
+  constructor(
+    private readonly llm: LlmRouterService,
+    private readonly kb: KnowledgeBaseService,
+    private readonly storage: StorageService,
+  ) {}
+
+  async analyzeAndStore(
+    imageBuffer: Buffer,
+    opts: { brand: string; filename: string },
+  ): Promise<{ dna: DesignDNA; kbEntryId: string; storageUrl: string }> {
+    // Upload sample image to storage
+    const stored = await this.storage.upload({
+      module: 'post-render/design-samples',
+      refKey: opts.brand,
+      body: imageBuffer,
+      declaredMime: 'image/png',
+      originalFilename: opts.filename,
+    });
+
+    // Extract DNA via vision LLM
+    const imageBase64 = imageBuffer.toString('base64');
+    const res = await this.llm.complete({
+      messages: [
+        { role: 'user', content: DNA_PROMPT },
+      ],
+      imageBase64,
+      imageMimeType: 'image/png',
+      maxTokens: 600,
+      temperature: 0.1,
+      agentKey: 'canva',
+    });
+
+    let dna: DesignDNA;
+    try {
+      const jsonMatch = res.content.match(/```(?:json)?\s*([\s\S]+?)\s*```/) ?? res.content.match(/(\{[\s\S]+\})/);
+      dna = JSON.parse(jsonMatch?.[1] ?? res.content);
+    } catch {
+      throw new Error(`Vision LLM returned invalid JSON for design DNA`);
+    }
+
+    // Build KB entry content
+    const embeddingText = [
+      dna.layout_type,
+      ...dna.mood_keywords,
+      dna.slide_type,
+      ...dna.platform_fit,
+      ...dna.visual_hierarchy,
+      dna.font_style,
+      dna.whitespace,
+    ].join(' ');
+
+    const content = [
+      `Design Sample Analysis`,
+      `Layout: ${dna.layout_type}`,
+      `Background: ${dna.background_style}`,
+      `Colors: primary ${dna.primary_color}, accent ${dna.accent_color}`,
+      `Typography: ${dna.font_weight_heading} ${dna.font_size_heading} ${dna.font_style}`,
+      `Hierarchy: ${dna.visual_hierarchy.join(' > ')}`,
+      `Composition: ${dna.composition}, alignment: ${dna.text_alignment}`,
+      `Whitespace: ${dna.whitespace}, density: ${dna.element_density}`,
+      `Mood: ${dna.mood_keywords.join(', ')}`,
+      `Platform: ${dna.platform_fit.join(', ')}`,
+      `Slide type: ${dna.slide_type}`,
+      `Accent elements: ${dna.accent_elements.join(', ')}`,
+      ``,
+      `DNA JSON: ${JSON.stringify(dna)}`,
+    ].join('\n');
+
+    const kbRow = await this.kb.createEntry({
+      title: `Design Sample — ${dna.slide_type} — ${dna.platform_fit[0] ?? 'any'} — ${Date.now()}`,
+      content,
+      entryType: 'design_sample',
+      agentKeys: 'canva',
+      siteKeys: opts.brand,
+      category: 'design',
+      sourceType: 'image_upload',
+      sourceUrl: stored.url,
+    });
+    const kbEntryId = kbRow.id;
+
+    this.logger.log(`Design DNA extracted: ${dna.layout_type} ${dna.mood_keywords.join(',')} → kb:${kbEntryId}`);
+
+    return { dna, kbEntryId, storageUrl: stored.url };
+  }
+
+  async listSamples(opts: { brand?: string; platform?: string; slideType?: string } = {}) {
+    return this.kb.searchEntries(
+      `design sample ${opts.platform ?? ''} ${opts.slideType ?? ''}`.trim(),
+      'canva',
+      100,
+      opts.brand,
+    );
+  }
+}
