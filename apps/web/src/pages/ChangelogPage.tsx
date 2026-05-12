@@ -16,6 +16,16 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.13.6',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'Post Format Engine now executes from chat: sending "Generate a linkedin-tips-carousel for brand taskip about ..." detects the pattern in decideChat, calls PostRendererService.render() directly, and returns slide URLs in the chat response. Previously the agent just returned a text layout description.' },
+      { tag: 'fix', scope: 'post-render', description: 'Broke circular dependency between PostRenderModule and CanvaModule: PostBrandService now queries canvaBrands table directly via DbService instead of depending on CanvaBrandsService, allowing PostRenderModule to be imported into CanvaModule cleanly.' },
+      { tag: 'fix', scope: 'canva', description: 'Setup tab Step 1 and Step 2 now show as checked when openai_api_key / stability_api_key are configured in Settings. Step descriptions updated: Stability AI doc added with platform.stability.ai → API Keys instructions and sk-... key format note.' },
+      { tag: 'fix', scope: 'post-renders', description: 'Design Samples tab brand selector changed from a fixed dropdown (taskip/xgenious) to a free text input. Samples now load across all brands by default when brand field is empty.' },
+    ],
+  },
+  {
     version: 'v4.13.5',
     date: '2026-05-12',
     entries: [

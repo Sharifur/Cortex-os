@@ -4563,6 +4563,15 @@ function CanvaSetupTab({ agent, token }: { agent: AgentDetail; token: string }) 
   const [verifyResult, setVerifyResult] = useState<any>(null);
   const [verifying, setVerifying] = useState(false);
   const [mcpExpanded, setMcpExpanded] = useState(false);
+  const [openaiSet, setOpenaiSet] = useState(false);
+  const [stabilitySet, setStabilitySet] = useState(false);
+
+  useEffect(() => {
+    apiFetch(token, '/settings').then((rows: any[]) => {
+      setOpenaiSet(rows.find((r: any) => r.key === 'openai_api_key')?.stored === true);
+      setStabilitySet(rows.find((r: any) => r.key === 'stability_api_key')?.stored === true);
+    }).catch(() => {});
+  }, [token]);
 
   const verify = async () => {
     setVerifying(true);
@@ -4583,18 +4592,18 @@ function CanvaSetupTab({ agent, token }: { agent: AgentDetail; token: string }) 
       </div>
 
       <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-3 text-xs text-blue-300 space-y-1">
-        <p className="font-semibold">AI-image mode — no Canva account required</p>
-        <p className="text-blue-300/80">Designs are generated via DALL-E 3 (with Stability AI as fallback). You only need an OpenAI API key. Canva MCP is optional and can be added later.</p>
+        <p className="font-semibold">Post Format Engine — no Canva account required</p>
+        <p className="text-blue-300/80">Slides are rendered server-side via Satori+Resvg (PNG). Requires an OpenAI or Gemini API key for content generation. Stability AI or DALL-E 3 used for image backgrounds (optional — falls back to solid color).</p>
       </div>
 
       <div className="space-y-3">
 
-        <SetupStep n={1} title="Add OpenAI API key (required)">
+        <SetupStep n={1} title="Add OpenAI API key (required for text generation)" done={openaiSet}>
           <p>Go to <strong>Settings → Secrets</strong> and add:</p>
           <div className="mt-2 space-y-1.5">
             <div className="flex items-center gap-2">
               <code className="bg-muted px-1.5 py-0.5 rounded text-xs shrink-0">openai_api_key</code>
-              <span className="text-muted-foreground text-xs">Your OpenAI API key — used for DALL-E 3 image generation</span>
+              <span className="text-muted-foreground text-xs">Used for GPT content generation and DALL-E 3 image backgrounds</span>
             </div>
           </div>
           <div className="mt-2">
@@ -4607,14 +4616,15 @@ function CanvaSetupTab({ agent, token }: { agent: AgentDetail; token: string }) 
           </div>
         </SetupStep>
 
-        <SetupStep n={2} title="Add Stability AI key (optional fallback)">
-          <p>If DALL-E 3 is unavailable or over budget, the agent falls back to Stability AI. Add in <strong>Settings → Secrets</strong>:</p>
-          <div className="mt-2">
+        <SetupStep n={2} title="Add Stability AI key (optional — image backgrounds)" done={stabilitySet}>
+          <p>Get a key at <strong>platform.stability.ai → API Keys</strong>, then add in <strong>Settings → Secrets</strong>:</p>
+          <div className="mt-2 space-y-1.5">
             <div className="flex items-center gap-2">
               <code className="bg-muted px-1.5 py-0.5 rounded text-xs shrink-0">stability_api_key</code>
-              <span className="text-muted-foreground text-xs">Stability AI API key — fallback image generator</span>
+              <span className="text-muted-foreground text-xs">Stability AI key — used for image backgrounds on applicable slide layouts. Falls back to solid color if not set.</span>
             </div>
           </div>
+          <p className="mt-1 text-muted-foreground/70">Format: <code className="bg-muted px-1 rounded">sk-...</code> from your Stability AI account dashboard.</p>
         </SetupStep>
 
         <SetupStep n={3} title="Add brand identities">

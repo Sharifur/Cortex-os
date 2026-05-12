@@ -366,7 +366,7 @@ interface DesignSampleResult {
 }
 
 function DesignSamplesTab({ token }: { token: string }) {
-  const [brand, setBrand] = useState('taskip');
+  const [brand, setBrand] = useState('');
   const [samples, setSamples] = useState<{ id: string; title: string; sourceUrl?: string; content: string }[]>([]);
   const [patterns, setPatterns] = useState<string[]>([]);
   const [uploading, setUploading] = useState(false);
@@ -380,9 +380,10 @@ function DesignSamplesTab({ token }: { token: string }) {
 
   async function loadData(b = brand) {
     setLoading(true);
+    const brandQ = b ? `?brand=${encodeURIComponent(b)}` : '';
     const [s, p] = await Promise.all([
-      apiFetch(token, `/posts/design-samples?brand=${b}`).catch(() => []),
-      apiFetch(token, `/posts/design-samples/patterns?brand=${b}`).catch(() => []),
+      apiFetch(token, `/posts/design-samples${brandQ}`).catch(() => []),
+      b ? apiFetch(token, `/posts/design-samples/patterns?brand=${encodeURIComponent(b)}`).catch(() => []) : Promise.resolve([]),
     ]);
     setSamples(Array.isArray(s) ? s : []);
     setPatterns(Array.isArray(p) ? p : []);
@@ -459,14 +460,13 @@ function DesignSamplesTab({ token }: { token: string }) {
 
         <div className="flex items-end gap-3 flex-wrap">
           <div>
-            <label className="text-xs text-muted-foreground mb-1.5 block">Brand</label>
-            <select
-              className="bg-muted border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+            <label className="text-xs text-muted-foreground mb-1.5 block">Brand (for upload tagging)</label>
+            <input
+              className="bg-muted border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring w-36"
+              placeholder="taskip"
               value={brand}
               onChange={e => setBrand(e.target.value)}
-            >
-              {['taskip', 'xgenious'].map(b => <option key={b} value={b}>{b}</option>)}
-            </select>
+            />
           </div>
 
           <div>
@@ -493,8 +493,8 @@ function DesignSamplesTab({ token }: { token: string }) {
         </div>
 
         <p className="text-xs text-muted-foreground">
-          {sampleCount} sample{sampleCount !== 1 ? 's' : ''} for <strong>{brand}</strong>
-          {!canCluster && sampleCount < 20 && ` — upload ${20 - sampleCount} more to enable pattern learning`}
+          {sampleCount} sample{sampleCount !== 1 ? 's' : ''}{brand ? ` for ${brand}` : ' across all brands'}
+          {!canCluster && sampleCount < 20 && brand && ` — upload ${20 - sampleCount} more to enable pattern learning`}
         </p>
 
         {uploadError && <p className="text-xs text-destructive">{uploadError}</p>}

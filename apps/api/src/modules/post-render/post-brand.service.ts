@@ -1,5 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { CanvaBrandsService } from '../agents/canva/canva-brands.service';
+import { eq } from 'drizzle-orm';
+import { DbService } from '../../db/db.service';
+import { canvaBrands } from '../agents/canva/schema';
 import type { ResolvedBrand } from './types';
 
 const INTER_URL = 'https://fonts.gstatic.com/s/inter/v13/UcCO3FwrK3iLTeHuS_fvQtMwCp50KnMw2boKoduKmMEVuLyfAZ9hiJ-Ek-_EeA.woff';
@@ -50,11 +52,19 @@ async function fetchLogoBase64(logoUrl: string): Promise<string> {
 export class PostBrandService {
   private readonly logger = new Logger(PostBrandService.name);
 
-  constructor(private readonly brands: CanvaBrandsService) {}
+  constructor(private readonly db: DbService) {}
 
   async resolve(brandName: string): Promise<ResolvedBrand> {
-    const brand = await this.brands.getByName(brandName);
-    if (!brand) throw new Error(`brand not found: ${brandName}`);
+    const [row] = await this.db.db.select().from(canvaBrands).where(eq(canvaBrands.name, brandName)).limit(1);
+    if (!row) throw new Error(`brand not found: ${brandName}`);
+    const brand = {
+      name: row.name,
+      displayName: row.displayName,
+      voiceProfile: row.voiceProfile ?? '',
+      palette: (row.palette as string[] | null) ?? [],
+      fonts: (row.fonts as string[] | null) ?? [],
+      logoUrl: row.logoUrl ?? null,
+    };
 
     const headingFont = brand.fonts?.[0] ?? 'Inter';
     const bodyFont = brand.fonts?.[1] ?? headingFont;
