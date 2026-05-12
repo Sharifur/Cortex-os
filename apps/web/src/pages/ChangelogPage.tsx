@@ -16,6 +16,22 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.12.15',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'feat', scope: 'taskip-internal', description: 'Six distinct email writing styles added to SPAR system, each with its own vocabulary, opener, sentence structure, and length range. A=CURIOUS (peer question, 40-55w), B=BLUNT (one observation + one question, 20-32w), C=EMPATHETIC (acknowledges friction, 55-70w), D=CHALLENGER (contrast with peer behavior, 45-60w), E=WARM (Hey opener, colleague-like, 45-60w), F=DIRECT (metric first, binary question, 30-45w). Style is selected per email based on angle-to-style mapping, cohort hard overrides, and batch rotation to prevent the same style repeating. Step 6 subject formulas are now style-keyed so subject and body always match in voice. Step 7 has per-style body rules replacing the single generic structure. Step 8 self-score now checks style consistency. Final output includes Style field.' },
+    ],
+  },
+  {
+    version: 'v4.12.14',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'fix', scope: 'spam-checker', description: 'Removed SPF DNS check from authentication category. SPF is an infrastructure concern handled by the sending provider (Gmail Workspace); the checker cannot know which provider will send at check time. Auth score now starts at 50/100 (implicit SPF trust) with DMARC and DKIM contributing the remaining 50. criticalFailure now only fires on missing DMARC, not missing SPF.' },
+      { tag: 'fix', scope: 'taskip-internal', description: 'getFromDomain() now resolves the sender domain from the Gmail account (GmailService.getFromAddress) instead of the ses_default_from setting. Falls back to ses_default_from if Gmail is not configured. This ensures DMARC/DKIM checks in the spam scorer use the actual sending domain.' },
+      { tag: 'fix', scope: 'taskip-internal', description: 'Email writing style updated to prioritize reply rate over observation framing. Step 6 subject formulas changed to direct personal questions ("do you [gap activity] outside Taskip?") and pattern interrupts ("no [gap thing] yet - intentional?"). Step 7 body structure tightened to under 60 words: open directly with the question anchored to their specific data, no preamble. Step 8 self-score reframed around "would I reply within 24 hours?" rather than passive open likelihood.' },
+    ],
+  },
+  {
     version: 'v4.12.13',
     date: '2026-05-12',
     entries: [
