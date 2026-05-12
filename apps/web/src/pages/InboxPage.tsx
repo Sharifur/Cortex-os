@@ -239,10 +239,9 @@ export default function InboxPage() {
   });
 
   const markOpenedMutation = useMutation({
-    mutationFn: (id: string) => api(token, `/taskip-internal/inbox/${id}/mark-opened`, { method: 'POST' }),
-    onSuccess: (_data, id) => {
-      // Patch both caches immediately. Do NOT invalidate the list — an instant
-      // refetch races the DB write and returns stale data, reverting the update.
+    mutationFn: (id: string) => api<{ ok: boolean; error?: string }>(token, `/taskip-internal/inbox/${id}/mark-opened`, { method: 'POST' }),
+    onSuccess: (data, id) => {
+      if (!data.ok) return; // DB write failed — don't patch cache with wrong state
       qc.setQueryData<InboxRow[]>(['inbox', purpose], (old) =>
         old?.map((r) =>
           r.id === id

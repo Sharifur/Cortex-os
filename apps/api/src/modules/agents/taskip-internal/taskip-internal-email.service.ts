@@ -330,23 +330,24 @@ export class TaskipInternalEmailService {
     return { scanned: candidates.length, updated };
   }
 
-  async markOpened(id: string): Promise<{ ok: boolean }> {
-    if (!id) return { ok: false };
-    const [row] = await this.db.db
-      .select({ id: taskipInternalEmails.id })
-      .from(taskipInternalEmails)
-      .where(eq(taskipInternalEmails.id, id))
-      .limit(1);
-    if (!row) return { ok: false };
+  async markOpened(id: string): Promise<{ ok: boolean; error?: string }> {
+    if (!id) return { ok: false, error: 'missing id' };
+    const check = await this.db.db.execute(sql`
+      SELECT id FROM taskip_internal_emails WHERE id = ${id} LIMIT 1
+    `);
+    if (!(check as unknown[]).length) {
+      this.logger.warn(`markOpened: row not found for id=${id}`);
+      return { ok: false, error: 'not found' };
+    }
     const now = new Date();
-    // Always write to metadata JSONB (exists on all envs — no migration needed).
     await this.db.db.execute(sql`
       UPDATE taskip_internal_emails
       SET metadata = COALESCE(metadata, '{}'::jsonb)
                      || jsonb_build_object('manuallyOpened', true, 'manuallyOpenedAt', ${now.toISOString()}::text)
       WHERE id = ${id}
     `);
-    // Also update dedicated columns when migration 0063 has run.
+    this.logger.log(`markOpened: wrote manuallyOpened=true for id=${id}`);
+    // Update open_count / timestamps when migration 0063 columns exist.
     await this.db.db.execute(sql`
       UPDATE taskip_internal_emails
       SET open_count    = COALESCE(open_count, 0) + 1,
