@@ -2,9 +2,9 @@ export interface SettingDefinition {
   label: string;
   description?: string;
   isSecret: boolean;
-  group: 'general' | 'llm' | 'telegram' | 'ses' | 'gmail' | 'whatsapp' | 'linkedin' | 'reddit' | 'license' | 'storage' | 'insight' | 'safety' | 'hr' | 'geoip' | 'support';
+  group: 'general' | 'llm' | 'telegram' | 'ses' | 'gmail' | 'whatsapp' | 'linkedin' | 'reddit' | 'license' | 'storage' | 'insight' | 'safety' | 'hr' | 'geoip' | 'support' | 'image';
   defaultValue?: string;
-  provider?: 'openai' | 'gemini' | 'deepseek' | 'general';
+  provider?: 'openai' | 'gemini' | 'deepseek' | 'stability' | 'general';
 }
 
 export const SETTING_DEFINITIONS: Record<string, SettingDefinition> = {
@@ -490,5 +490,21 @@ export const SETTING_DEFINITIONS: Record<string, SettingDefinition> = {
     description: 'Shared secret crm.xgenious.com sends as X-Webhook-Secret on each ticket webhook.',
     isSecret: true,
     group: 'support',
+  },
+
+  // Image Generation
+  stability_api_key: {
+    label: 'Stability AI API Key',
+    description: 'Used for AI image backgrounds in post renders. Get from platform.stability.ai → API Keys. Format: sk-...',
+    isSecret: true,
+    group: 'image',
+    provider: 'stability',
+  },
+  image_gen_provider: {
+    label: 'Image Generation Provider',
+    description: 'Provider used for slide image backgrounds. auto tries in order: gpt-image-1 → dall-e-3 → stability → solid color fallback.',
+    isSecret: false,
+    group: 'image',
+    defaultValue: 'auto',
   },
 };

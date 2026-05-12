@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Settings, Save, Trash2, Eye, EyeOff, Key, Zap, UserCircle, Loader2, Globe, BriefcaseBusiness } from 'lucide-react';
+import { Settings, Save, Trash2, Eye, EyeOff, Key, Zap, UserCircle, Loader2, Globe, BriefcaseBusiness, Image } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -580,6 +580,22 @@ function HrTab({ rows, token }: { rows: SettingRow[]; token: string }) {
 }
 
 
+function ImageTab({ rows, token }: { rows: SettingRow[]; token: string }) {
+  if (!rows.length) return null;
+  return (
+    <div className="rounded-xl border border-border bg-card mb-6">
+      <div className="px-5 py-3 border-b border-border flex items-center gap-2">
+        <Image className="w-4 h-4 text-primary" />
+        <span className="text-sm font-semibold">Image Generation</span>
+        <span className="text-xs text-muted-foreground ml-1">— for Post Format Engine slide backgrounds</span>
+      </div>
+      <div className="px-5">
+        {rows.map((s) => <SettingField key={s.key} setting={s} token={token} />)}
+      </div>
+    </div>
+  );
+}
+
 export default function SettingsPage() {
   const token = useAuthStore((s) => s.token)!;
 
@@ -637,6 +653,7 @@ export default function SettingsPage() {
         <>
           <GeneralTab rows={grouped['general'] ?? []} token={token} />
           <LlmTab rows={grouped['llm'] ?? []} token={token} />
+          <ImageTab rows={grouped['image'] ?? []} token={token} />
           <HrTab rows={grouped['hr'] ?? []} token={token} />
         </>
       )}

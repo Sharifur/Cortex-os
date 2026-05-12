@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.13.7',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'feat', scope: 'settings', description: 'Added Image Generation section to Settings page with two fields: stability_api_key (secret, for AI image backgrounds) and image_gen_provider (auto/openai/stability). Section appears between LLM and HR tabs.' },
+      { tag: 'fix', scope: 'settings', description: 'stability_api_key and image_gen_provider were missing from SETTING_DEFINITIONS so they never appeared in Settings. Added with group: image and correct isSecret flags.' },
+    ],
+  },
+  {
     version: 'v4.13.6',
     date: '2026-05-12',
     entries: [
