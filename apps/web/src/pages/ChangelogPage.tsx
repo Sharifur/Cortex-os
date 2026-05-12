@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.16.0',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'fix', scope: 'inbox', description: 'Fixed mark-as-opened persisting across reloads — root cause was JSON.stringify() in the email send/seed paths causing metadata to be stored as a JSONB string scalar instead of an object. The || merge operator then produced a JSONB array on subsequent updates, so manuallyOpened was always undefined after reload. Fixed by passing JS objects directly (no JSON.stringify) in send() and seed so postgres.js serializes them correctly as JSONB objects.' },
+    ],
+  },
+  {
     version: 'v4.15.9',
     date: '2026-05-12',
     entries: [

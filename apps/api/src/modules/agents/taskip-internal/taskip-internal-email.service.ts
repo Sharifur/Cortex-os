@@ -120,7 +120,7 @@ export class TaskipInternalEmailService {
           (${id}, ${input.purpose}, ${input.workspaceUuid ?? null},
            ${input.recipient}, ${input.subject}, ${input.body},
            ${messageId}, ${threadId}, 'sent',
-           ${input.metadata ? JSON.stringify(input.metadata) : null}::jsonb,
+           ${input.metadata ?? null},
            NOW())
       `);
 
@@ -143,7 +143,7 @@ export class TaskipInternalEmailService {
           (${id}, ${input.purpose}, ${input.workspaceUuid ?? null},
            ${input.recipient}, ${input.subject}, ${input.body},
            'failed', ${message},
-           ${input.metadata ? JSON.stringify(input.metadata) : null}::jsonb,
+           ${input.metadata ?? null},
            NOW())
       `).catch((dbErr: unknown) => {
         this.logger.warn(`failed to record send failure: ${(dbErr as Error).message}`);
@@ -334,10 +334,15 @@ export class TaskipInternalEmailService {
     if (!id) return { ok: false, error: 'missing id' };
     const now = new Date();
     // Single UPDATE with RETURNING so we confirm the write in one round-trip.
+    // Use jsonb_typeof to guard against metadata stored as a JSONB string or array
+    // (seed data can end up as a scalar string, causing || to produce an array).
     const updated = await this.db.db.execute(sql`
       UPDATE taskip_internal_emails
-      SET metadata = COALESCE(metadata, '{}'::jsonb)
-                     || jsonb_build_object('manuallyOpened', true, 'manuallyOpenedAt', ${now.toISOString()}::text)
+      SET metadata = CASE
+            WHEN metadata IS NULL OR jsonb_typeof(metadata) != 'object'
+              THEN jsonb_build_object('manuallyOpened', true, 'manuallyOpenedAt', ${now.toISOString()}::text)
+            ELSE metadata || jsonb_build_object('manuallyOpened', true, 'manuallyOpenedAt', ${now.toISOString()}::text)
+          END
       WHERE id = ${id}
       RETURNING id, metadata
     `);
