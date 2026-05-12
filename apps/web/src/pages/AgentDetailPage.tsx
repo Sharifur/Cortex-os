@@ -3866,8 +3866,8 @@ function DesignSamplesTab({ token }: { token: string }) {
 
   async function loadData() {
     const [s, p] = await Promise.all([
-      apiFetch(token, '/posts/design-samples').catch(() => []),
-      apiFetch(token, '/posts/design-samples/patterns').catch(() => []),
+      apiFetch(token, '/posts/design-samples?brand=default').catch(() => []),
+      apiFetch(token, '/posts/design-samples/patterns?brand=default').catch(() => []),
     ]);
     setSamples(Array.isArray(s) ? s : []);
     setPatterns(Array.isArray(p) ? p : []);
@@ -3920,7 +3920,7 @@ function DesignSamplesTab({ token }: { token: string }) {
   async function cluster() {
     setClustering(true);
     try {
-      await apiFetch(token, '/posts/design-samples/cluster', { method: 'POST', body: JSON.stringify({}) });
+      await apiFetch(token, '/posts/design-samples/cluster', { method: 'POST', body: JSON.stringify({ brand: 'default' }) });
       await loadData();
     } finally {
       setClustering(false);
@@ -3976,24 +3976,26 @@ function DesignSamplesTab({ token }: { token: string }) {
         </div>
       )}
 
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+      <div className="grid grid-cols-3 md:grid-cols-4 gap-3">
         {samples.map((s: any) => (
-          <div key={s.id} className="bg-card border border-border rounded-xl overflow-hidden flex items-center gap-3 p-3">
-            {s.sourceUrl ? (
-              <button
-                onClick={() => setLightboxUrl(s.sourceUrl)}
-                className="shrink-0 w-[60px] h-[60px] rounded-lg overflow-hidden border border-border focus:outline-none"
-                title="View full image"
-              >
-                <img src={s.sourceUrl} alt={s.title} className="w-full h-full object-cover" />
-              </button>
-            ) : (
-              <div className="shrink-0 w-[60px] h-[60px] rounded-lg bg-muted border border-border" />
+          <div key={s.id} className="relative">
+            <button
+              onClick={() => s.sourceUrl && setLightboxUrl(s.sourceUrl)}
+              className="w-full focus:outline-none"
+              title="View full image"
+              disabled={!s.sourceUrl}
+            >
+              {s.sourceUrl ? (
+                <img src={s.sourceUrl} alt="" className="w-full h-[60px] object-cover rounded-lg border border-border" />
+              ) : (
+                <div className="w-full h-[60px] rounded-lg bg-muted border border-border" />
+              )}
+            </button>
+            {patterns.length > 0 && (
+              <span className="absolute top-1 right-1 bg-green-600 text-white text-[9px] font-semibold px-1 py-0.5 rounded leading-none">
+                Learned
+              </span>
             )}
-            <div className="min-w-0">
-              <p className="text-xs font-medium truncate">{s.title}</p>
-              <p className="text-xs text-muted-foreground truncate">{s.category}</p>
-            </div>
           </div>
         ))}
       </div>
