@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.15.5',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'chore', scope: 'deploy', description: 'Switch to Nixpacks for deployment: migrations now run automatically via nixpacks.toml start command ("node dist/src/migrate && node dist/src/main"). Removed Dockerfile, .dockerignore, docker-entrypoint.sh, and healthcheck.js — they are not used with Nixpacks.' },
+    ],
+  },
+  {
     version: 'v4.15.4',
     date: '2026-05-12',
     entries: [
