@@ -411,11 +411,19 @@ export class SupportAgent implements IAgent, OnModuleInit {
     if (dataObj && typeof dataObj === 'object') {
       let ticketCandidate: any = null;
 
+      // Format 4: data IS the ticket directly — flat object with id + subject at top level
+      // e.g. data: { id: 1, subject: "...", priority: "medium", uuid: "...", ... }
+      if (dataObj.id != null && dataObj.subject) {
+        ticketCandidate = dataObj;
+      }
+
       // Format 3: transformer class is a direct key of data (actual CRM payload)
       // e.g. data["Modules\\SupportTicket\\Transformers\\SupportTicketResource"] = { id, subject, ... }
-      const firstVal = Object.values(dataObj)[0];
-      if (firstVal && typeof firstVal === 'object' && (firstVal as any).id != null) {
-        ticketCandidate = firstVal;
+      if (!ticketCandidate) {
+        const firstVal = Object.values(dataObj)[0];
+        if (firstVal && typeof firstVal === 'object' && (firstVal as any).id != null) {
+          ticketCandidate = firstVal;
+        }
       }
 
       // Format 2: transformer class is nested under data.ticket
@@ -429,7 +437,7 @@ export class SupportAgent implements IAgent, OnModuleInit {
           email: ticketCandidate?.created_by?.email ?? ticketCandidate?.user?.email ?? '',
           name: ticketCandidate?.created_by?.full_name ?? ticketCandidate?.created_by?.first_name ?? '',
         };
-        return { ticket: ticketCandidate, contact, event, replyData: dataObj?.reply ?? null };
+        return { ticket: ticketCandidate, contact, event, replyData: dataObj?.reply ?? ticketCandidate?.reply ?? null };
       }
     }
 
@@ -458,7 +466,11 @@ export class SupportAgent implements IAgent, OnModuleInit {
 
     this.logger.log(`Webhook received: ticket #${ticket.id} "${ticket.subject}" from ${contact?.email ?? '(no contact)'}`);
 
-    const priority = PRIORITY_MAP[ticket.priority as number] ?? 'medium';
+    const VALID_PRIORITIES = ['low', 'medium', 'high', 'urgent'];
+    const priority =
+      (typeof ticket.priority === 'string' && VALID_PRIORITIES.includes(ticket.priority))
+        ? ticket.priority
+        : (PRIORITY_MAP[ticket.priority as number] ?? 'medium');
     const body = await this.fetchCrmTicket(ticket.id);
 
     if (body) {

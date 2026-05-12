@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.15.3',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'fix', scope: 'support', description: 'Webhook normalization now handles flat data payloads where data contains the ticket fields directly (id, subject, priority at top level). Previously only transformer-class-keyed formats were recognised, causing "Missing ticket.id or ticket.subject" for all support.ticket.created and support.ticket.replied events. Priority now also accepts string values (low/medium/high/urgent) in addition to numeric codes.' },
+    ],
+  },
+  {
     version: 'v4.15.2',
     date: '2026-05-12',
     entries: [
