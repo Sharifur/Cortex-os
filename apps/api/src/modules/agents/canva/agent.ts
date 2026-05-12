@@ -51,7 +51,7 @@ const DEFAULT_CONFIG: CanvaConfig = {
 @Injectable()
 export class CanvaAgent implements IAgent, OnModuleInit {
   readonly key = 'canva';
-  readonly name = 'Canva + Social Content Agent';
+  readonly name = 'Social Media Banner Design Agent';
   private readonly logger = new Logger(CanvaAgent.name);
 
   constructor(

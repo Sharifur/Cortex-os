@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.14.8',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'chore', scope: 'canva', description: 'Renamed agent from "Canva + Social Content Agent" to "Social Media Banner Design Agent" in agent class and seed file.' },
+    ],
+  },
+  {
     version: 'v4.14.7',
     date: '2026-05-12',
     entries: [
