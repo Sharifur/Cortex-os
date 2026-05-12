@@ -3859,7 +3859,6 @@ function PostRendersTab({ token }: { token: string }) {
 function DesignSamplesTab({ token }: { token: string }) {
   const [samples, setSamples] = useState<any[]>([]);
   const [patterns, setPatterns] = useState<string[]>([]);
-  const [brand, setBrand] = useState('taskip');
   const [uploading, setUploading] = useState(false);
   const [clustering, setClustering] = useState(false);
   const [uploadResult, setUploadResult] = useState('');
@@ -3868,14 +3867,14 @@ function DesignSamplesTab({ token }: { token: string }) {
 
   async function loadData() {
     const [s, p] = await Promise.all([
-      apiFetch(token, `/posts/design-samples?brand=${brand}`).catch(() => []),
-      apiFetch(token, `/posts/design-samples/patterns?brand=${brand}`).catch(() => []),
+      apiFetch(token, '/posts/design-samples').catch(() => []),
+      apiFetch(token, '/posts/design-samples/patterns').catch(() => []),
     ]);
     setSamples(Array.isArray(s) ? s : []);
     setPatterns(Array.isArray(p) ? p : []);
   }
 
-  useEffect(() => { loadData(); }, [brand, token]);
+  useEffect(() => { loadData(); }, [token]);
 
   async function uploadFiles(files: FileList | File[]) {
     const list = Array.from(files).filter(f => f.type.startsWith('image/'));
@@ -3884,7 +3883,7 @@ function DesignSamplesTab({ token }: { token: string }) {
     try {
       const fd = new FormData();
       for (const f of list) fd.append('files', f);
-      const res = await fetch(`/posts/design-samples/upload?brand=${brand}`, {
+      const res = await fetch('/posts/design-samples/upload', {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
         body: fd,
@@ -3922,7 +3921,7 @@ function DesignSamplesTab({ token }: { token: string }) {
   async function cluster() {
     setClustering(true);
     try {
-      await apiFetch(token, '/posts/design-samples/cluster', { method: 'POST', body: JSON.stringify({ brand }) });
+      await apiFetch(token, '/posts/design-samples/cluster', { method: 'POST', body: JSON.stringify({}) });
       await loadData();
     } finally {
       setClustering(false);
@@ -3932,19 +3931,11 @@ function DesignSamplesTab({ token }: { token: string }) {
   return (
     <div className="space-y-5">
       <div className="bg-card border border-border rounded-xl p-4 space-y-3">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <label className="text-xs text-muted-foreground mb-1 block">Brand</label>
-            <input
-              className="bg-muted border border-border rounded-lg px-3 py-2 text-sm"
-              value={brand}
-              onChange={e => setBrand(e.target.value)}
-            />
-          </div>
+        <div className="flex items-center justify-end">
           <button
             onClick={cluster}
             disabled={clustering || samples.length < 20}
-            className="px-4 py-2 border border-border rounded-lg text-sm font-medium disabled:opacity-50 mt-5"
+            className="px-4 py-2 border border-border rounded-lg text-sm font-medium disabled:opacity-50"
             title={samples.length < 20 ? 'Need 20+ samples to cluster' : ''}
           >
             {clustering ? 'Clustering...' : 'Learn patterns'}
@@ -3974,7 +3965,7 @@ function DesignSamplesTab({ token }: { token: string }) {
         </div>
 
         {uploadResult && <p className="text-xs text-green-600">{uploadResult}</p>}
-        <p className="text-xs text-muted-foreground">{samples.length} samples for {brand}</p>
+        <p className="text-xs text-muted-foreground">{samples.length} sample{samples.length !== 1 ? 's' : ''} total</p>
       </div>
 
       {patterns.length > 0 && (

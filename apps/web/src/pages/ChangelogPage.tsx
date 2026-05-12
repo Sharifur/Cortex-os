@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.14.6',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'chore', scope: 'canva', description: 'Design Samples tab: removed brand filter — samples are now uploaded and listed globally across all brands. Learn patterns also runs globally.' },
+    ],
+  },
+  {
     version: 'v4.14.5',
     date: '2026-05-12',
     entries: [
