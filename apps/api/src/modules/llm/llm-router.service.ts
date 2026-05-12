@@ -287,6 +287,7 @@ export class LlmRouterService {
       throw new Error('No LLM providers are enabled. Toggle at least one provider on in Settings.');
     }
 
+    const failures: string[] = [];
     for (const name of active) {
       try {
         switch (name) {
@@ -295,10 +296,12 @@ export class LlmRouterService {
           case 'deepseek': return await this.callDeepSeek(opts);
         }
       } catch (err) {
-        this.logger.warn(`LLM provider ${name} failed, trying next: ${(err as Error).message}`);
+        const msg = (err as Error).message;
+        this.logger.warn(`LLM provider ${name} failed, trying next: ${msg}`);
+        failures.push(`${name}: ${msg}`);
       }
     }
-    throw new Error('All enabled LLM providers failed');
+    throw new Error(`All enabled LLM providers failed — ${failures.join(' | ')}`);
   }
 
   private async isProviderEnabled(name: 'openai' | 'gemini' | 'deepseek'): Promise<boolean> {
