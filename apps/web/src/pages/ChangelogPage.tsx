@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.13.2',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'chore', scope: 'canva', description: 'Updated Canva agent task suggestions to surface Post Format Engine commands: LinkedIn carousels (tips, how-to, list), LinkedIn single cards (stat, quote), Instagram carousels and story formats, Twitter announcement, Facebook ad banner, and generic checklist. Legacy Canva MCP marketing suggestions trimmed to avoid duplication.' },
+    ],
+  },
+  {
     version: 'v4.13.1',
     date: '2026-05-12',
     entries: [
