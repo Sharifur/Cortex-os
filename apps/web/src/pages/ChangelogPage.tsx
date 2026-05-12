@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.16.6',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'Design Samples tab now has Samples / Patterns sub-tabs — patterns are no longer inline so the page stays readable with 200+ uploaded images. Sample thumbnails are fixed 60×60px squares; the Learned badge is now a small green BookOpen icon.' },
+    ],
+  },
+  {
     version: 'v4.16.5',
     date: '2026-05-12',
     entries: [

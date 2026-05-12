@@ -3862,6 +3862,7 @@ function DesignSamplesTab({ token }: { token: string }) {
   const [uploadResult, setUploadResult] = useState('');
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [dsSubTab, setDsSubTab] = useState<'samples' | 'patterns'>('samples');
   const fileRef = useRef<HTMLInputElement>(null);
 
   async function loadData() {
@@ -3929,76 +3930,101 @@ function DesignSamplesTab({ token }: { token: string }) {
 
   return (
     <div className="space-y-5">
-      <div className="bg-card border border-border rounded-xl p-4 space-y-3">
-        <div className="flex items-center justify-end">
+      {/* Sub-tab header */}
+      <div className="flex items-center gap-1 border-b border-border pb-0">
+        {(['samples', 'patterns'] as const).map(tab => (
+          <button
+            key={tab}
+            onClick={() => setDsSubTab(tab)}
+            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+              dsSubTab === tab
+                ? 'border-primary text-foreground'
+                : 'border-transparent text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            {tab === 'samples' ? `Samples (${samples.length})` : `Patterns (${patterns.length})`}
+          </button>
+        ))}
+        <div className="ml-auto pb-1">
           <button
             onClick={cluster}
             disabled={clustering || samples.length < 3}
-            className="px-4 py-2 border border-border rounded-lg text-sm font-medium disabled:opacity-50"
+            className="px-4 py-1.5 border border-border rounded-lg text-sm font-medium disabled:opacity-50"
             title={samples.length < 3 ? 'Need 3+ samples to cluster' : ''}
           >
             {clustering ? 'Clustering...' : 'Learn patterns'}
           </button>
         </div>
+      </div>
 
-        <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={handleFileInput} />
-        <div
-          onClick={() => !uploading && fileRef.current?.click()}
-          onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
-          onDrop={handleDrop}
-          className={`border-2 border-dashed rounded-xl p-8 text-center transition-colors cursor-pointer ${
-            isDragOver
-              ? 'border-primary bg-primary/5'
-              : 'border-border hover:border-primary/50 hover:bg-muted/40'
-          } ${uploading ? 'pointer-events-none opacity-60' : ''}`}
-        >
-          {uploading ? (
-            <p className="text-sm text-muted-foreground">Analyzing images...</p>
+      {dsSubTab === 'samples' && (
+        <>
+          <div className="bg-card border border-border rounded-xl p-4 space-y-3">
+            <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={handleFileInput} />
+            <div
+              onClick={() => !uploading && fileRef.current?.click()}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              className={`border-2 border-dashed rounded-xl p-8 text-center transition-colors cursor-pointer ${
+                isDragOver
+                  ? 'border-primary bg-primary/5'
+                  : 'border-border hover:border-primary/50 hover:bg-muted/40'
+              } ${uploading ? 'pointer-events-none opacity-60' : ''}`}
+            >
+              {uploading ? (
+                <p className="text-sm text-muted-foreground">Analyzing images...</p>
+              ) : (
+                <>
+                  <p className="text-sm font-medium">{isDragOver ? 'Drop images here' : 'Drop images or click to upload'}</p>
+                  <p className="text-xs text-muted-foreground mt-1">PNG, JPG, WEBP — multiple files supported</p>
+                </>
+              )}
+            </div>
+            {uploadResult && <p className="text-xs text-green-600">{uploadResult}</p>}
+            <p className="text-xs text-muted-foreground">{samples.length} sample{samples.length !== 1 ? 's' : ''} total</p>
+          </div>
+
+          <div className="flex flex-wrap gap-3">
+            {samples.map((s: any) => (
+              <div key={s.id} className="relative w-[60px] h-[60px] shrink-0">
+                <button
+                  onClick={() => s.sourceUrl && setLightboxUrl(s.sourceUrl)}
+                  className="w-full h-full focus:outline-none"
+                  title="View full image"
+                  disabled={!s.sourceUrl}
+                >
+                  {s.sourceUrl ? (
+                    <img src={s.sourceUrl} alt="" className="w-[60px] h-[60px] object-cover rounded-lg border border-border" />
+                  ) : (
+                    <div className="w-[60px] h-[60px] rounded-lg bg-muted border border-border" />
+                  )}
+                </button>
+                {patterns.length > 0 && (
+                  <span className="absolute bottom-0.5 right-0.5 bg-green-600 rounded p-0.5 leading-none">
+                    <BookOpen className="w-2.5 h-2.5 text-white" />
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {dsSubTab === 'patterns' && (
+        <div className="bg-card border border-border rounded-xl p-4 space-y-3">
+          {patterns.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No patterns learned yet. Upload 3+ samples and click "Learn patterns".</p>
           ) : (
             <>
-              <p className="text-sm font-medium">{isDragOver ? 'Drop images here' : 'Drop images or click to upload'}</p>
-              <p className="text-xs text-muted-foreground mt-1">PNG, JPG, WEBP — multiple files supported</p>
+              <p className="text-xs text-muted-foreground">{patterns.length} pattern{patterns.length !== 1 ? 's' : ''} from {samples.length} samples</p>
+              {patterns.map((p, i) => (
+                <p key={i} className="text-xs text-muted-foreground border-l-2 border-primary pl-2">{p}</p>
+              ))}
             </>
           )}
         </div>
-
-        {uploadResult && <p className="text-xs text-green-600">{uploadResult}</p>}
-        <p className="text-xs text-muted-foreground">{samples.length} sample{samples.length !== 1 ? 's' : ''} total</p>
-      </div>
-
-      {patterns.length > 0 && (
-        <div className="bg-card border border-border rounded-xl p-4 space-y-2">
-          <p className="text-sm font-medium">Learned patterns</p>
-          {patterns.map((p, i) => (
-            <p key={i} className="text-xs text-muted-foreground border-l-2 border-primary pl-2">{p}</p>
-          ))}
-        </div>
       )}
-
-      <div className="grid grid-cols-3 md:grid-cols-4 gap-3">
-        {samples.map((s: any) => (
-          <div key={s.id} className="relative">
-            <button
-              onClick={() => s.sourceUrl && setLightboxUrl(s.sourceUrl)}
-              className="w-full focus:outline-none"
-              title="View full image"
-              disabled={!s.sourceUrl}
-            >
-              {s.sourceUrl ? (
-                <img src={s.sourceUrl} alt="" className="w-full h-[60px] object-cover rounded-lg border border-border" />
-              ) : (
-                <div className="w-full h-[60px] rounded-lg bg-muted border border-border" />
-              )}
-            </button>
-            {patterns.length > 0 && (
-              <span className="absolute top-1 right-1 bg-green-600 text-white text-[9px] font-semibold px-1 py-0.5 rounded leading-none">
-                Learned
-              </span>
-            )}
-          </div>
-        ))}
-      </div>
 
       {lightboxUrl && (
         <div
