@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.12.11',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'fix', scope: 'email', description: 'Removed "Reply STOP to unsubscribe" footer from 1:1 outreach emails. Research confirms appending this footer on personal Gmail sends signals bulk/marketing intent to Gmail classifier, increasing spam report rate. Reply-STOP detection in syncReplies() and the suppression gate remain active — only the appended footer is removed.' },
+      { tag: 'fix', scope: 'spam-checker', description: 'Relaxed over-aggressive debt-collection content rules for 1:1 personal outreach: DEBT_ENSURE -15→-5 (low severity), DEBT_SPEED_UP -15→-8 (medium), DEBT_FOLLOWUP_HELP -15→-8 (medium). Research confirms "ensure you get" and "following up could help" are low-risk natural phrases; the original -15 deduction was based on bulk-email SpamAssassin heuristics.' },
+    ],
+  },
+  {
     version: 'v4.12.10',
     date: '2026-05-12',
     entries: [

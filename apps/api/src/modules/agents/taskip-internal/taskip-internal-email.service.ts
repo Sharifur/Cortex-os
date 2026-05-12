@@ -6,8 +6,12 @@ import { taskipInternalEmails, taskipInternalEmailReplies } from '../../../db/sc
 import { emailSuppressions } from '../../ses/ses-suppressions.schema';
 import { GmailService } from '../../gmail/gmail.service';
 
-const UNSUBSCRIBE_FOOTER_TEXT = '\n\n---\nReply STOP to unsubscribe.';
-const UNSUBSCRIBE_FOOTER_HTML = `<p style="margin:24px 0 0;padding-top:10px;border-top:1px solid #eee;font-size:11px;color:#aaa">Reply STOP to unsubscribe.</p>`;
+// Footer constants kept for future opt-in use but NOT appended to 1:1 outreach.
+// Research shows appending "Reply STOP to unsubscribe" on personal Gmail sends
+// signals bulk/marketing intent to Gmail's classifier and increases spam report rate.
+// Suppression detection in syncReplies() still runs independently of the footer.
+const _UNSUBSCRIBE_FOOTER_TEXT = '\n\n---\nReply STOP to unsubscribe.';
+const _UNSUBSCRIBE_FOOTER_HTML = `<p style="margin:24px 0 0;padding-top:10px;border-top:1px solid #eee;font-size:11px;color:#aaa">Reply STOP to unsubscribe.</p>`;
 
 const UNSUBSCRIBE_SIGNALS = [
   /\bstop\b/i,
@@ -44,7 +48,7 @@ function buildHtmlEmail(textBody: string, pixelUrl: string): string {
     return `<p style="margin:0 0 12px">${content}</p>`;
   });
   const body = htmlParts.join('');
-  return `<!DOCTYPE html><html><body style="font-family:sans-serif;font-size:14px;line-height:1.6;color:#222;max-width:600px;padding:16px">${body}${UNSUBSCRIBE_FOOTER_HTML}<img src="${pixelUrl}" width="1" height="1" style="display:block;width:1px;height:1px;border:0" alt="" loading="eager"></body></html>`;
+  return `<!DOCTYPE html><html><body style="font-family:sans-serif;font-size:14px;line-height:1.6;color:#222;max-width:600px;padding:16px">${body}<img src="${pixelUrl}" width="1" height="1" style="display:block;width:1px;height:1px;border:0" alt="" loading="eager"></body></html>`;
 }
 
 export type TaskipEmailPurpose = 'marketing' | 'followup' | 'offer' | 'other';
@@ -76,7 +80,7 @@ export class TaskipInternalEmailService {
       return { id, gmailMessageId: null, status: 'failed', error: 'suppressed' };
     }
 
-    const textBody = input.body + UNSUBSCRIBE_FOOTER_TEXT;
+    const textBody = input.body;
     const from = await this.gmail.getFromAddress();
     const trackingToken = createId();
 
