@@ -3860,6 +3860,7 @@ function DesignSamplesTab({ token }: { token: string }) {
   const [uploading, setUploading] = useState(false);
   const [clustering, setClustering] = useState(false);
   const [uploadResult, setUploadResult] = useState('');
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -3977,17 +3978,39 @@ function DesignSamplesTab({ token }: { token: string }) {
 
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
         {samples.map((s: any) => (
-          <div key={s.id} className="bg-card border border-border rounded-xl overflow-hidden">
-            {s.sourceUrl && (
-              <img src={s.sourceUrl} alt={s.title} className="w-full h-32 object-cover" />
+          <div key={s.id} className="bg-card border border-border rounded-xl overflow-hidden flex items-center gap-3 p-3">
+            {s.sourceUrl ? (
+              <button
+                onClick={() => setLightboxUrl(s.sourceUrl)}
+                className="shrink-0 w-[60px] h-[60px] rounded-lg overflow-hidden border border-border focus:outline-none"
+                title="View full image"
+              >
+                <img src={s.sourceUrl} alt={s.title} className="w-full h-full object-cover" />
+              </button>
+            ) : (
+              <div className="shrink-0 w-[60px] h-[60px] rounded-lg bg-muted border border-border" />
             )}
-            <div className="p-2">
+            <div className="min-w-0">
               <p className="text-xs font-medium truncate">{s.title}</p>
               <p className="text-xs text-muted-foreground truncate">{s.category}</p>
             </div>
           </div>
         ))}
       </div>
+
+      {lightboxUrl && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80"
+          onClick={() => setLightboxUrl(null)}
+        >
+          <img
+            src={lightboxUrl}
+            alt="Design sample"
+            className="max-w-[90vw] max-h-[90vh] rounded-xl shadow-2xl object-contain"
+            onClick={e => e.stopPropagation()}
+          />
+        </div>
+      )}
     </div>
   );
 }
