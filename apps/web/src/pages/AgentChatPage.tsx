@@ -651,25 +651,25 @@ function EmailDraftCard({
               </span>
             )}
             {spamResult && (() => {
-              const gradeColors: Record<string, string> = {
-                INBOX_STRONG: 'text-emerald-400',
-                INBOX_LIKELY: 'text-green-400',
-                PROMOTIONS_RISK: 'text-amber-400',
-                SPAM_RISK: 'text-orange-400',
-                BLOCK: 'text-rose-400',
+              const gradeStyles: Record<string, string> = {
+                INBOX_STRONG: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/25',
+                INBOX_LIKELY: 'bg-green-500/15 text-green-400 border-green-500/25',
+                PROMOTIONS_RISK: 'bg-amber-500/15 text-amber-400 border-amber-500/25',
+                SPAM_RISK: 'bg-orange-500/15 text-orange-400 border-orange-500/25',
+                BLOCK: 'bg-rose-500/15 text-rose-400 border-rose-500/25',
               };
               const gradeLabels: Record<string, string> = {
-                INBOX_STRONG: 'Inbox strong',
+                INBOX_STRONG: 'Inbox',
                 INBOX_LIKELY: 'Inbox likely',
-                PROMOTIONS_RISK: 'Promo risk',
+                PROMOTIONS_RISK: 'Promotions',
                 SPAM_RISK: 'Spam risk',
                 BLOCK: 'Blocked',
               };
-              const color = gradeColors[spamResult.grade] ?? 'text-muted-foreground';
+              const style = gradeStyles[spamResult.grade] ?? 'bg-muted text-muted-foreground border-border';
               const label = gradeLabels[spamResult.grade] ?? spamResult.grade;
               return (
-                <span className={`inline-flex items-center gap-1 text-[10px] font-medium ${color}`}>
-                  Spam: {spamResult.score} — {label}
+                <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border ${style}`}>
+                  {label} · {spamResult.score}
                 </span>
               );
             })()}

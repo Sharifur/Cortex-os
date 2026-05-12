@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.13.5',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'fix', scope: 'inbox', description: 'Mark as opened now updates the row immediately via optimistic setQueryData patch, so the opened state reflects without waiting for a refetch. Invalidation also scoped to the active purpose filter key.' },
+      { tag: 'fix', scope: 'chat', description: 'Spam score badge replaced with a color-coded pill: "Inbox · 100" in emerald, "Promotions · N" in amber, "Spam risk · N" in orange, "Blocked · N" in rose. Previous label "Spam: 100 — Inbox strong" was confusing.' },
+    ],
+  },
+  {
     version: 'v4.13.4',
     date: '2026-05-12',
     entries: [
