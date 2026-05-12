@@ -16,6 +16,45 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.12.13',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'fix', scope: 'support', description: 'Webhook normalization: normalizeCrmPayload now handles the actual CRM payload format where the Laravel transformer class is a direct key of data (data["Modules\\\\SupportTicket\\\\..."] = {id, subject}) rather than nested under data.ticket. Added Format 3 detection: grab first value of data if it has an id field. Format 2 (data.ticket wrapper) and Format 1 (flat legacy) retained as fallbacks.' },
+      { tag: 'fix', scope: 'support', description: 'writeWebhookLog now uses raw SQL INSERT instead of Drizzle schema reference so it works on environments where migration 0064 has not run. Error is still caught+logged but does not swallow silently — NestJS logger now shows the table-missing message clearly.' },
+    ],
+  },
+  {
+    version: 'v4.12.12',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'fix', scope: 'inbox', description: 'POST /taskip-internal/inbox/:id/mark-opened 500 — PostgresError: could not determine data type of parameter $1. jsonb_build_object receives bound parameters without type context; added ::text cast to the ISO timestamp parameter so PostgreSQL can resolve the type.' },
+    ],
+  },
+  {
+    version: 'v4.12.11',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'fix', scope: 'email', description: 'Removed "Reply STOP to unsubscribe" footer from 1:1 outreach emails. Research confirms appending this footer on personal Gmail sends signals bulk/marketing intent to Gmail classifier, increasing spam report rate. Reply-STOP detection in syncReplies() and the suppression gate remain active — only the appended footer is removed.' },
+      { tag: 'fix', scope: 'spam-checker', description: 'Relaxed over-aggressive debt-collection content rules for 1:1 personal outreach: DEBT_ENSURE -15→-5 (low severity), DEBT_SPEED_UP -15→-8 (medium), DEBT_FOLLOWUP_HELP -15→-8 (medium). Research confirms "ensure you get" and "following up could help" are low-risk natural phrases; the original -15 deduction was based on bulk-email SpamAssassin heuristics.' },
+    ],
+  },
+  {
+    version: 'v4.12.10',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'fix', scope: 'chat', description: 'Frontend spam score was always showing ~45 regardless of email content because the POST /spam-checker/score call was missing isTransactional: true. The compliance category was always firing -40 (no List-Unsubscribe header) + -35 (no unsub link) + -25 (no address) = constant -100 penalty. These bulk-email rules do not apply to 1:1 personal outreach via Gmail. Score now reflects actual content quality.' },
+    ],
+  },
+  {
+    version: 'v4.12.9',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'feat', scope: 'activity', description: 'Spam check events now visible in the activity panel: spam_check_start shows "Spam check" with subject preview; spam_check_end shows grade/score and pass/fail; spam_rewrite_triggered shows an orange "Rewriting email" entry with the top spam issues. ShieldAlert/ShieldCheck/RotateCcw icons used.' },
+      { tag: 'feat', scope: 'activity', description: 'Tool result entries now show a response_preview (first 500 chars of the API response JSON) so lookup_user results are visible directly in the activity panel — making it easy to see what email/data the Insight API returned.' },
+      { tag: 'fix', scope: 'taskip-internal', description: 'lookup_user cross-references owner.email against Taskip DB. If the email is not found (e.g. contact@xgenious.com vs actual login xgenious51@gmail.com), a _email_warning is appended to the result telling the LLM not to use that address and to resolve via insight_get_lifecycle instead.' },
+    ],
+  },
+  {
     version: 'v4.12.8',
     date: '2026-05-11',
     entries: [

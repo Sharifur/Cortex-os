@@ -737,7 +737,7 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
         const draft = extractEmailDraft(result.content);
         if (draft && spamRevisions < MAX_SPAM_REVISIONS) {
           if (runId) {
-            await this.logSvc.debug(runId, 'Spam check: scoring chat draft', {
+            await this.logSvc.info(runId, 'Spam check: scoring chat draft', {
               event_type: 'spam_check_start',
               email_count: 1,
               subject: draft.subject.slice(0, 60),
@@ -755,10 +755,11 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
           });
           const spamCheckMs = Date.now() - spamCheckStart;
           if (runId) {
-            await this.logSvc.debug(runId, `Spam check: draft ${spamResult.grade}(${spamResult.score})`, {
+            await this.logSvc.info(runId, `Spam check: ${spamResult.grade}(${spamResult.score})`, {
               event_type: 'spam_check_end',
               duration_ms: spamCheckMs,
-              scores: `${spamResult.grade}(${spamResult.score})`,
+              grade: spamResult.grade,
+              score: spamResult.score,
               failed_count: spamResult.score < 60 ? 1 : 0,
               revision: spamRevisions,
             });
@@ -771,6 +772,15 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
               .map((iss: { ruleId: string; message: string; suggestedFix: string }) => `  - [${iss.ruleId}] ${iss.message} -> ${iss.suggestedFix}`)
               .join('\n');
             this.logger.warn(`Chat draft spam check failed: ${spamResult.grade}(${spamResult.score}) — revision ${spamRevisions}/${MAX_SPAM_REVISIONS}`);
+            if (runId) {
+              await this.logSvc.info(runId, `Spam rewrite triggered: ${spamResult.grade}(${spamResult.score}) — revision ${spamRevisions}/${MAX_SPAM_REVISIONS}`, {
+                event_type: 'spam_rewrite_triggered',
+                grade: spamResult.grade,
+                score: spamResult.score,
+                revision: spamRevisions,
+                top_issues: topIssues || null,
+              });
+            }
             messages.push({ role: 'assistant', content: result.content });
             messages.push({
               role: 'user',
@@ -978,12 +988,14 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
         const isError = toolResult && typeof toolResult === 'object' && 'error' in (toolResult as object);
         if (runId) {
           const errorMsg = isError ? String((toolResult as { error: unknown }).error) : undefined;
+          const responsePreview = JSON.stringify(toolResult).slice(0, 500);
           await this.logSvc.debug(runId, `Tool result: ${tc.name}`, {
             event_type: 'tool_call_end',
             tool: tc.name,
             duration_ms: durationMs,
             success: !isError,
             error: errorMsg,
+            response_preview: responsePreview,
           });
         }
         messages.push({
@@ -1697,7 +1709,23 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
             : wsName ? { name: wsName }
             : { email: email ?? emailOrId ?? '' };
           try {
-            return await this.insight.search(searchParams);
+            const insightResult = await this.insight.search(searchParams);
+            // Cross-check: if exact match, verify owner.email exists in Taskip DB.
+            // Insight may store a workspace contact email (e.g. contact@domain.com)
+            // instead of the owner's actual login email.
+            if (insightResult && (insightResult as { mode?: string }).mode === 'exact_match') {
+              const ownerEmail = (insightResult as { data?: { owner?: { email?: string } } }).data?.owner?.email;
+              if (ownerEmail) {
+                const dbUser = await this.taskipDb.lookupUser(ownerEmail).catch(() => null);
+                if (!dbUser) {
+                  return {
+                    ...insightResult,
+                    _email_warning: `owner.email "${ownerEmail}" was NOT found in Taskip DB. This is likely a workspace contact email, not the owner's login email. Do NOT send email to this address. Find the correct login email via insight_get_lifecycle or summarize_user_history with the workspace UUID.`,
+                  };
+                }
+              }
+            }
+            return insightResult;
           } catch (insightErr) {
             if (insightErr instanceof InsightApiError && insightErr.status === 404) {
               const emailFallback = searchParams.email;

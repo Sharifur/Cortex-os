@@ -6,7 +6,7 @@ import {
   Calendar, Clock, CheckCircle2, XCircle,
   AlertCircle, MessageSquare, ListTodo, RotateCcw, History, X,
   ThumbsUp, ThumbsDown, ImagePlus, Copy, Mail, Check, Wrench, Zap,
-  Bold, Italic, List, Radio,
+  Bold, Italic, List, Radio, ShieldAlert, ShieldCheck,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -578,7 +578,7 @@ function EmailDraftCard({
     fetch('/spam-checker/score', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ subject, textBody: body, fromAddress: '', fromDomain: '', recipient: recipient ?? '' }),
+      body: JSON.stringify({ subject, textBody: body, fromAddress: '', fromDomain: '', recipient: recipient ?? '', isTransactional: true }),
     })
       .then(r => r.ok ? r.json() : null)
       .then((d: any) => { if (d?.score != null) setSpamResult({ score: d.score, grade: d.grade }); })
@@ -867,7 +867,7 @@ interface RunUsage {
 interface ActivityEntry {
   id: string;
   at: string;
-  type: 'start' | 'thinking' | 'tool_call' | 'tool_result' | 'decision' | 'approval' | 'error' | 'complete';
+  type: 'start' | 'thinking' | 'tool_call' | 'tool_result' | 'decision' | 'approval' | 'error' | 'complete' | 'spam_check' | 'spam_rewrite';
   label: string;
   detail?: string;
   status?: 'running' | 'success' | 'failed';
@@ -895,6 +895,11 @@ function parseLogsToTimeline(logs: RunLog[], finished: boolean): ActivityEntry[]
       continue;
     }
     if (meta?.event_type === 'tool_call_end') {
+      const detail = meta.error
+        ? String(meta.error)
+        : meta.response_preview
+        ? String(meta.response_preview)
+        : undefined;
       entries.push({
         id: `tce-${log.id}`,
         at,
@@ -902,7 +907,41 @@ function parseLogsToTimeline(logs: RunLog[], finished: boolean): ActivityEntry[]
         label: String(meta.tool ?? 'tool'),
         status: meta.success ? 'success' : 'failed',
         durationMs: meta.duration_ms ? Number(meta.duration_ms) : undefined,
-        detail: meta.error ? String(meta.error) : undefined,
+        detail,
+      });
+      continue;
+    }
+    if (meta?.event_type === 'spam_check_start') {
+      entries.push({
+        id: `scs-${log.id}`,
+        at,
+        type: 'spam_check',
+        label: 'Spam check',
+        detail: meta.subject ? `"${String(meta.subject).slice(0, 50)}"` : undefined,
+        status: 'running',
+      });
+      continue;
+    }
+    if (meta?.event_type === 'spam_check_end') {
+      const passed = Number(meta.score ?? 0) >= 60;
+      entries.push({
+        id: `sce-${log.id}`,
+        at,
+        type: 'spam_check',
+        label: `Spam: ${meta.grade}(${meta.score}) — ${passed ? 'passed' : 'failed'}`,
+        status: passed ? 'success' : 'failed',
+        durationMs: meta.duration_ms ? Number(meta.duration_ms) : undefined,
+      });
+      continue;
+    }
+    if (meta?.event_type === 'spam_rewrite_triggered') {
+      entries.push({
+        id: `srt-${log.id}`,
+        at,
+        type: 'spam_rewrite',
+        label: `Rewriting email — spam score ${meta.grade}(${meta.score}), revision ${meta.revision}`,
+        detail: meta.top_issues ? String(meta.top_issues).slice(0, 120) : undefined,
+        status: 'running',
       });
       continue;
     }
@@ -979,6 +1018,14 @@ function ActivityIcon({ entry }: { entry: ActivityEntry }) {
       return <XCircle className="w-3 h-3 text-red-400" />;
     case 'complete':
       return <CheckCircle2 className="w-3 h-3 text-emerald-400" />;
+    case 'spam_check':
+      return entry.status === 'failed'
+        ? <ShieldAlert className="w-3 h-3 text-red-400" />
+        : entry.status === 'running'
+        ? <Loader2 className="w-3 h-3 text-orange-400 animate-spin" />
+        : <ShieldCheck className="w-3 h-3 text-emerald-400" />;
+    case 'spam_rewrite':
+      return <RotateCcw className="w-3 h-3 text-orange-400" />;
     default:
       return <div className="w-2 h-2 rounded-full bg-border mt-1" />;
   }
@@ -1067,6 +1114,8 @@ function RunActivityPanel({
                   entry.type === 'tool_call' ? 'text-violet-300' :
                   entry.type === 'start' ? 'text-emerald-400' :
                   entry.type === 'approval' ? 'text-amber-400' :
+                  entry.type === 'spam_rewrite' ? 'text-orange-400' :
+                  entry.type === 'spam_check' && entry.status === 'running' ? 'text-orange-400' :
                   'text-foreground/80'
                 }`}>
                   {entry.label}

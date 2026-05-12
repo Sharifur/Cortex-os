@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { eq, desc, sql, and, ilike, or } from 'drizzle-orm';
+import { createId } from '@paralleldrive/cuid2';
 import { DbService } from '../../../db/db.service';
 import { agents } from '../../../db/schema';
 import { supportTickets, supportWebhookLogs } from './schema';
@@ -384,36 +385,52 @@ export class SupportAgent implements IAgent, OnModuleInit {
     rawPayload?: string | null;
     error?: string | null;
   }) {
-    await this.db.db.insert(supportWebhookLogs).values({
-      status: entry.status,
-      externalId: entry.externalId ?? null,
-      ticketId: entry.ticketId ?? null,
-      rawPayload: entry.rawPayload ?? null,
-      error: entry.error ?? null,
-    }).catch((dbErr: unknown) => {
-      this.logger.error(`writeWebhookLog failed: ${(dbErr as Error).message} — entry: ${JSON.stringify({ status: entry.status, externalId: entry.externalId, error: entry.error })}`);
+    const id = createId();
+    await this.db.db.execute(sql`
+      INSERT INTO support_webhook_logs (id, status, external_id, ticket_id, raw_payload, error, received_at)
+      VALUES (
+        ${id}, ${entry.status}, ${entry.externalId ?? null}, ${entry.ticketId ?? null},
+        ${entry.rawPayload ?? null}, ${entry.error ?? null}, NOW()
+      )
+    `).catch((dbErr: unknown) => {
+      this.logger.error(`writeWebhookLog failed (table may not exist on this environment): ${(dbErr as Error).message} | status=${entry.status} externalId=${entry.externalId ?? 'none'} error=${entry.error ?? 'none'}`);
     });
   }
 
   /** Normalize the CRM webhook payload into a flat { ticket, contact } shape.
    *
    * Supported formats:
-   *   1. Flat: { ticket: { id, subject }, contact: { email } }
-   *   2. Nested CRM (Laravel transformer): { event, data: { ticket: { "Modules\\...": { id, subject, created_by } } } }
+   *   1. Flat:            { ticket: { id, subject }, contact: { email } }
+   *   2. Nested (old):    { event, data: { ticket: { "Modules\\...": { id, subject, created_by } } } }
+   *   3. Nested (actual): { event, data: { "Modules\\...": { id, subject, created_by } } }
    */
   private normalizeCrmPayload(payload: any): { ticket: any; contact: any; event: string | null; replyData: any } {
     const event: string | null = payload?.event ?? null;
+    const dataObj = payload?.data;
 
-    // Format 2: new nested CRM format
-    if (payload?.data?.ticket && typeof payload.data.ticket === 'object') {
-      const ticketWrapper = payload.data.ticket;
-      // Laravel wraps under a transformer class name — grab the first value
-      const ticket = Object.values(ticketWrapper)[0] as any;
-      const contact = {
-        email: ticket?.created_by?.email ?? ticket?.user?.email ?? '',
-        name: ticket?.created_by?.full_name ?? ticket?.created_by?.first_name ?? '',
-      };
-      return { ticket, contact, event, replyData: payload?.data?.reply ?? null };
+    if (dataObj && typeof dataObj === 'object') {
+      let ticketCandidate: any = null;
+
+      // Format 3: transformer class is a direct key of data (actual CRM payload)
+      // e.g. data["Modules\\SupportTicket\\Transformers\\SupportTicketResource"] = { id, subject, ... }
+      const firstVal = Object.values(dataObj)[0];
+      if (firstVal && typeof firstVal === 'object' && (firstVal as any).id != null) {
+        ticketCandidate = firstVal;
+      }
+
+      // Format 2: transformer class is nested under data.ticket
+      // e.g. data.ticket["Modules\\..."] = { id, subject, ... }
+      if (!ticketCandidate && dataObj.ticket && typeof dataObj.ticket === 'object') {
+        ticketCandidate = Object.values(dataObj.ticket)[0];
+      }
+
+      if (ticketCandidate?.id != null && ticketCandidate?.subject) {
+        const contact = {
+          email: ticketCandidate?.created_by?.email ?? ticketCandidate?.user?.email ?? '',
+          name: ticketCandidate?.created_by?.full_name ?? ticketCandidate?.created_by?.first_name ?? '',
+        };
+        return { ticket: ticketCandidate, contact, event, replyData: dataObj?.reply ?? null };
+      }
     }
 
     // Format 1: flat legacy format
