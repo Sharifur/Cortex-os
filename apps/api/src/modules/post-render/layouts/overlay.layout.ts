@@ -68,7 +68,6 @@ export function overlayLayout({ slide, contract, width, height, backgroundImageB
               inset: 0,
               background: 'linear-gradient(to top, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.3) 60%, rgba(0,0,0,0) 100%)',
             },
-            children: null,
           },
         },
         {

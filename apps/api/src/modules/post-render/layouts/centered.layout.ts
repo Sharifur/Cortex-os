@@ -21,7 +21,6 @@ export function centeredLayout({ slide, contract, width, height, slideNumber, ba
       type: 'div',
       props: {
         style: { height: contract.accentBar.thickness, width: '100%', backgroundColor: contract.accentColor, marginBottom: 40, flexShrink: 0 },
-        children: null,
       },
     });
   }

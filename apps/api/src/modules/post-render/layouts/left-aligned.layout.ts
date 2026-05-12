@@ -16,7 +16,6 @@ export function leftAlignedLayout({ slide, contract, width, height, slideNumber 
       type: 'div',
       props: {
         style: { width: 6, backgroundColor: contract.accentColor, borderRadius: 3, marginRight: 24, alignSelf: 'stretch', flexShrink: 0 },
-        children: null,
       },
     });
   }

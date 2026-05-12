@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.16.5',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'fix', scope: 'post-render', description: 'Removed children:null from all layout accent-bar and stripe elements — satori crashed with "Cannot read properties of undefined (reading trim)" when processing null children. Activity tab now emits an ERROR log entry when render fails so the panel shows a red error state instead of staying stuck on the last progress step.' },
+    ],
+  },
+  {
     version: 'v4.16.4',
     date: '2026-05-12',
     entries: [

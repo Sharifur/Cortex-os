@@ -46,7 +46,7 @@ export function listLayout({ slide, contract, width, height, slideNumber }: Layo
   if (slide.styleRules.accentType === 'left-stripe') {
     topChildren.push({
       type: 'div',
-      props: { style: { width: 6, backgroundColor: contract.accentColor, borderRadius: 3, marginRight: 24, alignSelf: 'stretch', flexShrink: 0 }, children: null },
+      props: { style: { width: 6, backgroundColor: contract.accentColor, borderRadius: 3, marginRight: 24, alignSelf: 'stretch', flexShrink: 0 } },
     });
   }
 

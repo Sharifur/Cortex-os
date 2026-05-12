@@ -44,6 +44,19 @@ export class PostRendererService {
   ) {}
 
   async render(req: RenderRequest, runId?: string): Promise<RenderResult> {
+    try {
+      return await this._render(req, runId);
+    } catch (err) {
+      const e = err as Error;
+      await this.logSvc.error(runId ?? 'post-render',
+        `Render failed: ${e.message}`,
+        { event_type: 'post_render_error', error: e.message, format_id: req.formatId, brand: req.brand },
+      ).catch(() => {});
+      throw err;
+    }
+  }
+
+  private async _render(req: RenderRequest, runId?: string): Promise<RenderResult> {
     const format = getFormat(req.formatId);
     if (!format) throw new Error(`Unknown format: ${req.formatId}`);
 
