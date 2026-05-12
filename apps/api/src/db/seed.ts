@@ -18,18 +18,6 @@ const AGENT_SEEDS = [
     },
   },
   {
-    key: 'social',
-    name: 'Social Media Handler',
-    description: 'Publishes scheduled posts and drafts replies to comments/DMs across FB, IG, X, and LinkedIn for Taskip and Xgenious.',
-    enabled: false,
-    config: {
-      brands: ['taskip', 'xgenious'],
-      platforms: ['fb', 'ig', 'x', 'linkedin'],
-      replyTone: 'friendly, professional, adds value — never salesy',
-      llm: { provider: 'auto', model: 'gpt-4o-mini' },
-    },
-  },
-  {
     key: 'canva',
     name: 'Social Media Banner Design Agent',
     description: 'Generates a 30-idea monthly content calendar on the 1st of each month and creates Canva designs for approved ideas.',

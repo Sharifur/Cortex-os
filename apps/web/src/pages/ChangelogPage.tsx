@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.14.9',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'chore', scope: 'agents', description: 'Removed Social Media Handler (social) and YouTube Shorts Creator (shorts) agents — deregistered from app.module.ts, seed.ts, and Telegram routing menus.' },
+    ],
+  },
+  {
     version: 'v4.14.8',
     date: '2026-05-12',
     entries: [
