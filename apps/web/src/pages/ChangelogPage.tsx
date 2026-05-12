@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.15.0',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'fix', scope: 'migrate', description: 'Standalone migrate.ts (node dist/src/migrate) now logs journal entry count, wraps the client in try/finally so it always closes, throws a clear error if the drizzle folder cannot be found, and calls process.exit(0) on success so Coolify post-deploy commands exit cleanly instead of hanging.' },
+    ],
+  },
+  {
     version: 'v4.14.9',
     date: '2026-05-12',
     entries: [

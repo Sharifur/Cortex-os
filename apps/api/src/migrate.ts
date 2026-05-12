@@ -16,25 +16,32 @@ function findMigrationsFolder(): string {
   for (const p of candidates) {
     if (fs.existsSync(path.join(p, 'meta', '_journal.json'))) return p;
   }
-  return candidates[0];
+  throw new Error(
+    `drizzle migrations folder not found. Searched:\n${candidates.join('\n')}\nSet DRIZZLE_MIGRATIONS_FOLDER to override.`,
+  );
 }
 
 async function runMigrations() {
   if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is not set');
 
-  const client = postgres(process.env.DATABASE_URL, { max: 1 });
-  const db = drizzle(client);
-
   const migrationsFolder = findMigrationsFolder();
-  console.log(`[migrate] running migrations from ${migrationsFolder}`);
+  const journal = JSON.parse(fs.readFileSync(path.join(migrationsFolder, 'meta', '_journal.json'), 'utf8'));
+  console.log(`[migrate] folder: ${migrationsFolder}`);
+  console.log(`[migrate] journal entries: ${journal.entries.length}`);
 
-  await migrate(db, { migrationsFolder });
-
-  console.log('[migrate] complete');
-  await client.end();
+  const client = postgres(process.env.DATABASE_URL, { max: 1 });
+  try {
+    const db = drizzle(client);
+    await migrate(db, { migrationsFolder });
+    console.log('[migrate] all migrations applied successfully');
+  } finally {
+    await client.end();
+  }
 }
 
-runMigrations().catch((err) => {
-  console.error('[migrate] failed:', err);
-  process.exit(1);
-});
+runMigrations()
+  .then(() => process.exit(0))
+  .catch((err) => {
+    console.error('[migrate] failed:', err);
+    process.exit(1);
+  });
