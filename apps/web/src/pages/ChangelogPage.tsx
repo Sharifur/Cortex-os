@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.12.13',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'fix', scope: 'support', description: 'Webhook normalization: normalizeCrmPayload now handles the actual CRM payload format where the Laravel transformer class is a direct key of data (data["Modules\\\\SupportTicket\\\\..."] = {id, subject}) rather than nested under data.ticket. Added Format 3 detection: grab first value of data if it has an id field. Format 2 (data.ticket wrapper) and Format 1 (flat legacy) retained as fallbacks.' },
+      { tag: 'fix', scope: 'support', description: 'writeWebhookLog now uses raw SQL INSERT instead of Drizzle schema reference so it works on environments where migration 0064 has not run. Error is still caught+logged but does not swallow silently — NestJS logger now shows the table-missing message clearly.' },
+    ],
+  },
+  {
     version: 'v4.12.12',
     date: '2026-05-12',
     entries: [
