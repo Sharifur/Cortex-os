@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.15.8',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'fix', scope: 'dev', description: 'Added missing agent route prefixes to Vite dev proxy: /taskip-internal, /support, /canva, /email-manager, /linkedin, /reddit, /whatsapp. Without these the inbox and other agent pages returned empty data locally because requests were served by Vite instead of the API.' },
+    ],
+  },
+  {
     version: 'v4.15.7',
     date: '2026-05-12',
     entries: [
