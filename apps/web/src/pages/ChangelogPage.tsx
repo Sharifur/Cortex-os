@@ -16,6 +16,17 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.16.7',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'fix', scope: 'post-render', description: 'Local filesystem fallback for slide PNGs when R2 is not configured — slides saved to ~/Designs/AI-Agent/Renders/<renderId>/ and served via /posts/renders/:id/slides/:n/png.' },
+      { tag: 'fix', scope: 'post-render', description: 'Fixed "cannot cast type record to text[]" — replaced raw SQL INSERT with Drizzle ORM .insert().values() so slideUrls array is properly persisted.' },
+      { tag: 'fix', scope: 'post-render', description: 'Satori crash on undefined CSS values fixed in centered and overlay layouts — backgroundImage/backgroundColor now use conditional spread instead of explicit undefined.' },
+      { tag: 'fix', scope: 'post-render', description: 'Added missing journal entries for migrations 0064-0065 so Drizzle applies them on next db:migrate run.' },
+      { tag: 'feat', scope: 'chat', description: 'Progressive slide rendering in chat — while a render is in progress the chat shows a live grid with completed slide thumbnails and skeleton placeholders for pending slides. Final result renders a full SlideGrid.' },
+    ],
+  },
+  {
     version: 'v4.16.6',
     date: '2026-05-12',
     entries: [

@@ -126,10 +126,9 @@ export function centeredLayout({ slide, contract, width, height, slideNumber, ba
         flexDirection: 'column',
         width,
         height,
-        backgroundColor: backgroundImageBase64 ? undefined : bg,
-        backgroundImage: backgroundImageBase64 ? `url(${backgroundImageBase64})` : undefined,
-        backgroundSize: 'cover',
-        backgroundPosition: 'center',
+        ...(backgroundImageBase64
+          ? { backgroundImage: `url(${backgroundImageBase64})`, backgroundSize: 'cover', backgroundPosition: 'center' }
+          : { backgroundColor: bg }),
         fontFamily: contract.bodyFont,
         paddingTop: contract.paddingY,
       },

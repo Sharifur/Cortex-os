@@ -1,6 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
+import * as fs from 'fs/promises';
+import * as path from 'path';
+import * as os from 'os';
 import { createId } from '@paralleldrive/cuid2';
 import { eq, sql } from 'drizzle-orm';
+
+const LOCAL_RENDERS_DIR = path.join(os.homedir(), 'Designs', 'AI-Agent', 'Renders');
 import { DbService } from '../../db/db.service';
 import { StorageService } from '../storage/storage.service';
 import { AgentLogService } from '../agents/runtime/agent-log.service';
@@ -60,9 +65,11 @@ export class PostRendererService {
     const format = getFormat(req.formatId);
     if (!format) throw new Error(`Unknown format: ${req.formatId}`);
 
+    const renderId = createId();
+
     await this.logSvc.info(runId ?? 'post-render',
       `Post render: ${format.name} for ${req.brand}`,
-      { event_type: 'post_render_start', format_id: format.id, brand: req.brand, topic: req.topic, slide_count: format.slides.length },
+      { event_type: 'post_render_start', format_id: format.id, brand: req.brand, topic: req.topic, slide_count: format.slides.length, render_id: renderId },
     ).catch(() => {});
 
     // Resolve brand identity
@@ -110,6 +117,10 @@ export class PostRendererService {
     // Render slides to PNG
     const slideUrls: string[] = [];
     const t0Upload = Date.now();
+    const storageConfigured = await this.storage.isConfigured();
+    if (!storageConfigured) {
+      await fs.mkdir(path.join(LOCAL_RENDERS_DIR, renderId), { recursive: true });
+    }
 
     await this.logSvc.debug(runId ?? 'post-render',
       `Uploading ${filledSlides.length} slides to storage`,
@@ -171,29 +182,37 @@ export class PostRendererService {
         { event_type: 'post_render_slide_done', slide_index: i, size_bytes: pngBuffer.length, duration_ms: Date.now() - t0Slide },
       ).catch(() => {});
 
-      // Upload to Minio
-      const stored = await this.storage.upload({
-        module: 'post-render',
-        refKey: `${req.brand}/${format.id}`,
-        body: pngBuffer,
-        declaredMime: 'image/png',
-        originalFilename: `slide-${i + 1}.png`,
-      });
-      slideUrls.push(stored.url);
+      if (storageConfigured) {
+        const stored = await this.storage.upload({
+          module: 'post-render',
+          refKey: `${req.brand}/${format.id}`,
+          body: pngBuffer,
+          declaredMime: 'image/png',
+          originalFilename: `slide-${i + 1}.png`,
+        });
+        slideUrls.push(stored.url);
+      } else {
+        const localFile = path.join(LOCAL_RENDERS_DIR, renderId, `slide-${i + 1}.png`);
+        await fs.writeFile(localFile, pngBuffer);
+        slideUrls.push(`/posts/renders/${renderId}/slides/${i + 1}/png`);
+        this.logger.warn(`Storage not configured — saved slide ${i + 1} locally: ${localFile}`);
+      }
     }
-
-    // Persist render record
-    const renderId = createId();
     const filledContent: Record<string, Record<string, string | string[]>> = {};
     for (const s of filledSlides) {
       filledContent[`slide_${s.slideIndex}`] = s.slots;
     }
 
-    await this.db.db.execute(sql`
-      INSERT INTO post_renders (id, format_id, brand, topic, intent, filled_content, slide_urls, status, created_at)
-      VALUES (${renderId}, ${format.id}, ${req.brand}, ${req.topic ?? null}, ${req.intent ?? null},
-              ${JSON.stringify(filledContent)}::jsonb, ${slideUrls}::text[], 'draft', NOW())
-    `);
+    await this.db.db.insert(postRenders).values({
+      id: renderId,
+      formatId: format.id,
+      brand: req.brand,
+      topic: req.topic ?? null,
+      intent: req.intent ?? null,
+      filledContent,
+      slideUrls,
+      status: 'draft',
+    });
 
     const totalBytes = slideUrls.length * 1024; // approximate
     await this.logSvc.info(runId ?? 'post-render',

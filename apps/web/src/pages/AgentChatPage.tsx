@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, Link, useLocation, useSearchParams } from 'react-router-dom';
 import {
@@ -101,6 +101,7 @@ async function apiFetch(token: string, path: string, opts?: RequestInit) {
 }
 
 const EMAIL_DRAFT_PREFIX = '__EMAIL_DRAFT__:';
+const SLIDE_RENDER_PREFIX = '__SLIDE_RENDER__:';
 
 interface InlineEmail {
   before: string;       // reasoning block shown above the card
@@ -235,7 +236,14 @@ function extractResponse(run: RunDetail): string {
 
   // For auto-executed actions (e.g. post_render), the result message lives in run.result
   const execResult = run.result?.find((r) => r.data?.['message']);
-  if (execResult?.data?.['message']) return String(execResult.data['message']);
+  if (execResult?.data?.['message']) {
+    const slideUrls = execResult.data['slideUrls'] as string[] | undefined;
+    const renderId = execResult.data['renderId'] as string | undefined;
+    if (slideUrls?.length) {
+      return SLIDE_RENDER_PREFIX + JSON.stringify({ slideUrls, renderId, message: String(execResult.data['message']) });
+    }
+    return String(execResult.data['message']);
+  }
 
   const batchAction = actions.find((a) => a.type === 'batch_send_email');
   if (batchAction) {
@@ -757,6 +765,72 @@ function TypingBubble({ color }: { color: ReturnType<typeof agentColor> }) {
   );
 }
 
+// ─── Slide render progress bubble ────────────────────────────────────────────
+
+function RenderProgressBubble({
+  color, progress,
+}: {
+  color: ReturnType<typeof agentColor>;
+  progress: { totalSlides: number; renderId: string; doneCount: number };
+}) {
+  const { totalSlides, renderId, doneCount } = progress;
+  return (
+    <div className="flex items-end gap-2">
+      <div className={`w-7 h-7 rounded-lg ${color.iconBg} flex items-center justify-center shrink-0`}>
+        <Bot className={`w-3.5 h-3.5 ${color.iconText}`} />
+      </div>
+      <div className={`rounded-2xl rounded-bl-sm px-4 py-3 ${color.bubble} max-w-sm`}>
+        <p className="text-xs text-muted-foreground mb-2.5">
+          Rendering slides — {doneCount}/{totalSlides}
+        </p>
+        <div className="grid grid-cols-3 gap-2">
+          {Array.from({ length: totalSlides }).map((_, i) => {
+            const n = i + 1;
+            const isDone = n <= doneCount;
+            const url = renderId ? `/posts/renders/${renderId}/slides/${n}/png` : null;
+            return isDone && url ? (
+              <SlideThumb key={i} url={url} n={n} />
+            ) : (
+              <div key={i} className="aspect-square rounded-lg bg-muted/50 animate-pulse flex items-center justify-center">
+                <span className="text-[10px] text-muted-foreground/40">{n}</span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SlideThumb({ url, n }: { url: string; n: number }) {
+  const [loaded, setLoaded] = useState(false);
+  return (
+    <div className="aspect-square rounded-lg overflow-hidden bg-muted/50 relative">
+      {!loaded && <div className="absolute inset-0 animate-pulse bg-muted/60" />}
+      <img
+        src={url}
+        alt={`Slide ${n}`}
+        className={`w-full h-full object-cover transition-opacity duration-300 ${loaded ? 'opacity-100' : 'opacity-0'}`}
+        onLoad={() => setLoaded(true)}
+      />
+    </div>
+  );
+}
+
+function SlideGrid({ slideUrls, renderId }: { slideUrls: string[]; renderId?: string }) {
+  void renderId;
+  return (
+    <div className="space-y-2">
+      <p className="text-xs text-muted-foreground">{slideUrls.length} slides rendered</p>
+      <div className="grid grid-cols-3 gap-2">
+        {slideUrls.map((url, i) => (
+          <SlideThumb key={i} url={url} n={i + 1} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ─── Message bubble ───────────────────────────────────────────────────────────
 
 function MessageBubble({
@@ -780,6 +854,17 @@ function MessageBubble({
       )}
       <div className={`max-w-[80%] group`}>
         {(() => {
+          // Slide render result
+          if (!isUser && msg.content.startsWith(SLIDE_RENDER_PREFIX)) {
+            try {
+              const { slideUrls, renderId } = JSON.parse(msg.content.slice(SLIDE_RENDER_PREFIX.length));
+              return (
+                <div className={`rounded-2xl rounded-bl-sm px-4 py-3 ${color.bubble}`}>
+                  <SlideGrid slideUrls={slideUrls} renderId={renderId} />
+                </div>
+              );
+            } catch { /* fall through */ }
+          }
           // Structured email draft from proposedActions
           if (!isUser && msg.content.startsWith(EMAIL_DRAFT_PREFIX)) {
             try {
@@ -1331,6 +1416,31 @@ function ChatTab({
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isThinking]);
 
+  // Poll active run logs to track render progress (shared cache with ActivityPanel)
+  const { data: activeRunLogs } = useQuery<{ logs: RunLog[]; finished: boolean }>({
+    queryKey: ['run-logs', activeRunId],
+    enabled: !!activeRunId,
+    queryFn: () => apiFetch(token, `/runs/${activeRunId}/logs`),
+    refetchInterval: (query) => (!activeRunId || query.state.data?.finished) ? false : 1500,
+  });
+
+  const renderProgress = useMemo(() => {
+    if (!activeRunLogs?.logs) return null;
+    let totalSlides = 0;
+    let renderId = '';
+    let doneCount = 0;
+    for (const log of activeRunLogs.logs) {
+      const meta = log.meta ?? {};
+      if (meta['event_type'] === 'post_render_start') {
+        totalSlides = Number(meta['slide_count']) || 0;
+        renderId = String(meta['render_id'] ?? '');
+      }
+      if (meta['event_type'] === 'post_render_slide_done') doneCount++;
+    }
+    if (!totalSlides) return null;
+    return { totalSlides, renderId, doneCount };
+  }, [activeRunLogs]);
+
   // Poll active run
   const { data: runData } = useQuery<RunDetail>({
     queryKey: ['run-poll', activeRunId],
@@ -1615,7 +1725,11 @@ function ChatTab({
           <MessageBubble key={msg.id} msg={msg} color={color} agentName={agent.name} onFeedback={handleFeedback} token={token ?? ''} agentKey={agent.key} />
         ))}
 
-        {isThinking && <TypingBubble color={color} />}
+        {isThinking && (
+  renderProgress
+    ? <RenderProgressBubble color={color} progress={renderProgress} />
+    : <TypingBubble color={color} />
+)}
         <div ref={bottomRef} />
         </div>
       </div>
