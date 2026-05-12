@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.13.3',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'feat', scope: 'post-renders', description: 'Added standalone Post Renders page at /post-renders with nav entry. Includes two tabs: Post Renders (generate form with format/brand/intent/topic inputs, renders list with slide thumbnails, approve/reject, PPTX/CSV/text download links) and Design Samples & Training (drag-and-drop upload zone, brand selector, upload DNA results with color swatches, learned patterns display, sample grid with hover overlay). The page is accessible directly from the sidebar without going through the Canva agent tab.' },
+    ],
+  },
+  {
     version: 'v4.13.2',
     date: '2026-05-12',
     entries: [
