@@ -4637,6 +4637,65 @@ function CanvaSetupTab({ agent, token }: { agent: AgentDetail; token: string }) 
 
       </div>
 
+      {/* Post Format Engine */}
+      <div className="border border-border rounded-xl overflow-hidden">
+        <div className="px-4 py-3 border-b border-border bg-muted/20">
+          <p className="text-sm font-medium">Post Format Engine</p>
+          <p className="text-xs text-muted-foreground mt-0.5">Self-hosted Satori+Resvg renderer — no Canva account needed. Works out of the box once a brand is configured.</p>
+        </div>
+        <div className="px-4 py-4 space-y-4 text-sm">
+          <div className="space-y-2">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Quick test prompts</p>
+            <div className="space-y-1">
+              {[
+                'Generate a linkedin-tips-carousel for brand taskip about "5 ways to save time on client work"',
+                'Generate a linkedin-stat-single for brand taskip about "87% of freelancers waste 4 hours a week"',
+                'Generate an instagram-story-tip for brand taskip about "one habit that saves 2 hours"',
+                'Generate a generic-checklist for brand taskip about "before you launch: SaaS checklist"',
+                'Generate a facebook-ad-banner for brand taskip targeting freelancers',
+              ].map(p => (
+                <button
+                  key={p}
+                  onClick={() => navigate(`/agents/canva/chat`)}
+                  title="Click to open chat, then paste this prompt"
+                  className="w-full text-left text-xs bg-muted/60 border border-border rounded-lg px-3 py-2 hover:bg-muted transition-colors font-mono text-muted-foreground hover:text-foreground truncate"
+                >
+                  {p}
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={() => navigate('/agents/canva/chat')}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs bg-primary text-primary-foreground rounded-lg hover:opacity-90 mt-1"
+            >
+              Open chat
+            </button>
+          </div>
+
+          <div className="space-y-2 border-t border-border pt-3">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Training with design samples</p>
+            <ol className="text-xs text-muted-foreground space-y-1.5 list-decimal list-inside">
+              <li>Go to the <strong className="text-foreground">Design Samples</strong> tab above and set your brand name</li>
+              <li>Click <strong className="text-foreground">Upload samples</strong> — select 10–200 PNG/JPG design images</li>
+              <li>Each image is analyzed by GPT-4V which extracts layout, colors, typography, and mood patterns</li>
+              <li>After uploading 20+ samples, click <strong className="text-foreground">Learn patterns</strong> to cluster them into reusable style rules</li>
+              <li>Every future render for this brand reads the learned patterns as style context</li>
+            </ol>
+            <button
+              onClick={() => {/* tab switch handled by parent */}}
+              className="text-xs text-primary underline"
+            >
+              Full training guide: docs/post-render-engine.md
+            </button>
+          </div>
+
+          <div className="space-y-1 border-t border-border pt-3">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Canva export</p>
+            <p className="text-xs text-muted-foreground">Every render can be downloaded as PPTX (full editable layers in Canva), Canva Bulk Create CSV, or plain text. Find download links in the <strong className="text-foreground">Post Renders</strong> tab.</p>
+          </div>
+        </div>
+      </div>
+
       {/* Optional: Canva MCP */}
       <div className="border border-border rounded-xl overflow-hidden">
         <button
