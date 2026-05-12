@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.14.5',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'Post Renders brand field is now a select dropdown populated from saved canva brands. First brand is auto-selected on load. Falls back to a text input if no brands are configured yet.' },
+    ],
+  },
+  {
     version: 'v4.14.4',
     date: '2026-05-12',
     entries: [

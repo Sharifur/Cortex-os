@@ -3719,6 +3719,7 @@ const STATIC_FORMATS = [
 // Post Renders Tab
 function PostRendersTab({ token }: { token: string }) {
   const [formats, setFormats] = useState<any[]>(STATIC_FORMATS);
+  const [brands, setBrands] = useState<string[]>([]);
   const [renders, setRenders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
@@ -3729,9 +3730,13 @@ function PostRendersTab({ token }: { token: string }) {
     Promise.all([
       apiFetch(token, '/posts/formats').catch(() => null),
       apiFetch(token, '/posts/renders?limit=30').catch(() => []),
-    ]).then(([f, r]) => {
+      apiFetch(token, '/canva/brands').catch(() => []),
+    ]).then(([f, r, b]) => {
       if (Array.isArray(f) && f.length > 0) setFormats(f);
       setRenders(Array.isArray(r) ? r : []);
+      const brandNames: string[] = Array.isArray(b) ? b.map((br: any) => br.name).filter(Boolean) : [];
+      setBrands(brandNames);
+      if (brandNames.length > 0) setForm(prev => ({ ...prev, brand: prev.brand || brandNames[0] }));
     }).finally(() => setLoading(false));
   }, [token]);
 
@@ -3771,12 +3776,23 @@ function PostRendersTab({ token }: { token: string }) {
           </div>
           <div>
             <label className="text-xs text-muted-foreground mb-1 block">Brand</label>
-            <input
-              className="w-full bg-muted border border-border rounded-lg px-3 py-2 text-sm"
-              placeholder="taskip"
-              value={form.brand}
-              onChange={e => setForm(f => ({ ...f, brand: e.target.value }))}
-            />
+            {brands.length > 0 ? (
+              <select
+                className="w-full bg-muted border border-border rounded-lg px-3 py-2 text-sm"
+                value={form.brand}
+                onChange={e => setForm(f => ({ ...f, brand: e.target.value }))}
+              >
+                <option value="">Select brand...</option>
+                {brands.map(b => <option key={b} value={b}>{b}</option>)}
+              </select>
+            ) : (
+              <input
+                className="w-full bg-muted border border-border rounded-lg px-3 py-2 text-sm"
+                placeholder="taskip"
+                value={form.brand}
+                onChange={e => setForm(f => ({ ...f, brand: e.target.value }))}
+              />
+            )}
           </div>
           <div>
             <label className="text-xs text-muted-foreground mb-1 block">Topic</label>
