@@ -16,6 +16,15 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.16.3',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'Design Samples cards now show a 60x60 thumbnail. Clicking the thumbnail opens the full-size image in a lightbox overlay (click outside to close).' },
+      { tag: 'feat', scope: 'debug', description: 'DebugLogsPage stats and log list now show animated skeleton placeholders while loading instead of empty state.' },
+      { tag: 'fix', scope: 'post-render', description: 'Added error logging with stack traces to satori render crashes and postRenders SELECT failures — easier to diagnose render pipeline errors.' },
+    ],
+  },
+  {
     version: 'v4.16.2',
     date: '2026-05-12',
     entries: [
