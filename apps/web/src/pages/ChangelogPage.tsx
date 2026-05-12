@@ -16,6 +16,15 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.14.3',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'fix', scope: 'chat', description: 'Email card SPAR parser now finds the last **Email:** section marker (followed by newline) rather than the first occurrence. Workspace context fields like **Email:** user@domain.com were being matched first, causing the entire workspace context and reasoning block to appear as the email body inside the card.' },
+      { tag: 'fix', scope: 'canva', description: 'Post Renders format dropdown now shows all 15 built-in formats immediately using a static fallback list — no longer empty when the /posts/formats API is unavailable. Added /posts to Vite proxy so the API call also works in dev.' },
+      { tag: 'fix', scope: 'canva', description: 'Design Samples upload resets the file input after each upload so users can select and upload new batches immediately without refreshing. Fixed upload URL to remove spurious /api/ prefix.' },
+    ],
+  },
+  {
     version: 'v4.14.2',
     date: '2026-05-12',
     entries: [

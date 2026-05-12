@@ -3698,9 +3698,27 @@ function CanvaAgentPage({ agent, token }: { agent: AgentDetail; token: string })
   );
 }
 
+const STATIC_FORMATS = [
+  { id: 'linkedin-tips-carousel',    name: 'LinkedIn Tips Carousel',       platform: 'linkedin' },
+  { id: 'linkedin-howto-carousel',   name: 'LinkedIn How-To Steps',        platform: 'linkedin' },
+  { id: 'linkedin-stat-single',      name: 'LinkedIn Stat Card',           platform: 'linkedin' },
+  { id: 'linkedin-quote-single',     name: 'LinkedIn Pull Quote',          platform: 'linkedin' },
+  { id: 'linkedin-list-carousel',    name: 'LinkedIn Numbered List',       platform: 'linkedin' },
+  { id: 'instagram-quote',           name: 'Instagram Quote Card',         platform: 'instagram' },
+  { id: 'instagram-fact',            name: 'Instagram Fact / Stat Card',   platform: 'instagram' },
+  { id: 'instagram-carousel-edu',    name: 'Instagram Edu Carousel',       platform: 'instagram' },
+  { id: 'instagram-story-tip',       name: 'Instagram Story — Tip',        platform: 'instagram' },
+  { id: 'instagram-story-announce',  name: 'Instagram Story — Announcement', platform: 'instagram' },
+  { id: 'twitter-announcement',      name: 'Twitter Wide Card',            platform: 'twitter' },
+  { id: 'twitter-thread-card',       name: 'Twitter Thread Visual',        platform: 'twitter' },
+  { id: 'facebook-ad-banner',        name: 'Facebook Ad Banner',           platform: 'facebook' },
+  { id: 'generic-infographic',       name: '3-Column Infographic',         platform: 'any' },
+  { id: 'generic-checklist',         name: 'Checklist Card',               platform: 'any' },
+];
+
 // Post Renders Tab
 function PostRendersTab({ token }: { token: string }) {
-  const [formats, setFormats] = useState<any[]>([]);
+  const [formats, setFormats] = useState<any[]>(STATIC_FORMATS);
   const [renders, setRenders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
@@ -3709,12 +3727,12 @@ function PostRendersTab({ token }: { token: string }) {
 
   useEffect(() => {
     Promise.all([
-      apiFetch(token, '/posts/formats'),
-      apiFetch(token, '/posts/renders?limit=30'),
+      apiFetch(token, '/posts/formats').catch(() => null),
+      apiFetch(token, '/posts/renders?limit=30').catch(() => []),
     ]).then(([f, r]) => {
-      setFormats(Array.isArray(f) ? f : []);
+      if (Array.isArray(f) && f.length > 0) setFormats(f);
       setRenders(Array.isArray(r) ? r : []);
-    }).catch(() => {}).finally(() => setLoading(false));
+    }).finally(() => setLoading(false));
   }, [token]);
 
   async function generate() {
@@ -3849,7 +3867,7 @@ function DesignSamplesTab({ token }: { token: string }) {
     try {
       const fd = new FormData();
       for (const f of Array.from(files)) fd.append('files', f);
-      const res = await fetch(`/api/posts/design-samples/upload?brand=${brand}`, {
+      const res = await fetch(`/posts/design-samples/upload?brand=${brand}`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
         body: fd,
@@ -3861,6 +3879,7 @@ function DesignSamplesTab({ token }: { token: string }) {
       setUploadResult('Upload failed');
     } finally {
       setUploading(false);
+      if (fileRef.current) fileRef.current.value = '';
     }
   }
 

@@ -5,7 +5,7 @@ import path from 'path';
 const API_PATHS = [
   '/auth', '/agents', '/runs', '/approvals', '/health', '/metrics',
   '/settings', '/integrations', '/dashboard', '/mcp', '/knowledge-base', '/tasks',
-  '/hr', '/livechat', '/llm-usage', '/push',
+  '/hr', '/livechat', '/llm-usage', '/push', '/posts',
 ];
 
 export default defineConfig({

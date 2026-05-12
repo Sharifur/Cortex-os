@@ -133,13 +133,22 @@ function stripSubjectLines(text: string): string {
 //   Legacy: **Subject:** … **Body:** \n body
 function extractInlineEmail(text: string): InlineEmail | null {
   // ── SPAR format ──────────────────────────────────────────────────────────────
-  // emailMarkerRe: **Email:** optionally followed by a space/newline, or body on same line
-  const emailMarkerRe = /\*{0,2}Email:\*{0,2}\s*\n?/i;
-  const emailMarkerIdx = text.search(emailMarkerRe);
+  // Find the LAST **Email:** that is a section break (followed by newline only).
+  // Workspace context lines like "**Email:** user@domain.com" have text on the
+  // same line, so they won't match the trailing \n requirement.
+  const emailSectionRe = /\*{0,2}Email:\*{0,2}[ \t]*\n/gi;
+  let emailMarkerIdx = -1;
+  let lastMatchLen = 0;
+  {
+    let m: RegExpExecArray | null;
+    while ((m = emailSectionRe.exec(text)) !== null) {
+      emailMarkerIdx = m.index;
+      lastMatchLen = m[0].length;
+    }
+  }
 
   if (emailMarkerIdx >= 0) {
-    const markerMatch = text.match(emailMarkerRe)!;
-    const bodyStart = emailMarkerIdx + markerMatch[0].length;
+    const bodyStart = emailMarkerIdx + lastMatchLen;
     const afterEmail = text.slice(bodyStart);
 
     // Body ends at **Self-score:**, **Recommended:**, or another **bold:** meta-line
