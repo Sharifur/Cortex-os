@@ -46,6 +46,7 @@ import { PushModule } from './modules/push/push.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { TrackingModule } from './modules/tracking/tracking.module';
 import { EmailSanitizerModule } from './modules/email-sanitizer/email-sanitizer.module';
+import { PostRenderModule } from './modules/post-render/post-render.module';
 
 @Module({
   imports: [
@@ -114,6 +115,7 @@ import { EmailSanitizerModule } from './modules/email-sanitizer/email-sanitizer.
     NotificationsModule,
     TrackingModule,
     EmailSanitizerModule,
+    PostRenderModule,
   ],
 })
 export class AppModule {}

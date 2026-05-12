@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
@@ -3626,7 +3626,7 @@ function AgentDetailSkeleton() {
 
 // ─── Canva Agent Page (T17, T18, T19, T28, T29) ────────────────────────────
 
-type CanvaTab = 'candidates' | 'brands' | 'settings' | 'setup';
+type CanvaTab = 'candidates' | 'brands' | 'renders' | 'design-samples' | 'settings' | 'setup';
 
 interface CanvaCandidate {
   id: string;
@@ -3665,7 +3665,9 @@ function CanvaAgentPage({ agent, token }: { agent: AgentDetail; token: string })
 
   const tabs: { key: CanvaTab; label: string }[] = [
     { key: 'candidates', label: 'Candidates' },
+    { key: 'renders', label: 'Post Renders' },
     { key: 'brands', label: 'Brands' },
+    { key: 'design-samples', label: 'Design Samples' },
     { key: 'settings', label: 'Settings' },
     { key: 'setup', label: 'Setup' },
   ];
@@ -3687,9 +3689,250 @@ function CanvaAgentPage({ agent, token }: { agent: AgentDetail; token: string })
       </div>
 
       {tab === 'candidates' && <CanvaCandidatesTab token={token} />}
+      {tab === 'renders' && <PostRendersTab token={token} />}
       {tab === 'brands' && <CanvaBrandsTab token={token} />}
+      {tab === 'design-samples' && <DesignSamplesTab token={token} />}
       {tab === 'settings' && <CanvaSettingsTab agent={agent} token={token} />}
       {tab === 'setup' && <CanvaSetupTab agent={agent} token={token} />}
+    </div>
+  );
+}
+
+// Post Renders Tab
+function PostRendersTab({ token }: { token: string }) {
+  const [formats, setFormats] = useState<any[]>([]);
+  const [renders, setRenders] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [generating, setGenerating] = useState(false);
+  const [form, setForm] = useState({ formatId: '', brand: '', topic: '', intent: '' });
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    Promise.all([
+      apiFetch(token, '/posts/formats'),
+      apiFetch(token, '/posts/renders?limit=30'),
+    ]).then(([f, r]) => {
+      setFormats(Array.isArray(f) ? f : []);
+      setRenders(Array.isArray(r) ? r : []);
+    }).catch(() => {}).finally(() => setLoading(false));
+  }, [token]);
+
+  async function generate() {
+    if (!form.formatId || !form.brand) { setError('Format and brand are required'); return; }
+    setGenerating(true); setError('');
+    try {
+      const res = await apiFetch(token, '/posts/render', { method: 'POST', body: JSON.stringify(form) });
+      setRenders(prev => [res, ...prev]);
+      setForm(f => ({ ...f, topic: '', intent: '' }));
+    } catch (e: any) {
+      setError(e.message ?? 'Render failed');
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  if (loading) return <p className="text-sm text-muted-foreground">Loading...</p>;
+
+  return (
+    <div className="space-y-5">
+      <div className="bg-card border border-border rounded-xl p-4 space-y-3">
+        <p className="text-sm font-medium">Generate new render</p>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">Format</label>
+            <select
+              className="w-full bg-muted border border-border rounded-lg px-3 py-2 text-sm"
+              value={form.formatId}
+              onChange={e => setForm(f => ({ ...f, formatId: e.target.value }))}
+            >
+              <option value="">Select format...</option>
+              {formats.map((f: any) => (
+                <option key={f.id} value={f.id}>{f.name} ({f.platform})</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">Brand</label>
+            <input
+              className="w-full bg-muted border border-border rounded-lg px-3 py-2 text-sm"
+              placeholder="taskip"
+              value={form.brand}
+              onChange={e => setForm(f => ({ ...f, brand: e.target.value }))}
+            />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">Topic</label>
+            <input
+              className="w-full bg-muted border border-border rounded-lg px-3 py-2 text-sm"
+              placeholder="client portals for freelancers"
+              value={form.topic}
+              onChange={e => setForm(f => ({ ...f, topic: e.target.value }))}
+            />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">Intent</label>
+            <input
+              className="w-full bg-muted border border-border rounded-lg px-3 py-2 text-sm"
+              placeholder="tips / announcement / quote / stat"
+              value={form.intent}
+              onChange={e => setForm(f => ({ ...f, intent: e.target.value }))}
+            />
+          </div>
+        </div>
+        {error && <p className="text-xs text-destructive">{error}</p>}
+        <button
+          onClick={generate}
+          disabled={generating}
+          className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium disabled:opacity-50"
+        >
+          {generating ? 'Generating...' : 'Generate'}
+        </button>
+      </div>
+
+      <div className="space-y-3">
+        {renders.length === 0 && <p className="text-sm text-muted-foreground">No renders yet.</p>}
+        {renders.map((r: any) => (
+          <div key={r.id} className="bg-card border border-border rounded-xl p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium">{r.formatId}</p>
+                <p className="text-xs text-muted-foreground">{r.brand} {r.topic ? `— ${r.topic}` : ''}</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${r.status === 'approved' ? 'bg-green-100 text-green-700' : r.status === 'rejected' ? 'bg-muted text-muted-foreground' : 'bg-amber-100 text-amber-700'}`}>{r.status}</span>
+                <a href={`/api/posts/renders/${r.id}/pptx`} className="text-xs text-primary underline">PPTX</a>
+                <a href={`/api/posts/renders/${r.id}/canva-csv`} className="text-xs text-primary underline">CSV</a>
+                <a href={`/api/posts/renders/${r.id}/text-export`} className="text-xs text-primary underline">Text</a>
+              </div>
+            </div>
+            {Array.isArray(r.slideUrls) && r.slideUrls.length > 0 && (
+              <div className="flex gap-2 overflow-x-auto pb-1">
+                {r.slideUrls.map((url: string, i: number) => (
+                  <a key={i} href={url} target="_blank" rel="noreferrer">
+                    <img src={url} alt={`Slide ${i + 1}`} className="h-24 w-24 object-cover rounded-lg border border-border flex-shrink-0" />
+                  </a>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Design Samples Tab
+function DesignSamplesTab({ token }: { token: string }) {
+  const [samples, setSamples] = useState<any[]>([]);
+  const [patterns, setPatterns] = useState<string[]>([]);
+  const [brand, setBrand] = useState('taskip');
+  const [uploading, setUploading] = useState(false);
+  const [clustering, setClustering] = useState(false);
+  const [uploadResult, setUploadResult] = useState('');
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  async function loadData() {
+    const [s, p] = await Promise.all([
+      apiFetch(token, `/posts/design-samples?brand=${brand}`).catch(() => []),
+      apiFetch(token, `/posts/design-samples/patterns?brand=${brand}`).catch(() => []),
+    ]);
+    setSamples(Array.isArray(s) ? s : []);
+    setPatterns(Array.isArray(p) ? p : []);
+  }
+
+  useEffect(() => { loadData(); }, [brand, token]);
+
+  async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = e.target.files;
+    if (!files?.length) return;
+    setUploading(true); setUploadResult('');
+    try {
+      const fd = new FormData();
+      for (const f of Array.from(files)) fd.append('files', f);
+      const res = await fetch(`/api/posts/design-samples/upload?brand=${brand}`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: fd,
+      });
+      const data = await res.json();
+      setUploadResult(`Uploaded ${data.uploaded} sample(s)`);
+      await loadData();
+    } catch {
+      setUploadResult('Upload failed');
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function cluster() {
+    setClustering(true);
+    try {
+      await apiFetch(token, '/posts/design-samples/cluster', { method: 'POST', body: JSON.stringify({ brand }) });
+      await loadData();
+    } finally {
+      setClustering(false);
+    }
+  }
+
+  return (
+    <div className="space-y-5">
+      <div className="bg-card border border-border rounded-xl p-4 space-y-3">
+        <div className="flex items-center gap-3">
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">Brand</label>
+            <input
+              className="bg-muted border border-border rounded-lg px-3 py-2 text-sm"
+              value={brand}
+              onChange={e => setBrand(e.target.value)}
+            />
+          </div>
+          <div className="mt-5">
+            <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={handleUpload} />
+            <button
+              onClick={() => fileRef.current?.click()}
+              disabled={uploading}
+              className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium disabled:opacity-50"
+            >
+              {uploading ? 'Analyzing...' : 'Upload samples'}
+            </button>
+          </div>
+          <div className="mt-5">
+            <button
+              onClick={cluster}
+              disabled={clustering || samples.length < 20}
+              className="px-4 py-2 border border-border rounded-lg text-sm font-medium disabled:opacity-50"
+              title={samples.length < 20 ? 'Need 20+ samples to cluster' : ''}
+            >
+              {clustering ? 'Clustering...' : 'Learn patterns'}
+            </button>
+          </div>
+        </div>
+        {uploadResult && <p className="text-xs text-green-600">{uploadResult}</p>}
+        <p className="text-xs text-muted-foreground">{samples.length} samples for {brand}</p>
+      </div>
+
+      {patterns.length > 0 && (
+        <div className="bg-card border border-border rounded-xl p-4 space-y-2">
+          <p className="text-sm font-medium">Learned patterns</p>
+          {patterns.map((p, i) => (
+            <p key={i} className="text-xs text-muted-foreground border-l-2 border-primary pl-2">{p}</p>
+          ))}
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+        {samples.map((s: any) => (
+          <div key={s.id} className="bg-card border border-border rounded-xl overflow-hidden">
+            {s.sourceUrl && (
+              <img src={s.sourceUrl} alt={s.title} className="w-full h-32 object-cover" />
+            )}
+            <div className="p-2">
+              <p className="text-xs font-medium truncate">{s.title}</p>
+              <p className="text-xs text-muted-foreground truncate">{s.category}</p>
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

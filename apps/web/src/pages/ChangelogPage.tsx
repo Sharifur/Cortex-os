@@ -16,6 +16,20 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.13.0',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'feat', scope: 'post-render', description: 'Post Format Engine: Canva-free self-hosted image generation pipeline using Satori (JSX to SVG) and @resvg/resvg-js (SVG to PNG). 15 built-in templates across LinkedIn, Instagram, Twitter, Facebook in carousel, single, and story formats. AI fills content slots dynamically via LLM using a structured schema with per-slot maxChars, constraints, and hints.' },
+      { tag: 'feat', scope: 'post-render', description: 'ThemeContract consistency engine: derives a locked style object once per render session (colors, fonts, padding, accent bar, indicator position) and applies it uniformly to all slides. Structural consistency is guaranteed by construction rather than validated after the fact.' },
+      { tag: 'feat', scope: 'post-render', description: 'Multi-provider image background generation: gpt-image-1 to dall-e-3 to gemini-2.0-flash-exp to dall-e-2 cascade with automatic fallback. Slides with backgroundType=ai-image trigger this pipeline; all others use flat hex color.' },
+      { tag: 'feat', scope: 'post-render', description: 'Canva interoperability exports: PPTX (full layer-wise editing in Canva after import), Canva Bulk Create CSV, plain text slot export. All available via REST endpoints GET /posts/renders/:id/pptx, /canva-csv, /text-export.' },
+      { tag: 'feat', scope: 'post-render', description: 'Design Sample Learning: upload 200+ design images, GPT-4V extracts Design DNA JSON (layout, colors, typography, mood keywords, platform fit), stored in existing knowledgeEntries table as entryType=design_sample, brand-scoped via siteKeys. After 20+ samples, a clustering pass produces design_pattern entries used as always-on context at render time.' },
+      { tag: 'feat', scope: 'post-render', description: 'Post Renders tab added to Canva agent page: generate new renders from any format/brand/topic, view slide thumbnails, download PPTX/CSV/text exports, approve/reject status management. Design Samples sub-tab with image upload, DNA analysis progress, learned patterns display.' },
+      { tag: 'feat', scope: 'post-render', description: 'Full activity logging for all render pipeline steps (post_render_start, post_theme_derived, post_content_start, post_content_end, post_image_gen_start/end/fallback, post_render_slide, post_render_slide_done, post_upload_done, post_consistency_check, design_sample_analyze, design_pattern_cluster). Real-time via WebSocket activity:log events.' },
+      { tag: 'chore', scope: 'db', description: 'Migration 0065: post_formats and post_renders tables. post_formats stores static template registry; post_renders stores AI-generated content and slide URLs per render session.' },
+    ],
+  },
+  {
     version: 'v4.12.15',
     date: '2026-05-12',
     entries: [
