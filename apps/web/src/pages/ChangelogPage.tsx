@@ -16,6 +16,16 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.17.0',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'Design sample DNA extraction is now deeply detailed — icon style/count/size, illustration type, photography style, decoration elements, border radius, shadow, CTA shape, content tone, color count, background texture, and free-text pattern notes are all extracted per image.' },
+      { tag: 'feat', scope: 'canva', description: 'Spatial layout capture (Elementor-style): every visible element (logo, headline, icon, CTA, brand-bar, etc.) is recorded with x/y/w/h as canvas percentages, alignment, and z-layer. Grid column count and content zone bounds are also captured.' },
+      { tag: 'feat', scope: 'canva', description: 'Shape element capture: every decorative shape (circle, blob, wave, diagonal-cut, etc.) records shape type, fill type/colors, gradient angle, opacity, position, border-radius, and an SVG reconstruction hint — enough to regenerate the exact shape programmatically.' },
+      { tag: 'feat', scope: 'canva', description: 'Pattern clustering now aggregates full DNA JSON across all samples (not just 300-char text slices), computes field frequencies, collects SVG hints, and produces 8–12 category-organised rules covering layout, color, typography, icons, illustration/photo, shapes, content tone, and CTA.' },
+    ],
+  },
+  {
     version: 'v4.16.9',
     date: '2026-05-12',
     entries: [
