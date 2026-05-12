@@ -16,6 +16,15 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.16.2',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'feat', scope: 'activity', description: 'Render pipeline steps now appear in the Activity tab in real time — runId is injected into the action payload by the execute processor so all post_render logs (theme locked, content ready, rendering slide N, render complete) attach to the correct run.' },
+      { tag: 'fix', scope: 'canva', description: 'Design Samples list now shows uploaded entries — listSamples() was using semantic search (searchEntries) which skipped non-matching entries. Replaced with a direct DB query filtering entryType=design_sample.' },
+      { tag: 'fix', scope: 'canva', description: 'Lower Learn patterns threshold from 20 to 3 so it can be tested with a small set of uploads.' },
+    ],
+  },
+  {
     version: 'v4.16.1',
     date: '2026-05-12',
     entries: [

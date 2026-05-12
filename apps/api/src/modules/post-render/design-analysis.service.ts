@@ -1,8 +1,17 @@
 import { Injectable, Logger } from '@nestjs/common';
+import * as fs from 'fs/promises';
+import * as path from 'path';
+import * as os from 'os';
+import { createId } from '@paralleldrive/cuid2';
+import { and, eq, like } from 'drizzle-orm';
 import { LlmRouterService } from '../llm/llm-router.service';
 import { KnowledgeBaseService } from '../knowledge-base/knowledge-base.service';
 import { StorageService } from '../storage/storage.service';
+import { DbService } from '../../db/db.service';
+import { knowledgeEntries } from '../knowledge-base/schema';
 import type { DesignDNA } from './types';
+
+const LOCAL_SAMPLES_DIR = path.join(os.homedir(), 'Designs', 'AI-Agent', 'DesignSamples');
 
 const DNA_PROMPT = `You are a design analyst. Extract the design DNA from this image and return ONLY valid JSON.
 
@@ -35,20 +44,33 @@ export class DesignAnalysisService {
     private readonly llm: LlmRouterService,
     private readonly kb: KnowledgeBaseService,
     private readonly storage: StorageService,
+    private readonly db: DbService,
   ) {}
 
   async analyzeAndStore(
     imageBuffer: Buffer,
     opts: { brand: string; filename: string },
   ): Promise<{ dna: DesignDNA; kbEntryId: string; storageUrl: string }> {
-    // Upload sample image to storage
-    const stored = await this.storage.upload({
-      module: 'post-render/design-samples',
-      refKey: opts.brand,
-      body: imageBuffer,
-      declaredMime: 'image/png',
-      originalFilename: opts.filename,
-    });
+    // Upload sample image to storage, fall back to local disk when R2 is not configured
+    let storageResult: { url: string };
+    const isConfigured = await this.storage.isConfigured();
+    if (isConfigured) {
+      storageResult = await this.storage.upload({
+        module: 'post-render/design-samples',
+        refKey: opts.brand,
+        body: imageBuffer,
+        declaredMime: 'image/png',
+        originalFilename: opts.filename,
+      });
+    } else {
+      const dir = path.join(LOCAL_SAMPLES_DIR, opts.brand);
+      await fs.mkdir(dir, { recursive: true });
+      const ext = path.extname(opts.filename) || '.png';
+      const localFile = path.join(dir, `${createId()}${ext}`);
+      await fs.writeFile(localFile, imageBuffer);
+      storageResult = { url: `local://${localFile}` };
+      this.logger.warn(`Storage not configured — saved design sample locally: ${localFile}`);
+    }
 
     // Extract DNA via vision LLM
     const imageBase64 = imageBuffer.toString('base64');
@@ -107,21 +129,37 @@ export class DesignAnalysisService {
       siteKeys: opts.brand,
       category: 'design',
       sourceType: 'image_upload',
-      sourceUrl: stored.url,
+      sourceUrl: storageResult.url,
     });
     const kbEntryId = kbRow.id;
 
     this.logger.log(`Design DNA extracted: ${dna.layout_type} ${dna.mood_keywords.join(',')} → kb:${kbEntryId}`);
 
-    return { dna, kbEntryId, storageUrl: stored.url };
+    return { dna, kbEntryId, storageUrl: storageResult.url };
   }
 
   async listSamples(opts: { brand?: string; platform?: string; slideType?: string } = {}) {
-    return this.kb.searchEntries(
-      `design sample ${opts.platform ?? ''} ${opts.slideType ?? ''}`.trim(),
-      'canva',
-      100,
-      opts.brand,
-    );
+    const conditions = [
+      eq(knowledgeEntries.entryType, 'design_sample'),
+      eq(knowledgeEntries.agentKeys, 'canva'),
+    ];
+    if (opts.brand) conditions.push(eq(knowledgeEntries.siteKeys, opts.brand));
+    if (opts.platform) conditions.push(like(knowledgeEntries.content, `%${opts.platform}%`));
+    if (opts.slideType) conditions.push(like(knowledgeEntries.content, `%${opts.slideType}%`));
+
+    return this.db.db
+      .select({
+        id: knowledgeEntries.id,
+        title: knowledgeEntries.title,
+        content: knowledgeEntries.content,
+        category: knowledgeEntries.category,
+        sourceUrl: knowledgeEntries.sourceUrl,
+        siteKeys: knowledgeEntries.siteKeys,
+        createdAt: knowledgeEntries.createdAt,
+      })
+      .from(knowledgeEntries)
+      .where(and(...conditions))
+      .orderBy(knowledgeEntries.createdAt)
+      .limit(200);
   }
 }

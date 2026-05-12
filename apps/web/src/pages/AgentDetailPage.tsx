@@ -3932,9 +3932,9 @@ function DesignSamplesTab({ token }: { token: string }) {
         <div className="flex items-center justify-end">
           <button
             onClick={cluster}
-            disabled={clustering || samples.length < 20}
+            disabled={clustering || samples.length < 3}
             className="px-4 py-2 border border-border rounded-lg text-sm font-medium disabled:opacity-50"
-            title={samples.length < 20 ? 'Need 20+ samples to cluster' : ''}
+            title={samples.length < 3 ? 'Need 3+ samples to cluster' : ''}
           >
             {clustering ? 'Clustering...' : 'Learn patterns'}
           </button>
