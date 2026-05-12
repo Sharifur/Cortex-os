@@ -311,6 +311,9 @@ export class SpamCheckerService {
 
   private async checkReputation(fromDomain: string): Promise<CategoryBreakdown> {
     const weight = 25;
+    if (!fromDomain) {
+      return { score: 100, weight, contribution: weight, issues: [] };
+    }
     const issues: SpamIssue[] = [];
     let score = 100;
 

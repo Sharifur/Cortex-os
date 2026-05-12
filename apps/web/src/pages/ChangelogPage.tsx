@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.13.1',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'fix', scope: 'spam-checker', description: 'Frontend chat spam score was capped at 45 (SPAM_RISK) despite clean email content. Root cause: empty fromDomain passed by the frontend triggered DNS lookups for _dmarc. and reputation checks against an empty label, which failed and set a critical failure, capping rawScore at 45. Fix: checkAuthentication and checkReputation now return a neutral 100 score when fromDomain is empty, so domain-infrastructure checks are skipped for calls that only know the email content.' },
+    ],
+  },
+  {
     version: 'v4.13.0',
     date: '2026-05-12',
     entries: [
