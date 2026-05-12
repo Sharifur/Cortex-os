@@ -167,6 +167,7 @@ export interface DominantDNA {
   background_style: DesignDNA['background_style'];
   representative_shapes: DesignDNA['shape_elements'];
   pattern_rules: string[];
+  banner_brief: string;
 }
 
 // Design DNA extracted from a sample image by vision LLM

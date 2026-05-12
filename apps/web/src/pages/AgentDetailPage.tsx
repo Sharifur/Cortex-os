@@ -122,6 +122,9 @@ function RunRowSkeleton() {
   );
 }
 
+const _API_BASE = (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, '');
+const apiHref = (path: string) => `${_API_BASE}${path}`;
+
 async function apiFetch(token: string, path: string, opts?: RequestInit) {
   const res = await fetch(path, {
     ...opts,
@@ -3832,9 +3835,9 @@ function PostRendersTab({ token }: { token: string }) {
               </div>
               <div className="flex items-center gap-2">
                 <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${r.status === 'approved' ? 'bg-green-100 text-green-700' : r.status === 'rejected' ? 'bg-muted text-muted-foreground' : 'bg-amber-100 text-amber-700'}`}>{r.status}</span>
-                <a href={`/api/posts/renders/${r.id}/pptx`} className="text-xs text-primary underline">PPTX</a>
-                <a href={`/api/posts/renders/${r.id}/canva-csv`} className="text-xs text-primary underline">CSV</a>
-                <a href={`/api/posts/renders/${r.id}/text-export`} className="text-xs text-primary underline">Text</a>
+                <a href={apiHref(`/posts/renders/${r.id}/pptx`)} className="text-xs text-primary underline">PPTX</a>
+                <a href={apiHref(`/posts/renders/${r.id}/canva-csv`)} className="text-xs text-primary underline">CSV</a>
+                <a href={apiHref(`/posts/renders/${r.id}/text-export`)} className="text-xs text-primary underline">Text</a>
               </div>
             </div>
             {Array.isArray(r.slideUrls) && r.slideUrls.length > 0 && (
@@ -3857,6 +3860,7 @@ function PostRendersTab({ token }: { token: string }) {
 function DesignSamplesTab({ token }: { token: string }) {
   const [samples, setSamples] = useState<any[]>([]);
   const [patterns, setPatterns] = useState<string[]>([]);
+  const [bannerBrief, setBannerBrief] = useState('');
   const [uploading, setUploading] = useState(false);
   const [clustering, setClustering] = useState(false);
   const [uploadResult, setUploadResult] = useState('');
@@ -3866,12 +3870,14 @@ function DesignSamplesTab({ token }: { token: string }) {
   const fileRef = useRef<HTMLInputElement>(null);
 
   async function loadData() {
-    const [s, p] = await Promise.all([
+    const [s, p, b] = await Promise.all([
       apiFetch(token, '/posts/design-samples?brand=default').catch(() => []),
       apiFetch(token, '/posts/design-samples/patterns?brand=default').catch(() => []),
+      apiFetch(token, '/posts/design-samples/banner-brief?brand=default').catch(() => ({ bannerBrief: '' })),
     ]);
     setSamples(Array.isArray(s) ? s : []);
     setPatterns(Array.isArray(p) ? p : []);
+    setBannerBrief(typeof b?.bannerBrief === 'string' ? b.bannerBrief : '');
   }
 
   useEffect(() => { loadData(); }, [token]);
@@ -4012,15 +4018,25 @@ function DesignSamplesTab({ token }: { token: string }) {
       )}
 
       {dsSubTab === 'patterns' && (
-        <div className="bg-card border border-border rounded-xl p-4 space-y-3">
+        <div className="space-y-3">
           {patterns.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No patterns learned yet. Upload 3+ samples and click "Learn patterns".</p>
+            <div className="bg-card border border-border rounded-xl p-4">
+              <p className="text-sm text-muted-foreground">No patterns learned yet. Upload 3+ samples and click "Learn patterns".</p>
+            </div>
           ) : (
             <>
-              <p className="text-xs text-muted-foreground">{patterns.length} pattern{patterns.length !== 1 ? 's' : ''} from {samples.length} samples</p>
-              {patterns.map((p, i) => (
-                <p key={i} className="text-xs text-muted-foreground border-l-2 border-primary pl-2">{p}</p>
-              ))}
+              {bannerBrief && (
+                <div className="bg-primary/5 border border-primary/20 rounded-xl p-4">
+                  <p className="text-xs font-semibold text-primary mb-1.5 uppercase tracking-wide">Banner Brief</p>
+                  <p className="text-sm text-foreground leading-relaxed">{bannerBrief}</p>
+                </div>
+              )}
+              <div className="bg-card border border-border rounded-xl p-4 space-y-3">
+                <p className="text-xs text-muted-foreground">{patterns.length} pattern{patterns.length !== 1 ? 's' : ''} from {samples.length} samples</p>
+                {patterns.map((p, i) => (
+                  <p key={i} className="text-xs text-muted-foreground border-l-2 border-primary pl-2">{p}</p>
+                ))}
+              </div>
             </>
           )}
         </div>

@@ -18,7 +18,7 @@ export class DesignPatternService {
     private readonly db: DbService,
   ) {}
 
-  async cluster(brand: string): Promise<{ patternCount: number; patterns: string[] }> {
+  async cluster(brand: string): Promise<{ patternCount: number; patterns: string[]; bannerBrief: string }> {
     const effectiveBrand = brand || 'default';
 
     const designSamples = await this.db.db
@@ -32,7 +32,7 @@ export class DesignPatternService {
 
     if (designSamples.length < MIN_SAMPLES_FOR_CLUSTERING) {
       this.logger.warn(`Not enough samples for clustering: ${designSamples.length}/${MIN_SAMPLES_FOR_CLUSTERING} for brand=${effectiveBrand}`);
-      return { patternCount: 0, patterns: [] };
+      return { patternCount: 0, patterns: [], bannerBrief: '' };
     }
 
     this.logger.log(`Clustering ${designSamples.length} samples for brand: ${effectiveBrand}`);
@@ -158,9 +158,43 @@ export class DesignPatternService {
       .map(line => line.replace(/^\d+\.\s*/, '').trim())
       .filter(Boolean);
 
+    // Generate a combined banner brief — one holistic paragraph synthesizing all learned elements
+    const briefRes = await this.llm.complete({
+      messages: [
+        {
+          role: 'system',
+          content: `You are a senior art director. Write a single cohesive banner design brief that a developer can follow to recreate the brand's visual identity from scratch. Be specific and concise — 3-5 sentences max.`,
+        },
+        {
+          role: 'user',
+          content: [
+            `Brand: ${effectiveBrand}`,
+            ``,
+            `Aggregated design DNA (${dnaList.length} samples):`,
+            aggregateSummary,
+            extendedSummary,
+            svgHints ? `\nRecurring shapes:\n${svgHints}` : '',
+            ``,
+            `Write one paragraph (3–5 sentences) called "Banner Brief" that synthesizes:`,
+            `layout type + composition, background style and primary colors, typography style and weight,`,
+            `whether icons/illustrations/photography are used and what kind,`,
+            `decorative shapes and their positions, CTA style, and overall tone/mood.`,
+            `Make it actionable enough to hand to a renderer. No bullet points. Start with "Banner Brief:"`,
+          ].join('\n'),
+        },
+      ],
+      maxTokens: 300,
+      temperature: 0.3,
+      agentKey: 'canva',
+    });
+
+    const bannerBrief = briefRes.content.replace(/^Banner Brief:\s*/i, '').trim();
+
     const patternContent = [
       `Learned design patterns for brand: ${effectiveBrand}`,
       `Based on ${designSamples.length} design samples (${dnaList.length} with full DNA).`,
+      '',
+      `Banner Brief: ${bannerBrief}`,
       '',
       patterns.map((p, i) => `${i + 1}. ${p}`).join('\n'),
     ].join('\n');
@@ -189,7 +223,7 @@ export class DesignPatternService {
     });
 
     this.logger.log(`Clustering complete: ${patterns.length} patterns for ${effectiveBrand}`);
-    return { patternCount: patterns.length, patterns };
+    return { patternCount: patterns.length, patterns, bannerBrief };
   }
 
   async getDominantDNA(brand: string): Promise<DominantDNA | null> {
@@ -260,11 +294,17 @@ export class DesignPatternService {
       ))
       .limit(1);
 
-    const patternRules = patternEntry[0]?.content
+    const patternContent = patternEntry[0]?.content ?? '';
+
+    const patternRules = patternContent
       .split('\n')
       .filter(l => /^\d+\./.test(l.trim()))
       .map(l => l.replace(/^\d+\.\s*/, '').trim())
-      .filter(Boolean) ?? [];
+      .filter(Boolean);
+
+    // Extract banner brief from pattern content (stored as "Banner Brief: ..." line)
+    const bannerBriefMatch = patternContent.match(/^Banner Brief:\s*(.+)$/m);
+    const bannerBrief = bannerBriefMatch?.[1]?.trim() ?? '';
 
     return {
       sampleCount: dnaList.length,
@@ -291,7 +331,24 @@ export class DesignPatternService {
       background_style: dominant('background_style') || 'solid-dark',
       representative_shapes: representativeShapes,
       pattern_rules: patternRules,
+      banner_brief: bannerBrief,
     };
+  }
+
+  async getBannerBrief(brand?: string): Promise<string> {
+    const effectiveBrand = brand || 'default';
+    const rows = await this.db.db
+      .select({ content: knowledgeEntries.content })
+      .from(knowledgeEntries)
+      .where(and(
+        eq(knowledgeEntries.entryType, 'design_pattern'),
+        eq(knowledgeEntries.agentKeys, 'canva'),
+        eq(knowledgeEntries.siteKeys, effectiveBrand),
+      ))
+      .limit(1);
+    const content = rows[0]?.content ?? '';
+    const match = content.match(/^Banner Brief:\s*(.+)$/m);
+    return match?.[1]?.trim() ?? '';
   }
 
   async getPatterns(brand?: string): Promise<string[]> {

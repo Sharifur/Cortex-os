@@ -16,6 +16,16 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.17.2',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'Pattern learning now generates a holistic "Banner Brief" — a 3-5 sentence art-director paragraph synthesizing layout, color, typography, icons, shapes, and tone into a single actionable design description. Stored alongside pattern rules and surfaced in the Patterns tab.' },
+      { tag: 'feat', scope: 'canva', description: 'Banner Brief is passed to content generation as design context — AI copy now understands the full visual intent of the brand, not just individual rules.' },
+      { tag: 'feat', scope: 'canva', description: 'UnsplashService wired into PostRendererService — real photos are fetched via _buildUnsplashQuery() before AI generation when DNA indicates photography style. Unsplash is not listed as an image generation provider; it is a photo source for backgrounds and corporate imagery.' },
+      { tag: 'fix', scope: 'canva', description: 'UnsplashService added to post-render module providers and exports — was imported but missing from DI registration, causing runtime injection errors.' },
+    ],
+  },
+  {
     version: 'v4.17.1',
     date: '2026-05-12',
     entries: [

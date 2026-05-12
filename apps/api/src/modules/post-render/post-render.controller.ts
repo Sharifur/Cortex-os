@@ -309,6 +309,11 @@ export class PostRenderController {
     return this.designPattern.getPatterns(brand);
   }
 
+  @Get('design-samples/banner-brief')
+  async getBannerBrief(@Query('brand') brand: string) {
+    return { bannerBrief: await this.designPattern.getBannerBrief(brand) };
+  }
+
   @Delete('design-samples/:id')
   async deleteDesignSample(@Param('id') id: string) {
     // Import KB service dynamically — avoid circular dep, use a lightweight approach
