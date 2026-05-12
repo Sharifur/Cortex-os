@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Settings, Save, Trash2, Eye, EyeOff, Key, Zap, UserCircle, Loader2, Globe, BriefcaseBusiness } from 'lucide-react';
+import { Settings, Save, Trash2, Eye, EyeOff, Key, Zap, UserCircle, Loader2, Globe, BriefcaseBusiness, Image } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -15,6 +15,7 @@ interface SettingRow {
   group: string;
   provider?: string | null;
   stored: boolean;
+  options?: Array<{ value: string; label: string; desc?: string }> | null;
 }
 
 const LLM_PROVIDER_TABS = [
@@ -580,6 +581,183 @@ function HrTab({ rows, token }: { rows: SettingRow[]; token: string }) {
 }
 
 
+const IMAGE_PROVIDER_TABS = [
+  { key: 'openai', label: 'OpenAI' },
+  { key: 'stability', label: 'Stability AI' },
+  { key: 'gemini', label: 'Gemini' },
+];
+
+const IMAGE_PROVIDER_OPTIONS = [
+  { value: 'auto', label: 'Auto', desc: 'openai → stability → gemini cascade' },
+  { value: 'openai', label: 'OpenAI' },
+  { value: 'stability', label: 'Stability AI' },
+  { value: 'gemini', label: 'Gemini' },
+];
+
+function ImageProviderSelector({ current, token }: { current: string; token: string }) {
+  const qc = useQueryClient();
+  const mutation = useMutation({
+    mutationFn: (val: string) => upsertSetting(token, 'image_gen_provider', val),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['settings'] }),
+  });
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-5 mb-4">
+      <div className="flex items-center gap-2 mb-3">
+        <Image className="w-4 h-4 text-primary" />
+        <span className="text-sm font-semibold">Default Image Provider</span>
+        {mutation.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground ml-auto" />}
+        {!mutation.isPending && mutation.isSuccess && <span className="text-xs text-green-500 ml-auto">Saved</span>}
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {IMAGE_PROVIDER_OPTIONS.map((opt) => (
+          <button
+            key={opt.value}
+            onClick={() => mutation.mutate(opt.value)}
+            disabled={mutation.isPending}
+            className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors inline-flex items-center gap-1.5 disabled:opacity-60 disabled:cursor-not-allowed ${
+              current === opt.value
+                ? 'bg-primary text-primary-foreground border-primary'
+                : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground/30'
+            }`}
+          >
+            {opt.label}
+            {opt.desc && current === opt.value && (
+              <span className="ml-1 text-xs opacity-75">{opt.desc}</span>
+            )}
+          </button>
+        ))}
+      </div>
+      {mutation.isError && (
+        <p className="text-xs text-destructive mt-2">{(mutation.error as Error)?.message ?? 'Failed to save'}</p>
+      )}
+    </div>
+  );
+}
+
+function OptionsSelectField({ setting, token }: { setting: SettingRow; token: string }) {
+  const qc = useQueryClient();
+  const mutation = useMutation({
+    mutationFn: (val: string) => upsertSetting(token, setting.key, val),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['settings'] }),
+  });
+  const opts = setting.options ?? [];
+
+  return (
+    <div className="py-4 border-b border-border last:border-0">
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-0.5">
+            <span className="text-sm font-medium">{setting.label}</span>
+            {mutation.isPending && <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />}
+            {!mutation.isPending && mutation.isSuccess && (
+              <span className="text-xs bg-green-500/10 text-green-500 px-1.5 py-0.5 rounded">saved</span>
+            )}
+          </div>
+          {setting.description && (
+            <p className="text-xs text-muted-foreground mb-2">{setting.description}</p>
+          )}
+          <select
+            value={setting.value || (opts[0]?.value ?? '')}
+            onChange={(e) => mutation.mutate(e.target.value)}
+            disabled={mutation.isPending}
+            className="mt-1 w-full max-w-xs bg-muted border border-border rounded-md px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {opts.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}{o.desc ? ` — ${o.desc}` : ''}
+              </option>
+            ))}
+          </select>
+          {mutation.isError && (
+            <p className="text-xs text-destructive mt-1">{(mutation.error as Error)?.message ?? 'Failed to save'}</p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ImageTab({ rows, token }: { rows: SettingRow[]; token: string }) {
+  const [activeProvider, setActiveProvider] = useState('openai');
+  if (!rows.length) return null;
+
+  const generalRow = rows.find((r) => r.key === 'image_gen_provider');
+  const currentProvider = generalRow?.value || 'auto';
+  const providerRows = rows.filter((r) => r.provider === activeProvider);
+
+  const openaiKeySet = !!rows.find((r) => r.key === 'image_gen_openai_model');
+
+  return (
+    <div className="mb-6">
+      <div className="flex items-center gap-2 mb-4">
+        <Image className="w-4 h-4 text-primary" />
+        <span className="text-base font-semibold">Image Generation</span>
+        <span className="text-xs text-muted-foreground">Post Format Engine slide backgrounds</span>
+      </div>
+
+      <ImageProviderSelector current={currentProvider} token={token} />
+
+      {/* Provider sub-tabs */}
+      <div className="flex items-center gap-1 border border-border rounded-lg p-1 mb-4 bg-muted/30 w-fit">
+        {IMAGE_PROVIDER_TABS.map((tab) => (
+          <button
+            key={tab.key}
+            onClick={() => setActiveProvider(tab.key)}
+            className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
+              activeProvider === tab.key
+                ? 'bg-card text-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="rounded-xl border border-border bg-card">
+        {activeProvider === 'openai' && (
+          <div className="px-5 py-3 border-b border-border">
+            <p className="text-xs text-muted-foreground">
+              Uses the <strong>OpenAI API Key</strong> from the LLM settings above — no separate key needed.
+            </p>
+          </div>
+        )}
+        <div className="px-5">
+          {providerRows.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-6">No settings for this provider.</p>
+          ) : (
+            providerRows.map((s) =>
+              s.options?.length ? (
+                <OptionsSelectField key={s.key} setting={s} token={token} />
+              ) : (
+                <SettingField key={s.key} setting={s} token={token} />
+              )
+            )
+          )}
+        </div>
+      </div>
+
+      {/* Cost reference table */}
+      <div className="mt-4 rounded-xl border border-border bg-muted/20 p-4">
+        <p className="text-xs font-semibold text-muted-foreground mb-2">Cost reference (1024×1024)</p>
+        <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs text-muted-foreground">
+          <span>gpt-image-1</span><span className="font-mono">~$0.19/img</span>
+          <span>gpt-image-2</span><span className="font-mono">~$0.211/img</span>
+          <span>DALL-E 3 HD</span><span className="font-mono">~$0.08/img</span>
+          <span>DALL-E 3</span><span className="font-mono">~$0.04/img</span>
+          <span>DALL-E 2</span><span className="font-mono">~$0.018/img</span>
+          <span>Stable Image Core (0.3 cr)</span><span className="font-mono">~$0.003/img</span>
+          <span>SDXL 1.0 (0.2 cr)</span><span className="font-mono">~$0.002/img</span>
+          <span>Stable Image Ultra (0.8 cr)</span><span className="font-mono">~$0.008/img</span>
+          <span>Gemini Imagen</span><span className="font-mono">~$0.02/img</span>
+        </div>
+        <p className="text-[11px] text-muted-foreground mt-2">Stability AI: $10 = 1,000 credits</p>
+      </div>
+    </div>
+  );
+}
+
 export default function SettingsPage() {
   const token = useAuthStore((s) => s.token)!;
 
@@ -637,6 +815,7 @@ export default function SettingsPage() {
         <>
           <GeneralTab rows={grouped['general'] ?? []} token={token} />
           <LlmTab rows={grouped['llm'] ?? []} token={token} />
+          <ImageTab rows={grouped['image'] ?? []} token={token} />
           <HrTab rows={grouped['hr'] ?? []} token={token} />
         </>
       )}

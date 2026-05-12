@@ -6,7 +6,7 @@ import {
   Calendar, Clock, CheckCircle2, XCircle,
   AlertCircle, MessageSquare, ListTodo, RotateCcw, History, X,
   ThumbsUp, ThumbsDown, ImagePlus, Copy, Mail, Check, Wrench, Zap,
-  Bold, Italic, List, Radio, ShieldAlert, ShieldCheck,
+  Bold, Italic, List, Radio, ShieldAlert, ShieldCheck, Image, FileImage, Layers,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -651,25 +651,25 @@ function EmailDraftCard({
               </span>
             )}
             {spamResult && (() => {
-              const gradeColors: Record<string, string> = {
-                INBOX_STRONG: 'text-emerald-400',
-                INBOX_LIKELY: 'text-green-400',
-                PROMOTIONS_RISK: 'text-amber-400',
-                SPAM_RISK: 'text-orange-400',
-                BLOCK: 'text-rose-400',
+              const gradeStyles: Record<string, string> = {
+                INBOX_STRONG: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/25',
+                INBOX_LIKELY: 'bg-green-500/15 text-green-400 border-green-500/25',
+                PROMOTIONS_RISK: 'bg-amber-500/15 text-amber-400 border-amber-500/25',
+                SPAM_RISK: 'bg-orange-500/15 text-orange-400 border-orange-500/25',
+                BLOCK: 'bg-rose-500/15 text-rose-400 border-rose-500/25',
               };
               const gradeLabels: Record<string, string> = {
-                INBOX_STRONG: 'Inbox strong',
+                INBOX_STRONG: 'Inbox',
                 INBOX_LIKELY: 'Inbox likely',
-                PROMOTIONS_RISK: 'Promo risk',
+                PROMOTIONS_RISK: 'Promotions',
                 SPAM_RISK: 'Spam risk',
                 BLOCK: 'Blocked',
               };
-              const color = gradeColors[spamResult.grade] ?? 'text-muted-foreground';
+              const style = gradeStyles[spamResult.grade] ?? 'bg-muted text-muted-foreground border-border';
               const label = gradeLabels[spamResult.grade] ?? spamResult.grade;
               return (
-                <span className={`inline-flex items-center gap-1 text-[10px] font-medium ${color}`}>
-                  Spam: {spamResult.score} — {label}
+                <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border ${style}`}>
+                  {label} · {spamResult.score}
                 </span>
               );
             })()}
@@ -867,7 +867,7 @@ interface RunUsage {
 interface ActivityEntry {
   id: string;
   at: string;
-  type: 'start' | 'thinking' | 'tool_call' | 'tool_result' | 'decision' | 'approval' | 'error' | 'complete' | 'spam_check' | 'spam_rewrite';
+  type: 'start' | 'thinking' | 'tool_call' | 'tool_result' | 'decision' | 'approval' | 'error' | 'complete' | 'spam_check' | 'spam_rewrite' | 'post_render' | 'image_gen' | 'render_slide' | 'content_gen';
   label: string;
   detail?: string;
   status?: 'running' | 'success' | 'failed';
@@ -949,6 +949,64 @@ function parseLogsToTimeline(logs: RunLog[], finished: boolean): ActivityEntry[]
       entries.push({ id: `llm-${log.id}`, at, type: 'thinking', label: 'Thinking...', status: 'running' });
       continue;
     }
+
+    // ── Post-render engine events ──────────────────────────────────────────────
+    if (meta?.event_type === 'post_render_start') {
+      entries.push({ id: log.id, at, type: 'post_render', label: log.message, status: 'running' });
+      continue;
+    }
+    if (meta?.event_type === 'post_content_start') {
+      entries.push({ id: log.id, at, type: 'content_gen', label: log.message, status: 'running' });
+      continue;
+    }
+    if (meta?.event_type === 'post_content_end') {
+      entries.push({ id: log.id, at, type: 'content_gen', label: log.message, status: 'success', durationMs: meta.duration_ms ? Number(meta.duration_ms) : undefined });
+      continue;
+    }
+    if (meta?.event_type === 'post_image_gen_start') {
+      entries.push({ id: log.id, at, type: 'image_gen', label: log.message, status: 'running' });
+      continue;
+    }
+    if (meta?.event_type === 'post_image_gen_end') {
+      const cost = meta.estimated_cost_usd ? ` ~$${Number(meta.estimated_cost_usd).toFixed(4)}` : '';
+      entries.push({ id: log.id, at, type: 'image_gen', label: `${log.message}${cost}`, status: 'success', durationMs: meta.duration_ms ? Number(meta.duration_ms) : undefined });
+      continue;
+    }
+    if (meta?.event_type === 'post_image_gen_fallback') {
+      entries.push({ id: log.id, at, type: 'image_gen', label: log.message, status: 'failed' });
+      continue;
+    }
+    if (meta?.event_type === 'post_render_slide') {
+      entries.push({ id: log.id, at, type: 'render_slide', label: log.message, status: 'running' });
+      continue;
+    }
+    if (meta?.event_type === 'post_render_slide_done') {
+      const kb = meta.size_bytes ? ` ${Math.round(Number(meta.size_bytes) / 1024)}KB` : '';
+      entries.push({ id: log.id, at, type: 'render_slide', label: `${log.message}${kb}`, status: 'success', durationMs: meta.duration_ms ? Number(meta.duration_ms) : undefined });
+      continue;
+    }
+    if (meta?.event_type === 'post_upload_done') {
+      const urls = (meta.slide_urls as string[] | undefined) ?? [];
+      entries.push({ id: log.id, at, type: 'post_render', label: log.message, detail: urls.length ? `${urls.length} slide URL(s) ready` : undefined, status: 'success' });
+      continue;
+    }
+    if (meta?.event_type === 'post_render_error') {
+      entries.push({ id: log.id, at, type: 'error', label: `Render error: ${String(meta.error ?? log.message).slice(0, 70)}`, status: 'failed' });
+      continue;
+    }
+    if (meta?.event_type === 'design_sample_analyze') {
+      entries.push({ id: log.id, at, type: 'content_gen', label: log.message, status: 'running' });
+      continue;
+    }
+    if (meta?.event_type === 'design_sample_done') {
+      entries.push({ id: log.id, at, type: 'content_gen', label: log.message, status: 'success' });
+      continue;
+    }
+    if (meta?.event_type === 'post_theme_derived' || meta?.event_type === 'post_consistency_check') {
+      entries.push({ id: log.id, at, type: 'post_render', label: log.message, status: 'success' });
+      continue;
+    }
+
     if (log.message === 'Run started') {
       entries.push({ id: log.id, at, type: 'start', label: 'Run started' });
       continue;
@@ -1026,6 +1084,26 @@ function ActivityIcon({ entry }: { entry: ActivityEntry }) {
         : <ShieldCheck className="w-3 h-3 text-emerald-400" />;
     case 'spam_rewrite':
       return <RotateCcw className="w-3 h-3 text-orange-400" />;
+    case 'post_render':
+      return entry.status === 'success'
+        ? <Layers className="w-3 h-3 text-emerald-400" />
+        : entry.status === 'failed'
+        ? <XCircle className="w-3 h-3 text-red-400" />
+        : <Layers className="w-3 h-3 text-blue-400 animate-pulse" />;
+    case 'image_gen':
+      return entry.status === 'success'
+        ? <Image className="w-3 h-3 text-emerald-400" />
+        : entry.status === 'failed'
+        ? <Image className="w-3 h-3 text-red-400" />
+        : <Loader2 className="w-3 h-3 text-violet-400 animate-spin" />;
+    case 'render_slide':
+      return entry.status === 'success'
+        ? <FileImage className="w-3 h-3 text-emerald-400" />
+        : <Loader2 className="w-3 h-3 text-blue-400 animate-spin" />;
+    case 'content_gen':
+      return entry.status === 'success'
+        ? <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+        : <Loader2 className="w-3 h-3 text-amber-400 animate-spin" />;
     default:
       return <div className="w-2 h-2 rounded-full bg-border mt-1" />;
   }

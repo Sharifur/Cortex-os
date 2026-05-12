@@ -14,6 +14,7 @@ export interface SettingRow {
   group: string;
   provider?: string | null;
   stored: boolean;
+  options?: Array<{ value: string; label: string; desc?: string }> | null;
 }
 
 @Injectable()
@@ -38,6 +39,7 @@ export class SettingsService {
         group: def.group,
         provider: def.provider ?? null,
         stored: !!row,
+        options: def.options ?? null,
       };
     });
   }

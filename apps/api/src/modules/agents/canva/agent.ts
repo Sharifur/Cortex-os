@@ -14,6 +14,8 @@ import { ApprovalManagerService } from './approval-manager.service';
 import { CanvaMcpService } from './canva-mcp.service';
 import { CanvaBrandsService } from './canva-brands.service';
 import { CanvaDebugService } from './canva-debug.service';
+import { PostRendererService } from '../../post-render/post-renderer.service';
+import { listFormats } from '../../post-render/post-format.registry';
 import { agentLlmOpts } from '../runtime/llm-config.util';
 import type {
   IAgent,
@@ -65,6 +67,7 @@ export class CanvaAgent implements IAgent, OnModuleInit {
     private readonly canvaMcp: CanvaMcpService,
     private readonly brands: CanvaBrandsService,
     private readonly debug: CanvaDebugService,
+    private readonly renderer: PostRendererService,
   ) {}
 
   onModuleInit() {
@@ -127,6 +130,26 @@ export class CanvaAgent implements IAgent, OnModuleInit {
   private async decideChat(query: string, config: CanvaConfig): Promise<ProposedAction[]> {
     if (!query?.trim()) {
       return [{ type: 'notify_result', summary: 'No query', payload: { message: 'What would you like help with?' }, riskLevel: 'low' }];
+    }
+
+    // Detect post-render engine trigger: "Generate a <format-id> for brand <brand> about "..."
+    const renderMatch = query.match(
+      /generate\s+an?\s+([\w-]+)\s+for\s+brand\s+(\w+)(?:\s+about\s+"([^"]+)")?(?:\s+intent\s+([\w\s]+))?/i,
+    );
+    if (renderMatch) {
+      const formatId = renderMatch[1].toLowerCase();
+      const brand = renderMatch[2].toLowerCase();
+      const topic = renderMatch[3]?.trim() || undefined;
+      const intent = renderMatch[4]?.trim() || undefined;
+      const validFormats = new Set(listFormats().map(f => f.id));
+      if (validFormats.has(formatId)) {
+        return [{
+          type: 'post_render',
+          summary: `Render ${formatId} for ${brand}`,
+          payload: { formatId, brand, topic, intent },
+          riskLevel: 'low',
+        }];
+      }
     }
 
     const systemPrompt = `You are a social media design assistant for Sharifur Rahman, founder of Taskip and Xgenious.
@@ -262,6 +285,18 @@ Return ONLY a JSON array (no markdown):
 
     if (action.type === 'generate_designs') {
       return this.executeDesignGeneration(action.payload as any);
+    }
+
+    if (action.type === 'post_render') {
+      const { formatId, brand, topic, intent } = action.payload as any;
+      try {
+        const result = await this.renderer.render({ formatId, brand, topic, intent });
+        const slideList = result.slideUrls.map((u, i) => `Slide ${i + 1}: ${u}`).join('\n');
+        const message = `Render complete — ${result.slideUrls.length} slides generated\n\n${slideList}\n\nExports:\nPPTX (Canva layers): /posts/renders/${result.id}/pptx\nCSV (Bulk Create): /posts/renders/${result.id}/canva-csv\nPlain text: /posts/renders/${result.id}/text-export`;
+        return { success: true, data: { message, slideUrls: result.slideUrls, renderId: result.id } };
+      } catch (err) {
+        return { success: true, data: { message: `Render failed: ${(err as Error).message}` } };
+      }
     }
 
     if (action.type === 'approve_candidate') {

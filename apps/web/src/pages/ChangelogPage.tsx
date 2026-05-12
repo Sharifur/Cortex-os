@@ -16,6 +16,50 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.14.1',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'feat', scope: 'chat', description: 'Post-render engine events now appear in the chat activity panel: content generation, image gen (with cost), per-slide rendering, and render complete — each with a distinct icon and running/success/failed state.' },
+      { tag: 'feat', scope: 'llm-usage', description: 'Image generation cost now recorded to llm_usage_logs via LlmUsageService.record() with costUsdOverride, so image spend appears in the LLM Usage page by model and agent alongside text LLM calls.' },
+      { tag: 'feat', scope: 'llm-usage', description: 'UsageRecord now accepts costUsdOverride to bypass the token-based pricing table computation — needed for per-image pricing models.' },
+    ],
+  },
+  {
+    version: 'v4.14.0',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'feat', scope: 'settings', description: 'Image Generation settings rebuilt with provider sub-tabs (OpenAI / Stability AI / Gemini), model selector per provider with cost annotations, and a cost reference table. Settings definitions now carry options arrays for dropdown rendering.' },
+      { tag: 'feat', scope: 'image-gen', description: 'ImageGenService now supports Stability AI (Stable Image Core, SDXL, Stable Image Ultra) as a provider. Provider cascade updated to: openai → stability → gemini. Each generation logs model name, provider, and estimated cost in USD to activity log.' },
+      { tag: 'feat', scope: 'image-gen', description: 'Added configurable model selection: image_gen_openai_model (gpt-image-1, gpt-image-2, dall-e-3-hd, dall-e-3, dall-e-2) and image_gen_stability_model (stable-image-core, SDXL, stable-image-ultra) settings.' },
+    ],
+  },
+  {
+    version: 'v4.13.7',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'feat', scope: 'settings', description: 'Added Image Generation section to Settings page with two fields: stability_api_key (secret, for AI image backgrounds) and image_gen_provider (auto/openai/stability). Section appears between LLM and HR tabs.' },
+      { tag: 'fix', scope: 'settings', description: 'stability_api_key and image_gen_provider were missing from SETTING_DEFINITIONS so they never appeared in Settings. Added with group: image and correct isSecret flags.' },
+    ],
+  },
+  {
+    version: 'v4.13.6',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'Post Format Engine now executes from chat: sending "Generate a linkedin-tips-carousel for brand taskip about ..." detects the pattern in decideChat, calls PostRendererService.render() directly, and returns slide URLs in the chat response. Previously the agent just returned a text layout description.' },
+      { tag: 'fix', scope: 'post-render', description: 'Broke circular dependency between PostRenderModule and CanvaModule: PostBrandService now queries canvaBrands table directly via DbService instead of depending on CanvaBrandsService, allowing PostRenderModule to be imported into CanvaModule cleanly.' },
+      { tag: 'fix', scope: 'canva', description: 'Setup tab Step 1 and Step 2 now show as checked when openai_api_key / stability_api_key are configured in Settings. Step descriptions updated: Stability AI doc added with platform.stability.ai → API Keys instructions and sk-... key format note.' },
+      { tag: 'fix', scope: 'post-renders', description: 'Design Samples tab brand selector changed from a fixed dropdown (taskip/xgenious) to a free text input. Samples now load across all brands by default when brand field is empty.' },
+    ],
+  },
+  {
+    version: 'v4.13.5',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'fix', scope: 'inbox', description: 'Mark as opened now updates the row immediately via optimistic setQueryData patch, so the opened state reflects without waiting for a refetch. Invalidation also scoped to the active purpose filter key.' },
+      { tag: 'fix', scope: 'chat', description: 'Spam score badge replaced with a color-coded pill: "Inbox · 100" in emerald, "Promotions · N" in amber, "Spam risk · N" in orange, "Blocked · N" in rose. Previous label "Spam: 100 — Inbox strong" was confusing.' },
+    ],
+  },
+  {
     version: 'v4.13.4',
     date: '2026-05-12',
     entries: [
