@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.15.4',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'fix', scope: 'support', description: 'Webhook log now written for every incoming request, including those rejected at the signature check (missing secret config, missing header, wrong secret). Previously only requests that passed signature validation appeared in the Webhook Logs tab. Rejected entries show status "rejected" with the specific reason in the error field.' },
+    ],
+  },
+  {
     version: 'v4.15.3',
     date: '2026-05-12',
     entries: [

@@ -320,16 +320,21 @@ export class SupportAgent implements IAgent, OnModuleInit {
           const secret = raw?.trim() ?? '';
           if (!secret) {
             this.logger.warn('support_webhook_secret not configured in Settings — all webhook requests will be rejected');
+            await this.writeWebhookLog({ status: 'rejected', rawPayload: _rawBody.slice(0, 5000), error: 'support_webhook_secret not configured in Settings' });
             return false;
           }
           const sent = (headers['x-webhook-secret'] as string | undefined)?.trim() ?? '';
           if (!sent) {
             this.logger.warn('Webhook arrived without x-webhook-secret header');
+            await this.writeWebhookLog({ status: 'rejected', rawPayload: _rawBody.slice(0, 5000), error: 'Missing x-webhook-secret header' });
             return false;
           }
           this.logger.debug(`Webhook secret check: sent.length=${sent.length} stored.length=${secret.length}`);
           const ok = safeEqualString(sent, secret);
-          if (!ok) this.logger.warn('Webhook x-webhook-secret header did not match stored secret');
+          if (!ok) {
+            this.logger.warn('Webhook x-webhook-secret header did not match stored secret');
+            await this.writeWebhookLog({ status: 'rejected', rawPayload: _rawBody.slice(0, 5000), error: 'x-webhook-secret header did not match stored secret' });
+          }
           return ok;
         },
         handler: async (body) => this.ingestWebhook(body as any),
