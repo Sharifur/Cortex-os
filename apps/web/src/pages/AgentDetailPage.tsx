@@ -3626,7 +3626,7 @@ function AgentDetailSkeleton() {
 
 // ─── Canva Agent Page (T17, T18, T19, T28, T29) ────────────────────────────
 
-type CanvaTab = 'candidates' | 'brands' | 'renders' | 'design-samples' | 'settings' | 'setup';
+type CanvaTab = 'renders' | 'brands' | 'design-samples' | 'settings' | 'setup';
 
 interface CanvaCandidate {
   id: string;
@@ -3661,10 +3661,9 @@ interface CanvaBrand {
 }
 
 function CanvaAgentPage({ agent, token }: { agent: AgentDetail; token: string }) {
-  const [tab, setTab] = useState<CanvaTab>('candidates');
+  const [tab, setTab] = useState<CanvaTab>('renders');
 
   const tabs: { key: CanvaTab; label: string }[] = [
-    { key: 'candidates', label: 'Candidates' },
     { key: 'renders', label: 'Post Renders' },
     { key: 'brands', label: 'Brands' },
     { key: 'design-samples', label: 'Design Samples' },
@@ -3688,7 +3687,6 @@ function CanvaAgentPage({ agent, token }: { agent: AgentDetail; token: string })
         ))}
       </div>
 
-      {tab === 'candidates' && <CanvaCandidatesTab token={token} />}
       {tab === 'renders' && <PostRendersTab token={token} />}
       {tab === 'brands' && <CanvaBrandsTab token={token} />}
       {tab === 'design-samples' && <DesignSamplesTab token={token} />}
@@ -3698,9 +3696,28 @@ function CanvaAgentPage({ agent, token }: { agent: AgentDetail; token: string })
   );
 }
 
+const STATIC_FORMATS = [
+  { id: 'linkedin-tips-carousel',    name: 'LinkedIn Tips Carousel',       platform: 'linkedin' },
+  { id: 'linkedin-howto-carousel',   name: 'LinkedIn How-To Steps',        platform: 'linkedin' },
+  { id: 'linkedin-stat-single',      name: 'LinkedIn Stat Card',           platform: 'linkedin' },
+  { id: 'linkedin-quote-single',     name: 'LinkedIn Pull Quote',          platform: 'linkedin' },
+  { id: 'linkedin-list-carousel',    name: 'LinkedIn Numbered List',       platform: 'linkedin' },
+  { id: 'instagram-quote',           name: 'Instagram Quote Card',         platform: 'instagram' },
+  { id: 'instagram-fact',            name: 'Instagram Fact / Stat Card',   platform: 'instagram' },
+  { id: 'instagram-carousel-edu',    name: 'Instagram Edu Carousel',       platform: 'instagram' },
+  { id: 'instagram-story-tip',       name: 'Instagram Story — Tip',        platform: 'instagram' },
+  { id: 'instagram-story-announce',  name: 'Instagram Story — Announcement', platform: 'instagram' },
+  { id: 'twitter-announcement',      name: 'Twitter Wide Card',            platform: 'twitter' },
+  { id: 'twitter-thread-card',       name: 'Twitter Thread Visual',        platform: 'twitter' },
+  { id: 'facebook-ad-banner',        name: 'Facebook Ad Banner',           platform: 'facebook' },
+  { id: 'generic-infographic',       name: '3-Column Infographic',         platform: 'any' },
+  { id: 'generic-checklist',         name: 'Checklist Card',               platform: 'any' },
+];
+
 // Post Renders Tab
 function PostRendersTab({ token }: { token: string }) {
-  const [formats, setFormats] = useState<any[]>([]);
+  const [formats, setFormats] = useState<any[]>(STATIC_FORMATS);
+  const [brands, setBrands] = useState<string[]>([]);
   const [renders, setRenders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
@@ -3709,12 +3726,16 @@ function PostRendersTab({ token }: { token: string }) {
 
   useEffect(() => {
     Promise.all([
-      apiFetch(token, '/posts/formats'),
-      apiFetch(token, '/posts/renders?limit=30'),
-    ]).then(([f, r]) => {
-      setFormats(Array.isArray(f) ? f : []);
+      apiFetch(token, '/posts/formats').catch(() => null),
+      apiFetch(token, '/posts/renders?limit=30').catch(() => []),
+      apiFetch(token, '/canva/brands').catch(() => []),
+    ]).then(([f, r, b]) => {
+      if (Array.isArray(f) && f.length > 0) setFormats(f);
       setRenders(Array.isArray(r) ? r : []);
-    }).catch(() => {}).finally(() => setLoading(false));
+      const brandNames: string[] = Array.isArray(b) ? b.map((br: any) => br.name).filter(Boolean) : [];
+      setBrands(brandNames);
+      if (brandNames.length > 0) setForm(prev => ({ ...prev, brand: prev.brand || brandNames[0] }));
+    }).finally(() => setLoading(false));
   }, [token]);
 
   async function generate() {
@@ -3753,12 +3774,23 @@ function PostRendersTab({ token }: { token: string }) {
           </div>
           <div>
             <label className="text-xs text-muted-foreground mb-1 block">Brand</label>
-            <input
-              className="w-full bg-muted border border-border rounded-lg px-3 py-2 text-sm"
-              placeholder="taskip"
-              value={form.brand}
-              onChange={e => setForm(f => ({ ...f, brand: e.target.value }))}
-            />
+            {brands.length > 0 ? (
+              <select
+                className="w-full bg-muted border border-border rounded-lg px-3 py-2 text-sm"
+                value={form.brand}
+                onChange={e => setForm(f => ({ ...f, brand: e.target.value }))}
+              >
+                <option value="">Select brand...</option>
+                {brands.map(b => <option key={b} value={b}>{b}</option>)}
+              </select>
+            ) : (
+              <input
+                className="w-full bg-muted border border-border rounded-lg px-3 py-2 text-sm"
+                placeholder="taskip"
+                value={form.brand}
+                onChange={e => setForm(f => ({ ...f, brand: e.target.value }))}
+              />
+            )}
           </div>
           <div>
             <label className="text-xs text-muted-foreground mb-1 block">Topic</label>
@@ -3825,31 +3857,31 @@ function PostRendersTab({ token }: { token: string }) {
 function DesignSamplesTab({ token }: { token: string }) {
   const [samples, setSamples] = useState<any[]>([]);
   const [patterns, setPatterns] = useState<string[]>([]);
-  const [brand, setBrand] = useState('taskip');
   const [uploading, setUploading] = useState(false);
   const [clustering, setClustering] = useState(false);
   const [uploadResult, setUploadResult] = useState('');
+  const [isDragOver, setIsDragOver] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   async function loadData() {
     const [s, p] = await Promise.all([
-      apiFetch(token, `/posts/design-samples?brand=${brand}`).catch(() => []),
-      apiFetch(token, `/posts/design-samples/patterns?brand=${brand}`).catch(() => []),
+      apiFetch(token, '/posts/design-samples').catch(() => []),
+      apiFetch(token, '/posts/design-samples/patterns').catch(() => []),
     ]);
     setSamples(Array.isArray(s) ? s : []);
     setPatterns(Array.isArray(p) ? p : []);
   }
 
-  useEffect(() => { loadData(); }, [brand, token]);
+  useEffect(() => { loadData(); }, [token]);
 
-  async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const files = e.target.files;
-    if (!files?.length) return;
+  async function uploadFiles(files: FileList | File[]) {
+    const list = Array.from(files).filter(f => f.type.startsWith('image/'));
+    if (!list.length) return;
     setUploading(true); setUploadResult('');
     try {
       const fd = new FormData();
-      for (const f of Array.from(files)) fd.append('files', f);
-      const res = await fetch(`/api/posts/design-samples/upload?brand=${brand}`, {
+      for (const f of list) fd.append('files', f);
+      const res = await fetch('/posts/design-samples/upload', {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
         body: fd,
@@ -3861,13 +3893,33 @@ function DesignSamplesTab({ token }: { token: string }) {
       setUploadResult('Upload failed');
     } finally {
       setUploading(false);
+      if (fileRef.current) fileRef.current.value = '';
     }
+  }
+
+  function handleFileInput(e: React.ChangeEvent<HTMLInputElement>) {
+    if (e.target.files?.length) uploadFiles(e.target.files);
+  }
+
+  function handleDragOver(e: React.DragEvent) {
+    e.preventDefault();
+    setIsDragOver(true);
+  }
+
+  function handleDragLeave(e: React.DragEvent) {
+    if (!e.currentTarget.contains(e.relatedTarget as Node)) setIsDragOver(false);
+  }
+
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault();
+    setIsDragOver(false);
+    if (e.dataTransfer.files?.length) uploadFiles(e.dataTransfer.files);
   }
 
   async function cluster() {
     setClustering(true);
     try {
-      await apiFetch(token, '/posts/design-samples/cluster', { method: 'POST', body: JSON.stringify({ brand }) });
+      await apiFetch(token, '/posts/design-samples/cluster', { method: 'POST', body: JSON.stringify({}) });
       await loadData();
     } finally {
       setClustering(false);
@@ -3877,38 +3929,41 @@ function DesignSamplesTab({ token }: { token: string }) {
   return (
     <div className="space-y-5">
       <div className="bg-card border border-border rounded-xl p-4 space-y-3">
-        <div className="flex items-center gap-3">
-          <div>
-            <label className="text-xs text-muted-foreground mb-1 block">Brand</label>
-            <input
-              className="bg-muted border border-border rounded-lg px-3 py-2 text-sm"
-              value={brand}
-              onChange={e => setBrand(e.target.value)}
-            />
-          </div>
-          <div className="mt-5">
-            <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={handleUpload} />
-            <button
-              onClick={() => fileRef.current?.click()}
-              disabled={uploading}
-              className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium disabled:opacity-50"
-            >
-              {uploading ? 'Analyzing...' : 'Upload samples'}
-            </button>
-          </div>
-          <div className="mt-5">
-            <button
-              onClick={cluster}
-              disabled={clustering || samples.length < 20}
-              className="px-4 py-2 border border-border rounded-lg text-sm font-medium disabled:opacity-50"
-              title={samples.length < 20 ? 'Need 20+ samples to cluster' : ''}
-            >
-              {clustering ? 'Clustering...' : 'Learn patterns'}
-            </button>
-          </div>
+        <div className="flex items-center justify-end">
+          <button
+            onClick={cluster}
+            disabled={clustering || samples.length < 20}
+            className="px-4 py-2 border border-border rounded-lg text-sm font-medium disabled:opacity-50"
+            title={samples.length < 20 ? 'Need 20+ samples to cluster' : ''}
+          >
+            {clustering ? 'Clustering...' : 'Learn patterns'}
+          </button>
         </div>
+
+        <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={handleFileInput} />
+        <div
+          onClick={() => !uploading && fileRef.current?.click()}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+          className={`border-2 border-dashed rounded-xl p-8 text-center transition-colors cursor-pointer ${
+            isDragOver
+              ? 'border-primary bg-primary/5'
+              : 'border-border hover:border-primary/50 hover:bg-muted/40'
+          } ${uploading ? 'pointer-events-none opacity-60' : ''}`}
+        >
+          {uploading ? (
+            <p className="text-sm text-muted-foreground">Analyzing images...</p>
+          ) : (
+            <>
+              <p className="text-sm font-medium">{isDragOver ? 'Drop images here' : 'Drop images or click to upload'}</p>
+              <p className="text-xs text-muted-foreground mt-1">PNG, JPG, WEBP — multiple files supported</p>
+            </>
+          )}
+        </div>
+
         {uploadResult && <p className="text-xs text-green-600">{uploadResult}</p>}
-        <p className="text-xs text-muted-foreground">{samples.length} samples for {brand}</p>
+        <p className="text-xs text-muted-foreground">{samples.length} sample{samples.length !== 1 ? 's' : ''} total</p>
       </div>
 
       {patterns.length > 0 && (

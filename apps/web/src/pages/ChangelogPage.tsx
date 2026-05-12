@@ -16,6 +16,58 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.14.9',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'chore', scope: 'agents', description: 'Removed Social Media Handler (social) and YouTube Shorts Creator (shorts) agents — deregistered from app.module.ts, seed.ts, and Telegram routing menus.' },
+    ],
+  },
+  {
+    version: 'v4.14.8',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'chore', scope: 'canva', description: 'Renamed agent from "Canva + Social Content Agent" to "Social Media Banner Design Agent" in agent class and seed file.' },
+    ],
+  },
+  {
+    version: 'v4.14.7',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'chore', scope: 'canva', description: 'Removed Candidates tab from Canva agent settings — Post Renders is now the default landing tab.' },
+      { tag: 'chore', scope: 'nav', description: 'Removed Post Renders sidebar nav item — the feature lives inside the Canva agent settings tab.' },
+    ],
+  },
+  {
+    version: 'v4.14.6',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'chore', scope: 'canva', description: 'Design Samples tab: removed brand filter — samples are now uploaded and listed globally across all brands. Learn patterns also runs globally.' },
+    ],
+  },
+  {
+    version: 'v4.14.5',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'Post Renders brand field is now a select dropdown populated from saved canva brands. First brand is auto-selected on load. Falls back to a text input if no brands are configured yet.' },
+    ],
+  },
+  {
+    version: 'v4.14.4',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'Design Samples upload now has a full drag-and-drop dropzone — drag images directly onto the zone to upload without clicking. Clicking still opens the file picker. Drag-over state highlights the border. Multiple files supported in both flows.' },
+    ],
+  },
+  {
+    version: 'v4.14.3',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'fix', scope: 'chat', description: 'Email card SPAR parser now finds the last **Email:** section marker (followed by newline) rather than the first occurrence. Workspace context fields like **Email:** user@domain.com were being matched first, causing the entire workspace context and reasoning block to appear as the email body inside the card.' },
+      { tag: 'fix', scope: 'canva', description: 'Post Renders format dropdown now shows all 15 built-in formats immediately using a static fallback list — no longer empty when the /posts/formats API is unavailable. Added /posts to Vite proxy so the API call also works in dev.' },
+      { tag: 'fix', scope: 'canva', description: 'Design Samples upload resets the file input after each upload so users can select and upload new batches immediately without refreshing. Fixed upload URL to remove spurious /api/ prefix.' },
+    ],
+  },
+  {
     version: 'v4.14.2',
     date: '2026-05-12',
     entries: [

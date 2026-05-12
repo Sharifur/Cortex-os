@@ -27,9 +27,7 @@ import { WhatsAppModule } from './modules/agents/whatsapp/whatsapp.module';
 import { LinkedInModule } from './modules/agents/linkedin/linkedin.module';
 import { RedditModule } from './modules/agents/reddit/reddit.module';
 import { HrModule } from './modules/agents/hr/hr.module';
-import { SocialModule } from './modules/agents/social/social.module';
 import { CanvaModule } from './modules/agents/canva/canva.module';
-import { ShortsModule } from './modules/agents/shorts/shorts.module';
 import { LivechatModule } from './modules/agents/livechat/livechat.module';
 import { KnowledgeBaseModule } from './modules/knowledge-base/knowledge-base.module';
 import { TasksModule } from './modules/tasks/tasks.module';
@@ -96,9 +94,7 @@ import { PostRenderModule } from './modules/post-render/post-render.module';
     LinkedInModule,
     RedditModule,
     HrModule,
-    SocialModule,
     CanvaModule,
-    ShortsModule,
     LivechatModule,
     KnowledgeBaseModule,
     TasksModule,

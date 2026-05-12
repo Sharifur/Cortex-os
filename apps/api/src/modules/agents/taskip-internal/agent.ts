@@ -650,10 +650,15 @@ function extractFailedEmails(text: string): string[] {
 
 function extractEmailDraft(text: string): { subject: string; body: string; to?: string } | null {
   // SPAR format: **Subject A/B:** ... **Email:** ... body ... **Self-score:**
-  const emailMarkerIdx = text.search(/\*{0,2}Email:\*{0,2}\s*\n?/i);
+  // Match the LAST **Email:** that acts as a section break (followed by newline only).
+  // Workspace context lines like **Email:** user@domain.com won't match — value on same line.
+  const emailSectionRe = /\*{0,2}Email:\*{0,2}[ \t]*\n/gi;
+  let emailMarkerIdx = -1;
+  let lastMatchLen = 0;
+  let m: RegExpExecArray | null;
+  while ((m = emailSectionRe.exec(text)) !== null) { emailMarkerIdx = m.index; lastMatchLen = m[0].length; }
   if (emailMarkerIdx >= 0) {
-    const markerMatch = text.match(/\*{0,2}Email:\*{0,2}\s*\n?/i)!;
-    const bodyRaw = text.slice(emailMarkerIdx + markerMatch[0].length);
+    const bodyRaw = text.slice(emailMarkerIdx + lastMatchLen);
     const selfScoreIdx = bodyRaw.search(/\n\*{0,2}Self-score:/i);
     const body = (selfScoreIdx >= 0 ? bodyRaw.slice(0, selfScoreIdx) : bodyRaw).trim();
 
