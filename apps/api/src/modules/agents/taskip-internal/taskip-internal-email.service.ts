@@ -158,59 +158,64 @@ export class TaskipInternalEmailService {
     if (opts.purpose) where.push(eq(taskipInternalEmails.purpose, opts.purpose));
     if (opts.workspaceUuid) where.push(eq(taskipInternalEmails.workspaceUuid, opts.workspaceUuid));
 
-    const rows = await this.db.db
-      .select({
-        id: taskipInternalEmails.id,
-        purpose: taskipInternalEmails.purpose,
-        workspaceUuid: taskipInternalEmails.workspaceUuid,
-        recipient: taskipInternalEmails.recipient,
-        subject: taskipInternalEmails.subject,
-        body: taskipInternalEmails.body,
-        gmailMessageId: taskipInternalEmails.gmailMessageId,
-        gmailThreadId: taskipInternalEmails.gmailThreadId,
-        status: taskipInternalEmails.status,
-        error: taskipInternalEmails.error,
-        replyCount: taskipInternalEmails.replyCount,
-        lastReplyAt: taskipInternalEmails.lastReplyAt,
-        lastSyncedAt: taskipInternalEmails.lastSyncedAt,
-        metadata: taskipInternalEmails.metadata,
-        sentAt: taskipInternalEmails.sentAt,
-        openCount: taskipInternalEmails.openCount,
-        firstOpenAt: taskipInternalEmails.firstOpenAt,
-        lastOpenAt: taskipInternalEmails.lastOpenAt,
-      })
-      .from(taskipInternalEmails)
-      .where(where.length ? and(...where) : undefined)
-      .orderBy(desc(taskipInternalEmails.sentAt))
-      .limit(limit);
-    return rows;
+    const purposeClause = opts.purpose ? sql`AND purpose = ${opts.purpose}` : sql``;
+    const uuidClause = opts.workspaceUuid ? sql`AND workspace_uuid = ${opts.workspaceUuid}` : sql``;
+    const rows = await this.db.db.execute(sql`
+      SELECT id, purpose, workspace_uuid AS "workspaceUuid", recipient, subject, body,
+             gmail_message_id AS "gmailMessageId", gmail_thread_id AS "gmailThreadId",
+             status, error, reply_count AS "replyCount", last_reply_at AS "lastReplyAt",
+             last_synced_at AS "lastSyncedAt", metadata, sent_at AS "sentAt",
+             COALESCE(open_count, (metadata->>'openCount')::int, 0) AS "openCount",
+             first_open_at AS "firstOpenAt",
+             last_open_at  AS "lastOpenAt"
+      FROM taskip_internal_emails
+      WHERE TRUE ${purposeClause} ${uuidClause}
+      ORDER BY sent_at DESC
+      LIMIT ${limit}
+    `).catch(() =>
+      this.db.db.execute(sql`
+        SELECT id, purpose, workspace_uuid AS "workspaceUuid", recipient, subject, body,
+               gmail_message_id AS "gmailMessageId", gmail_thread_id AS "gmailThreadId",
+               status, error, reply_count AS "replyCount", last_reply_at AS "lastReplyAt",
+               last_synced_at AS "lastSyncedAt", metadata, sent_at AS "sentAt",
+               0 AS "openCount", NULL AS "firstOpenAt", NULL AS "lastOpenAt"
+        FROM taskip_internal_emails
+        WHERE TRUE ${purposeClause} ${uuidClause}
+        ORDER BY sent_at DESC
+        LIMIT ${limit}
+      `)
+    );
+    return rows as unknown as Array<{
+      id: string; purpose: string; workspaceUuid: string | null; recipient: string;
+      subject: string; body: string | null; gmailMessageId: string | null;
+      gmailThreadId: string | null; status: string; error: string | null;
+      replyCount: number; lastReplyAt: string | null; lastSyncedAt: string | null;
+      metadata: Record<string, unknown> | null; sentAt: string;
+      openCount: number; firstOpenAt: string | null; lastOpenAt: string | null;
+    }>;
   }
 
   async getDetail(id: string) {
-    const [email] = await this.db.db
-      .select({
-        id: taskipInternalEmails.id,
-        purpose: taskipInternalEmails.purpose,
-        workspaceUuid: taskipInternalEmails.workspaceUuid,
-        recipient: taskipInternalEmails.recipient,
-        subject: taskipInternalEmails.subject,
-        body: taskipInternalEmails.body,
-        gmailMessageId: taskipInternalEmails.gmailMessageId,
-        gmailThreadId: taskipInternalEmails.gmailThreadId,
-        status: taskipInternalEmails.status,
-        error: taskipInternalEmails.error,
-        replyCount: taskipInternalEmails.replyCount,
-        lastReplyAt: taskipInternalEmails.lastReplyAt,
-        lastSyncedAt: taskipInternalEmails.lastSyncedAt,
-        metadata: taskipInternalEmails.metadata,
-        sentAt: taskipInternalEmails.sentAt,
-        openCount: taskipInternalEmails.openCount,
-        firstOpenAt: taskipInternalEmails.firstOpenAt,
-        lastOpenAt: taskipInternalEmails.lastOpenAt,
-      })
-      .from(taskipInternalEmails)
-      .where(eq(taskipInternalEmails.id, id))
-      .limit(1);
+    const rows = await this.db.db.execute(sql`
+      SELECT id, purpose, workspace_uuid AS "workspaceUuid", recipient, subject, body,
+             gmail_message_id AS "gmailMessageId", gmail_thread_id AS "gmailThreadId",
+             status, error, reply_count AS "replyCount", last_reply_at AS "lastReplyAt",
+             last_synced_at AS "lastSyncedAt", metadata, sent_at AS "sentAt",
+             COALESCE(open_count, (metadata->>'openCount')::int, 0) AS "openCount",
+             first_open_at AS "firstOpenAt",
+             last_open_at  AS "lastOpenAt"
+      FROM taskip_internal_emails WHERE id = ${id} LIMIT 1
+    `).catch(() =>
+      this.db.db.execute(sql`
+        SELECT id, purpose, workspace_uuid AS "workspaceUuid", recipient, subject, body,
+               gmail_message_id AS "gmailMessageId", gmail_thread_id AS "gmailThreadId",
+               status, error, reply_count AS "replyCount", last_reply_at AS "lastReplyAt",
+               last_synced_at AS "lastSyncedAt", metadata, sent_at AS "sentAt",
+               0 AS "openCount", NULL AS "firstOpenAt", NULL AS "lastOpenAt"
+        FROM taskip_internal_emails WHERE id = ${id} LIMIT 1
+      `)
+    );
+    const email = (rows as unknown[])[0] as Record<string, unknown> | undefined;
     if (!email) return null;
 
     const replies = await this.db.db

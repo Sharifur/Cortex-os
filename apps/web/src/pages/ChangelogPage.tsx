@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.15.9',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'fix', scope: 'inbox', description: 'listSent and getDetail now use raw SQL with a COALESCE fallback for open_count/first_open_at/last_open_at — these columns may not exist on local environments where migration 0063 has not run. Falls back to a query without those columns if they are missing, so the inbox loads instead of 500-ing.' },
+    ],
+  },
+  {
     version: 'v4.15.8',
     date: '2026-05-12',
     entries: [
