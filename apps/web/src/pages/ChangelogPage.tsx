@@ -16,6 +16,35 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.15.4',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'fix', scope: 'support', description: 'Webhook log now written for every incoming request, including those rejected at the signature check (missing secret config, missing header, wrong secret). Previously only requests that passed signature validation appeared in the Webhook Logs tab. Rejected entries show status "rejected" with the specific reason in the error field.' },
+    ],
+  },
+  {
+    version: 'v4.15.3',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'fix', scope: 'support', description: 'Webhook normalization now handles flat data payloads where data contains the ticket fields directly (id, subject, priority at top level). Previously only transformer-class-keyed formats were recognised, causing "Missing ticket.id or ticket.subject" for all support.ticket.created and support.ticket.replied events. Priority now also accepts string values (low/medium/high/urgent) in addition to numeric codes.' },
+    ],
+  },
+  {
+    version: 'v4.15.2',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'fix', scope: 'migrations', description: 'Added migration 0067_ensure_email_tables: creates email_suppressions table and adds open-tracking columns (tracking_token, open_count, first_open_at, last_open_at, open_events) with IF NOT EXISTS guards. Fixes persistent "relation email_suppressions does not exist" — 0062/0063 were recorded as applied in __drizzle_migrations but their DDL never committed.' },
+      { tag: 'fix', scope: 'inbox', description: 'Mark as opened no longer reverts after a second — removed the immediate inbox list invalidation from onSuccess. The optimistic cache patch is now stable; a simultaneous refetch was racing the DB write and returning stale data that overwrote the opened state.' },
+    ],
+  },
+  {
+    version: 'v4.15.1',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'fix', scope: 'deploy', description: 'docker-entrypoint.sh now runs "node dist/src/migrate" automatically before starting the app on every container start. Eliminates the need for a manual Coolify post-deploy command — migrations (including missing post_renders and post_formats tables) apply on the next deploy.' },
+    ],
+  },
+  {
     version: 'v4.15.0',
     date: '2026-05-12',
     entries: [

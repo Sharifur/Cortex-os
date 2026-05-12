@@ -241,7 +241,8 @@ export default function InboxPage() {
   const markOpenedMutation = useMutation({
     mutationFn: (id: string) => api(token, `/taskip-internal/inbox/${id}/mark-opened`, { method: 'POST' }),
     onSuccess: (_data, id) => {
-      // Optimistically patch the list cache so the row updates immediately without waiting for refetch
+      // Patch both caches immediately. Do NOT invalidate the list — an instant
+      // refetch races the DB write and returns stale data, reverting the update.
       qc.setQueryData<InboxRow[]>(['inbox', purpose], (old) =>
         old?.map((r) =>
           r.id === id
@@ -249,8 +250,11 @@ export default function InboxPage() {
             : r
         )
       );
-      qc.invalidateQueries({ queryKey: ['inbox', purpose] });
-      qc.invalidateQueries({ queryKey: ['inbox-detail', id] });
+      qc.setQueryData<{ email: InboxRow; replies: unknown[] }>(['inbox-detail', id], (old) =>
+        old
+          ? { ...old, email: { ...old.email, openCount: (old.email.openCount ?? 0) + 1, metadata: { ...old.email.metadata, manuallyOpened: true } } }
+          : old
+      );
     },
   });
 
