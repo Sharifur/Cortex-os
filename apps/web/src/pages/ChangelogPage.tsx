@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.16.9',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'fix', scope: 'activity', description: 'Activity panel no longer shows spinning progress icons for completed render_slide, content_gen, post_render and image_gen steps — they resolve to success icons once the paired done-event arrives or the run finishes.' },
+      { tag: 'feat', scope: 'chat', description: 'Slide lightbox redesigned — dot-strip slide counter, side chevron buttons for prev/next, separate Copy and Download action buttons, keyboard hint, rounded image with ring.' },
+    ],
+  },
+  {
     version: 'v4.16.8',
     date: '2026-05-12',
     entries: [

@@ -7,6 +7,7 @@ import {
   AlertCircle, MessageSquare, ListTodo, RotateCcw, History, X,
   ThumbsUp, ThumbsDown, ImagePlus, Copy, Mail, Check, Wrench, Zap,
   Bold, Italic, List, Radio, ShieldAlert, ShieldCheck, Image, FileImage, Layers,
+  ChevronLeft, ChevronRight, Download,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -839,63 +840,103 @@ function SlideLightbox({
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      // fallback: open image in new tab so user can right-click copy
       window.open(url, '_blank');
     }
   }
 
+  function downloadImage() {
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `slide-${n}.png`;
+    a.click();
+  }
+
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/85 backdrop-blur-md"
       onClick={onClose}
     >
+      {/* top toolbar */}
       <div
-        className="relative max-w-2xl w-full mx-4 flex flex-col items-center gap-3"
+        className="flex items-center justify-between w-full max-w-3xl px-4 pb-3"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* toolbar */}
-        <div className="flex items-center justify-between w-full px-1">
-          <span className="text-white/60 text-sm">Slide {n} / {total}</span>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={copyImage}
-              className="flex items-center gap-1.5 text-xs bg-white/10 hover:bg-white/20 text-white px-3 py-1.5 rounded-lg transition-colors"
-            >
-              {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-              {copied ? 'Copied' : 'Copy image'}
-            </button>
-            <button
-              onClick={onClose}
-              className="text-white/60 hover:text-white p-1 rounded transition-colors"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
+        {/* slide counter */}
+        <div className="flex items-center gap-2">
+          {Array.from({ length: total }).map((_, i) => (
+            <div
+              key={i}
+              className={`rounded-full transition-all ${i + 1 === n ? 'w-4 h-2 bg-white' : 'w-2 h-2 bg-white/30'}`}
+            />
+          ))}
         </div>
 
-        {/* image */}
-        <img src={url} alt={`Slide ${n}`} className="w-full rounded-xl shadow-2xl" />
+        {/* actions */}
+        <div className="flex items-center gap-1.5">
+          <span className="text-white/40 text-xs mr-2">{n} / {total}</span>
 
-        {/* prev / next */}
-        {total > 1 && (
-          <div className="flex gap-3">
-            <button
-              onClick={onPrev}
-              disabled={n === 1}
-              className="text-xs bg-white/10 hover:bg-white/20 disabled:opacity-30 text-white px-4 py-1.5 rounded-lg transition-colors"
-            >
-              Prev
-            </button>
-            <button
-              onClick={onNext}
-              disabled={n === total}
-              className="text-xs bg-white/10 hover:bg-white/20 disabled:opacity-30 text-white px-4 py-1.5 rounded-lg transition-colors"
-            >
-              Next
-            </button>
-          </div>
-        )}
+          <button
+            onClick={copyImage}
+            title="Copy image"
+            className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all ${copied ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-white/10 hover:bg-white/20 text-white border border-white/10 hover:border-white/20'}`}
+          >
+            {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+            <span>{copied ? 'Copied' : 'Copy'}</span>
+          </button>
+
+          <button
+            onClick={downloadImage}
+            title="Download PNG"
+            className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium bg-white/10 hover:bg-white/20 text-white border border-white/10 hover:border-white/20 transition-all"
+          >
+            <Download className="w-4 h-4" />
+            <span>Download</span>
+          </button>
+
+          <button
+            onClick={onClose}
+            title="Close (Esc)"
+            className="flex items-center justify-center w-9 h-9 rounded-lg bg-white/10 hover:bg-white/20 text-white/70 hover:text-white border border-white/10 transition-all ml-1"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
       </div>
+
+      {/* image + side nav */}
+      <div className="flex items-center gap-3 w-full max-w-3xl px-2" onClick={(e) => e.stopPropagation()}>
+        {/* prev */}
+        <button
+          onClick={onPrev}
+          disabled={n === 1}
+          className="flex-shrink-0 flex items-center justify-center w-11 h-11 rounded-full bg-white/10 hover:bg-white/25 disabled:opacity-20 disabled:cursor-not-allowed text-white border border-white/10 hover:border-white/25 transition-all"
+        >
+          <ChevronLeft className="w-5 h-5" />
+        </button>
+
+        {/* image */}
+        <div className="flex-1 min-w-0">
+          <img
+            src={url}
+            alt={`Slide ${n}`}
+            className="w-full rounded-2xl shadow-2xl ring-1 ring-white/10"
+          />
+        </div>
+
+        {/* next */}
+        <button
+          onClick={onNext}
+          disabled={n === total}
+          className="flex-shrink-0 flex items-center justify-center w-11 h-11 rounded-full bg-white/10 hover:bg-white/25 disabled:opacity-20 disabled:cursor-not-allowed text-white border border-white/10 hover:border-white/25 transition-all"
+        >
+          <ChevronRight className="w-5 h-5" />
+        </button>
+      </div>
+
+      {/* hint */}
+      <p className="text-white/25 text-xs mt-4" onClick={(e) => e.stopPropagation()}>
+        Use arrow keys to navigate · Esc to close
+      </p>
     </div>
   );
 }
@@ -1255,12 +1296,14 @@ function parseLogsToTimeline(logs: RunLog[], finished: boolean): ActivityEntry[]
     }
   }
 
-  // Resolve thinking entries: mark as success if something follows them, or if the run is finished
+  // Resolve paired "running → done" entries: mark running as success once the next entry exists, or run is finished
+  const RESOLVE_TYPES = new Set(['thinking', 'render_slide', 'content_gen', 'post_render', 'image_gen']);
   for (let i = 0; i < entries.length; i++) {
-    if (entries[i].type === 'thinking' && entries[i].status === 'running') {
+    const e = entries[i];
+    if (RESOLVE_TYPES.has(e.type) && e.status === 'running') {
       const hasFollowingEntry = i < entries.length - 1;
       if (hasFollowingEntry || finished) {
-        entries[i] = { ...entries[i], status: 'success' };
+        entries[i] = { ...e, status: 'success' };
       }
     }
   }
