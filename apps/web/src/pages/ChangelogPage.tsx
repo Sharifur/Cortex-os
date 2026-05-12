@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.14.7',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'chore', scope: 'canva', description: 'Removed Candidates tab from Canva agent settings — Post Renders is now the default landing tab.' },
+      { tag: 'chore', scope: 'nav', description: 'Removed Post Renders sidebar nav item — the feature lives inside the Canva agent settings tab.' },
+    ],
+  },
+  {
     version: 'v4.14.6',
     date: '2026-05-12',
     entries: [

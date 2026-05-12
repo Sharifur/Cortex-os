@@ -3626,7 +3626,7 @@ function AgentDetailSkeleton() {
 
 // ─── Canva Agent Page (T17, T18, T19, T28, T29) ────────────────────────────
 
-type CanvaTab = 'candidates' | 'brands' | 'renders' | 'design-samples' | 'settings' | 'setup';
+type CanvaTab = 'renders' | 'brands' | 'design-samples' | 'settings' | 'setup';
 
 interface CanvaCandidate {
   id: string;
@@ -3661,10 +3661,9 @@ interface CanvaBrand {
 }
 
 function CanvaAgentPage({ agent, token }: { agent: AgentDetail; token: string }) {
-  const [tab, setTab] = useState<CanvaTab>('candidates');
+  const [tab, setTab] = useState<CanvaTab>('renders');
 
   const tabs: { key: CanvaTab; label: string }[] = [
-    { key: 'candidates', label: 'Candidates' },
     { key: 'renders', label: 'Post Renders' },
     { key: 'brands', label: 'Brands' },
     { key: 'design-samples', label: 'Design Samples' },
@@ -3688,7 +3687,6 @@ function CanvaAgentPage({ agent, token }: { agent: AgentDetail; token: string })
         ))}
       </div>
 
-      {tab === 'candidates' && <CanvaCandidatesTab token={token} />}
       {tab === 'renders' && <PostRendersTab token={token} />}
       {tab === 'brands' && <CanvaBrandsTab token={token} />}
       {tab === 'design-samples' && <DesignSamplesTab token={token} />}
