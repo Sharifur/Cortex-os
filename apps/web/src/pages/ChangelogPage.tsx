@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.15.7',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'fix', scope: 'inbox', description: 'Mark as opened now persists across page reloads — listSent and getDetail queries now include openCount, firstOpenAt, lastOpenAt columns. Previously these were omitted from the SELECT so reload always showed openCount as undefined, and the opened badge relied only on the metadata JSONB field.' },
+      { tag: 'feat', scope: 'seed', description: 'Added 5 dummy inbox emails to the seed script for local development — covers marketing, trial_followup, and other purposes with varying open states (unopened, pixel-opened, manually-opened, failed send).' },
+    ],
+  },
+  {
     version: 'v4.15.6',
     date: '2026-05-12',
     entries: [

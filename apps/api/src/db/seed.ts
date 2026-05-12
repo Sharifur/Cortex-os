@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import { db } from './client';
-import { users, agents } from './schema';
+import { users, agents, taskipInternalEmails } from './schema';
 import { eq } from 'drizzle-orm';
 import * as bcrypt from 'bcrypt';
 
@@ -159,6 +159,86 @@ async function seed() {
     } else {
       console.log(`Agent already exists: ${agent.key}`);
     }
+  }
+
+  // Seed dummy inbox emails for local testing (idempotent — skip if any exist)
+  const existingEmails = await db.select({ id: taskipInternalEmails.id }).from(taskipInternalEmails).limit(1);
+  if (existingEmails.length === 0) {
+    const now = new Date();
+    const daysAgo = (d: number) => new Date(now.getTime() - d * 86400000);
+    const DUMMY_EMAILS = [
+      {
+        id: 'seed-inbox-001',
+        purpose: 'marketing' as const,
+        workspaceUuid: 'ws-demo-001',
+        recipient: 'contact@xgenious.com',
+        subject: 'your invoice is still pending — any updates?',
+        body: 'Hi Xgenious Team,\n\nI noticed that you have 1 invoice issued, but it hasn\'t been marked as paid yet. It\'s important for you to receive timely payments, and I want to help you with that.\n\nHave you had a chance to follow up with your client about it?\n\nSharifur',
+        status: 'sent' as const,
+        sentAt: daysAgo(1),
+        openCount: 0,
+        metadata: { spamScore: 0.12, spamGrade: 'A' },
+      },
+      {
+        id: 'seed-inbox-002',
+        purpose: 'trial_followup' as const,
+        workspaceUuid: 'ws-demo-002',
+        recipient: 'john@acmecorp.io',
+        subject: 'how is your Taskip trial going?',
+        body: 'Hi John,\n\nYou\'ve been on the Taskip trial for 5 days now. I wanted to check in and see if you have any questions or if there\'s anything I can help you with.\n\nAre you finding it useful for managing your client projects?\n\nBest,\nSharifur',
+        status: 'sent' as const,
+        sentAt: daysAgo(3),
+        openCount: 2,
+        firstOpenAt: daysAgo(2),
+        lastOpenAt: daysAgo(1),
+        metadata: { spamScore: 0.08, spamGrade: 'A', pixelOpened: true, pixelOpenedAt: daysAgo(2).toISOString() },
+      },
+      {
+        id: 'seed-inbox-003',
+        purpose: 'marketing' as const,
+        workspaceUuid: 'ws-demo-003',
+        recipient: 'sara@designstudio.com',
+        subject: 'client portal update — new feature this week',
+        body: 'Hi Sara,\n\nWe just shipped a new feature in Taskip: your clients can now view project timelines directly from their portal without logging in.\n\nThis should reduce the back-and-forth on status updates significantly.\n\nWorth a look?\n\nSharifur',
+        status: 'sent' as const,
+        sentAt: daysAgo(5),
+        openCount: 0,
+        metadata: { spamScore: 0.21, spamGrade: 'B', manuallyOpened: true, manuallyOpenedAt: daysAgo(4).toISOString() },
+      },
+      {
+        id: 'seed-inbox-004',
+        purpose: 'trial_followup' as const,
+        workspaceUuid: 'ws-demo-004',
+        recipient: 'mike@freelancehq.dev',
+        subject: 'your trial ends in 2 days',
+        body: 'Hi Mike,\n\nJust a heads-up — your Taskip trial ends in 2 days. If you\'d like to continue, you can upgrade to any plan at taskip.app/billing.\n\nIf you have questions before deciding, just reply to this email.\n\nSharifur',
+        status: 'sent' as const,
+        sentAt: daysAgo(7),
+        openCount: 1,
+        firstOpenAt: daysAgo(6),
+        lastOpenAt: daysAgo(6),
+        metadata: { spamScore: 0.05, spamGrade: 'A', pixelOpened: true, pixelOpenedAt: daysAgo(6).toISOString() },
+      },
+      {
+        id: 'seed-inbox-005',
+        purpose: 'other' as const,
+        workspaceUuid: null,
+        recipient: 'billing@bigclient.com',
+        subject: 'invoice #1042 — payment confirmation',
+        body: 'Hi,\n\nThis is a confirmation that invoice #1042 for $299 has been processed successfully.\n\nThank you for your business.\n\nTaskip Billing',
+        status: 'failed' as const,
+        error: 'Gmail API error: invalid_grant — token expired',
+        sentAt: daysAgo(10),
+        openCount: 0,
+        metadata: null,
+      },
+    ];
+    for (const email of DUMMY_EMAILS) {
+      await db.insert(taskipInternalEmails).values(email).onConflictDoNothing();
+    }
+    console.log(`Seeded ${DUMMY_EMAILS.length} dummy inbox emails`);
+  } else {
+    console.log('Inbox emails already exist, skipping dummy seed');
   }
 
   process.exit(0);

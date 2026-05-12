@@ -175,6 +175,9 @@ export class TaskipInternalEmailService {
         lastSyncedAt: taskipInternalEmails.lastSyncedAt,
         metadata: taskipInternalEmails.metadata,
         sentAt: taskipInternalEmails.sentAt,
+        openCount: taskipInternalEmails.openCount,
+        firstOpenAt: taskipInternalEmails.firstOpenAt,
+        lastOpenAt: taskipInternalEmails.lastOpenAt,
       })
       .from(taskipInternalEmails)
       .where(where.length ? and(...where) : undefined)
@@ -201,6 +204,9 @@ export class TaskipInternalEmailService {
         lastSyncedAt: taskipInternalEmails.lastSyncedAt,
         metadata: taskipInternalEmails.metadata,
         sentAt: taskipInternalEmails.sentAt,
+        openCount: taskipInternalEmails.openCount,
+        firstOpenAt: taskipInternalEmails.firstOpenAt,
+        lastOpenAt: taskipInternalEmails.lastOpenAt,
       })
       .from(taskipInternalEmails)
       .where(eq(taskipInternalEmails.id, id))
