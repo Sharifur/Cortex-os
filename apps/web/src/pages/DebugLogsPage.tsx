@@ -160,9 +160,9 @@ export default function DebugLogsPage() {
       </div>
 
       <div className="grid grid-cols-3 gap-3 mt-6 mb-6">
-        <Stat label="Total errors recorded" value={stats.data?.total?.toString() ?? '–'} />
-        <Stat label="5xx (server errors)" value={stats.data?.errors?.toString() ?? '–'} accent="rose" />
-        <Stat label="Last hour" value={stats.data?.last_hour?.toString() ?? '–'} accent="amber" />
+        <Stat label="Total errors recorded" value={stats.data?.total?.toString() ?? '–'} loading={stats.isLoading} />
+        <Stat label="5xx (server errors)" value={stats.data?.errors?.toString() ?? '–'} accent="rose" loading={stats.isLoading} />
+        <Stat label="Last hour" value={stats.data?.last_hour?.toString() ?? '–'} accent="amber" loading={stats.isLoading} />
       </div>
 
       <div className="rounded-xl border border-border bg-card">
@@ -229,7 +229,7 @@ export default function DebugLogsPage() {
           <div className="px-4 py-2 text-xs text-emerald-400 border-b border-border">Deleted {cleanup.data.deleted} log entries.</div>
         )}
 
-        {list.isLoading && <p className="p-6 text-xs text-muted-foreground">Loading…</p>}
+        {list.isLoading && <LogSkeleton />}
         {!list.isLoading && rows.length === 0 && (
           <div className="p-12 text-center">
             <p className="text-sm text-muted-foreground">No errors recorded.</p>
@@ -310,15 +310,37 @@ export default function DebugLogsPage() {
   );
 }
 
-function Stat({ label, value, accent }: { label: string; value: string; accent?: 'rose' | 'amber' }) {
+function Stat({ label, value, accent, loading }: { label: string; value: string; accent?: 'rose' | 'amber'; loading?: boolean }) {
   return (
     <div className="rounded-xl border border-border bg-card p-4">
       <p className="text-xs text-muted-foreground">{label}</p>
-      <p className={`text-2xl font-semibold mt-1 ${
-        accent === 'rose' ? 'text-rose-400'
-          : accent === 'amber' ? 'text-amber-400'
-          : 'text-foreground'
-      }`}>{value}</p>
+      {loading ? (
+        <div className="mt-2 h-7 w-16 rounded-md bg-muted/60 animate-pulse" />
+      ) : (
+        <p className={`text-2xl font-semibold mt-1 ${
+          accent === 'rose' ? 'text-rose-400'
+            : accent === 'amber' ? 'text-amber-400'
+            : 'text-foreground'
+        }`}>{value}</p>
+      )}
+    </div>
+  );
+}
+
+function LogSkeleton() {
+  return (
+    <div className="divide-y divide-border animate-pulse">
+      {Array.from({ length: 6 }).map((_, i) => (
+        <div key={i} className="flex items-center gap-3 px-4 py-3.5">
+          <div className="shrink-0 h-6 w-12 rounded-md bg-muted/60" />
+          <div className="shrink-0 h-5 w-10 rounded bg-muted/50" />
+          <div className="flex-1 h-4 rounded bg-muted/50" style={{ maxWidth: `${45 + (i % 3) * 15}%` }} />
+          <div className="shrink-0 flex flex-col items-end gap-1">
+            <div className="h-3.5 w-16 rounded bg-muted/40" />
+            <div className="h-3 w-10 rounded bg-muted/30" />
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

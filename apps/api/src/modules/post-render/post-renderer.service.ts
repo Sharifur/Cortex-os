@@ -219,11 +219,18 @@ export class PostRendererService {
     // De-duplicate if heading/body are the same font
     const uniqueFonts = fonts.filter((f, i, arr) => arr.findIndex(x => x.name === f.name && x.weight === f.weight) === i);
 
-    const svg = await satori(jsxTree as Parameters<typeof satori>[0], {
-      width: dims.width,
-      height: dims.height,
-      fonts: uniqueFonts,
-    });
+    let svg: string;
+    try {
+      svg = await satori(jsxTree as Parameters<typeof satori>[0], {
+        width: dims.width,
+        height: dims.height,
+        fonts: uniqueFonts,
+      });
+    } catch (err) {
+      const e = err as Error;
+      this.logger.error(`satori crash on slide ${slideNumber}: ${e.message}\n${e.stack ?? ''}\njsxTree=${JSON.stringify(jsxTree).slice(0, 500)}`);
+      throw err;
+    }
 
     const resvg = new Resvg(svg, { fitTo: { mode: 'width', value: dims.width } });
     return Buffer.from(resvg.render().asPng());
@@ -236,14 +243,19 @@ export class PostRendererService {
 
   async list(opts: { brand?: string; status?: string; limit?: number } = {}) {
     const limit = Math.min(opts.limit ?? 20, 100);
-    const rows = await this.db.db.select().from(postRenders)
-      .orderBy(sql`created_at DESC`)
-      .limit(limit);
-    return rows.filter(r => {
-      if (opts.brand && r.brand !== opts.brand) return false;
-      if (opts.status && r.status !== opts.status) return false;
-      return true;
-    });
+    try {
+      const rows = await this.db.db.select().from(postRenders)
+        .orderBy(sql`created_at DESC`)
+        .limit(limit);
+      return rows.filter(r => {
+        if (opts.brand && r.brand !== opts.brand) return false;
+        if (opts.status && r.status !== opts.status) return false;
+        return true;
+      });
+    } catch (err) {
+      this.logger.error(`postRenders SELECT failed — limit=${limit} brand=${opts.brand ?? '-'} status=${opts.status ?? '-'}: ${(err as Error).message}`, (err as Error).stack);
+      throw err;
+    }
   }
 
   async updateStatus(id: string, status: string): Promise<void> {

@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Body, Param, Query, Delete, Res, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller, Post, Get, Body, Param, Query, Delete, Res, HttpCode, HttpStatus, Logger } from '@nestjs/common';
 import type { FastifyReply } from 'fastify';
 import { PostRendererService } from './post-renderer.service';
 import { DesignAnalysisService } from './design-analysis.service';
@@ -8,6 +8,8 @@ import type { RenderRequest } from './types';
 
 @Controller('posts')
 export class PostRenderController {
+  private readonly logger = new Logger(PostRenderController.name);
+
   constructor(
     private readonly renderer: PostRendererService,
     private readonly designAnalysis: DesignAnalysisService,
@@ -28,7 +30,12 @@ export class PostRenderController {
     @Query('status') status?: string,
     @Query('limit') limit?: string,
   ) {
-    return this.renderer.list({ brand, status, limit: limit ? parseInt(limit, 10) : undefined });
+    try {
+      return await this.renderer.list({ brand, status, limit: limit ? parseInt(limit, 10) : undefined });
+    } catch (err) {
+      this.logger.error(`GET /posts/renders failed — brand=${brand ?? '-'} status=${status ?? '-'} limit=${limit ?? '-'}: ${(err as Error).message}`, (err as Error).stack);
+      throw err;
+    }
   }
 
   @Get('renders/:id')
