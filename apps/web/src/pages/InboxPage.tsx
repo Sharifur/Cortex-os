@@ -239,20 +239,16 @@ export default function InboxPage() {
   });
 
   const markOpenedMutation = useMutation({
-    mutationFn: (id: string) => api<{ ok: boolean; error?: string }>(token, `/taskip-internal/inbox/${id}/mark-opened`, { method: 'POST' }),
+    mutationFn: (id: string) => api<{ ok: boolean; error?: string; metadata?: InboxRow['metadata']; openCount?: number }>(token, `/taskip-internal/inbox/${id}/mark-opened`, { method: 'POST' }),
     onSuccess: (data, id) => {
-      if (!data.ok) return; // DB write failed — don't patch cache with wrong state
+      if (!data.ok) return;
+      // Use the DB-confirmed values from RETURNING, not a locally-constructed guess.
+      const patch = { openCount: data.openCount ?? 1, metadata: data.metadata ?? { manuallyOpened: true } };
       qc.setQueryData<InboxRow[]>(['inbox', purpose], (old) =>
-        old?.map((r) =>
-          r.id === id
-            ? { ...r, openCount: (r.openCount ?? 0) + 1, metadata: { ...r.metadata, manuallyOpened: true } }
-            : r
-        )
+        old?.map((r) => r.id === id ? { ...r, ...patch } : r)
       );
       qc.setQueryData<{ email: InboxRow; replies: unknown[] }>(['inbox-detail', id], (old) =>
-        old
-          ? { ...old, email: { ...old.email, openCount: (old.email.openCount ?? 0) + 1, metadata: { ...old.email.metadata, manuallyOpened: true } } }
-          : old
+        old ? { ...old, email: { ...old.email, ...patch } } : old
       );
     },
   });

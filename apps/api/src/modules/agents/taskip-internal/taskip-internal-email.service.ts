@@ -330,32 +330,34 @@ export class TaskipInternalEmailService {
     return { scanned: candidates.length, updated };
   }
 
-  async markOpened(id: string): Promise<{ ok: boolean; error?: string }> {
+  async markOpened(id: string): Promise<{ ok: boolean; error?: string; metadata?: unknown; openCount?: number }> {
     if (!id) return { ok: false, error: 'missing id' };
-    const check = await this.db.db.execute(sql`
-      SELECT id FROM taskip_internal_emails WHERE id = ${id} LIMIT 1
-    `);
-    if (!(check as unknown[]).length) {
-      this.logger.warn(`markOpened: row not found for id=${id}`);
-      return { ok: false, error: 'not found' };
-    }
     const now = new Date();
-    await this.db.db.execute(sql`
+    // Single UPDATE with RETURNING so we confirm the write in one round-trip.
+    const updated = await this.db.db.execute(sql`
       UPDATE taskip_internal_emails
       SET metadata = COALESCE(metadata, '{}'::jsonb)
                      || jsonb_build_object('manuallyOpened', true, 'manuallyOpenedAt', ${now.toISOString()}::text)
       WHERE id = ${id}
+      RETURNING id, metadata
     `);
-    this.logger.log(`markOpened: wrote manuallyOpened=true for id=${id}`);
-    // Update open_count / timestamps when migration 0063 columns exist.
-    await this.db.db.execute(sql`
+    const row = (updated as unknown[])[0] as { id: string; metadata: unknown } | undefined;
+    if (!row) {
+      this.logger.warn(`markOpened: no row matched id=${id} — nothing updated`);
+      return { ok: false, error: 'not found' };
+    }
+    this.logger.log(`markOpened: confirmed write for id=${id}, metadata=${JSON.stringify(row.metadata)}`);
+    // Best-effort: bump open_count / timestamps when those columns exist.
+    const openCount = await this.db.db.execute(sql`
       UPDATE taskip_internal_emails
       SET open_count    = COALESCE(open_count, 0) + 1,
           first_open_at = COALESCE(first_open_at, ${now}),
           last_open_at  = ${now}
       WHERE id = ${id}
-    `).catch(() => { /* columns not yet migrated */ });
-    return { ok: true };
+      RETURNING open_count AS "openCount"
+    `).then((r) => ((r as unknown[])[0] as { openCount: number } | undefined)?.openCount ?? 1)
+      .catch(() => 1);
+    return { ok: true, metadata: row.metadata, openCount };
   }
 
   private fromIsSelf(from: string): boolean {
