@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.12.12',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'fix', scope: 'inbox', description: 'POST /taskip-internal/inbox/:id/mark-opened 500 — PostgresError: could not determine data type of parameter $1. jsonb_build_object receives bound parameters without type context; added ::text cast to the ISO timestamp parameter so PostgreSQL can resolve the type.' },
+    ],
+  },
+  {
     version: 'v4.12.11',
     date: '2026-05-12',
     entries: [

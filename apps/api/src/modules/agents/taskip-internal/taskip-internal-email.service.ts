@@ -332,7 +332,7 @@ export class TaskipInternalEmailService {
     await this.db.db.execute(sql`
       UPDATE taskip_internal_emails
       SET metadata = COALESCE(metadata, '{}'::jsonb)
-                     || jsonb_build_object('manuallyOpened', true, 'manuallyOpenedAt', ${now.toISOString()})
+                     || jsonb_build_object('manuallyOpened', true, 'manuallyOpenedAt', ${now.toISOString()}::text)
       WHERE id = ${id}
     `);
     // Also update dedicated columns when migration 0063 has run.
