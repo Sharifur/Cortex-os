@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.16.4',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'fix', scope: 'canva', description: 'Learn patterns now works with 3+ samples — cluster() and getPatterns() replaced semantic search with direct DB queries. Frontend passes brand=default so uploaded samples are correctly matched.' },
+      { tag: 'feat', scope: 'canva', description: 'Design sample cards: removed title text, added green Learned badge on each thumbnail when patterns have been generated. Grid expanded to 4 columns.' },
+    ],
+  },
+  {
     version: 'v4.16.3',
     date: '2026-05-12',
     entries: [
