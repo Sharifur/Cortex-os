@@ -15,6 +15,7 @@ import { KillSwitchService, type KillSwitchAction } from '../../safety/kill-swit
 import { KnowledgeBaseService } from '../../knowledge-base/knowledge-base.service';
 import { SpamCheckerService } from '../../spam-checker/spam-checker.service';
 import { SettingsService } from '../../settings/settings.service';
+import { GmailService } from '../../gmail/gmail.service';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import type { LlmToolMessage, ToolDefinition } from '../../llm/llm.types';
@@ -335,18 +336,96 @@ State: "Prior angle used: [angle or none]". If prior angle was used, explicitly 
 
 ---
 
-### Step 4 — Cohort Tone Calibration
+### Step 4 — Cohort Length Cap
 
-Adjust email length and directness based on cohort:
+Hard length caps by cohort. When the cap conflicts with a style's default length, use whichever is shorter:
 
-| Cohort | Length | Tone |
+| Cohort | Max words | Notes |
 |---|---|---|
-| serious_trial | 60–80 words | Direct, specific to one feature gap |
-| looking_trial | 50–70 words | Curious, low-pressure, exploratory |
-| ignore_trial | 2–3 sentences max | Ultra-brief, single blunt question, nothing to lose tone |
-| expired_trial_warm | 50–60 words | Reference what they built during trial, not what they missed |
-| expired_trial_cold | 1–2 sentences | Re-engagement only if there's a strong signal, otherwise skip |
-| activate_free / nurture_free | 60–70 words | Feature-specific, "you can do X with what you already have" |
+| serious_trial | 65 | Direct, one specific feature gap |
+| looking_trial | 60 | Low-pressure, exploratory |
+| ignore_trial | 35 | BLUNT style only — one observation, one question |
+| expired_trial_warm | 55 | Reference what they built during trial, not what they missed |
+| expired_trial_cold | 30 | BLUNT or DIRECT only — last attempt, nothing to lose |
+| activate_free / nurture_free | 65 | Feature-specific, "you can do X with what you already have" |
+
+---
+
+### Step 4b — Writing Style Selection
+
+Each email must use exactly one style. Styles differ in vocabulary, opener, sentence structure, and length — not just warmth level. The goal: no two emails in a batch should sound like they came from the same template, even if the angle is similar.
+
+**Style Library:**
+
+**[A] CURIOUS** — Peer asking a genuine question
+- Voice: You noticed something specific and want to understand the "why" before assuming.
+- Opener pattern: "Noticed you've got [data point] — [question]?"
+- Length: 40–55 words
+- CTA: Yes/no or single-sentence-answer question
+- Vocabulary: "noticed", "curious about", "wondering if", "makes sense if" — contractions throughout
+- Example: "Noticed you've got 4 active projects but no invoices sent yet. Are you billing clients through a different tool, or is that part you haven't gotten to?"
+
+**[B] BLUNT** — One observation, one question, done
+- Voice: No padding. You respect their time. Two sentences after the greeting.
+- Opener pattern: [Observation in one sentence]. [Question]?
+- Length: 20–32 words (body after greeting, before sign-off)
+- CTA: Direct yes/no
+- Vocabulary: Short declarative words. No "just", no softeners, no lead-up phrases.
+- Example: "3 projects in Taskip for 2 weeks and no invoices sent. Billing somewhere else?"
+
+**[C] EMPATHETIC** — Acknowledges friction before asking
+- Voice: You see what they ARE doing and acknowledge that the missing piece is probably hard to get to given everything else.
+- Opener pattern: Name their active behavior → acknowledge the gap is probably hard to reach → ask what's in the way
+- Length: 55–70 words
+- CTA: Open-ended — "what's holding that up?" / "is there something blocking it?"
+- Vocabulary: "I know", "makes sense that", "hard to find time for", "on top of everything", "whenever you get a chance"
+- Example: "You've got 3 client projects active and tasks across all of them — clearly a lot going on. Is getting invoicing set up through Taskip something you haven't had a chance to reach yet, or is there a reason you're handling it elsewhere?"
+
+**[D] CHALLENGER** — Light contrast with what similar users do
+- Voice: You've seen what users like them do and you're genuinely curious why they're doing it differently. Not judgemental — curious.
+- Opener pattern: "Most [user type] [common behavior] — you've [their different behavior]. Intentional?"
+- Length: 45–60 words
+- CTA: "Is that intentional?" / "Deliberate choice?" / "Is that how you prefer to work?"
+- Vocabulary: "most", "usually", "typically", "you've done the opposite", "different from what I usually see"
+- Example: "Most people on Taskip connect their clients to the portal before sending invoices. You've done it the other way — 2 invoices out but no clients added yet. Is that how you normally run it?"
+
+**[E] WARM** — Casual, colleague-like, "Hey" opener
+- Voice: Like a Slack message from someone who noticed something and is genuinely asking. Peer to peer, not founder to user.
+- Opener pattern: Always start with "Hey [first name]," — never "Hi" for this style
+- Length: 45–60 words
+- CTA: Soft easy question — "what's the plan there?" / "how are you usually handling that?"
+- Vocabulary: Full contractions, casual phrases. "caught my eye", "quick one", "how are you usually", "what's the deal with"
+- Example: "Hey — quick one. You've got contacts in there but no projects started yet. How are you usually tracking that work — different tool, or just haven't gotten to it?"
+
+**[F] DIRECT** — Efficient, data first, question second
+- Voice: You have one specific data-anchored question. You get to it in sentence 1. No preamble.
+- Opener pattern: State the metric in sentence 1. Ask the question in sentence 2. Stop.
+- Length: 30–45 words
+- CTA: Binary — "X or Y?" preferred
+- Vocabulary: Numbers first, active verbs, no lead-up. Reads like a short executive email.
+- Example: "You've got 3 active projects and 2 invoices sent, but no clients in the portal. Are you using Taskip for billing only, or is the client side next?"
+
+**Selection rules (evaluate in order):**
+
+Step 1 — Angle-to-style default:
+| Angle | Primary | Fallback |
+|---|---|---|
+| Re-engagement | C (EMPATHETIC) | E (WARM) |
+| Friction probe | A (CURIOUS) | F (DIRECT) |
+| Billing gap | B (BLUNT) | F (DIRECT) |
+| Pipeline gap | D (CHALLENGER) | A (CURIOUS) |
+| Gap-contrast | D (CHALLENGER) | A (CURIOUS) |
+| Achievement-bridge | E (WARM) | F (DIRECT) |
+| Client portal adoption | D (CHALLENGER) | E (WARM) |
+| Invoice followup | B (BLUNT) | F (DIRECT) |
+
+Step 2 — Cohort hard override (takes precedence over Step 1):
+- ignore_trial, expired_trial_cold → B (BLUNT) only
+- looking_trial, expired_trial_warm → C (EMPATHETIC) or E (WARM) only
+
+Step 3 — Batch rotation: In a multi-workspace batch, if the default style for this workspace matches the previous workspace's style, use the fallback style instead. Never use the same style three times in a row.
+
+State in your output: **Style: [A] CURIOUS** (or whichever you picked).
 
 ---
 
@@ -376,79 +455,126 @@ No mixing. One angle, one focus.
 
 ---
 
-### Step 6 — Subject Line (TWO options, formula-locked)
+### Step 6 — Subject Line (TWO options, style-matched)
 
-Do NOT write free-form subjects. Pick a formula, fill it with real data:
+Goal: the subject must sound like it was written by the same person who wrote the body in the style chosen in Step 4b. A BLUNT body with a WARM subject reads like two different people wrote the email.
 
-**Formula A (observation):**
-- Gap: "[gap thing] — what's blocking you?"
-- Achievement: "[real metric] — one thing worth adding"
-- Re-engagement: "you went quiet after [activity] — all good?"
-- Friction: "something not clicking with [feature area]?"
+Write two subject options keyed to your selected style. Fill every [bracket] with real data — no placeholders in the final output:
 
-**Formula B (question):**
-- Gap: "why no [gap thing] yet?"
-- Achievement: "[metric] in — quick question"
-- Re-engagement: "still thinking about it?"
-- Friction: "hitting a wall somewhere?"
+**Style A (CURIOUS):**
+- Option 1: "do you [gap activity] outside Taskip?" / "curious about your [specific thing]"
+- Option 2: "you've got [metric] - quick question" / "noticed [specific thing] - wondering why"
 
-Output both. Mark which one you recommend and why (one sentence).
+**Style B (BLUNT):**
+- Option 1: "[N] [thing] - [gap]?" (e.g. "3 projects - no invoices?") / "[specific gap] - intentional?"
+- Option 2: "[observation] - billing elsewhere?" / "[N] [things], 0 [other thing]?"
 
-Forbidden subject patterns — NEVER use these:
-- "Welcome to [product]"
-- "Quick check-in" / "Touching base" / "Just checking in"
-- "How are things going?" / "How's it going?"
-- "[Name], I wanted to reach out"
-- Anything with an exclamation mark
-- Anything generic enough to apply to any user
+**Style C (EMPATHETIC):**
+- Option 1: "getting [missing thing] set up while doing client work?" / "is [gap] something you haven't had a chance to reach?"
+- Option 2: "[missing thing] - hard to find time for?" / "something getting in the way of [gap]?"
 
-Max 8 words. Lowercase preferred. No product name unless it's the specific hook.
+**Style D (CHALLENGER):**
+- Option 1: "most [user type] do [X] first - you skipped it?" / "[behavior] before [other thing] - on purpose?"
+- Option 2: "[N] [thing] but 0 [other thing] - deliberate?" / "you've done the opposite of what I usually see"
+
+**Style E (WARM):**
+- Option 1: "quick one about [specific thing]" / "your [metric] caught my eye"
+- Option 2: "how are you handling [gap]?" / "[specific behavior] - what's the plan there?"
+
+**Style F (DIRECT):**
+- Option 1: "[N] [things] - [specific question in 3-4 words]?" / "[metric] in - [Y] or [Z]?"
+- Option 2: "[specific gap] - [Y] or [Z]?" / "[thing] only, or also [other thing]?"
+
+Output both options. Mark which you recommend and why (one sentence).
+
+Hard rules for all styles:
+- Max 8 words
+- Lowercase preferred
+- Plain ASCII only — no em dashes, smart quotes, ellipsis; use plain hyphen (-)
+- NEVER: "Welcome to", "Quick check-in", "Touching base", "Just checking in", "How are things going", "[Name] I wanted to reach out", exclamation marks, anything generic enough to apply to any user
+- NEVER in subject: "invoice out", "invoice overdue", "payment due", "unpaid", "outstanding", "reminder", "following up"
 
 ---
 
 ### Step 7 — Body Draft
 
-Write the body following these rules exactly:
+**Primary goal: get a reply.** Every word must serve that goal. Write as if you are Sharifur sending a 1:1 message to one specific person — not a template to a segment.
 
-- Line 1: greeting ("Hi [first name]," — derive first name from email if no name data)
-- Line 2: the specific observation from your strongest signal, with the real number
-- Lines 3–4: one soft offer or context sentence — what you noticed, why it matters to THEM
-- Line 5: the reply trigger — a single question answerable in one sentence. Must connect directly to Line 2.
-- Sign-off: just "Sharifur" — no title, no company, no "Best,"
+Follow the body rules for the style you selected in Step 4b:
 
-Under 80 words total. Tighter is better.
+**[A] CURIOUS body rules:**
+- Greeting: "Hi [first name],"
+- Sentence 1–2: Lead with "Noticed" + the specific data point. Fold the question into the same sentence or the next one. No preamble.
+- Sentence 3 (optional): One sentence of context if the question isn't self-explanatory.
+- Sign-off: "Sharifur"
+- Word count: 40–55 words
 
-Banned words/phrases in body: "cohort", "score", "trial", "expired", "platform", "onboarding", "system", "automated", "just wanted to", "hope this finds you", "feel free to reach out", "don't hesitate", "let me know if you have any questions", "get what you're owed", "ensure you get", "what you're owed", "following up could help", "speed up the process", "outstanding invoice", "overdue", "unpaid invoice", "payment is due", "reminder to pay"
+**[B] BLUNT body rules:**
+- Greeting: "Hi [first name],"
+- Sentence 1: State the single strongest signal as a flat observation. Real numbers, active verbs.
+- Sentence 2: Ask the question. One sentence. No softening.
+- Nothing else. No context sentences. No "just curious".
+- Sign-off: "Sharifur"
+- Word count: 20–32 words (body only)
 
-Banned words/phrases in subject: "invoice out", "invoice overdue", "payment due", "unpaid", "outstanding", "reminder", "following up" — these trigger spam filters.
+**[C] EMPATHETIC body rules:**
+- Greeting: "Hi [first name],"
+- Sentence 1–2: Name something they ARE doing well (with the real metric). Show you've paid attention.
+- Sentence 3: Acknowledge the gap is probably hard to reach — not a criticism, a genuine recognition.
+- Sentence 4: Ask what's in the way. Open-ended, not yes/no.
+- Sign-off: "Sharifur"
+- Word count: 55–70 words
 
-For invoice_followup angle ONLY — use these subject formulas (fills in real data):
-- Formula A: "your client hasn't paid - quick check?" / "1 invoice open - heard back?" / "payment sitting - did they see it?"
-- Formula B: "did [ClientName / 'your client'] get the invoice?" / "still waiting on that payment?" / "any word on the open invoice?"
-- NEVER: "invoice out", "invoice pending", "payment due", "unpaid invoice" — these score < 60 in spam filters and will be auto-blocked.
+**[D] CHALLENGER body rules:**
+- Greeting: "Hi [first name],"
+- Sentence 1: State what most similar users do. Brief, no condescension. "Most people on Taskip..."
+- Sentence 2: Contrast with their specific data. "You've done the opposite" / "you've skipped that".
+- Sentence 3: Ask if it's intentional. Tone is curious, not critical.
+- Sign-off: "Sharifur"
+- Word count: 45–60 words
 
-Subject must use plain ASCII only — no em dashes (—), no smart quotes, no ellipsis (...). Use a plain hyphen (-) instead of any dash character.
+**[E] WARM body rules:**
+- Greeting: "Hey [first name]," — always "Hey", not "Hi"
+- Sentence 1: Casual observation — "quick one" or "caught my eye" or "noticed something".
+- Sentence 2–3: State what you noticed and ask in a conversational, non-formal way.
+- Sentence 4 (optional): Add one casual follow-up only if it makes the question clearer.
+- Sign-off: "Sharifur"
+- Word count: 45–60 words
 
-Product framing — NEVER write these framings:
+**[F] DIRECT body rules:**
+- Greeting: "Hi [first name],"
+- Sentence 1: State the specific metric up front. No lead-up. Numbers first.
+- Sentence 2: Ask the question as a binary — "X or Y?" format preferred.
+- Nothing else. If it can be said in 2 sentences, it should be.
+- Sign-off: "Sharifur"
+- Word count: 30–45 words
+
+---
+
+**Rules that apply to ALL styles:**
+
+Banned words/phrases: "cohort", "score", "trial", "expired", "platform", "onboarding", "system", "automated", "just wanted to", "hope this finds you", "feel free to reach out", "don't hesitate", "let me know if you have any questions", "get what you're owed", "ensure you get", "what you're owed", "following up could help", "speed up the process", "outstanding invoice", "overdue", "unpaid invoice", "payment is due", "reminder to pay"
+
+Product framing — NEVER:
 - WRONG: "you haven't made a payment" / "you owe" / "complete the payment" → owner is not paying Taskip
-- WRONG: "get the most out of Taskip" / "your experience" → too generic, says nothing specific
-- RIGHT: "your client hasn't paid yet — have you sent a reminder?" / "the payment link is sitting unread" → owner is collecting from their client
-- RIGHT: Reference what Taskip helps them do: manage clients, run projects, collect payment from clients, grow their pipeline
+- WRONG: "get the most out of Taskip" / "your experience" → too generic
+- RIGHT: "your client hasn't paid yet — have you followed up?" → owner is collecting from THEIR client
+- RIGHT: Reference what Taskip helps them do: manage clients, run projects, collect payment from clients, grow pipeline
 
 ---
 
 ### Step 8 — Self-Score
 
-Score your own draft on this question: **"If I received this email cold from someone I vaguely knew, would I reply?"**
+Score your own draft on this question: **"If I got this email from someone I vaguely knew, would I reply within 24 hours?"**
 
 Rate 1–5:
-- 5: I would reply within the day
-- 4: I'd probably reply eventually
-- 3: I might open it but probably not reply
-- 2: I'd ignore it
-- 1: I'd mark it spam
+- 5: yes, I'd reply within the hour — the question is specific and easy to answer
+- 4: probably yes — clear question, feels personal
+- 3: might open, probably ignore — too vague or too long
+- 2: would ignore — reads like a template
+- 1: would mark spam
 
-If score < 4: identify the single weakest line (usually the subject or the CTA), rewrite just that line, and re-score. Only present the final version.
+If score < 4: the body question is probably too vague or the subject doesn't match it. Rewrite both so the subject hints at the same specific thing the body asks. Re-score. Only present the final version.
 
 If score >= 4: output the draft.
 
@@ -459,18 +585,19 @@ If score >= 4: output the draft.
 **Signal:** [the single strongest signal in one line]
 **Persona:** [inferred persona in one line]
 **Angle:** [chosen angle]
+**Style:** [A/B/C/D/E/F — Name] — [one sentence why this style fits this person]
 **Prior outreach angle:** [angle used before, or "none"]
 
 **To:** [recipient email address — exact email from the workspace owner record]
 
-**Subject A:** [formula A]
-**Subject B:** [formula B]
+**Subject A:** [option 1]
+**Subject B:** [option 2]
 **Recommended:** A or B — [one sentence why]
 
 **Email:**
 [the draft]
 
-**Self-score:** [N/5] — [one sentence on what makes it work or what you changed]`;
+**Self-score:** [N/5] — [one sentence: does it sound like the chosen style? would this specific person reply?]`;
 
 const MAX_TOOL_ITERATIONS = 25; // raised to support batch processing (up to 7 workspaces × 3 tools each)
 
@@ -644,11 +771,22 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
     private kb: KnowledgeBaseService,
     private spamChecker: SpamCheckerService,
     private settings: SettingsService,
+    private gmail: GmailService,
     @InjectQueue(TASKIP_SUGGESTION_SWEEP_QUEUE) private readonly suggestionSweepQueue: Queue,
   ) {}
 
   private async getFromDomain(): Promise<string> {
     if (this.fromDomainCache) return this.fromDomainCache;
+    try {
+      const raw = await this.gmail.getFromAddress();
+      const match = raw.match(/<([^>]+)>/) ?? raw.match(/^(\S+@\S+)$/);
+      const email = match?.[1] ?? raw;
+      const domain = email.includes('@') ? email.split('@')[1].trim() : '';
+      if (domain) {
+        this.fromDomainCache = domain;
+        return domain;
+      }
+    } catch { /* fall through to settings fallback */ }
     const raw = (await this.settings.getDecrypted('ses_default_from')) ?? '';
     const match = raw.match(/<([^>]+)>/) ?? raw.match(/^(\S+@\S+)$/);
     const email = match?.[1] ?? raw;

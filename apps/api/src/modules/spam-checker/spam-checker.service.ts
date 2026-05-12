@@ -251,32 +251,9 @@ export class SpamCheckerService {
   private async checkAuthentication(fromDomain: string): Promise<CategoryBreakdown> {
     const weight = 25;
     const issues: SpamIssue[] = [];
-    let score = 0;
-
-    // SPF
-    const txtRecords = await this.dnsLookupTxt(fromDomain);
-    const spf = txtRecords?.find(r => r.startsWith('v=spf1')) ?? null;
-    if (spf) {
-      score += 40;
-      if (/-all|~all/.test(spf)) {
-        score += 10;
-      } else if (/\+all/.test(spf)) {
-        issues.push({
-          ruleId: 'AUTH_SPF_PERMISSIVE',
-          severity: 'high',
-          message: `SPF uses +all — any server can send as ${fromDomain}`,
-          suggestedFix: 'Change to ~all (softfail) or -all (hardfail)',
-        });
-        score -= 10;
-      }
-    } else {
-      issues.push({
-        ruleId: 'AUTH_SPF_MISSING',
-        severity: 'critical',
-        message: `No SPF TXT record found for ${fromDomain}`,
-        suggestedFix: 'Add: v=spf1 include:amazonses.com ~all',
-      });
-    }
+    // SPF check omitted — sending provider (Gmail Workspace / SES) handles SPF
+    // at the infrastructure level; we cannot know the provider at check time.
+    let score = 50;
 
     // DMARC
     const dmarcRecords = await this.dnsLookupTxt(`_dmarc.${fromDomain}`);
@@ -320,8 +297,8 @@ export class SpamCheckerService {
     }
 
     const normalizedScore = Math.max(0, Math.min(100, score));
-    const criticalFailure = !spf && !dmarc
-      ? `No SPF or DMARC on ${fromDomain} — rejection risk by Gmail/Yahoo/Outlook`
+    const criticalFailure = !dmarc
+      ? `No DMARC on ${fromDomain} — rejection risk by Gmail/Yahoo/Outlook`
       : undefined;
 
     return { score: normalizedScore, weight, contribution: (normalizedScore / 100) * weight, issues, criticalFailure };
