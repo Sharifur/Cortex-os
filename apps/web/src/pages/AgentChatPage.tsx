@@ -57,6 +57,7 @@ interface RunDetail {
   id: string;
   status: string;
   proposedActions: { type: string; summary: string; payload?: Record<string, unknown> }[] | null;
+  result: Array<{ action: string; success: boolean; data?: Record<string, unknown> }> | null;
   error: string | null;
   finishedAt: string | null;
 }
@@ -231,6 +232,10 @@ function extractResponse(run: RunDetail): string {
     ['notify_result', 'send_telegram_brief', 'notify_email'].includes(a.type),
   );
   if (notify?.payload?.['message']) return String(notify.payload['message']);
+
+  // For auto-executed actions (e.g. post_render), the result message lives in run.result
+  const execResult = run.result?.find((r) => r.data?.['message']);
+  if (execResult?.data?.['message']) return String(execResult.data['message']);
 
   const batchAction = actions.find((a) => a.type === 'batch_send_email');
   if (batchAction) {

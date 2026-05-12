@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.16.1',
+    date: '2026-05-12',
+    entries: [
+      { tag: 'fix', scope: 'chat', description: 'Chat now shows response messages from auto-executed agent actions (e.g. post_render) by reading run.result[].data.message when present.' },
+    ],
+  },
+  {
     version: 'v4.16.0',
     date: '2026-05-12',
     entries: [
