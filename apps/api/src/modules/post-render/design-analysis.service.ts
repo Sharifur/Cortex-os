@@ -81,20 +81,37 @@ Use exactly this JSON structure (choose the closest enum value where applicable)
 
   "decorative_illustrations": [
     {
-      "subject": "paper-plane|arrow|star|lightbulb|leaf|flower|checkmark|quote-marks|confetti-piece|lightning|heart|sparkle|hand|eye|megaphone|target|clock|chart|custom",
+      "subject": "paper-plane|geometric-arrow|curved-arrow|motion-lines|dollar-sign|dollar-sign-circle|shopping-cart|person-character|star|star-burst|lightbulb|leaf|flower|checkmark|checkmark-circle|quote-marks|confetti|lightning|heart|sparkle|hand|eye|megaphone|target|clock|growth-chart|bar-chart|pie-chart|envelope|phone|lock|globe|trophy|crown|rocket|coin|badge|tag|speech-bubble|custom",
       "subject_description": "Outline paper airplane pointing upper-right, line-art only with no fill",
-      "render_style": "outline-stroke|filled-flat|filled-gradient|duotone|hand-drawn|emoji|silhouette",
+      "render_style": "outline-stroke|filled-flat|filled-gradient|duotone|hand-drawn|emoji|silhouette|mixed",
       "stroke_color": "#ffffff",
       "fill_color": "none",
       "stroke_width_style": "hairline|thin|medium|thick",
       "opacity": 1.0,
-      "semantic_role": "decorative|bullet-point|cta-indicator|brand-element|section-divider",
+      "semantic_role": "decorative|bullet-point|cta-indicator|brand-element|section-divider|scene-prop|scene-character|motion-indicator",
+      "scene_group": "main-scene|scattered|standalone",
       "instances": [
-        { "x": 62, "y": 2, "w": 22, "h": 18, "rotation_deg": 0, "size_relative": "large" },
-        { "x": 74, "y": 78, "w": 16, "h": 13, "rotation_deg": 15, "size_relative": "medium" }
+        { "x": 62, "y": 2, "w": 22, "h": 18, "rotation_deg": 0, "size_relative": "large", "z_index": 3, "interacts_with": [] }
       ]
     }
   ],
+
+  "scene_composition": {
+    "type": "unified-scene|scattered-icons|single-character|none",
+    "theme": "business-growth|ecommerce|communication|finance|education|health|technology|lifestyle|custom",
+    "narrative": "One sentence describing what story or concept the illustration conveys — e.g. 'Person riding a shopping cart surrounded by dollar signs and an upward arrow, symbolising business revenue growth'",
+    "characters_present": ["person-character", "cartoon-animal"],
+    "props_present": ["shopping-cart", "dollar-sign-circle", "geometric-arrow", "motion-lines"],
+    "element_relationships": [
+      {
+        "element_a": "person-character",
+        "relationship": "inside|riding|holding|pointing-at|standing-next-to|overlapping|emerging-from|connected-to",
+        "element_b": "shopping-cart",
+        "notes": "Cartoon person sits inside the shopping cart with arm raised"
+      }
+    ],
+    "scene_region": { "x": 5, "y": 3, "w": 90, "h": 52 }
+  },
 
   "photo_subjects": [
     {
@@ -294,10 +311,30 @@ Rules for text_elements:
 - content_preview: first 4–6 visible words, or placeholder like [stat], [url], [date].
 - Do not skip small text: captions, slide numbers, watermarks, handles, URLs, copyright — all get separate entries.
 
+Rules for scene_composition:
+- Use this section whenever the design has a meaningful illustration or character scene (not just scattered decorative icons).
+- type: "unified-scene" = multiple elements forming one coherent visual story; "scattered-icons" = independent icons placed around the layout; "single-character" = one character dominates; "none" = no scene.
+- narrative: one sentence describing what story or concept the illustration communicates.
+- characters_present: list animate subjects (people, animals, cartoon characters) by their subject type name.
+- props_present: list every recognisable object or icon in the scene by subject type name.
+- element_relationships: describe every meaningful interaction — relationship values: "inside" (A is physically inside B), "riding" (character on a vehicle), "holding" (character grips object), "pointing-at" (arrow points to element), "overlapping", "emerging-from", "connected-to", "standing-next-to".
+- scene_region: bounding box as % of canvas containing the entire scene.
+
+Rules for decorative_illustrations:
+- Capture every non-geometric illustrative or icon element in the design.
+- subject enum is extensive — use the most specific match available: prefer "dollar-sign-circle" for a $ in a circle, "geometric-arrow" for a bold straight arrow, "curved-arrow" for a hand-drawn curling arrow, "motion-lines" for parallel speed/motion lines, "person-character" for cartoon people (NOT real photos — those go in photo_subjects), "shopping-cart" for a cart, etc. Use "custom" only when nothing fits.
+- For elements that are part of a unified scene, set scene_group: "main-scene". For independently scattered icons set "scattered". For a single standalone element set "standalone".
+- subject_description: always fill — describe the element's visual appearance, color, style, and context in plain English.
+- render_style: "outline-stroke" = line art only; "filled-flat" = solid fill; "mixed" = some outline, some filled (common for cartoon characters with outlined body but filled clothing or hair).
+- instances[].interacts_with: list subject names of other elements this instance directly touches or interacts with in the scene (e.g. person-character instance interacts_with shopping-cart).
+- size_relative: "small" < 10% canvas width; "medium" 10–25%; "large" > 25%.
+- semantic_role: "scene-prop" = object within an illustration scene; "scene-character" = animate character in a scene; "motion-indicator" = speed lines or directional cues.
+- Empty array [] only if the design has zero illustrative/icon elements.
+
 Rules for composite_effects:
 - Describe every significant overlap or layering relationship where elements interact visually.
-- Type values: "number-as-background" (large stat/number used as mid-layer behind text), "word-highlight-shape" (shape painted behind a specific word in headline), "layered-eyebrow" (eyebrow label overlaps the top of the headline text), "inline-badge" (badge element sits inline on the same visual line as text), "text-overlap" (two text elements overlap), "shape-behind-text" (any shape used as a background highlight for text), "photo-behind-text" (photo positioned behind text).
-- Be specific in description: mention colors, approximate positions, and what the visual effect achieves.
+- Type values: "number-as-background", "word-highlight-shape", "layered-eyebrow", "inline-badge", "text-overlap", "shape-behind-text", "photo-behind-text", "illustration-behind-text" (scene illustration extends behind text area), "illustration-over-text" (illustration rendered on top of text).
+- Be specific: mention colors, approximate positions, and what the visual effect achieves.
 - overlap_region: bounding box (as %) where the two elements actually intersect.
 - Empty array if there are no significant overlapping relationships.`;
 
@@ -464,12 +501,24 @@ export class DesignAnalysisService {
         `[${ce.type}] ${ce.description} | bottom:${ce.bottom_element} top:${ce.top_element} | overlap:x=${ce.overlap_region?.x}% y=${ce.overlap_region?.y}% w=${ce.overlap_region?.w}% h=${ce.overlap_region?.h}%`
       ),
       ``,
+      `-- Scene Composition --`,
+      ...(dna.scene_composition && dna.scene_composition.type !== 'none' ? [
+        `Type: ${dna.scene_composition.type} | Theme: ${dna.scene_composition.theme}`,
+        `Narrative: ${dna.scene_composition.narrative}`,
+        `Characters: ${(dna.scene_composition.characters_present ?? []).join(', ') || 'none'}`,
+        `Props: ${(dna.scene_composition.props_present ?? []).join(', ') || 'none'}`,
+        `Region: x=${dna.scene_composition.scene_region?.x}% y=${dna.scene_composition.scene_region?.y}% w=${dna.scene_composition.scene_region?.w}% h=${dna.scene_composition.scene_region?.h}%`,
+        ...(dna.scene_composition.element_relationships ?? []).map(r =>
+          `  relation: ${r.element_a} [${r.relationship}] ${r.element_b}${r.notes ? ` — ${r.notes}` : ''}`
+        ),
+      ] : [`Type: none`]),
+      ``,
       `-- Decorative Illustrations (${(dna.decorative_illustrations ?? []).length}) --`,
       ...(dna.decorative_illustrations ?? []).flatMap(ill => [
         `[${ill.subject}] ${ill.subject_description}`,
-        `  render:${ill.render_style} stroke:${ill.stroke_color ?? 'none'} fill:${ill.fill_color ?? 'none'} stroke-weight:${ill.stroke_width_style} opacity:${ill.opacity} role:${ill.semantic_role}`,
+        `  render:${ill.render_style} stroke:${ill.stroke_color ?? 'none'} fill:${ill.fill_color ?? 'none'} stroke-weight:${ill.stroke_width_style} opacity:${ill.opacity} role:${(ill as any).semantic_role} group:${(ill as any).scene_group ?? 'standalone'}`,
         ...ill.instances.map((inst, i) =>
-          `  instance[${i + 1}/${ill.instances.length}] x=${inst.x}% y=${inst.y}% w=${inst.w}% h=${inst.h}% rot:${inst.rotation_deg ?? 0}deg size:${inst.size_relative}`
+          `  instance[${i + 1}/${ill.instances.length}] x=${inst.x}% y=${inst.y}% w=${inst.w}% h=${inst.h}% rot:${inst.rotation_deg ?? 0}deg size:${inst.size_relative}${(inst as any).interacts_with?.length ? ` interacts:${(inst as any).interacts_with.join(',')}` : ''}`
         ),
       ]),
       ``,

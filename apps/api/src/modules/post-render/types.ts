@@ -240,20 +240,39 @@ export interface DesignDNA {
     svg_hint: string;
   }>;
 
+  // Overall illustration/scene narrative
+  scene_composition?: {
+    type: 'unified-scene' | 'scattered-icons' | 'single-character' | 'none';
+    theme: 'business-growth' | 'ecommerce' | 'communication' | 'finance' | 'education' | 'health' | 'technology' | 'lifestyle' | 'custom';
+    narrative: string;
+    characters_present: string[];
+    props_present: string[];
+    element_relationships: Array<{
+      element_a: string;
+      relationship: 'inside' | 'riding' | 'holding' | 'pointing-at' | 'overlapping' | 'emerging-from' | 'connected-to' | 'standing-next-to';
+      element_b: string;
+      notes?: string;
+    }>;
+    scene_region?: { x: number; y: number; w: number; h: number };
+  };
+
   // Recognisable illustrative / icon elements (not geometric shapes)
   decorative_illustrations?: Array<{
-    subject: 'paper-plane' | 'arrow' | 'star' | 'lightbulb' | 'leaf' | 'flower' | 'checkmark' | 'quote-marks' | 'confetti-piece' | 'lightning' | 'heart' | 'sparkle' | 'hand' | 'eye' | 'megaphone' | 'target' | 'clock' | 'chart' | 'custom';
+    subject: 'paper-plane' | 'geometric-arrow' | 'curved-arrow' | 'motion-lines' | 'dollar-sign' | 'dollar-sign-circle' | 'shopping-cart' | 'person-character' | 'star' | 'star-burst' | 'lightbulb' | 'leaf' | 'flower' | 'checkmark' | 'checkmark-circle' | 'quote-marks' | 'confetti' | 'lightning' | 'heart' | 'sparkle' | 'hand' | 'eye' | 'megaphone' | 'target' | 'clock' | 'growth-chart' | 'bar-chart' | 'pie-chart' | 'envelope' | 'phone' | 'lock' | 'globe' | 'trophy' | 'crown' | 'rocket' | 'coin' | 'badge' | 'tag' | 'speech-bubble' | 'custom';
     subject_description: string;
-    render_style: 'outline-stroke' | 'filled-flat' | 'filled-gradient' | 'duotone' | 'hand-drawn' | 'emoji' | 'silhouette';
+    render_style: 'outline-stroke' | 'filled-flat' | 'filled-gradient' | 'duotone' | 'hand-drawn' | 'emoji' | 'silhouette' | 'mixed';
     stroke_color?: string;
     fill_color?: string;
     stroke_width_style: 'hairline' | 'thin' | 'medium' | 'thick';
     opacity: number;
-    semantic_role: 'decorative' | 'bullet-point' | 'cta-indicator' | 'brand-element' | 'section-divider';
+    semantic_role: 'decorative' | 'bullet-point' | 'cta-indicator' | 'brand-element' | 'section-divider' | 'scene-prop' | 'scene-character' | 'motion-indicator';
+    scene_group?: 'main-scene' | 'scattered' | 'standalone';
     instances: Array<{
       x: number; y: number; w: number; h: number;
       rotation_deg?: number;
       size_relative: 'small' | 'medium' | 'large';
+      z_index?: number;
+      interacts_with?: string[];
     }>;
   }>;
 

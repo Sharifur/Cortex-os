@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.18.0',
+    date: '2026-05-13',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'DNA now captures illustration scenes as unified compositions: scene_composition field stores type (unified-scene/scattered-icons), theme, one-sentence narrative, characters present, props present, and element_relationships (person-character [riding] shopping-cart, dollar-sign-circle [pointing-at] headline, etc.). decorative_illustrations subject enum expanded to 35+ types including shopping-cart, dollar-sign-circle, person-character, motion-lines, curved-arrow, geometric-arrow, growth-chart, trophy, rocket, speech-bubble, and more. Each instance tracks interacts_with[] and scene_group (main-scene/scattered/standalone). KB content builder renders scene narrative and all element interactions.' },
+    ],
+  },
+  {
     version: 'v4.17.9',
     date: '2026-05-13',
     entries: [
