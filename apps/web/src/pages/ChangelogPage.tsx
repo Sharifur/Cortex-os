@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.27.2',
+    date: '2026-05-13',
+    entries: [
+      { tag: 'fix', scope: 'api', description: 'JSON parser now tolerates webhook payloads containing raw control characters (ASCII 0x00-0x1F) sent by some CRM platforms. Invalid characters are stripped on a second parse attempt instead of returning a 400 Bad Request.' },
+    ],
+  },
+  {
     version: 'v4.27.1',
     date: '2026-05-13',
     entries: [
