@@ -16,6 +16,15 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.38.0',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'design-samples', description: 'Per-image pattern extraction: design rules are now derived directly from each image\'s DNA on upload and re-analysis — no separate LLM clustering step required. Each image contributes 20-30 rules covering layout, color, typography, decoration, CTA, branding, and mood.' },
+      { tag: 'feat', scope: 'design-samples', description: 'getPatterns() now reads from design_sample entries, deduplicates by exact match, and sorts by frequency (most shared patterns first). Falls back to batch-clustered design_pattern entries if no per-image patterns exist.' },
+      { tag: 'feat', scope: 'design-samples', description: 'getDominantDNA() pattern_rules also sourced from per-image patterns so post rendering immediately reflects all re-analysed samples.' },
+    ],
+  },
+  {
     version: 'v4.37.1',
     date: '2026-05-14',
     entries: [
