@@ -424,6 +424,24 @@ export interface DesignDNA {
   pattern_notes: string;
 }
 
+export interface SlideVisualSpec {
+  slideIndex: number;
+  bgColor?: string;
+  bgGradient?: string;
+  accentColor?: string | null;
+  decorations?: Array<{
+    shape_type: string;
+    fill_type: 'solid' | 'linear-gradient' | 'radial-gradient' | 'none';
+    fill_colors: string[];
+    gradient_angle?: number;
+    stroke_color?: string;
+    stroke_width?: number;
+    opacity: number;
+    x: number; y: number; w: number; h: number;
+    border_radius?: number;
+  }>;
+}
+
 export interface RenderRequest {
   formatId: string;
   brand: string;

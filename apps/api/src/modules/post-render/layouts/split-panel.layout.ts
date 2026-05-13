@@ -1,9 +1,10 @@
-import { resolveBackground, resolveBackgroundStyle, resolveTextColor, getSlot } from './layout-helpers';
+import { resolveVisualBackground, resolveVisualBackgroundStyle, resolveAccent, resolveTextColor, getSlot } from './layout-helpers';
 import type { LayoutProps } from './layout.types';
 
-export function splitPanelLayout({ slide, contract, width, height }: LayoutProps): object {
-  const bg = resolveBackground(slide.styleRules, contract);
+export function splitPanelLayout({ slide, contract, width, height, visualSpec }: LayoutProps): object {
+  const bg = resolveVisualBackground(slide.styleRules, contract, visualSpec);
   const textColor = resolveTextColor(bg, contract);
+  const accent = resolveAccent(contract, visualSpec);
   const mutedColor = textColor === '#ffffff' ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.55)';
   const headline = getSlot(slide, 'headline');
   const body = getSlot(slide, 'body');
@@ -44,7 +45,7 @@ export function splitPanelLayout({ slide, contract, width, height }: LayoutProps
   if (cta) {
     rightChildren.push({
       type: 'div',
-      props: { style: { marginTop: 24, fontSize: 15, fontWeight: 700, color: contract.accentColor }, children: cta },
+      props: { style: { marginTop: 24, fontSize: 15, fontWeight: 700, color: accent }, children: cta },
     });
   }
   if (slide.styleRules.showLogo && contract.logo?.base64) {
@@ -62,14 +63,14 @@ export function splitPanelLayout({ slide, contract, width, height }: LayoutProps
         {
           type: 'div',
           props: {
-            style: { display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', backgroundColor: contract.accentColor, width: Math.round(width * 0.38), padding: contract.paddingX },
+            style: { display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', backgroundColor: accent, width: Math.round(width * 0.38), padding: contract.paddingX },
             children: leftChildren,
           },
         },
         {
           type: 'div',
           props: {
-            style: { display: 'flex', flexDirection: 'column', justifyContent: 'center', flex: 1, ...resolveBackgroundStyle(slide.styleRules, contract), padding: `${contract.paddingY}px ${contract.paddingX}px` },
+            style: { display: 'flex', flexDirection: 'column', justifyContent: 'center', flex: 1, ...resolveVisualBackgroundStyle(slide.styleRules, contract, visualSpec), padding: `${contract.paddingY}px ${contract.paddingX}px` },
             children: rightChildren,
           },
         },

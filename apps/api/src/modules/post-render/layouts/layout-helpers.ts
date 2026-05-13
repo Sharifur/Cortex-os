@@ -1,8 +1,24 @@
-import type { ThemeContract, FilledSlide, StyleRules } from '../types';
+import type { ThemeContract, FilledSlide, StyleRules, SlideVisualSpec } from '../types';
 
-export function renderDecorations(contract: ThemeContract, width: number, height: number): object[] {
-  if (!contract.decorations?.length) return [];
-  return contract.decorations.map(shape => {
+export function resolveAccent(contract: ThemeContract, visualSpec?: SlideVisualSpec): string {
+  return (visualSpec?.accentColor) ?? contract.accentColor;
+}
+
+export function resolveVisualBackground(styleRules: StyleRules, contract: ThemeContract, visualSpec?: SlideVisualSpec): string {
+  if (visualSpec?.bgColor) return visualSpec.bgColor;
+  return resolveBackground(styleRules, contract);
+}
+
+export function resolveVisualBackgroundStyle(styleRules: StyleRules, contract: ThemeContract, visualSpec?: SlideVisualSpec): object {
+  if (visualSpec?.bgGradient) return { backgroundImage: visualSpec.bgGradient };
+  if (visualSpec?.bgColor) return { backgroundColor: visualSpec.bgColor };
+  return resolveBackgroundStyle(styleRules, contract);
+}
+
+export function renderDecorations(contract: ThemeContract, width: number, height: number, visualSpec?: SlideVisualSpec): object[] {
+  const shapes = (visualSpec?.decorations?.length ? visualSpec.decorations : null) ?? contract.decorations ?? [];
+  if (!shapes.length) return [];
+  return shapes.map(shape => {
     const x = Math.round(shape.x / 100 * width);
     const y = Math.round(shape.y / 100 * height);
     const w = Math.round(shape.w / 100 * width);
@@ -48,14 +64,15 @@ export function ctaBorderRadius(contract: ThemeContract): number {
   }
 }
 
-export function ctaStyle(cta: string, contract: ThemeContract): object {
+export function ctaStyle(cta: string, contract: ThemeContract, visualSpec?: SlideVisualSpec): object {
   const radius = ctaBorderRadius(contract);
+  const accent = resolveAccent(contract, visualSpec);
   if (contract.ctaStyle === 'outlined-button') {
     return {
       marginTop: 32, padding: '12px 28px',
       backgroundColor: 'transparent',
-      border: `2px solid ${contract.accentColor}`,
-      color: contract.accentColor,
+      border: `2px solid ${accent}`,
+      color: accent,
       fontWeight: 700, fontSize: 16,
       borderRadius: radius, display: 'flex',
       children: cta,
@@ -63,7 +80,7 @@ export function ctaStyle(cta: string, contract: ThemeContract): object {
   }
   if (contract.ctaStyle === 'text-link' || contract.ctaStyle === 'arrow-link') {
     return {
-      marginTop: 24, color: contract.accentColor,
+      marginTop: 24, color: accent,
       fontWeight: 700, fontSize: 16,
       display: 'flex',
       children: contract.ctaStyle === 'arrow-link' ? `${cta} →` : cta,
@@ -71,7 +88,7 @@ export function ctaStyle(cta: string, contract: ThemeContract): object {
   }
   return {
     marginTop: 32, padding: '12px 28px',
-    backgroundColor: contract.accentColor,
+    backgroundColor: accent,
     color: '#ffffff', fontWeight: 700, fontSize: 16,
     borderRadius: radius, display: 'flex',
     children: cta,

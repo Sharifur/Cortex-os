@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.44.0',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'design-samples', description: 'Two-phase render pipeline: after filling content slots, a second LLM call (PostVisualService) translates brand pattern rules ([BACKGROUND], [COLOR], [SHAPE], [LAYOUT], [COMPOSITION]) into per-slide visual specs — background color, accent color, and decorative shapes. Layout functions now receive a SlideVisualSpec and apply per-slide overrides for background, accent, CTA button, accent stripe, and shape decorations.' },
+    ],
+  },
+  {
     version: 'v4.43.1',
     date: '2026-05-14',
     entries: [
