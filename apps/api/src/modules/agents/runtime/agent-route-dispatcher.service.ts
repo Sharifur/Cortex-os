@@ -57,10 +57,11 @@ export class AgentRouteDispatcherService implements OnApplicationBootstrap {
               const rawBody = (request.rawBody as string | undefined) ?? '';
               const receivedHeaderKeys = Object.keys(request.headers ?? {});
               this.logger.log(`Webhook arrived: ${route.path} from ${request.ip ?? 'unknown'} headers=[${receivedHeaderKeys.join(', ')}]`);
-              const ok = await route.verifySignature(rawBody, request.headers ?? {}, request.query ?? {});
-              if (!ok) {
-                this.logger.warn(`Webhook signature rejected: ${route.path} — received headers: [${receivedHeaderKeys.join(', ')}]. Check that x-webhook-secret header is sent and support_webhook_secret setting matches.`);
-                // Write a FAILED run so the rejection is visible in the debug page
+              const sigResult = await route.verifySignature(rawBody, request.headers ?? {}, request.query ?? {});
+              const sigOk = sigResult === true;
+              const sigReason = (!sigOk && typeof sigResult === 'object') ? sigResult.reason : 'signature_mismatch';
+              if (!sigOk) {
+                this.logger.warn(`Webhook signature rejected: ${route.path} reason=${sigReason} headers=[${receivedHeaderKeys.join(', ')}]`);
                 try {
                   const [agentRecord] = await this.db.db
                     .select({ id: agents.id })
@@ -70,9 +71,9 @@ export class AgentRouteDispatcherService implements OnApplicationBootstrap {
                     await this.db.db.insert(agentRuns).values({
                       agentId: agentRecord.id,
                       triggerType: 'WEBHOOK',
-                      triggerPayload: { path: route.path, receivedHeaderKeys },
+                      triggerPayload: { path: route.path, receivedHeaderKeys, reason: sigReason },
                       status: 'FAILED',
-                      error: 'Webhook signature rejected — check x-webhook-secret header and support_webhook_secret setting',
+                      error: `Webhook signature rejected: ${sigReason}`,
                       finishedAt: new Date(),
                     });
                   }
@@ -85,9 +86,9 @@ export class AgentRouteDispatcherService implements OnApplicationBootstrap {
                   ip: logIp,
                   userAgent: logUserAgent,
                   queryString: logQuery,
-                  errorMessage: 'Webhook signature rejected',
+                  errorMessage: `Webhook signature rejected: ${sigReason}`,
                 });
-                reply.status(401).send({ error: 'Invalid webhook signature' });
+                reply.status(401).send({ ok: false, error: 'Invalid webhook signature', reason: sigReason });
                 return;
               }
               this.logger.log(`Webhook signature OK: ${route.path}`);

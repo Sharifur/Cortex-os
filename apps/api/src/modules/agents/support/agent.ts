@@ -320,22 +320,23 @@ export class SupportAgent implements IAgent, OnModuleInit {
           const secret = raw?.trim() ?? '';
           if (!secret) {
             this.logger.warn('support_webhook_secret not configured in Settings — all webhook requests will be rejected');
-            await this.writeWebhookLog({ status: 'rejected', rawPayload: _rawBody.slice(0, 5000), error: 'support_webhook_secret not configured in Settings' });
-            return false;
+            await this.writeWebhookLog({ status: 'rejected', rawPayload: _rawBody.slice(0, 5000), error: 'secret_not_configured' });
+            return { ok: false, reason: 'secret_not_configured' };
           }
           const sent = (headers['x-webhook-secret'] as string | undefined)?.trim() ?? '';
           if (!sent) {
             this.logger.warn('Webhook arrived without x-webhook-secret header');
-            await this.writeWebhookLog({ status: 'rejected', rawPayload: _rawBody.slice(0, 5000), error: 'Missing x-webhook-secret header' });
-            return false;
+            await this.writeWebhookLog({ status: 'rejected', rawPayload: _rawBody.slice(0, 5000), error: 'missing_header' });
+            return { ok: false, reason: 'missing_header' };
           }
           this.logger.debug(`Webhook secret check: sent.length=${sent.length} stored.length=${secret.length}`);
           const ok = safeEqualString(sent, secret);
           if (!ok) {
             this.logger.warn('Webhook x-webhook-secret header did not match stored secret');
-            await this.writeWebhookLog({ status: 'rejected', rawPayload: _rawBody.slice(0, 5000), error: 'x-webhook-secret header did not match stored secret' });
+            await this.writeWebhookLog({ status: 'rejected', rawPayload: _rawBody.slice(0, 5000), error: 'header_mismatch' });
+            return { ok: false, reason: 'header_mismatch' };
           }
-          return ok;
+          return true;
         },
         handler: async (body) => this.ingestWebhook(body as any),
       },
@@ -466,7 +467,7 @@ export class SupportAgent implements IAgent, OnModuleInit {
     if (event === 'support.ticket.replied' && payload?.data?.replied_by?.type === 'agent') {
       this.logger.log(`ingestWebhook: skipping agent-replied event for ticket #${ticket.id}`);
       await this.writeWebhookLog({ status: 'skipped_agent_reply', externalId: String(ticket.id), rawPayload });
-      return { ok: true, skipped: 'agent_reply' };
+      return { ok: true, status: 'skipped', reason: 'agent_reply' };
     }
 
     this.logger.log(`Webhook received: ticket #${ticket.id} "${ticket.subject}" from ${contact?.email ?? '(no contact)'}`);
@@ -499,7 +500,7 @@ export class SupportAgent implements IAgent, OnModuleInit {
       .onConflictDoNothing()
       .returning();
 
-    const status = row ? 'ok' : 'duplicate';
+    const status = row ? 'stored' : 'duplicate';
     if (row) {
       this.logger.log(`Ticket stored: internal id=${row.id} external=${ticket.id} priority=${priority}`);
     } else {
@@ -513,7 +514,7 @@ export class SupportAgent implements IAgent, OnModuleInit {
       rawPayload,
     });
 
-    return { ok: true, id: row?.id ?? null };
+    return { ok: true, status, ticketId: row?.id ?? null, externalId: String(ticket.id) };
   }
 
   async listWebhookLogs(limit?: number) {
