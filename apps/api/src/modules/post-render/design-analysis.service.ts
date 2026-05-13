@@ -504,6 +504,82 @@ export class DesignAnalysisService {
       .catch((err: unknown) => this.logger.warn(`persist reanalysis state failed: ${(err as Error).message}`));
   }
 
+  buildPatternRules(dna: DesignDNA): string[] {
+    const cu = (dna as any).color_usage as Record<string, string> | undefined;
+    const typo = (dna as any).typography as Record<string, unknown> | undefined;
+    const spacing = (dna as any).spacing as Record<string, string> | undefined;
+    const rules: string[] = [];
+
+    // Layout
+    if (dna.layout_type) rules.push(`[LAYOUT] ${dna.layout_type} layout`);
+    if (dna.composition) rules.push(`[COMPOSITION] ${dna.composition} composition`);
+    if (dna.text_alignment) rules.push(`[LAYOUT] text alignment: ${dna.text_alignment}`);
+    if (dna.whitespace) rules.push(`[SPACING] whitespace: ${dna.whitespace}`);
+    if (dna.element_density) rules.push(`[LAYOUT] element density: ${dna.element_density}`);
+    if (dna.grid_columns) rules.push(`[GRID] ${dna.grid_columns} column${dna.grid_columns > 1 ? 's' : ''}`);
+    if (spacing?.outer_padding_style) rules.push(`[SPACING] outer padding: ${spacing.outer_padding_style}`);
+    if (spacing?.element_vertical_rhythm) rules.push(`[SPACING] vertical rhythm: ${spacing.element_vertical_rhythm}`);
+
+    // Color
+    const bgStyle = dna.background_style ?? '';
+    const primaryHex = cu?.background_hex || dna.primary_color || '';
+    if (bgStyle) rules.push(`[BACKGROUND] ${bgStyle}${primaryHex ? ` (${primaryHex})` : ''}`);
+    if (dna.accent_color) rules.push(`[COLOR] accent color: ${dna.accent_color}`);
+    if (dna.color_count) rules.push(`[COLOR] ${dna.color_count} palette`);
+    if (cu?.headline_text_hex) rules.push(`[COLOR] headline text: ${cu.headline_text_hex}`);
+    if (cu?.cta_background_hex) rules.push(`[COLOR] CTA button fill: ${cu.cta_background_hex}`);
+    if (cu?.accent_bar_hex) rules.push(`[COLOR] accent bar: ${cu.accent_bar_hex}`);
+    if (dna.background_texture && dna.background_texture !== 'none') rules.push(`[BACKGROUND] texture: ${dna.background_texture}`);
+
+    // Typography
+    if (dna.font_weight_heading && dna.font_style) {
+      const caseStr = typo?.heading_case ? ` ${typo.heading_case}` : '';
+      const spacing = typo?.heading_letter_spacing ? ` ${typo.heading_letter_spacing} spacing` : '';
+      rules.push(`[TYPOGRAPHY] ${dna.font_weight_heading} ${dna.font_style} heading${caseStr}${spacing}`);
+    }
+    if (dna.font_size_heading) rules.push(`[TYPOGRAPHY] heading size: ${dna.font_size_heading}`);
+    if (typo?.uses_eyebrow_label) rules.push(`[TYPOGRAPHY] eyebrow label style: ${typo.eyebrow_style ?? 'present'}`);
+    if (typo?.uses_highlight_text) rules.push(`[TYPOGRAPHY] inline word highlight: ${typo.highlight_style ?? 'present'}`);
+    if (typo?.body_present) rules.push(`[TYPOGRAPHY] body text: ${typo.body_line_count_typical ?? 'present'} lines`);
+    if (dna.number_stat_style && dna.number_stat_style !== 'none') rules.push(`[TYPOGRAPHY] stat number style: ${dna.number_stat_style}`);
+
+    // Icons / illustration / photography
+    if (dna.icon_style && dna.icon_style !== 'none') rules.push(`[ICONS] ${dna.icon_style} icons, count: ${dna.icon_count}, size: ${dna.icon_size}`);
+    if (dna.illustration_style && dna.illustration_style !== 'none') rules.push(`[ILLUSTRATION] ${dna.illustration_style}`);
+    if (dna.photography_style && dna.photography_style !== 'none') rules.push(`[PHOTOGRAPHY] ${dna.photography_style}`);
+
+    // Decoration & accents
+    for (const d of (dna.decoration_elements ?? []).filter(x => x && x !== 'none')) {
+      rules.push(`[DECORATION] ${d}`);
+    }
+    for (const a of (dna.accent_elements ?? []).filter(x => x && x !== 'none')) {
+      rules.push(`[ACCENT] ${a}`);
+    }
+
+    // Shape elements (top 3 most useful)
+    for (const s of (dna.shape_elements ?? []).slice(0, 3)) {
+      if (s.svg_hint && s.svg_hint.length > 10) rules.push(`[SHAPE] ${s.svg_hint}`);
+    }
+
+    // Branding & CTA
+    if (dna.brand_bar && dna.brand_bar !== 'none') rules.push(`[BRANDING] brand bar: ${dna.brand_bar}`);
+    if (dna.logo_placement && dna.logo_placement !== 'none') rules.push(`[BRANDING] logo placement: ${dna.logo_placement}`);
+    if (dna.cta_style && dna.cta_style !== 'none') {
+      const ctaColor = cu?.cta_background_hex ? ` (${cu.cta_background_hex})` : '';
+      rules.push(`[CTA] ${dna.cta_style}${ctaColor}`);
+    }
+    if (dna.border_radius_style) rules.push(`[STYLE] border radius: ${dna.border_radius_style}`);
+    if (dna.shadow_usage && dna.shadow_usage !== 'none') rules.push(`[STYLE] shadow: ${dna.shadow_usage}`);
+    if (dna.divider_style && dna.divider_style !== 'none') rules.push(`[STYLE] divider: ${dna.divider_style}`);
+
+    // Slide type & tone
+    if (dna.slide_type) rules.push(`[SLIDE] type: ${dna.slide_type}`);
+    if (dna.content_tone) rules.push(`[TONE] ${dna.content_tone}`);
+    for (const m of (dna.mood_keywords ?? [])) rules.push(`[MOOD] ${m}`);
+
+    return rules.filter(Boolean);
+  }
+
   private buildKbContent(dna: DesignDNA): string {
     return [
       `Design Sample Analysis`,
@@ -621,6 +697,9 @@ export class DesignAnalysisService {
         `${s.shape_type}${(s as any).clipped_at_edge ? '[clipped]' : ''} fill:${s.fill_type}(${s.fill_colors.join('->')}) opacity:${s.opacity} x:${s.x}% y:${s.y}% w:${s.w}% h:${s.h}%${s.gradient_angle != null ? ` angle:${s.gradient_angle}deg` : ''}${s.border_radius != null ? ` r:${s.border_radius}%` : ''} -- ${s.svg_hint}`
       ),
       ...(dna.pattern_notes ? [``, `Notes: ${dna.pattern_notes}`] : []),
+      ``,
+      `-- Design Patterns --`,
+      ...this.buildPatternRules(dna).map((r, i) => `${i + 1}. ${r}`),
       ``,
       `DNA JSON: ${JSON.stringify(dna)}`,
     ].join('\n');

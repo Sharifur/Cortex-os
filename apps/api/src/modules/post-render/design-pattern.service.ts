@@ -18,6 +18,7 @@ export class DesignPatternService {
     totalPasses: number;
     patternsFound: number;
     sampleCount: number;
+    dnaCount: number;
     running: boolean;
   }>();
 
@@ -28,7 +29,7 @@ export class DesignPatternService {
   ) {}
 
   getClusteringStatus(brand: string) {
-    return this.clusteringStatus.get(brand) ?? { phase: 'idle', pass: 0, totalPasses: 0, patternsFound: 0, sampleCount: 0, running: false };
+    return this.clusteringStatus.get(brand) ?? { phase: 'idle', pass: 0, totalPasses: 0, patternsFound: 0, sampleCount: 0, dnaCount: 0, running: false };
   }
 
   private buildAggregation(list: Record<string, unknown>[]) {
@@ -143,8 +144,8 @@ export class DesignPatternService {
   private extractPatterns(text: string): string[] {
     return text
       .split('\n')
-      .filter(line => /^\d+\./.test(line.trim()))
-      .map(line => line.replace(/^\d+\.\s*/, '').trim())
+      .filter(line => /^(\*{1,2})?\d+\./.test(line.trim()))
+      .map(line => line.replace(/^(\*{1,2})?\d+\.\*{0,2}\s*/, '').trim())
       .filter(Boolean);
   }
 
@@ -190,6 +191,7 @@ export class DesignPatternService {
       totalPasses: TOTAL_PASSES,
       patternsFound: 0,
       sampleCount: 0,
+      dnaCount: 0,
       running: true,
     };
     this.clusteringStatus.set(effectiveBrand, status);
@@ -220,6 +222,16 @@ export class DesignPatternService {
       if (match) {
         try { dnaList.push(JSON.parse(match[1])); } catch { /* skip malformed */ }
       }
+    }
+
+    status.dnaCount = dnaList.length;
+    this.logger.log(`DNA parsed: ${dnaList.length}/${designSamples.length} samples for brand=${effectiveBrand}`);
+
+    if (dnaList.length < MIN_SAMPLES_FOR_CLUSTERING) {
+      status.phase = 'done';
+      status.running = false;
+      this.logger.warn(`Too few valid DNA entries (${dnaList.length}) — check that samples have been re-analysed with a sufficient maxTokens setting`);
+      return { patternCount: 0, patterns: [], bannerBrief: '' };
     }
 
     const { summary: globalSummary, svgHints, illustrationSubjects } = this.buildAggregation(dnaList);
@@ -266,7 +278,7 @@ export class DesignPatternService {
             ].join('\n'),
           },
         ],
-        maxTokens: 4000,
+        maxTokens: 8000,
         temperature: 0.2,
         agentKey: 'canva',
       });
@@ -322,7 +334,7 @@ export class DesignPatternService {
             ].join('\n'),
           },
         ],
-        maxTokens: 6000,
+        maxTokens: 8000,
         temperature: 0.2,
         agentKey: 'canva',
       });
@@ -362,6 +374,15 @@ export class DesignPatternService {
 
     // Save: delete old, write new (one entry per pass group + one header entry with banner brief)
     status.phase = 'Saving patterns';
+    this.logger.log(`Clustering produced ${allPatterns.length} patterns for brand=${effectiveBrand}`);
+
+    if (allPatterns.length === 0) {
+      status.phase = 'done';
+      status.running = false;
+      this.logger.warn(`Clustering produced 0 patterns — old patterns preserved for brand=${effectiveBrand}`);
+      return { patternCount: 0, patterns: [], bannerBrief: '' };
+    }
+
     const oldEntries = await this.db.db
       .select({ id: knowledgeEntries.id })
       .from(knowledgeEntries)
@@ -547,20 +568,51 @@ export class DesignPatternService {
       ? Math.round(gradientAngles.reduce((sum, a) => sum + a, 0) / gradientAngles.length)
       : 135;
 
-    const patternEntries = await this.db.db
+    // Use per-image patterns (design_sample) with frequency dedup; fall back to batch-clustered entries
+    const samplePatternRows = await this.db.db
+      .select({ content: knowledgeEntries.content })
+      .from(knowledgeEntries)
+      .where(and(
+        eq(knowledgeEntries.entryType, 'design_sample'),
+        eq(knowledgeEntries.agentKeys, 'canva'),
+        eq(knowledgeEntries.siteKeys, effectiveBrand),
+      ));
+
+    let patternRules: string[];
+    if (samplePatternRows.length > 0) {
+      const freq = new Map<string, number>();
+      for (const row of samplePatternRows) {
+        const section = row.content.split('-- Design Patterns --')[1]?.split('DNA JSON:')[0] ?? '';
+        section.split('\n').filter(l => /^\d+\./.test(l.trim()))
+          .map(l => l.replace(/^\d+\.\s*/, '').trim()).filter(Boolean)
+          .forEach(r => freq.set(r, (freq.get(r) ?? 0) + 1));
+      }
+      patternRules = [...freq.entries()].sort((a, b) => b[1] - a[1]).map(([r]) => r);
+    } else {
+      const patternEntries = await this.db.db
+        .select({ content: knowledgeEntries.content })
+        .from(knowledgeEntries)
+        .where(and(
+          eq(knowledgeEntries.entryType, 'design_pattern'),
+          eq(knowledgeEntries.agentKeys, 'canva'),
+          eq(knowledgeEntries.siteKeys, effectiveBrand),
+        ));
+      patternRules = patternEntries.flatMap(e =>
+        e.content.split('\n').filter(l => /^\d+\./.test(l.trim())).map(l => l.replace(/^\d+\.\s*/, '').trim()).filter(Boolean)
+      );
+    }
+
+    const bannerBriefEntry = await this.db.db
       .select({ content: knowledgeEntries.content })
       .from(knowledgeEntries)
       .where(and(
         eq(knowledgeEntries.entryType, 'design_pattern'),
         eq(knowledgeEntries.agentKeys, 'canva'),
         eq(knowledgeEntries.siteKeys, effectiveBrand),
-      ));
+      ))
+      .limit(1);
 
-    const patternRules = patternEntries.flatMap(e =>
-      e.content.split('\n').filter(l => /^\d+\./.test(l.trim())).map(l => l.replace(/^\d+\.\s*/, '').trim()).filter(Boolean)
-    );
-
-    const bannerBriefMatch = (patternEntries[0]?.content ?? '').match(/^Banner Brief:\s*(.+)$/m);
+    const bannerBriefMatch = (bannerBriefEntry[0]?.content ?? '').match(/^Banner Brief:\s*(.+)$/m);
     const bannerBrief = bannerBriefMatch?.[1]?.trim() ?? '';
 
     return {
@@ -617,7 +669,37 @@ export class DesignPatternService {
 
   async getPatterns(brand?: string): Promise<string[]> {
     const effectiveBrand = brand || 'default';
-    const rows = await this.db.db
+
+    // Primary source: per-image patterns embedded in design_sample entries
+    const sampleRows = await this.db.db
+      .select({ content: knowledgeEntries.content })
+      .from(knowledgeEntries)
+      .where(and(
+        eq(knowledgeEntries.entryType, 'design_sample'),
+        eq(knowledgeEntries.agentKeys, 'canva'),
+        eq(knowledgeEntries.siteKeys, effectiveBrand),
+      ));
+
+    if (sampleRows.length > 0) {
+      const freq = new Map<string, number>();
+      for (const row of sampleRows) {
+        const section = row.content.split('-- Design Patterns --')[1]?.split('DNA JSON:')[0] ?? '';
+        const rules = section
+          .split('\n')
+          .filter(line => /^\d+\./.test(line.trim()))
+          .map(line => line.replace(/^\d+\.\s*/, '').trim())
+          .filter(Boolean);
+        for (const r of rules) freq.set(r, (freq.get(r) ?? 0) + 1);
+      }
+      if (freq.size > 0) {
+        return [...freq.entries()]
+          .sort((a, b) => b[1] - a[1])
+          .map(([rule]) => rule);
+      }
+    }
+
+    // Fallback: batch-clustered design_pattern entries (legacy)
+    const patternRows = await this.db.db
       .select({ content: knowledgeEntries.content })
       .from(knowledgeEntries)
       .where(and(
@@ -625,9 +707,8 @@ export class DesignPatternService {
         eq(knowledgeEntries.agentKeys, 'canva'),
         eq(knowledgeEntries.siteKeys, effectiveBrand),
       ));
-    if (!rows.length) return [];
-    // Extract numbered list items from the stored pattern content
-    return rows.flatMap(r =>
+    if (!patternRows.length) return [];
+    return patternRows.flatMap(r =>
       r.content
         .split('\n')
         .filter(line => /^\d+\./.test(line.trim()))

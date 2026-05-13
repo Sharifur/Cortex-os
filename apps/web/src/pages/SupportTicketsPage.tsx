@@ -1,11 +1,12 @@
-import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  Ticket, Search, RefreshCw, ChevronDown, ChevronUp,
-  Mail, Phone, User, Hash, Clock, MessageSquare, AlertTriangle,
+  Ticket, Search, RefreshCw,
+  Mail, User, Hash, Clock, MessageSquare, AlertTriangle, ChevronRight,
 } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 import { Skeleton } from '@/components/ui/skeleton';
+import { useNavigate } from 'react-router-dom';
+import { useState } from 'react';
 
 interface SupportTicket {
   id: string;
@@ -61,99 +62,62 @@ function fmt(iso: string | null) {
 }
 
 function TicketRow({ t }: { t: SupportTicket }) {
-  const [expanded, setExpanded] = useState(false);
-
+  const navigate = useNavigate();
   return (
-    <>
-      <tr
-        className="border-b border-border hover:bg-accent/30 transition-colors cursor-pointer"
-        onClick={() => setExpanded((v) => !v)}
-      >
-        <td className="py-3 pl-4 pr-3">
-          <div className="flex items-center gap-1.5 text-xs text-muted-foreground font-mono">
-            <Hash className="w-3 h-3 shrink-0" />
-            {t.ticketNo ?? t.externalId ?? '—'}
-          </div>
-        </td>
-        <td className="py-3 px-3 max-w-[260px]">
-          <p className="text-sm font-medium truncate">{t.subject}</p>
-          {t.category && (
-            <Badge label={t.category} styles={CATEGORY_STYLES[t.category] ?? 'bg-slate-500/15 text-slate-400'} />
+    <tr
+      className="border-b border-border hover:bg-accent/30 transition-colors cursor-pointer"
+      onClick={() => navigate(`/support/${t.id}`)}
+    >
+      <td className="py-3 pl-4 pr-3">
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground font-mono">
+          <Hash className="w-3 h-3 shrink-0" />
+          {t.ticketNo ?? t.externalId ?? '—'}
+        </div>
+      </td>
+      <td className="py-3 px-3 max-w-[260px]">
+        <p className="text-sm font-medium truncate">{t.subject}</p>
+        {t.category && (
+          <Badge label={t.category} styles={CATEGORY_STYLES[t.category] ?? 'bg-slate-500/15 text-slate-400'} />
+        )}
+      </td>
+      <td className="py-3 px-3">
+        <div className="flex flex-col gap-0.5">
+          {t.contactName && (
+            <div className="flex items-center gap-1 text-xs text-foreground">
+              <User className="w-3 h-3 text-muted-foreground shrink-0" />
+              {t.contactName}
+            </div>
           )}
-        </td>
-        <td className="py-3 px-3">
-          <div className="flex flex-col gap-0.5">
-            {t.contactName && (
-              <div className="flex items-center gap-1 text-xs text-foreground">
-                <User className="w-3 h-3 text-muted-foreground shrink-0" />
-                {t.contactName}
-              </div>
-            )}
-            <div className="flex items-center gap-1 text-xs text-muted-foreground">
-              <Mail className="w-3 h-3 shrink-0" />
-              {t.userEmail || '—'}
-            </div>
-            {t.contactPhone && (
-              <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                <Phone className="w-3 h-3 shrink-0" />
-                {t.contactPhone}
-              </div>
-            )}
+          <div className="flex items-center gap-1 text-xs text-muted-foreground">
+            <Mail className="w-3 h-3 shrink-0" />
+            {t.userEmail || '—'}
           </div>
-        </td>
-        <td className="py-3 px-3">
-          <Badge label={t.priority} styles={PRIORITY_STYLES[t.priority] ?? 'bg-slate-500/15 text-slate-400'} />
-        </td>
-        <td className="py-3 px-3">
-          <Badge label={t.status} styles={STATUS_STYLES[t.status] ?? 'bg-slate-500/15 text-slate-400'} />
-        </td>
-        <td className="py-3 px-3 text-xs text-muted-foreground whitespace-nowrap">
-          <div className="flex items-center gap-1">
-            <Clock className="w-3 h-3 shrink-0" />
-            {fmt(t.createdAt)}
+        </div>
+      </td>
+      <td className="py-3 px-3">
+        <Badge label={t.priority} styles={PRIORITY_STYLES[t.priority] ?? 'bg-slate-500/15 text-slate-400'} />
+      </td>
+      <td className="py-3 px-3">
+        <Badge label={t.status} styles={STATUS_STYLES[t.status] ?? 'bg-slate-500/15 text-slate-400'} />
+      </td>
+      <td className="py-3 px-3 text-xs text-muted-foreground whitespace-nowrap">
+        <div className="flex items-center gap-1">
+          <Clock className="w-3 h-3 shrink-0" />
+          {fmt(t.createdAt)}
+        </div>
+      </td>
+      <td className="py-3 px-3 text-xs text-muted-foreground whitespace-nowrap">
+        {t.repliedAt ? (
+          <div className="flex items-center gap-1 text-emerald-400">
+            <MessageSquare className="w-3 h-3 shrink-0" />
+            {fmt(t.repliedAt)}
           </div>
-        </td>
-        <td className="py-3 px-3 text-xs text-muted-foreground whitespace-nowrap">
-          {t.repliedAt ? (
-            <div className="flex items-center gap-1 text-emerald-400">
-              <MessageSquare className="w-3 h-3 shrink-0" />
-              {fmt(t.repliedAt)}
-            </div>
-          ) : '—'}
-        </td>
-        <td className="py-3 pl-3 pr-4">
-          {expanded ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
-        </td>
-      </tr>
-
-      {expanded && (
-        <tr className="border-b border-border bg-muted/20">
-          <td colSpan={8} className="px-4 py-4 space-y-3">
-            {t.body ? (
-              <div>
-                <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">Ticket Body</p>
-                <p className="text-sm text-foreground whitespace-pre-wrap leading-relaxed">{t.body}</p>
-              </div>
-            ) : (
-              <p className="text-xs text-muted-foreground italic">No body recorded — ticket created before CRM fetch was configured.</p>
-            )}
-            {t.lastDraft && (
-              <div>
-                <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">
-                  {t.status === 'replied' ? 'Reply Sent' : 'Draft Reply'}
-                </p>
-                <div className="rounded-lg border border-border bg-card px-4 py-3 text-sm text-foreground whitespace-pre-wrap leading-relaxed">
-                  {t.lastDraft}
-                </div>
-              </div>
-            )}
-            {!t.body && !t.lastDraft && (
-              <p className="text-xs text-muted-foreground italic">No content available yet.</p>
-            )}
-          </td>
-        </tr>
-      )}
-    </>
+        ) : '—'}
+      </td>
+      <td className="py-3 pl-3 pr-4">
+        <ChevronRight className="w-4 h-4 text-muted-foreground" />
+      </td>
+    </tr>
   );
 }
 

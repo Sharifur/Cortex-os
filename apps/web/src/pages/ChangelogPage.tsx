@@ -16,6 +16,42 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.38.0',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'design-samples', description: 'Per-image pattern extraction: design rules are now derived directly from each image\'s DNA on upload and re-analysis — no separate LLM clustering step required. Each image contributes 20-30 rules covering layout, color, typography, decoration, CTA, branding, and mood.' },
+      { tag: 'feat', scope: 'design-samples', description: 'getPatterns() now reads from design_sample entries, deduplicates by exact match, and sorts by frequency (most shared patterns first). Falls back to batch-clustered design_pattern entries if no per-image patterns exist.' },
+      { tag: 'feat', scope: 'design-samples', description: 'getDominantDNA() pattern_rules also sourced from per-image patterns so post rendering immediately reflects all re-analysed samples.' },
+    ],
+  },
+  {
+    version: 'v4.37.1',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'fix', scope: 'design-samples', description: 'Clustering LLM passes increased from maxTokens 4000 to 8000. At 4000 tokens the response was being cut off before rule #10, consistently producing ~9 patterns regardless of sample count.' },
+      { tag: 'fix', scope: 'design-samples', description: 'extractPatterns now also matches bold-numbered lines (e.g. **1.** format some models emit), increasing pattern yield per pass.' },
+      { tag: 'fix', scope: 'design-samples', description: 'Clustering now logs DNA parse rate (X/480 samples with valid DNA) and exposes dnaCount in the cluster status. If dnaList is too small, a warning is shown instead of silently returning 0 patterns.' },
+      { tag: 'fix', scope: 'design-samples', description: 'If clustering produces 0 patterns (empty LLM responses or all DNA parse failures), old patterns are now preserved instead of being silently deleted.' },
+      { tag: 'fix', scope: 'design-samples', description: 'Cluster progress bar now shows sample count and DNA-parsed count on completion so the user can see if re-analysis is needed.' },
+    ],
+  },
+  {
+    version: 'v4.37.0',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'support', description: 'Ticket list rows now navigate to a dedicated detail page (/support/:id) instead of expanding inline. Detail page shows ticket body, purchase code status, and an activity timeline with all events.' },
+      { tag: 'feat', scope: 'support', description: 'Generate Draft button on the ticket detail page triggers the AI agent to write a reply draft on demand, saving it to the ticket and logging a manual_draft event to the timeline.' },
+      { tag: 'fix', scope: 'support', description: 'request_purchase_code action requires Telegram approval again (reverted auto-execute). Example codes in the purchase code request message replaced with format placeholders to avoid sharing real-looking codes.' },
+    ],
+  },
+  {
+    version: 'v4.36.8',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'fix', scope: 'support', description: 'request_purchase_code action no longer requires Telegram approval. It executes automatically and sends a Telegram confirmation after the CRM reply is posted.' },
+    ],
+  },
+  {
     version: 'v4.36.7',
     date: '2026-05-14',
     entries: [
