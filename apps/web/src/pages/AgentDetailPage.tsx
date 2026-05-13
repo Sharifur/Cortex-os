@@ -9,6 +9,7 @@ import {
   Bug, AlertTriangle, AlertCircle,
   Plus, Loader2, RefreshCw, Radio,
   CalendarClock, Zap, RotateCcw, ListTodo, ExternalLink,
+  ImageIcon, Upload,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -4600,6 +4601,9 @@ function CanvaBrandsTab({ token }: { token: string }) {
   const [websiteUrl, setWebsiteUrl] = useState('');
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
+  const [logoUploading, setLogoUploading] = useState(false);
+  const [logoError, setLogoError] = useState<string | null>(null);
+  const logoInputRef = useRef<HTMLInputElement>(null);
 
   const { data: brands, isLoading } = useQuery<CanvaBrand[]>({
     queryKey: ['canva-brands'],
@@ -4682,6 +4686,30 @@ function CanvaBrandsTab({ token }: { token: string }) {
     }
   }
 
+  async function uploadLogo(file: File) {
+    if (!editing) return;
+    setLogoUploading(true);
+    setLogoError(null);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await fetch(`/api/canva/brands/${editing.name}/logo`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: fd,
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Upload failed' }));
+        throw new Error(err.error ?? 'Upload failed');
+      }
+      qc.invalidateQueries({ queryKey: ['canva-brands'] });
+    } catch (e: any) {
+      setLogoError(e?.message ?? 'Upload failed');
+    } finally {
+      setLogoUploading(false);
+    }
+  }
+
   const handleSave = () => {
     saveMut.mutate({
       name: form.name,
@@ -4707,24 +4735,33 @@ function CanvaBrandsTab({ token }: { token: string }) {
       {brands && brands.map((b) => (
         <div key={b.name} className="bg-card border border-border rounded-xl p-4">
           <div className="flex items-start justify-between gap-3">
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
-                <p className="font-medium text-sm">{b.displayName}</p>
-                <code className="text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded">{b.name}</code>
-                {b.active && <span className="text-[10px] bg-green-500/15 text-green-400 px-1.5 py-0.5 rounded-full font-medium">active</span>}
-              </div>
-              {b.voiceProfile && <p className="mt-1 text-xs text-muted-foreground line-clamp-2">{b.voiceProfile}</p>}
-              <div className="flex items-center gap-3 mt-2 flex-wrap">
-                {b.palette.length > 0 && (
-                  <div className="flex gap-1">
-                    {b.palette.map((c) => (
-                      <div key={c} className="w-3.5 h-3.5 rounded-full border border-border/50" style={{ backgroundColor: c }} title={c} />
-                    ))}
-                  </div>
-                )}
-                {b.fonts.length > 0 && <span className="text-xs text-muted-foreground">{b.fonts.join(', ')}</span>}
-                {b.platforms.length > 0 && <span className="text-xs text-muted-foreground">{b.platforms.join(', ')}</span>}
-                {b.canvaKitId && <span className="text-xs text-muted-foreground">Kit: {b.canvaKitId.slice(0, 12)}…</span>}
+            <div className="flex items-start gap-3 flex-1 min-w-0">
+              {b.logoUrl ? (
+                <img src={b.logoUrl} alt={b.displayName} className="w-10 h-10 object-contain rounded-lg border border-border/50 shrink-0 bg-muted" />
+              ) : (
+                <div className="w-10 h-10 rounded-lg border border-dashed border-border/50 bg-muted flex items-center justify-center shrink-0">
+                  <ImageIcon className="w-4 h-4 text-muted-foreground/40" />
+                </div>
+              )}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <p className="font-medium text-sm">{b.displayName}</p>
+                  <code className="text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded">{b.name}</code>
+                  {b.active && <span className="text-[10px] bg-green-500/15 text-green-400 px-1.5 py-0.5 rounded-full font-medium">active</span>}
+                </div>
+                {b.voiceProfile && <p className="mt-1 text-xs text-muted-foreground line-clamp-2">{b.voiceProfile}</p>}
+                <div className="flex items-center gap-3 mt-2 flex-wrap">
+                  {b.palette.length > 0 && (
+                    <div className="flex gap-1">
+                      {b.palette.map((c) => (
+                        <div key={c} className="w-3.5 h-3.5 rounded-full border border-border/50" style={{ backgroundColor: c }} title={c} />
+                      ))}
+                    </div>
+                  )}
+                  {b.fonts.length > 0 && <span className="text-xs text-muted-foreground">{b.fonts.join(', ')}</span>}
+                  {b.platforms.length > 0 && <span className="text-xs text-muted-foreground">{b.platforms.join(', ')}</span>}
+                  {b.canvaKitId && <span className="text-xs text-muted-foreground">Kit: {b.canvaKitId.slice(0, 12)}…</span>}
+                </div>
               </div>
             </div>
             <div className="flex items-center gap-1 shrink-0">
@@ -4789,6 +4826,42 @@ function CanvaBrandsTab({ token }: { token: string }) {
                 <Input value={form.displayName} onChange={(e) => setForm({ ...form, displayName: e.target.value })} placeholder="Taskip" className="text-sm" />
               </div>
             </div>
+
+            {editing && (
+              <div>
+                <label className="text-xs text-muted-foreground block mb-1.5">Brand logo</label>
+                <div className="flex items-center gap-3">
+                  {editing.logoUrl ? (
+                    <img src={editing.logoUrl} alt="logo" className="w-14 h-14 object-contain rounded-lg border border-border bg-muted" />
+                  ) : (
+                    <div className="w-14 h-14 rounded-lg border border-dashed border-border bg-muted flex items-center justify-center">
+                      <ImageIcon className="w-5 h-5 text-muted-foreground/40" />
+                    </div>
+                  )}
+                  <div>
+                    <input
+                      ref={logoInputRef}
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                      className="hidden"
+                      onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadLogo(f); e.target.value = ''; }}
+                    />
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => logoInputRef.current?.click()}
+                      disabled={logoUploading}
+                      className="gap-1.5"
+                    >
+                      {logoUploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+                      {editing.logoUrl ? 'Replace logo' : 'Upload logo'}
+                    </Button>
+                    <p className="text-[11px] text-muted-foreground mt-1">PNG, JPG, WEBP or SVG. Used on slide covers and CTAs.</p>
+                    {logoError && <p className="text-xs text-destructive mt-1">{logoError}</p>}
+                  </div>
+                </div>
+              </div>
+            )}
 
             <div>
               <label className="text-xs text-muted-foreground block mb-1">Voice &amp; tone profile</label>

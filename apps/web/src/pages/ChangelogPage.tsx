@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.39.1',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'Brand logo upload: new POST /canva/brands/:name/logo endpoint accepts multipart image (PNG/JPG/WEBP/SVG), stores in MinIO, and saves the URL back to the brand record.' },
+      { tag: 'feat', scope: 'canva', description: 'Brands tab shows logo thumbnail on each brand card. Edit form shows current logo preview and an Upload/Replace button — upload fires immediately, no Save needed.' },
+    ],
+  },
+  {
     version: 'v4.39.0',
     date: '2026-05-14',
     entries: [
