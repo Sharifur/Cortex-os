@@ -255,7 +255,7 @@ export class TaskipInternalEmailService {
   }
 
   async syncReplies(emailId: string): Promise<{ added: number; total: number }> {
-    const [email] = await this.db.db.execute(sql`
+    const email = await this.db.db.execute(sql`
       SELECT id, gmail_message_id AS "gmailMessageId", gmail_thread_id AS "gmailThreadId",
              status, reply_count AS "replyCount", last_reply_at AS "lastReplyAt",
              COALESCE(open_count, 0) AS "openCount",
