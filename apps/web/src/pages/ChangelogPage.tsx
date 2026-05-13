@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.17.3',
+    date: '2026-05-13',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'Design Samples upload is now non-blocking — new images can be dropped while previous ones are still being analyzed by vision LLM. Each file uploads individually so the progress bar increments in real time. Sample grid refreshes after each completed image.' },
+      { tag: 'fix', scope: 'canva', description: 'Removed the "Uploaded undefined sample(s)" status message — progress state now tracks done/total counts directly without relying on the API response field.' },
+    ],
+  },
+  {
     version: 'v4.17.2',
     date: '2026-05-12',
     entries: [
