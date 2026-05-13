@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.43.1',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'fix', scope: 'design-samples', description: 'Patterns tab now groups rules by category tag (LAYOUT, COLOR, TYPOGRAPHY, BACKGROUND, SHAPE, BRANDING, CTA, STYLE, SLIDE, TONE, MOOD, etc.) instead of a flat list. Tag prefix is shown as a section header; items under it show only the rule text.' },
+    ],
+  },
+  {
     version: 'v4.43.0',
     date: '2026-05-14',
     entries: [
