@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.36.8',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'fix', scope: 'support', description: 'request_purchase_code action no longer requires Telegram approval. It executes automatically and sends a Telegram confirmation after the CRM reply is posted.' },
+    ],
+  },
+  {
     version: 'v4.36.7',
     date: '2026-05-14',
     entries: [

@@ -293,7 +293,7 @@ export class SupportAgent implements IAgent, OnModuleInit {
   }
 
   requiresApproval(action: ProposedAction): boolean {
-    return action.type === 'post_reply' || action.type === 'escalate_to_owner' || action.type === 'request_purchase_code';
+    return action.type === 'post_reply' || action.type === 'escalate_to_owner';
   }
 
   async execute(action: ProposedAction): Promise<ActionResult> {
