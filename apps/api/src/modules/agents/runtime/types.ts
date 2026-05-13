@@ -54,8 +54,9 @@ export interface AgentApiRoute {
   path: string;
   handler: (req: unknown, res: unknown) => Promise<unknown>;
   requiresAuth: boolean;
-  /** Optional signature check. Called with (rawBody, headers, query). Return true if the request is authentic. */
-  verifySignature?: (rawBody: string, headers: Record<string, string | string[] | undefined>, query: Record<string, string>) => Promise<boolean>;
+  /** Optional signature check. Called with (rawBody, headers, query).
+   *  Return true/false for simple pass/fail, or { ok: false; reason: string } to include a machine-readable rejection reason in the 401 response. */
+  verifySignature?: (rawBody: string, headers: Record<string, string | string[] | undefined>, query: Record<string, string>) => Promise<boolean | { ok: false; reason: string }>;
 }
 
 export interface McpToolDefinition {

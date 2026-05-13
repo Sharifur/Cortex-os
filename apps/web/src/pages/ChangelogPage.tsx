@@ -16,6 +16,22 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.27.0',
+    date: '2026-05-13',
+    entries: [
+      { tag: 'fix', scope: 'webhooks', description: 'Log request and response body for successful webhook calls when signature verification is enabled, matching the existing logging for rejected signatures. Aids debugging of CRM and support webhook payloads.' },
+    ],
+  },
+  {
+    version: 'v4.26.0',
+    date: '2026-05-13',
+    entries: [
+      { tag: 'fix', scope: 'support', description: 'Webhook rejection responses now include a machine-readable reason field: secret_not_configured, missing_header, or header_mismatch — making it easy to diagnose why a real webhook was rejected without reading server logs.' },
+      { tag: 'fix', scope: 'support', description: 'Successful webhook ingestion response now returns { ok, status, ticketId, externalId } where status is stored, duplicate, or skipped — instead of the opaque { ok: true, id } returned previously.' },
+      { tag: 'feat', scope: 'runtime', description: 'AgentApiRoute.verifySignature can now return { ok: false, reason } instead of plain false, and the dispatcher forwards that reason in the 401 response body. All other agents are unaffected.' },
+    ],
+  },
+  {
     version: 'v4.25.0',
     date: '2026-05-13',
     entries: [
