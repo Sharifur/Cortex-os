@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft, Hash, Mail, User, Phone, Clock, MessageSquare,
   Wand2, RefreshCw, AlertTriangle, CheckCircle2, XCircle,
-  ChevronDown, ChevronUp,
+  ChevronDown, ChevronUp, Trash2, Loader2,
 } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -142,6 +142,21 @@ export default function SupportTicketDetailPage() {
   const [draft, setDraft] = useState<string | null>(null);
   const [draftError, setDraftError] = useState<string | null>(null);
 
+  const deleteMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`/support/tickets/${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json();
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['support-tickets'] });
+      navigate('/support');
+    },
+  });
+
   const { data: ticket, isLoading: ticketLoading } = useQuery<SupportTicket>({
     queryKey: ['support-ticket', id],
     queryFn: async () => {
@@ -223,19 +238,35 @@ export default function SupportTicketDetailPage() {
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-5">
       {/* Back + header */}
-      <div className="flex items-center gap-3">
-        <button
-          onClick={() => navigate('/support')}
-          className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          Tickets
-        </button>
-        <span className="text-muted-foreground">/</span>
-        <div className="flex items-center gap-1.5 text-xs text-muted-foreground font-mono">
-          <Hash className="w-3 h-3" />
-          {ticket.ticketNo ?? ticket.externalId ?? ticket.id}
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => navigate('/support')}
+            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Tickets
+          </button>
+          <span className="text-muted-foreground">/</span>
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground font-mono">
+            <Hash className="w-3 h-3" />
+            {ticket.ticketNo ?? ticket.externalId ?? ticket.id}
+          </div>
         </div>
+        <button
+          onClick={() => {
+            if (confirm('Delete this ticket and all its history? This cannot be undone.')) {
+              deleteMutation.mutate();
+            }
+          }}
+          disabled={deleteMutation.isPending}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-destructive/30 text-destructive text-xs hover:bg-destructive/5 hover:border-destructive/60 transition-colors disabled:opacity-50"
+        >
+          {deleteMutation.isPending
+            ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            : <Trash2 className="w-3.5 h-3.5" />}
+          Delete ticket
+        </button>
       </div>
 
       {/* Ticket header */}

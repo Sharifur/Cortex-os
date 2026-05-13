@@ -1,7 +1,7 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Ticket, Search, RefreshCw,
-  Mail, User, Hash, Clock, MessageSquare, AlertTriangle, ChevronRight,
+  Mail, User, Hash, Clock, MessageSquare, AlertTriangle, ChevronRight, Trash2, Loader2,
 } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -61,11 +61,11 @@ function fmt(iso: string | null) {
   return d.toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
-function TicketRow({ t }: { t: SupportTicket }) {
+function TicketRow({ t, onDelete, deleting }: { t: SupportTicket; onDelete: (id: string) => void; deleting: boolean }) {
   const navigate = useNavigate();
   return (
     <tr
-      className="border-b border-border hover:bg-accent/30 transition-colors cursor-pointer"
+      className="border-b border-border hover:bg-accent/30 transition-colors cursor-pointer group"
       onClick={() => navigate(`/support/${t.id}`)}
     >
       <td className="py-3 pl-4 pr-3">
@@ -115,7 +115,22 @@ function TicketRow({ t }: { t: SupportTicket }) {
         ) : '—'}
       </td>
       <td className="py-3 pl-3 pr-4">
-        <ChevronRight className="w-4 h-4 text-muted-foreground" />
+        <div className="flex items-center gap-2 justify-end">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              if (confirm('Delete this ticket and all its history? This cannot be undone.')) {
+                onDelete(t.id);
+              }
+            }}
+            disabled={deleting}
+            className="opacity-0 group-hover:opacity-100 p-1 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-all disabled:opacity-50"
+            title="Delete ticket"
+          >
+            {deleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+          </button>
+          <ChevronRight className="w-4 h-4 text-muted-foreground" />
+        </div>
       </td>
     </tr>
   );
@@ -134,6 +149,26 @@ export default function SupportTicketsPage() {
   const qc = useQueryClient();
   const [q, setQ] = useState('');
   const [status, setStatus] = useState('');
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await fetch(`/support/tickets/${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json();
+    },
+    onMutate: (id) => setDeletingId(id),
+    onSettled: () => setDeletingId(null),
+    onSuccess: (_data, id) => {
+      qc.setQueryData<{ data: SupportTicket[]; limit: number; offset: number }>(
+        ['support-tickets', q, status],
+        (old) => old ? { ...old, data: old.data.filter((t) => t.id !== id) } : old,
+      );
+    },
+  });
 
   const { data, isLoading, isError } = useQuery<{ data: SupportTicket[]; limit: number; offset: number }>({
     queryKey: ['support-tickets', q, status],
@@ -287,7 +322,7 @@ export default function SupportTicketsPage() {
               </thead>
               <tbody>
                 {tickets.map((t) => (
-                  <TicketRow key={t.id} t={t} />
+                  <TicketRow key={t.id} t={t} onDelete={(id) => deleteMutation.mutate(id)} deleting={deletingId === t.id} />
                 ))}
               </tbody>
             </table>

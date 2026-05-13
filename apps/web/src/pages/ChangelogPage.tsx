@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.42.0',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'support', description: 'Delete ticket: DELETE /support/tickets/:id removes the ticket and all its events. Detail page has a Delete ticket button in the header. Ticket list shows a trash icon on row hover.' },
+    ],
+  },
+  {
     version: 'v4.41.0',
     date: '2026-05-14',
     entries: [

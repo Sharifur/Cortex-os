@@ -496,6 +496,12 @@ export class SupportAgent implements IAgent, OnModuleInit {
         requiresAuth: true,
         handler: async (params) => this.generateDraftForTicket((params as any).id),
       },
+      {
+        method: 'DELETE',
+        path: '/support/tickets/:id',
+        requiresAuth: true,
+        handler: async (params) => this.deleteTicket((params as any).id),
+      },
     ];
   }
 
@@ -511,6 +517,12 @@ export class SupportAgent implements IAgent, OnModuleInit {
       .onConflictDoNothing()
       .returning();
     return row;
+  }
+
+  private async deleteTicket(id: string): Promise<{ ok: boolean }> {
+    await this.db.db.delete(supportTicketEvents).where(eq(supportTicketEvents.ticketId, id));
+    await this.db.db.delete(supportTickets).where(eq(supportTickets.id, id));
+    return { ok: true };
   }
 
   private async writeTicketEvent(entry: {
