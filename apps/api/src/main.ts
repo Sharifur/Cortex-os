@@ -119,7 +119,7 @@ async function bootstrap() {
       return cb(new Error(`CORS: origin ${origin} not allowed`), false);
     },
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-Id'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-Id', 'X-Webhook-Secret', 'X-Hub-Signature-256', 'X-Hub-Signature'],
     credentials: false,
     maxAge: 86400,
   });

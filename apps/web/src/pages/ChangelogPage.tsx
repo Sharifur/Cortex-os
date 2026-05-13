@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.27.1',
+    date: '2026-05-13',
+    entries: [
+      { tag: 'fix', scope: 'cors', description: 'Webhook endpoints (those using secret-based signature verification) now bypass the CORS origin allowlist and respond with Access-Control-Allow-Origin: * so any external platform can call them. Added X-Webhook-Secret, X-Hub-Signature-256, and X-Hub-Signature to the global CORS allowedHeaders list.' },
+    ],
+  },
+  {
     version: 'v4.27.0',
     date: '2026-05-13',
     entries: [
