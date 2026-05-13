@@ -95,7 +95,50 @@ Use exactly this JSON structure (choose the closest enum value where applicable)
     }
   ],
 
-  "pattern_notes": "One concise sentence describing any unique or notable design detail not captured by the fields above. Empty string if nothing notable."
+  "typography": {
+    "heading_case": "uppercase|title-case|sentence-case|mixed",
+    "heading_letter_spacing": "tight|normal|wide|very-wide",
+    "heading_line_height": "tight|normal|relaxed",
+    "heading_word_count_typical": "1-3|4-6|7-10|10+",
+    "uses_eyebrow_label": true or false,
+    "eyebrow_style": "none|uppercase-small-caps|colored-label|outlined-tag",
+    "body_present": true or false,
+    "body_line_count_typical": "1|2-3|4-6|block",
+    "font_mix": "single-font|two-fonts|three-plus-fonts",
+    "heading_estimated_size_px": 72,
+    "body_estimated_size_px": 18,
+    "uses_highlight_text": true or false,
+    "highlight_style": "none|colored-word|underline|background-highlight|bold-word"
+  },
+
+  "spacing": {
+    "outer_padding_style": "tight-5|medium-8|comfortable-10|generous-12-plus",
+    "headline_to_body_gap": "tight|medium|large",
+    "element_vertical_rhythm": "tight|even|spacious",
+    "cta_margin_top": "tight|medium|large",
+    "logo_margin": "flush|small|medium|large"
+  },
+
+  "color_usage": {
+    "background_hex": "#hex — exact background color",
+    "headline_text_hex": "#hex — exact headline text color",
+    "body_text_hex": "#hex — body text color, omit if same as headline",
+    "cta_background_hex": "#hex — CTA button fill, omit if no CTA",
+    "cta_text_hex": "#hex — CTA text color, omit if no CTA",
+    "accent_bar_hex": "#hex — color of any accent stripe/bar, omit if none",
+    "icon_color_hex": "#hex — icon color, omit if no icons"
+  },
+
+  "text_content_pattern": {
+    "headline_starts_with": "number|question|verb|noun|adjective|proper-noun",
+    "uses_brand_name_in_headline": true or false,
+    "has_social_handle": true or false,
+    "has_url": true or false,
+    "has_tagline": true or false,
+    "has_copyright": true or false
+  },
+
+  "pattern_notes": "Two to three concise sentences describing any unique or notable design details not captured by the fields above — pay special attention to spacing rhythms, color combinations, and typography choices. Empty string if nothing notable."
 }
 
 Rules for shape_elements:

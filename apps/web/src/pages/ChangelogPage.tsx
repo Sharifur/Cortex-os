@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.17.6',
+    date: '2026-05-13',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'DNA prompt extended with full typography detail (case, letter-spacing, line-height, word count, eyebrow style, highlight usage), spacing measurements (outer padding, vertical rhythm, element gaps), exact color hex per element (background, headline, CTA, accent bar), and text content patterns (headline structure, brand name usage). Pattern prompt now generates 25-40 rules across 19 categories with mandatory hex codes, SVG shape hints, and positional data. maxTokens raised to 4000.' },
+      { tag: 'feat', scope: 'canva', description: 'Samples grid replaced Prev/Next pagination with a "Load more (N remaining)" button — starts at 60, grows by 60 on each click.' },
+    ],
+  },
+  {
     version: 'v4.17.5',
     date: '2026-05-13',
     entries: [

@@ -3866,7 +3866,7 @@ function DesignSamplesTab({ token }: { token: string }) {
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const [dsSubTab, setDsSubTab] = useState<'samples' | 'patterns'>('samples');
-  const [samplePage, setSamplePage] = useState(0);
+  const [visibleCount, setVisibleCount] = useState(60);
   const SAMPLE_PAGE_SIZE = 60;
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -4047,59 +4047,40 @@ function DesignSamplesTab({ token }: { token: string }) {
             <p className="text-xs text-muted-foreground">{samples.length} sample{samples.length !== 1 ? 's' : ''} total</p>
           </div>
 
-          {(() => {
-            const pageCount = Math.ceil(samples.length / SAMPLE_PAGE_SIZE);
-            const visible = samples.slice(samplePage * SAMPLE_PAGE_SIZE, (samplePage + 1) * SAMPLE_PAGE_SIZE);
-            return (
-              <>
-                <div className="flex flex-wrap gap-3">
-                  {visible.map((s: any) => (
-                    <div key={s.id} className="relative w-[60px] h-[60px] shrink-0">
-                      <button
-                        onClick={() => s.sourceUrl && setLightboxUrl(s.sourceUrl)}
-                        className="w-full h-full focus:outline-none"
-                        title="View full image"
-                        disabled={!s.sourceUrl}
-                      >
-                        {s.sourceUrl ? (
-                          <img src={s.sourceUrl} alt="" className="w-[60px] h-[60px] object-cover rounded-lg border border-border" />
-                        ) : (
-                          <div className="w-[60px] h-[60px] rounded-lg bg-muted border border-border" />
-                        )}
-                      </button>
-                      {patterns.length > 0 && (
-                        <span className="absolute bottom-0.5 right-0.5 bg-green-600 rounded p-0.5 leading-none">
-                          <BookOpen className="w-2.5 h-2.5 text-white" />
-                        </span>
-                      )}
-                    </div>
-                  ))}
-                </div>
-
-                {pageCount > 1 && (
-                  <div className="flex items-center justify-between pt-1">
-                    <button
-                      onClick={() => setSamplePage(p => Math.max(0, p - 1))}
-                      disabled={samplePage === 0}
-                      className="px-3 py-1 text-xs border border-border rounded-lg disabled:opacity-40"
-                    >
-                      Prev
-                    </button>
-                    <span className="text-xs text-muted-foreground">
-                      Page {samplePage + 1} of {pageCount} — {samples.length} total
-                    </span>
-                    <button
-                      onClick={() => setSamplePage(p => Math.min(pageCount - 1, p + 1))}
-                      disabled={samplePage >= pageCount - 1}
-                      className="px-3 py-1 text-xs border border-border rounded-lg disabled:opacity-40"
-                    >
-                      Next
-                    </button>
-                  </div>
+          <div className="flex flex-wrap gap-3">
+            {samples.slice(0, visibleCount).map((s: any) => (
+              <div key={s.id} className="relative w-[60px] h-[60px] shrink-0">
+                <button
+                  onClick={() => s.sourceUrl && setLightboxUrl(s.sourceUrl)}
+                  className="w-full h-full focus:outline-none"
+                  title="View full image"
+                  disabled={!s.sourceUrl}
+                >
+                  {s.sourceUrl ? (
+                    <img src={s.sourceUrl} alt="" className="w-[60px] h-[60px] object-cover rounded-lg border border-border" />
+                  ) : (
+                    <div className="w-[60px] h-[60px] rounded-lg bg-muted border border-border" />
+                  )}
+                </button>
+                {patterns.length > 0 && (
+                  <span className="absolute bottom-0.5 right-0.5 bg-green-600 rounded p-0.5 leading-none">
+                    <BookOpen className="w-2.5 h-2.5 text-white" />
+                  </span>
                 )}
-              </>
-            );
-          })()}
+              </div>
+            ))}
+          </div>
+
+          {visibleCount < samples.length && (
+            <div className="flex justify-center pt-1">
+              <button
+                onClick={() => setVisibleCount(c => c + SAMPLE_PAGE_SIZE)}
+                className="px-4 py-1.5 text-xs border border-border rounded-lg text-muted-foreground hover:text-foreground"
+              >
+                Load more ({samples.length - visibleCount} remaining)
+              </button>
+            </div>
+          )}
         </>
       )}
 
