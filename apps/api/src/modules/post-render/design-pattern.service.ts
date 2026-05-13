@@ -13,9 +13,11 @@ export class DesignPatternService {
   private readonly logger = new Logger(DesignPatternService.name);
 
   private clusteringStatus = new Map<string, {
-    phase: 'idle' | 'loading' | 'aggregating' | 'generating-patterns' | 'generating-brief' | 'saving' | 'done';
-    sampleCount: number;
+    phase: string;
+    pass: number;
+    totalPasses: number;
     patternsFound: number;
+    sampleCount: number;
     running: boolean;
   }>();
 
@@ -26,48 +28,13 @@ export class DesignPatternService {
   ) {}
 
   getClusteringStatus(brand: string) {
-    return this.clusteringStatus.get(brand) ?? { phase: 'idle' as const, sampleCount: 0, patternsFound: 0, running: false };
+    return this.clusteringStatus.get(brand) ?? { phase: 'idle', pass: 0, totalPasses: 0, patternsFound: 0, sampleCount: 0, running: false };
   }
 
-  async cluster(brand: string): Promise<{ patternCount: number; patterns: string[]; bannerBrief: string }> {
-    const effectiveBrand = brand || 'default';
-    const status: { phase: 'idle' | 'loading' | 'aggregating' | 'generating-patterns' | 'generating-brief' | 'saving' | 'done'; sampleCount: number; patternsFound: number; running: boolean } = { phase: 'loading', sampleCount: 0, patternsFound: 0, running: true };
-    this.clusteringStatus.set(effectiveBrand, status);
-
-    const designSamples = await this.db.db
-      .select({ id: knowledgeEntries.id, content: knowledgeEntries.content })
-      .from(knowledgeEntries)
-      .where(and(
-        eq(knowledgeEntries.entryType, 'design_sample'),
-        eq(knowledgeEntries.agentKeys, 'canva'),
-        eq(knowledgeEntries.siteKeys, effectiveBrand),
-      ));
-
-    status.sampleCount = designSamples.length;
-
-    if (designSamples.length < MIN_SAMPLES_FOR_CLUSTERING) {
-      status.phase = 'done';
-      status.running = false;
-      this.logger.warn(`Not enough samples for clustering: ${designSamples.length}/${MIN_SAMPLES_FOR_CLUSTERING} for brand=${effectiveBrand}`);
-      return { patternCount: 0, patterns: [], bannerBrief: '' };
-    }
-
-    this.logger.log(`Clustering ${designSamples.length} samples for brand: ${effectiveBrand}`);
-    status.phase = 'aggregating';
-
-    // Extract DNA JSON blobs from each sample — use all available
-    const dnaList: Record<string, unknown>[] = [];
-    for (const s of designSamples) {
-      const match = s.content.match(/DNA JSON: (\{[\s\S]+\})\s*$/m);
-      if (match) {
-        try { dnaList.push(JSON.parse(match[1])); } catch { /* skip malformed */ }
-      }
-    }
-
-    // Aggregate frequency counts for key fields
+  private buildAggregation(list: Record<string, unknown>[]) {
     const freq = (field: string) => {
       const counts: Record<string, number> = {};
-      for (const d of dnaList) {
+      for (const d of list) {
         const val = d[field];
         const vals = Array.isArray(val) ? val : [String(val ?? '')];
         for (const v of vals) { if (v) counts[v] = (counts[v] ?? 0) + 1; }
@@ -75,11 +42,10 @@ export class DesignPatternService {
       return Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([v, n]) => `${v}(${n})`).join(', ');
     };
 
-    // Helper to extract nested field from DNA
     const freqNested = (path: string) => {
       const parts = path.split('.');
       const counts: Record<string, number> = {};
-      for (const d of dnaList) {
+      for (const d of list) {
         let val: unknown = d;
         for (const p of parts) val = (val as Record<string, unknown>)?.[p];
         const vals = Array.isArray(val) ? val : [String(val ?? '')];
@@ -88,30 +54,41 @@ export class DesignPatternService {
       return Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([v, n]) => `${v}(${n})`).join(', ');
     };
 
-    // Collect dominant hex colors
     const collectHexFreq = (field: string) => {
       const counts: Record<string, number> = {};
-      for (const d of dnaList) {
+      for (const d of list) {
         const val = (d['color_usage'] as Record<string, string> | undefined)?.[field] ?? (d[field] as string | undefined) ?? '';
         if (val && val.startsWith('#')) counts[val.toLowerCase()] = (counts[val.toLowerCase()] ?? 0) + 1;
       }
       return Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([v, n]) => `${v}(${n})`).join(', ');
     };
 
-    const aggregateSummary = [
-      `Samples analysed: ${dnaList.length}`,
-      `--- LAYOUT ---`,
+    const shapeFreq: Record<string, number> = {};
+    for (const d of list) {
+      for (const s of (d['shape_elements'] as Array<{ shape_type: string }> | undefined) ?? []) {
+        shapeFreq[s.shape_type] = (shapeFreq[s.shape_type] ?? 0) + 1;
+      }
+    }
+
+    const svgHints = list
+      .flatMap(d => (d['shape_elements'] as Array<{ svg_hint: string }> | undefined) ?? [])
+      .map(s => s.svg_hint).filter(h => h && h.length > 5).slice(0, 30).map(h => `- ${h}`).join('\n');
+
+    const illustrationSubjects = list
+      .flatMap(d => (d['decorative_illustrations'] as Array<{ subject: string; subject_description: string }> | undefined) ?? [])
+      .map(i => `${i.subject}: ${i.subject_description}`).filter(Boolean).slice(0, 40).map(i => `- ${i}`).join('\n');
+
+    const summary = [
+      `Samples: ${list.length}`,
       `layout_type: ${freq('layout_type')}`,
       `composition: ${freq('composition')}`,
       `text_alignment: ${freq('text_alignment')}`,
       `whitespace: ${freq('whitespace')}`,
       `element_density: ${freq('element_density')}`,
       `grid_columns: ${freq('grid_columns')}`,
-      `--- BACKGROUND ---`,
       `background_style: ${freq('background_style')}`,
       `background_texture: ${freq('background_texture')}`,
       `background_image_used: ${freq('background_image_used')}`,
-      `--- COLORS ---`,
       `color_count: ${freq('color_count')}`,
       `primary_color: ${collectHexFreq('primary_color')}`,
       `accent_color: ${collectHexFreq('accent_color')}`,
@@ -119,7 +96,6 @@ export class DesignPatternService {
       `headline_text_hex: ${collectHexFreq('headline_text_hex')}`,
       `cta_background_hex: ${collectHexFreq('cta_background_hex')}`,
       `accent_bar_hex: ${collectHexFreq('accent_bar_hex')}`,
-      `--- TYPOGRAPHY ---`,
       `font_style: ${freq('font_style')}`,
       `body_font_style: ${freq('body_font_style')}`,
       `font_weight_heading: ${freq('font_weight_heading')}`,
@@ -136,18 +112,15 @@ export class DesignPatternService {
       `uses_highlight_text: ${freqNested('typography.uses_highlight_text')}`,
       `highlight_style: ${freqNested('typography.highlight_style')}`,
       `number_stat_style: ${freq('number_stat_style')}`,
-      `--- SPACING ---`,
       `outer_padding_style: ${freqNested('spacing.outer_padding_style')}`,
       `headline_to_body_gap: ${freqNested('spacing.headline_to_body_gap')}`,
       `element_vertical_rhythm: ${freqNested('spacing.element_vertical_rhythm')}`,
       `cta_margin_top: ${freqNested('spacing.cta_margin_top')}`,
-      `--- ICONS & ILLUSTRATION ---`,
       `icon_style: ${freq('icon_style')}`,
       `icon_count: ${freq('icon_count')}`,
       `icon_size: ${freq('icon_size')}`,
       `illustration_style: ${freq('illustration_style')}`,
       `photography_style: ${freq('photography_style')}`,
-      `--- DECORATION & STRUCTURE ---`,
       `decoration_elements: ${freq('decoration_elements')}`,
       `accent_elements: ${freq('accent_elements')}`,
       `border_radius_style: ${freq('border_radius_style')}`,
@@ -155,125 +128,227 @@ export class DesignPatternService {
       `divider_style: ${freq('divider_style')}`,
       `brand_bar: ${freq('brand_bar')}`,
       `logo_placement: ${freq('logo_placement')}`,
-      `--- CTA & CONTENT ---`,
       `cta_style: ${freq('cta_style')}`,
       `content_tone: ${freq('content_tone')}`,
       `mood_keywords: ${freq('mood_keywords')}`,
       `slide_type: ${freq('slide_type')}`,
       `text_layers_count: ${freq('text_layers_count')}`,
       `headline_starts_with: ${freqNested('text_content_pattern.headline_starts_with')}`,
-      `uses_brand_name_in_headline: ${freqNested('text_content_pattern.uses_brand_name_in_headline')}`,
+      `shape_types: ${Object.entries(shapeFreq).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([v, n]) => `${v}(${n})`).join(', ') || 'none'}`,
     ].join('\n');
 
-    // Aggregate shape types
-    const shapeFreq: Record<string, number> = {};
-    for (const d of dnaList) {
-      const shapes = d['shape_elements'] as Array<{ shape_type: string; svg_hint: string }> | undefined;
-      for (const s of shapes ?? []) {
-        shapeFreq[s.shape_type] = (shapeFreq[s.shape_type] ?? 0) + 1;
-      }
-    }
-    const topShapes = Object.entries(shapeFreq).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([v, n]) => `${v}(${n})`).join(', ');
+    return { summary, svgHints, illustrationSubjects };
+  }
 
-    // Aggregate icon sizes and common element positions
-    const iconSizeFreq = freq('icon_size');
-    const gridColFreq = freq('grid_columns');
-
-    // Sample svg hints for recurring shapes
-    const svgHints = dnaList
-      .flatMap(d => (d['shape_elements'] as Array<{ svg_hint: string }> | undefined) ?? [])
-      .map(s => s.svg_hint)
-      .filter(h => h && h.length > 5)
-      .slice(0, 30)
-      .map(h => `- ${h}`)
-      .join('\n');
-
-    const extendedSummary = [
-      `shape_types: ${topShapes || 'none'}`,
-      `icon_size: ${iconSizeFreq}`,
-      `grid_columns: ${gridColFreq}`,
-    ].join('\n');
-
-    const sampleNotes = dnaList
-      .map(d => d['pattern_notes'] as string | undefined)
-      .filter(n => n && n.length > 5)
-      .slice(0, 40)
-      .map(n => `- ${n}`)
-      .join('\n');
-
-    status.phase = 'generating-patterns';
-    const res = await this.llm.complete({
-      messages: [
-        {
-          role: 'system',
-          content: `You are a senior design strategist. Extract actionable, specific design patterns from aggregated design DNA data. Be precise — name exact colors when consistent, exact icon styles, exact layout choices.`,
-        },
-        {
-          role: 'user',
-          content: [
-            `Brand: ${effectiveBrand}`,
-            ``,
-            `Aggregated DNA frequencies (field: value(count)):`,
-            aggregateSummary,
-            extendedSummary,
-            sampleNotes ? `\nNotable observations from samples:\n${sampleNotes}` : '',
-            svgHints ? `\nRecurring shape hints:\n${svgHints}` : '',
-            ``,
-            `Write 50–80 specific, actionable design pattern rules using ALL frequency data above. Minimum 3 rules per category required — more if the frequency data is rich.`,
-            `Categories (use exactly these prefixes):`,
-            `[LAYOUT] [COLOR] [TYPOGRAPHY] [HEADING-STYLE] [BODY-TEXT] [SPACING] [ICONS] [ILLUSTRATION] [PHOTOGRAPHY]`,
-            `[SHAPES] [DECORATION] [ACCENT] [CTA] [LOGO] [BRAND-BAR] [CONTENT-TONE] [TEXT-PATTERN] [HIERARCHY] [PLATFORM]`,
-            ``,
-            `Mandatory rules per category:`,
-            `- [COLOR]: state the dominant background hex, dominant headline text hex, dominant accent/CTA hex; describe the tricolor or palette system`,
-            `- [TYPOGRAPHY]: state the dominant font weight, size tier, and letter-spacing for headings; note if eyebrow labels are used and their style`,
-            `- [HEADING-STYLE]: describe text case, word count typical, line height, and whether highlight/bold words are used`,
-            `- [BODY-TEXT]: describe whether body text is present, typical line count, and font style`,
-            `- [SPACING]: describe outer padding tier, vertical rhythm between elements, headline-to-body gap, CTA margin`,
-            `- [SHAPES]: for every shape type appearing in more than 15% of samples — describe type, position on canvas (e.g. top-right corner 30% radius), fill color/opacity, and include a minimal SVG reconstruction: <circle cx="90%" cy="10%" r="30%" fill="#hex" opacity="0.12"/>`,
-            `- [CTA]: describe button style (pill/flat/outlined), color, text color, position on slide (y%), and any hover treatment noted`,
-            `- [TEXT-PATTERN]: describe how headlines start (verb, number, adjective), typical word count, capitalization pattern`,
-            `- [HIERARCHY]: describe the full visual reading order from top to bottom with element names`,
-            ``,
-            `Format: [CATEGORY] Rule. Be specific with hex codes, percentages, and exact values.`,
-            `Numbered list. No preamble. No category headers — just the [CATEGORY] prefix on each line.`,
-          ].join('\n'),
-        },
-      ],
-      maxTokens: 6000,
-      temperature: 0.3,
-      agentKey: 'canva',
-    });
-
-    const patterns = res.content
+  private extractPatterns(text: string): string[] {
+    return text
       .split('\n')
       .filter(line => /^\d+\./.test(line.trim()))
       .map(line => line.replace(/^\d+\.\s*/, '').trim())
       .filter(Boolean);
+  }
 
-    status.patternsFound = patterns.length;
-    status.phase = 'generating-brief';
+  async cluster(brand: string): Promise<{ patternCount: number; patterns: string[]; bannerBrief: string }> {
+    const effectiveBrand = brand || 'default';
+
+    const MAIN_PASSES = [
+      {
+        label: 'Structure & Layout',
+        categories: '[LAYOUT] [COMPOSITION] [HIERARCHY] [SPACING] [GRID] [CONTENT-ZONE]',
+        focus: `Focus on spatial and structural patterns only. Include: dominant layout type, composition rule, grid columns, content zone position (x/y/w/h%), visual reading order top-to-bottom, outer padding tier, headline-to-body gap px equivalent, element vertical rhythm, CTA bottom margin. Generate minimum 50 rules — cover every distinct layout variant found in the data.`,
+      },
+      {
+        label: 'Color System',
+        categories: '[COLOR] [BACKGROUND] [GRADIENT] [OVERLAY] [TEXTURE] [COLOR-CONTRAST] [SECONDARY-PALETTE]',
+        focus: `Focus on color patterns only. State exact hex codes for: primary background, content slide background, CTA slide background, headline text, body text, accent/brand color, CTA button fill, CTA text. Describe gradients with angle and stops. Note overlay opacity. Describe the full palette system — which colors coexist. Generate minimum 50 rules — every unique color combination found across samples counts as a distinct rule.`,
+      },
+      {
+        label: 'Typography',
+        categories: '[TYPOGRAPHY] [HEADING-STYLE] [BODY-TEXT] [TEXT-PATTERN] [HIGHLIGHT-TEXT] [EYEBROW-LABEL] [STAT-NUMBER]',
+        focus: `Focus on typography patterns only. Include: dominant font weight and size tier for headings, letter spacing (tight/normal/wide), line height, text case (uppercase/title/sentence), typical heading word count, whether eyebrow labels appear and their visual style (pill/badge/plain/none), body text presence and line count, inline word highlights with background color/shape, large stat number style. Generate minimum 50 rules — cover every typographic variant.`,
+      },
+      {
+        label: 'Visual Elements',
+        categories: '[ICONS] [ILLUSTRATION] [PHOTOGRAPHY] [SHAPES] [DECORATION] [ACCENT-ELEMENTS] [LAYERING]',
+        focus: `Focus on visual element patterns only. For shapes: every recurring type with canvas position (x/y % from top-left), fill color/opacity, and minimal SVG: <circle cx="85%" cy="5%" r="25%" fill="#hex" opacity="0.15"/>. For illustrations: subject types, render style, placement. For photography: style and framing. For icons: style, count, size tier. For layering/z-index: describe how elements overlap. Generate minimum 50 rules — each distinct shape variant, illustration subject, and icon type is a separate rule.`,
+      },
+      {
+        label: 'Brand Identity & Content',
+        categories: '[BRAND-BAR] [LOGO] [CTA] [CONTENT-TONE] [PLATFORM] [MOOD] [SLIDE-INDICATOR] [BADGE] [WATERMARK]',
+        focus: `Focus on brand and content patterns only. CTA: button shape, fill color, text color, y-position %, typical label text style. Logo: placement, height estimate. Brand bar: position (top/bottom/left/right), color, thickness. Slide indicator: position, format (N/T or dot). Content tone: formal/casual/punchy breakdown. Mood keywords: list recurring emotional descriptors. Platform-specific rules if data differs by platform. Generate minimum 40 rules.`,
+      },
+    ];
+
+    // Pass 6: one rule set per slide type
+    const SLIDE_TYPES = ['cover', 'content', 'cta', 'stat', 'list', 'quote', 'testimonial'];
+
+    const TOTAL_PASSES = MAIN_PASSES.length + 1; // 5 dimension passes + 1 slide-type pass
+
+    const status = {
+      phase: 'Loading samples',
+      pass: 0,
+      totalPasses: TOTAL_PASSES,
+      patternsFound: 0,
+      sampleCount: 0,
+      running: true,
+    };
+    this.clusteringStatus.set(effectiveBrand, status);
+
+    const designSamples = await this.db.db
+      .select({ id: knowledgeEntries.id, content: knowledgeEntries.content })
+      .from(knowledgeEntries)
+      .where(and(
+        eq(knowledgeEntries.entryType, 'design_sample'),
+        eq(knowledgeEntries.agentKeys, 'canva'),
+        eq(knowledgeEntries.siteKeys, effectiveBrand),
+      ));
+
+    status.sampleCount = designSamples.length;
+
+    if (designSamples.length < MIN_SAMPLES_FOR_CLUSTERING) {
+      status.phase = 'done';
+      status.running = false;
+      this.logger.warn(`Not enough samples: ${designSamples.length}/${MIN_SAMPLES_FOR_CLUSTERING} for brand=${effectiveBrand}`);
+      return { patternCount: 0, patterns: [], bannerBrief: '' };
+    }
+
+    status.phase = 'Aggregating DNA';
+    const dnaList: Record<string, unknown>[] = [];
+    for (const s of designSamples) {
+      const match = s.content.match(/DNA JSON: (\{[\s\S]+\})\s*$/m);
+      if (match) {
+        try { dnaList.push(JSON.parse(match[1])); } catch { /* skip malformed */ }
+      }
+    }
+
+    const { summary: globalSummary, svgHints, illustrationSubjects } = this.buildAggregation(dnaList);
+
+    const sampleNotes = dnaList
+      .map(d => d['pattern_notes'] as string | undefined)
+      .filter(n => n && n.length > 5).slice(0, 40).map(n => `- ${n}`).join('\n');
+
+    const allPatterns: string[] = [];
+
+    // Passes 1–5: dimension-focused
+    for (let i = 0; i < MAIN_PASSES.length; i++) {
+      const pass = MAIN_PASSES[i];
+      status.pass = i + 1;
+      status.phase = `Pass ${i + 1}/${TOTAL_PASSES}: ${pass.label}`;
+      this.logger.log(`Clustering pass ${i + 1}/${TOTAL_PASSES}: ${pass.label} for brand=${effectiveBrand}`);
+
+      const res = await this.llm.complete({
+        messages: [
+          {
+            role: 'system',
+            content: `You are a senior design strategist extracting specific design patterns from aggregated DNA data. Be precise — use exact hex codes, percentages, and measured values from the data.`,
+          },
+          {
+            role: 'user',
+            content: [
+              `Brand: ${effectiveBrand}`,
+              `Pass focus: ${pass.label}`,
+              `Categories for this pass (use ONLY these prefixes): ${pass.categories}`,
+              ``,
+              `Aggregated DNA frequencies (${dnaList.length} samples):`,
+              globalSummary,
+              svgHints ? `\nRecurring shape hints:\n${svgHints}` : '',
+              illustrationSubjects ? `\nIllustration subjects found:\n${illustrationSubjects}` : '',
+              sampleNotes ? `\nSample observations:\n${sampleNotes}` : '',
+              ``,
+              pass.focus,
+              ``,
+              `Rules:`,
+              `- Use ONLY the category prefixes listed above — no other categories`,
+              `- Number each rule starting from 1`,
+              `- No preamble, no explanations — just the numbered rules`,
+              `- Format: N. [CATEGORY] Rule text`,
+            ].join('\n'),
+          },
+        ],
+        maxTokens: 4000,
+        temperature: 0.2,
+        agentKey: 'canva',
+      });
+
+      const passPatterns = this.extractPatterns(res.content);
+      allPatterns.push(...passPatterns);
+      status.patternsFound = allPatterns.length;
+      this.logger.log(`Pass ${i + 1} complete: ${passPatterns.length} patterns (total: ${allPatterns.length})`);
+    }
+
+    // Pass 6: per slide-type rules
+    status.pass = MAIN_PASSES.length + 1;
+    status.phase = `Pass ${MAIN_PASSES.length + 1}/${TOTAL_PASSES}: Per Slide Type`;
+    this.logger.log(`Clustering pass ${MAIN_PASSES.length + 1}/${TOTAL_PASSES}: Per Slide Type for brand=${effectiveBrand}`);
+
+    const bySlideType: Record<string, Record<string, unknown>[]> = {};
+    for (const d of dnaList) {
+      const t = String(d['slide_type'] ?? 'content');
+      bySlideType[t] ??= [];
+      bySlideType[t].push(d);
+    }
+
+    const slideTypeSummaries = SLIDE_TYPES
+      .filter(t => (bySlideType[t]?.length ?? 0) >= 2)
+      .map(t => {
+        const list = bySlideType[t];
+        const { summary } = this.buildAggregation(list);
+        return `=== ${t.toUpperCase()} (${list.length} samples) ===\n${summary}`;
+      })
+      .join('\n\n');
+
+    if (slideTypeSummaries) {
+      const res = await this.llm.complete({
+        messages: [
+          {
+            role: 'system',
+            content: `You are a senior design strategist. Extract per-slide-type design patterns. Each rule must specify which slide type it applies to.`,
+          },
+          {
+            role: 'user',
+            content: [
+              `Brand: ${effectiveBrand}`,
+              ``,
+              `Per-slide-type aggregated DNA:`,
+              slideTypeSummaries,
+              ``,
+              `Write 20+ specific design rules per slide type that has enough samples.`,
+              `Use category prefix format: [COVER] [CONTENT-SLIDE] [CTA-SLIDE] [STAT-SLIDE] [LIST-SLIDE] [QUOTE-SLIDE] [TESTIMONIAL-SLIDE]`,
+              `Each rule must be specific to that slide type — background color, layout, text treatment, shapes, hierarchy, padding.`,
+              `Include rules that differ from the global brand pattern — capture what makes each slide type visually distinct.`,
+              `Numbered list starting from 1. Format: N. [SLIDE-TYPE] Rule.`,
+              `No preamble. Minimum 15 rules per slide type present.`,
+            ].join('\n'),
+          },
+        ],
+        maxTokens: 6000,
+        temperature: 0.2,
+        agentKey: 'canva',
+      });
+
+      const slideTypePatterns = this.extractPatterns(res.content);
+      allPatterns.push(...slideTypePatterns);
+      status.patternsFound = allPatterns.length;
+      this.logger.log(`Slide-type pass complete: ${slideTypePatterns.length} patterns (total: ${allPatterns.length})`);
+    }
+
+    // Banner brief
+    status.phase = 'Generating banner brief';
     const briefRes = await this.llm.complete({
       messages: [
         {
           role: 'system',
-          content: `You are a senior art director. Write a single cohesive banner design brief that a developer can follow to recreate the brand's visual identity from scratch. Be specific and concise — 3-5 sentences max.`,
+          content: `You are a senior art director. Write a single cohesive banner design brief a developer can use to recreate the brand's visual identity. Be specific and concise — 3-5 sentences.`,
         },
         {
           role: 'user',
           content: [
-            `Brand: ${effectiveBrand}`,
+            `Brand: ${effectiveBrand} — ${dnaList.length} design samples analysed`,
             ``,
-            `Aggregated design DNA (${dnaList.length} samples):`,
-            aggregateSummary,
-            extendedSummary,
-            svgHints ? `\nRecurring shapes:\n${svgHints}` : '',
+            globalSummary,
+            svgHints ? `\nShapes:\n${svgHints}` : '',
             ``,
-            `Write one paragraph (3–5 sentences) called "Banner Brief" that synthesizes:`,
-            `layout type + composition, background style and primary colors, typography style and weight,`,
-            `whether icons/illustrations/photography are used and what kind,`,
-            `decorative shapes and their positions, CTA style, and overall tone/mood.`,
-            `Make it actionable enough to hand to a renderer. No bullet points. Start with "Banner Brief:"`,
+            `Write one paragraph (3-5 sentences) as "Banner Brief:" covering: layout type, background and primary colors, typography style and weight, icons/illustrations/photography used, decorative shapes with positions, CTA style, overall tone. No bullet points.`,
           ].join('\n'),
         },
       ],
@@ -284,18 +359,9 @@ export class DesignPatternService {
 
     const bannerBrief = briefRes.content.replace(/^Banner Brief:\s*/i, '').trim();
 
-    const patternContent = [
-      `Learned design patterns for brand: ${effectiveBrand}`,
-      `Based on ${designSamples.length} design samples (${dnaList.length} with full DNA).`,
-      '',
-      `Banner Brief: ${bannerBrief}`,
-      '',
-      patterns.map((p, i) => `${i + 1}. ${p}`).join('\n'),
-    ].join('\n');
-
-    status.phase = 'saving';
-    // Remove old pattern entries for this brand
-    const oldPatterns = await this.db.db
+    // Save: delete old, write new (one entry per pass group + one header entry with banner brief)
+    status.phase = 'Saving patterns';
+    const oldEntries = await this.db.db
       .select({ id: knowledgeEntries.id })
       .from(knowledgeEntries)
       .where(and(
@@ -303,24 +369,39 @@ export class DesignPatternService {
         eq(knowledgeEntries.agentKeys, 'canva'),
         eq(knowledgeEntries.siteKeys, effectiveBrand),
       ));
-    for (const old of oldPatterns) {
+    for (const old of oldEntries) {
       await this.kb.deleteEntry(old.id).catch(() => {});
     }
 
-    await this.kb.createEntry({
-      title: `Design Patterns — ${effectiveBrand} — ${new Date().toISOString().slice(0, 10)}`,
-      content: patternContent,
-      entryType: 'design_pattern',
-      agentKeys: 'canva',
-      siteKeys: effectiveBrand,
-      category: 'design',
-      sourceType: 'clustering',
-    });
+    // Store in chunks of 100 rules per KB entry so content stays retrievable
+    const CHUNK_SIZE = 100;
+    const date = new Date().toISOString().slice(0, 10);
+    for (let i = 0; i < allPatterns.length; i += CHUNK_SIZE) {
+      const chunk = allPatterns.slice(i, i + CHUNK_SIZE);
+      const chunkIndex = Math.floor(i / CHUNK_SIZE) + 1;
+      const totalChunks = Math.ceil(allPatterns.length / CHUNK_SIZE);
+      const content = [
+        `Learned design patterns for brand: ${effectiveBrand} (part ${chunkIndex}/${totalChunks})`,
+        `Based on ${designSamples.length} samples — ${allPatterns.length} total patterns.`,
+        chunkIndex === 1 ? `\nBanner Brief: ${bannerBrief}\n` : '',
+        chunk.map((p, j) => `${i + j + 1}. ${p}`).join('\n'),
+      ].join('\n');
+
+      await this.kb.createEntry({
+        title: `Design Patterns — ${effectiveBrand} — ${date} — part ${chunkIndex}/${totalChunks}`,
+        content,
+        entryType: 'design_pattern',
+        agentKeys: 'canva',
+        siteKeys: effectiveBrand,
+        category: 'design',
+        sourceType: 'clustering',
+      });
+    }
 
     status.phase = 'done';
     status.running = false;
-    this.logger.log(`Clustering complete: ${patterns.length} patterns for ${effectiveBrand}`);
-    return { patternCount: patterns.length, patterns, bannerBrief };
+    this.logger.log(`Clustering complete: ${allPatterns.length} patterns across ${TOTAL_PASSES} passes for brand=${effectiveBrand}`);
+    return { patternCount: allPatterns.length, patterns: allPatterns, bannerBrief };
   }
 
   async getDominantDNA(brand: string): Promise<DominantDNA | null> {
@@ -381,26 +462,21 @@ export class DesignPatternService {
       .map(([type]) => shapeByType.get(type)!)
       .filter(Boolean);
 
-    const patternEntry = await this.db.db
+    const patternEntries = await this.db.db
       .select({ content: knowledgeEntries.content })
       .from(knowledgeEntries)
       .where(and(
         eq(knowledgeEntries.entryType, 'design_pattern'),
         eq(knowledgeEntries.agentKeys, 'canva'),
         eq(knowledgeEntries.siteKeys, effectiveBrand),
-      ))
-      .limit(1);
+      ));
 
-    const patternContent = patternEntry[0]?.content ?? '';
+    const patternRules = patternEntries.flatMap(e =>
+      e.content.split('\n').filter(l => /^\d+\./.test(l.trim())).map(l => l.replace(/^\d+\.\s*/, '').trim()).filter(Boolean)
+    );
 
-    const patternRules = patternContent
-      .split('\n')
-      .filter(l => /^\d+\./.test(l.trim()))
-      .map(l => l.replace(/^\d+\.\s*/, '').trim())
-      .filter(Boolean);
-
-    // Extract banner brief from pattern content (stored as "Banner Brief: ..." line)
-    const bannerBriefMatch = patternContent.match(/^Banner Brief:\s*(.+)$/m);
+    // Banner brief is stored in the first chunk entry
+    const bannerBriefMatch = (patternEntries[0]?.content ?? '').match(/^Banner Brief:\s*(.+)$/m);
     const bannerBrief = bannerBriefMatch?.[1]?.trim() ?? '';
 
     return {

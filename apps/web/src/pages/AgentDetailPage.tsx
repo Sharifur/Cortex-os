@@ -3945,14 +3945,19 @@ function DesignSamplesTab({ token }: { token: string }) {
   const [clusteringStatus, setClusteringStatus] = useState<{ phase: string; sampleCount: number; patternsFound: number; running: boolean } | null>(null);
   const clusterPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const PHASE_LABEL: Record<string, string> = {
-    loading: 'Loading samples...',
-    aggregating: 'Aggregating DNA frequencies...',
-    'generating-patterns': 'Generating patterns (LLM)...',
-    'generating-brief': 'Writing banner brief...',
-    saving: 'Saving patterns...',
-    done: 'Done',
-  };
+  function clusterPhaseLabel(s: { phase: string; pass: number; totalPasses: number } | null): string {
+    if (!s) return '';
+    if (s.phase === 'done') return 'Done';
+    if (s.pass > 0 && s.totalPasses > 0) return `Pass ${s.pass}/${s.totalPasses}: ${s.phase.replace(/^Pass \d+\/\d+:\s*/, '')}`;
+    return s.phase;
+  }
+
+  function clusterProgressPct(s: { phase: string; pass: number; totalPasses: number; running: boolean } | null): number {
+    if (!s || s.totalPasses === 0) return 5;
+    if (!s.running) return 100;
+    if (s.pass === 0) return 5;
+    return Math.round(((s.pass - 0.5) / s.totalPasses) * 100);
+  }
 
   function stopReanalysisPoll() {
     if (reanalysisPollRef.current) { clearInterval(reanalysisPollRef.current); reanalysisPollRef.current = null; }
@@ -4087,20 +4092,20 @@ function DesignSamplesTab({ token }: { token: string }) {
         <div className="bg-card border border-border rounded-xl px-4 py-3 space-y-2">
           <div className="flex items-center justify-between text-xs">
             <span className="font-medium text-foreground">
-              {clusteringStatus.running ? PHASE_LABEL[clusteringStatus.phase] ?? clusteringStatus.phase : `Done — ${clusteringStatus.patternsFound} patterns learned from ${clusteringStatus.sampleCount} samples`}
+              {clusteringStatus.running
+                ? clusterPhaseLabel(clusteringStatus)
+                : `Done — ${clusteringStatus.patternsFound} patterns learned from ${clusteringStatus.sampleCount} samples`}
             </span>
-            {clusteringStatus.running && (
-              <span className="text-muted-foreground">{clusteringStatus.sampleCount > 0 ? `${clusteringStatus.sampleCount} samples` : ''}</span>
-            )}
+            <span className="text-muted-foreground">
+              {clusteringStatus.running && clusteringStatus.patternsFound > 0
+                ? `${clusteringStatus.patternsFound} patterns so far`
+                : clusteringStatus.sampleCount > 0 ? `${clusteringStatus.sampleCount} samples` : ''}
+            </span>
           </div>
           <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
             <div
-              className={`h-full rounded-full transition-all duration-700 ${clusteringStatus.running ? 'bg-primary animate-pulse' : 'bg-green-500'}`}
-              style={{
-                width: clusteringStatus.running
-                  ? ({ loading: '10%', aggregating: '25%', 'generating-patterns': '55%', 'generating-brief': '80%', saving: '95%' }[clusteringStatus.phase] ?? '10%')
-                  : '100%',
-              }}
+              className={`h-full rounded-full transition-all duration-700 ${clusteringStatus.running ? 'bg-primary' : 'bg-green-500'}`}
+              style={{ width: `${clusterProgressPct(clusteringStatus)}%` }}
             />
           </div>
         </div>
@@ -4187,9 +4192,12 @@ function DesignSamplesTab({ token }: { token: string }) {
       {dsSubTab === 'patterns' && (
         <div className="space-y-3">
           {clusteringStatus?.running && (
-            <div className="bg-card border border-border rounded-xl p-4 space-y-2">
+            <div className="bg-card border border-border rounded-xl p-4 space-y-1">
               <p className="text-sm font-medium text-foreground">Learning patterns...</p>
-              <p className="text-xs text-muted-foreground">{PHASE_LABEL[clusteringStatus.phase] ?? clusteringStatus.phase}</p>
+              <p className="text-xs text-muted-foreground">{clusterPhaseLabel(clusteringStatus)}</p>
+              {clusteringStatus.patternsFound > 0 && (
+                <p className="text-xs text-primary">{clusteringStatus.patternsFound} patterns found so far</p>
+              )}
             </div>
           )}
           {patterns.length === 0 && !clusteringStatus?.running ? (

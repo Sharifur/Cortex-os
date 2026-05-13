@@ -16,6 +16,15 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.22.0',
+    date: '2026-05-13',
+    entries: [
+      { tag: 'feat', scope: 'post-render', description: 'Multi-pass clustering: "Learn patterns" now runs 6 focused LLM passes instead of one — Pass 1: Structure & Layout (50+ rules), Pass 2: Color System (50+), Pass 3: Typography (50+), Pass 4: Visual Elements (50+), Pass 5: Brand Identity & Content (40+), Pass 6: Per Slide Type (15+ rules per cover/content/cta/stat/list/quote type). Target: 300–400 patterns from 478 samples vs the previous 50-80 cap.' },
+      { tag: 'feat', scope: 'post-render', description: 'Patterns stored in chunks of 100 per KB entry so large pattern sets remain retrievable. getPatterns() and getDominantDNA() both read all chunks via flatMap. Banner brief always in chunk 1.' },
+      { tag: 'feat', scope: 'post-render', description: 'Frontend progress bar shows Pass N/M: [label] with accurate percentage (each pass = 1/totalPasses of the bar). Live counter shows patterns found so far while clustering runs.' },
+    ],
+  },
+  {
     version: 'v4.21.0',
     date: '2026-05-13',
     entries: [
