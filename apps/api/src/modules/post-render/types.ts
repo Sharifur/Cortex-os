@@ -238,6 +238,9 @@ export interface DesignDNA {
     svg_hint: string;               // brief description to reconstruct, e.g. "circle fill #6366f1 opacity 0.15 at top-right corner, roughly 40% canvas width"
   }>;
 
+  // Painting order: element names from bottom layer to top layer (back → front)
+  layer_stack?: string[];
+
   // Spatial layout — Elementor-style element positions (percentage of canvas width/height)
   element_positions: Array<{
     name: string;
@@ -248,7 +251,9 @@ export interface DesignDNA {
     h: number;
     align: 'left' | 'center' | 'right';
     rotation_deg?: number;
+    z_index?: number;
     z_layer: 'background' | 'mid' | 'foreground';
+    overlaps_with?: string[];
   }>;
 
   // Per-text-layer detail — one entry per visually distinct text block
@@ -265,6 +270,8 @@ export interface DesignDNA {
     estimated_size_px: number;
     color_hex: string;
     background_hex: string;
+    background_shape?: 'none' | 'rectangle' | 'rounded-rect' | 'pill' | 'squircle';
+    background_rotation_deg?: number;
     letter_spacing: 'tight' | 'normal' | 'wide' | 'very-wide';
     line_height: 'tight' | 'normal' | 'relaxed';
     case_style: 'uppercase' | 'title-case' | 'sentence-case' | 'lowercase' | 'mixed';
@@ -272,7 +279,28 @@ export interface DesignDNA {
     is_multiline: boolean;
     line_count: number;
     opacity: number;
+    z_index?: number;
     z_layer: 'background' | 'mid' | 'foreground';
+    overlaps_with?: string[];
+    word_highlights?: Array<{
+      word_or_phrase: string;
+      background_hex: string;
+      background_shape: 'rectangle' | 'rounded-rect' | 'pill' | 'underline-bar';
+      rotation_deg?: number;
+      padding_h_px?: number;
+      padding_v_px?: number;
+      spans_line_width?: boolean;
+    }>;
+  }>;
+
+  // Explicit overlap/layering relationships between elements
+  composite_effects?: Array<{
+    type: 'number-as-background' | 'word-highlight-shape' | 'layered-eyebrow' | 'inline-badge' | 'text-overlap' | 'shape-behind-text' | 'photo-behind-text';
+    description: string;
+    elements_involved: string[];
+    bottom_element: string;
+    top_element: string;
+    overlap_region?: { x: number; y: number; w: number; h: number };
   }>;
 
   grid_columns: 1 | 2 | 3 | 4;

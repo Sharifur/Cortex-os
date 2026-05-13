@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.17.8',
+    date: '2026-05-13',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'DNA now captures layering and overlap relationships: layer_stack (painting order back→front), z_index on every element, overlaps_with array naming which elements overlap, composite_effects describing how elements interact (number-as-background, word-highlight-shape, layered-eyebrow, inline-badge, shape-behind-text). Text elements gain background_shape, background_rotation_deg, and word_highlights (per-word inline background shapes with rotation and padding). Enables learning designs like: giant stat number behind headline text, eyebrow pill overlapping headline start, single word with rotated colored rectangle behind it.' },
+    ],
+  },
+  {
     version: 'v4.17.7',
     date: '2026-05-13',
     entries: [

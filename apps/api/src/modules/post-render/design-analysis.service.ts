@@ -78,6 +78,9 @@ Use exactly this JSON structure (choose the closest enum value where applicable)
   ],
   "grid_columns": 1,
   "content_zone": { "x": 5, "y": 10, "w": 90, "h": 80 },
+
+  "layer_stack": ["canvas-background", "decoration-blob", "stat-number-display", "headline-line-1", "eyebrow-pill", "logo", "cta-button"],
+
   "element_positions": [
     {
       "name": "logo",
@@ -85,7 +88,9 @@ Use exactly this JSON structure (choose the closest enum value where applicable)
       "x": 5, "y": 5, "w": 20, "h": 8,
       "align": "left|center|right",
       "rotation_deg": 0,
-      "z_layer": "background|mid|foreground"
+      "z_index": 5,
+      "z_layer": "foreground",
+      "overlaps_with": []
     }
   ],
 
@@ -99,7 +104,9 @@ Use exactly this JSON structure (choose the closest enum value where applicable)
       "font_weight": "thin|regular|medium|semibold|bold|black|extrabold",
       "estimated_size_px": 52,
       "color_hex": "#ffffff",
-      "background_hex": "none or #hex if text has a background fill",
+      "background_hex": "none or #hex if the entire text block has a background fill (e.g. pill, badge, colored label)",
+      "background_shape": "none|rectangle|rounded-rect|pill|squircle",
+      "background_rotation_deg": 0,
       "letter_spacing": "tight|normal|wide|very-wide",
       "line_height": "tight|normal|relaxed",
       "case_style": "uppercase|title-case|sentence-case|lowercase|mixed",
@@ -107,7 +114,31 @@ Use exactly this JSON structure (choose the closest enum value where applicable)
       "is_multiline": false,
       "line_count": 1,
       "opacity": 1.0,
-      "z_layer": "foreground"
+      "z_index": 3,
+      "z_layer": "foreground",
+      "overlaps_with": [],
+      "word_highlights": [
+        {
+          "word_or_phrase": "PERSONAL",
+          "background_hex": "#F5A623",
+          "background_shape": "rectangle|rounded-rect|pill|underline-bar",
+          "rotation_deg": -3,
+          "padding_h_px": 8,
+          "padding_v_px": 4,
+          "spans_line_width": true
+        }
+      ]
+    }
+  ],
+
+  "composite_effects": [
+    {
+      "type": "number-as-background|word-highlight-shape|layered-eyebrow|inline-badge|text-overlap|shape-behind-text|photo-behind-text",
+      "description": "Giant coral-red '3' fills left 55% of canvas as a mid-layer element; headline text renders on its right portion — classic display-number-as-background composition",
+      "elements_involved": ["stat-number-display", "headline-text"],
+      "bottom_element": "stat-number-display",
+      "top_element": "headline-text",
+      "overlap_region": { "x": 45, "y": 30, "w": 15, "h": 45 }
     }
   ],
 
@@ -164,22 +195,38 @@ Rules for shape_elements:
 - svg_hint: write enough to reconstruct the shape programmatically — mention position (e.g. top-right corner), approximate size relative to canvas, color, opacity, and any notable property like whether it's clipped/masked.
 - Empty array if there are no decorative shapes.
 
+Rules for layer_stack:
+- List ALL element names in painting order — first item = drawn first (bottom-most), last item = drawn last (on top).
+- Every name must match an entry in element_positions or text_elements.
+- This is critical for reconstructing overlap compositions: if a giant stat number sits behind headline text, the stat number appears earlier in the list.
+- Example: ["canvas-bg", "stat-number-3", "headline-text", "logo", "cta-button"]
+
 Rules for element_positions:
-- List EVERY distinct visual element you can see: logo, eyebrow-label, headline, subheadline, body-text, icon (one entry per icon grouping), cta-button, brand-bar, left-stripe, top-bar, background-shape, decoration-circle, photo, illustration, stat-number, stat-label, list-item-group, quote-text, attribution-text, slide-number, divider.
-- x, y, w, h are ALL percentages of the canvas dimensions (0–100). Estimate carefully by looking at where the element starts and ends relative to the full canvas edges.
-- z_layer: background = behind content, mid = between bg and text, foreground = top-most layer.
-- grid_columns: count the number of equal columns the layout uses (1 for single-column, 2 for side-by-side, 3 for 3-column grid, etc.)
-- content_zone: the bounding box of the main content area, excluding any full-bleed backgrounds.
-- element_positions.rotation_deg: 0 for normal horizontal text; use positive degrees for clockwise tilt (e.g. 45 for diagonal text), negative for counter-clockwise. Most elements will be 0.
+- List EVERY distinct visual element you can see: logo, eyebrow-label, headline-line-1, headline-line-2 (if separate visual blocks), subheadline, body-text, icon (one per grouping), cta-button, brand-bar, left-stripe, top-bar, background-shape, decoration-circle, photo, illustration, stat-number-display, stat-label, list-item-group, quote-text, attribution-text, slide-number, divider.
+- x, y, w, h: ALL percentages of canvas dimensions (0–100). Be precise — the difference between a 50% and 55% width matters for reconstruction.
+- z_index: assign integer values starting from 1 (bottom). Each element must have a unique z_index. Higher = rendered on top.
+- overlaps_with: list the names of any elements whose bounding boxes visually intersect this element. Empty array if no overlap.
+- z_layer: background = behind all content, mid = decorative but behind text, foreground = top-most.
+- rotation_deg: 0 for upright; positive = clockwise tilt; negative = counter-clockwise.
 
 Rules for text_elements:
-- List EVERY distinct text layer visible in the image as a separate entry — do not merge separate text blocks.
-- If text is split across multiple visual lines at different positions (e.g. two halves of a headline at different y values, or a stat number above a label), create one entry per visually distinct text block.
-- rotation_deg: 0 for standard horizontal text; set to the actual clockwise angle in degrees for any rotated or angled text (e.g. 90 for vertical sideways text, -15 for a slight left tilt, 45 for diagonal). This is the most important field for capturing unusual layouts.
-- estimated_size_px: estimate the font size in pixels relative to a 1080px canvas height. A headline taking ~10% of canvas height = ~108px.
-- content_preview: write the first 4–6 visible words or use a placeholder like [headline], [stat], [url], [date] for content you cannot read clearly.
-- Do not skip small text: include captions, slide numbers, watermarks, social handles, URLs, copyright lines — all are separate entries.
-- Empty array only if the image contains zero readable text.`;
+- List EVERY distinct text layer as a separate entry — never merge separate visual text blocks into one.
+- If a headline is split across multiple visual lines with different sizes, colors, or background treatments (e.g. "GROW" on line 1, "YOUR" on line 2, "PERSONAL" on line 3 with a yellow highlight behind it), create a SEPARATE entry for each line.
+- z_index: must match the corresponding element in element_positions. Higher = on top.
+- overlaps_with: list names of elements whose bounding box overlaps this text. A stat-number display element that text renders on top of must appear here. An eyebrow pill overlapping the start of a headline must be listed.
+- background_hex + background_shape: use these when the ENTIRE text block has a fill (e.g. a teal pill for "transformational", a pink button for a URL, an amber badge for "traits:"). background_rotation_deg: if the background shape is tilted (like a slightly rotated highlight rectangle), specify the angle.
+- word_highlights: use this array ONLY for cases where individual words WITHIN a text block have their own background shape — like a single word in a headline that has a colored rectangle painted behind just that word. Each entry: the word(s) affected, the background color, shape type, rotation, and padding. Leave as empty array [] if no per-word highlights.
+- rotation_deg: actual clockwise angle for any rotated/angled text element. Most = 0.
+- estimated_size_px: font size in pixels assuming 1080px canvas height. ~10% canvas height = ~108px.
+- content_preview: first 4–6 visible words, or placeholder like [stat], [url], [date].
+- Do not skip small text: captions, slide numbers, watermarks, handles, URLs, copyright — all get separate entries.
+
+Rules for composite_effects:
+- Describe every significant overlap or layering relationship where elements interact visually.
+- Type values: "number-as-background" (large stat/number used as mid-layer behind text), "word-highlight-shape" (shape painted behind a specific word in headline), "layered-eyebrow" (eyebrow label overlaps the top of the headline text), "inline-badge" (badge element sits inline on the same visual line as text), "text-overlap" (two text elements overlap), "shape-behind-text" (any shape used as a background highlight for text), "photo-behind-text" (photo positioned behind text).
+- Be specific in description: mention colors, approximate positions, and what the visual effect achieves.
+- overlap_region: bounding box (as %) where the two elements actually intersect.
+- Empty array if there are no significant overlapping relationships.`;
 
 @Injectable()
 export class DesignAnalysisService {
@@ -314,19 +361,34 @@ export class DesignAnalysisService {
       `-- Spatial Layout --`,
       `Grid columns: ${dna.grid_columns ?? 1}`,
       `Content zone: x=${dna.content_zone?.x}% y=${dna.content_zone?.y}% w=${dna.content_zone?.w}% h=${dna.content_zone?.h}%`,
-      `Elements (${(dna.element_positions ?? []).length}): ${(dna.element_positions ?? []).map(e => `${e.name}[${e.type}] x=${e.x}% y=${e.y}% w=${e.w}% h=${e.h}% align:${e.align} rot:${e.rotation_deg ?? 0}deg ${e.z_layer}`).join(' | ')}`,
+      `Layer stack (back→front): ${(dna.layer_stack ?? []).join(' > ')}`,
+      `Elements (${(dna.element_positions ?? []).length}):`,
+      ...(dna.element_positions ?? []).map(e =>
+        `  ${e.name}[${e.type}] x=${e.x}% y=${e.y}% w=${e.w}% h=${e.h}% | align:${e.align} rot:${e.rotation_deg ?? 0}deg | z:${e.z_index ?? '?'} ${e.z_layer}${(e.overlaps_with ?? []).length ? ` | overlaps:${e.overlaps_with!.join(',')}` : ''}`
+      ),
       ``,
       `-- Text Elements (${(dna.text_elements ?? []).length}) --`,
-      ...(dna.text_elements ?? []).map(t =>
-        [
-          `[${t.role}] "${t.content_preview}"`,
-          `pos: x=${t.x}% y=${t.y}% w=${t.w}% h=${t.h}%`,
-          `rotation: ${t.rotation_deg ?? 0}deg`,
-          `style: ${t.font_weight} ${t.estimated_size_px}px ${t.case_style} spacing:${t.letter_spacing} lh:${t.line_height}`,
-          `color: ${t.color_hex}${t.background_hex && t.background_hex !== 'none' ? ` bg:${t.background_hex}` : ''}`,
-          `lines: ${t.line_count ?? 1}${t.decoration && t.decoration !== 'none' ? ` decoration:${t.decoration}` : ''}`,
-          `opacity: ${t.opacity ?? 1.0}`,
-        ].join(' | ')
+      ...(dna.text_elements ?? []).flatMap(t => {
+        const bgPart = t.background_hex && t.background_hex !== 'none'
+          ? ` bg:${t.background_hex}[${t.background_shape ?? 'rect'}${(t as any).background_rotation_deg ? ` rot:${(t as any).background_rotation_deg}deg` : ''}]`
+          : '';
+        const overlapPart = (t.overlaps_with ?? []).length ? ` | overlaps:${t.overlaps_with!.join(',')}` : '';
+        const lines = [
+          `[${t.role}] "${t.content_preview}" | pos: x=${t.x}% y=${t.y}% w=${t.w}% h=${t.h}% | z:${t.z_index ?? '?'} ${t.z_layer}${overlapPart}`,
+          `  rotation:${t.rotation_deg ?? 0}deg | ${t.font_weight} ${t.estimated_size_px}px ${t.case_style} spacing:${t.letter_spacing} lh:${t.line_height}`,
+          `  color:${t.color_hex}${bgPart} | lines:${t.line_count ?? 1}${t.decoration && t.decoration !== 'none' ? ` decoration:${t.decoration}` : ''} | opacity:${t.opacity ?? 1.0}`,
+        ];
+        if (t.word_highlights && t.word_highlights.length) {
+          t.word_highlights.forEach(wh => {
+            lines.push(`  word-highlight: "${wh.word_or_phrase}" bg:${wh.background_hex} shape:${wh.background_shape} rot:${wh.rotation_deg ?? 0}deg pad:${wh.padding_h_px ?? 0}h/${wh.padding_v_px ?? 0}v fullWidth:${wh.spans_line_width ?? false}`);
+          });
+        }
+        return lines;
+      }),
+      ``,
+      `-- Composite Effects (${(dna.composite_effects ?? []).length}) --`,
+      ...(dna.composite_effects ?? []).map(ce =>
+        `[${ce.type}] ${ce.description} | bottom:${ce.bottom_element} top:${ce.top_element} | overlap:x=${ce.overlap_region?.x}% y=${ce.overlap_region?.y}% w=${ce.overlap_region?.w}% h=${ce.overlap_region?.h}%`
       ),
       ``,
       `-- Shape Elements (${(dna.shape_elements ?? []).length}) --`,
