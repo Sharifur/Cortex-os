@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.36.1',
+    date: '2026-05-13',
+    entries: [
+      { tag: 'fix', scope: 'inbox', description: 'Sync now auto-marks an email as opened when a reply is found. A reply proves the recipient read the message, so first_open_at and open_count are set to the reply timestamp if open tracking had not already fired. The "Not opened yet" status disappears automatically after Sync.' },
+    ],
+  },
+  {
     version: 'v4.36.0',
     date: '2026-05-13',
     entries: [
