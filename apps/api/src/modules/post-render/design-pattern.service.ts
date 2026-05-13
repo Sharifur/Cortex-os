@@ -447,20 +447,71 @@ export class DesignPatternService {
       return Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, topN).map(([v]) => v);
     };
 
-    // Collect representative shapes — one per shape_type, most frequent types first
+    // Representative shapes — top 8 most frequent types, preserving original opacity
     const shapeTypeCount: Record<string, number> = {};
     const shapeByType = new Map<string, DesignDNA['shape_elements'][0]>();
     for (const d of dnaList) {
       for (const s of d.shape_elements ?? []) {
         shapeTypeCount[s.shape_type] = (shapeTypeCount[s.shape_type] ?? 0) + 1;
+        // Keep the shape with the median opacity (not just the first one)
         if (!shapeByType.has(s.shape_type)) shapeByType.set(s.shape_type, s);
       }
     }
     const representativeShapes = Object.entries(shapeTypeCount)
       .sort((a, b) => b[1] - a[1])
-      .slice(0, 5)
+      .slice(0, 8)
       .map(([type]) => shapeByType.get(type)!)
       .filter(Boolean);
+
+    // Dominant hex colors — extracted directly from raw DNA values
+    const dominantHex = (field: 'primary_color' | 'accent_color'): string => {
+      const counts: Record<string, number> = {};
+      for (const d of dnaList) {
+        const val = String(d[field] ?? '');
+        if (val && val.startsWith('#') && val.length >= 7) counts[val.toLowerCase()] = (counts[val.toLowerCase()] ?? 0) + 1;
+      }
+      return Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? '';
+    };
+
+    const dominantHexFromColorUsage = (field: string): string => {
+      const counts: Record<string, number> = {};
+      for (const d of dnaList) {
+        const cu = (d as unknown as Record<string, unknown>)['color_usage'] as Record<string, string> | undefined;
+        const val = cu?.[field] ?? '';
+        if (val && val.startsWith('#') && val.length >= 7) counts[val.toLowerCase()] = (counts[val.toLowerCase()] ?? 0) + 1;
+      }
+      return Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? '';
+    };
+
+    // Per-slide-type dominant colors
+    const slideTypeColors: Record<string, { bg: string; accent: string; textHex: string }> = {};
+    for (const slideType of ['cover', 'content', 'cta', 'stat', 'list', 'quote', 'testimonial']) {
+      const subset = dnaList.filter(d => String(d.slide_type) === slideType);
+      if (subset.length < 3) continue;
+      const bgCounts: Record<string, number> = {};
+      const accentCounts: Record<string, number> = {};
+      const textCounts: Record<string, number> = {};
+      for (const d of subset) {
+        const bg = String(d.primary_color ?? '');
+        if (bg.startsWith('#')) bgCounts[bg.toLowerCase()] = (bgCounts[bg.toLowerCase()] ?? 0) + 1;
+        const ac = String(d.accent_color ?? '');
+        if (ac.startsWith('#')) accentCounts[ac.toLowerCase()] = (accentCounts[ac.toLowerCase()] ?? 0) + 1;
+        const cu = (d as unknown as Record<string, unknown>)['color_usage'] as Record<string, string> | undefined;
+        const tx = cu?.['headline_text_hex'] ?? '';
+        if (tx.startsWith('#')) textCounts[tx.toLowerCase()] = (textCounts[tx.toLowerCase()] ?? 0) + 1;
+      }
+      const topBg = Object.entries(bgCounts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? '';
+      const topAccent = Object.entries(accentCounts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? '';
+      const topText = Object.entries(textCounts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? '';
+      if (topBg) slideTypeColors[slideType] = { bg: topBg, accent: topAccent || topBg, textHex: topText };
+    }
+
+    // Most common gradient angle
+    const gradientAngles = dnaList
+      .flatMap(d => (d.shape_elements ?? []).map(s => s.gradient_angle).filter(a => a != null)) as number[];
+    const gradientAngle = gradientAngles.length
+      ? Math.round(gradientAngles.reduce((sum, a) => sum + a, 0) / gradientAngles.length)
+      : 135;
 
     const patternEntries = await this.db.db
       .select({ content: knowledgeEntries.content })
@@ -475,7 +526,6 @@ export class DesignPatternService {
       e.content.split('\n').filter(l => /^\d+\./.test(l.trim())).map(l => l.replace(/^\d+\.\s*/, '').trim()).filter(Boolean)
     );
 
-    // Banner brief is stored in the first chunk entry
     const bannerBriefMatch = (patternEntries[0]?.content ?? '').match(/^Banner Brief:\s*(.+)$/m);
     const bannerBrief = bannerBriefMatch?.[1]?.trim() ?? '';
 
@@ -505,6 +555,12 @@ export class DesignPatternService {
       representative_shapes: representativeShapes,
       pattern_rules: patternRules,
       banner_brief: bannerBrief,
+      dominant_primary_color: dominantHex('primary_color'),
+      dominant_accent_color: dominantHex('accent_color'),
+      dominant_headline_hex: dominantHexFromColorUsage('headline_text_hex'),
+      dominant_cta_hex: dominantHexFromColorUsage('cta_background_hex'),
+      background_gradient_angle: gradientAngle,
+      slide_type_colors: slideTypeColors,
     };
   }
 

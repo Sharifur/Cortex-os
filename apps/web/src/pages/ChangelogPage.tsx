@@ -16,6 +16,15 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.23.0',
+    date: '2026-05-13',
+    entries: [
+      { tag: 'feat', scope: 'post-render', description: 'ThemeContract now uses colors learned from design samples instead of brand palette when 20+ samples exist. Cover background uses dominant cover-slide hex, content background uses learned content-slide hex, CTA background uses learned CTA-slide hex, accent uses learned dominant accent color. Text colors (headline/body/subtext) are computed from actual background for WCAG AA compliance.' },
+      { tag: 'fix', scope: 'post-render', description: 'Fixed headlineColor computation bug in ThemeContractService — previously always resolved to white regardless of background. Now correctly calls pickTextColor(contentBg) so dark content backgrounds get white text and light backgrounds get dark text.' },
+      { tag: 'feat', scope: 'post-render', description: 'getDominantDNA now extracts per-slide-type dominant colors (bg/accent/textHex for cover/content/cta/stat/list/quote/testimonial), dominant primary color, dominant accent color, dominant headline hex, CTA background hex, and background gradient angle from the full design sample dataset.' },
+    ],
+  },
+  {
     version: 'v4.22.0',
     date: '2026-05-13',
     entries: [
