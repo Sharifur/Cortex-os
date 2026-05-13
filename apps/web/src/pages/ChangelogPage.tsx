@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.36.0',
+    date: '2026-05-13',
+    entries: [
+      { tag: 'feat', scope: 'design-samples', description: 'Re-analysis progress now survives server restarts. State (done, total, errors, failedIds) is persisted to a new design_reanalysis_state table (migration 0071) and restored on the next status poll, so a Coolify redeploy mid-run no longer silently resets the progress bar.' },
+      { tag: 'feat', scope: 'design-samples', description: 'Retry failed button: after re-analysis, if any images could not be processed a "Retry failed (N)" button appears. It re-runs only the failed items and starts a new polling cycle — no need to re-analyze all 478 images again.' },
+    ],
+  },
+  {
     version: 'v4.35.2',
     date: '2026-05-13',
     entries: [

@@ -9,6 +9,7 @@ import { KnowledgeBaseService } from '../knowledge-base/knowledge-base.service';
 import { StorageService } from '../storage/storage.service';
 import { DbService } from '../../db/db.service';
 import { knowledgeEntries } from '../knowledge-base/schema';
+import { designReanalysisState } from './schema';
 import type { DesignDNA } from './types';
 import { DesignPatternService } from './design-pattern.service';
 
@@ -339,6 +340,8 @@ Rules for composite_effects:
 - overlap_region: bounding box (as %) where the two elements actually intersect.
 - Empty array if there are no significant overlapping relationships.`;
 
+type ReanalysisStatus = { done: number; total: number; errors: number; running: boolean; cancelled: boolean; failedIds: string[] };
+
 @Injectable()
 export class DesignAnalysisService {
   private readonly logger = new Logger(DesignAnalysisService.name);
@@ -454,17 +457,37 @@ export class DesignAnalysisService {
     return rows.length;
   }
 
-  private reanalysisProgress = new Map<string, { done: number; total: number; errors: number; running: boolean; cancelled: boolean }>();
+  private reanalysisProgress = new Map<string, ReanalysisStatus>();
   private cancelledBrands = new Set<string>();
 
-  getReanalysisStatus(brand: string): { done: number; total: number; errors: number; running: boolean; cancelled: boolean } {
-    return this.reanalysisProgress.get(brand) ?? { done: 0, total: 0, errors: 0, running: false, cancelled: false };
+  async getReanalysisStatus(brand: string): Promise<ReanalysisStatus> {
+    const mem = this.reanalysisProgress.get(brand);
+    if (mem) return mem;
+    const [row] = await this.db.db
+      .select()
+      .from(designReanalysisState)
+      .where(eq(designReanalysisState.brand, brand))
+      .limit(1)
+      .catch(() => []);
+    if (!row) return { done: 0, total: 0, errors: 0, running: false, cancelled: false, failedIds: [] };
+    return { done: row.done, total: row.total, errors: row.errors, running: false, cancelled: row.cancelled, failedIds: (row.failedIds as string[]) ?? [] };
   }
 
   cancelReanalysis(brand: string): void {
     this.cancelledBrands.add(brand);
     const status = this.reanalysisProgress.get(brand);
     if (status) status.running = false;
+  }
+
+  private persistStatus(brand: string, status: ReanalysisStatus): void {
+    this.db.db
+      .insert(designReanalysisState)
+      .values({ brand, ...status, failedIds: status.failedIds, updatedAt: new Date() })
+      .onConflictDoUpdate({
+        target: designReanalysisState.brand,
+        set: { done: status.done, total: status.total, errors: status.errors, running: status.running, cancelled: status.cancelled, failedIds: status.failedIds, updatedAt: new Date() },
+      })
+      .catch((err: unknown) => this.logger.warn(`persist reanalysis state failed: ${(err as Error).message}`));
   }
 
   private buildKbContent(dna: DesignDNA): string {
@@ -626,8 +649,9 @@ export class DesignAnalysisService {
       ));
 
     this.cancelledBrands.delete(brand);
-    const status = { done: 0, total: rows.length, errors: 0, running: true, cancelled: false };
+    const status: ReanalysisStatus = { done: 0, total: rows.length, errors: 0, running: true, cancelled: false, failedIds: [] };
     this.reanalysisProgress.set(brand, status);
+    this.persistStatus(brand, status);
 
     let reanalyzed = 0;
     let failed = 0;
@@ -636,6 +660,7 @@ export class DesignAnalysisService {
       if (this.cancelledBrands.has(brand)) {
         status.running = false;
         status.cancelled = true;
+        this.persistStatus(brand, status);
         this.logger.log(`Reanalysis cancelled at ${reanalyzed + failed}/${rows.length} for brand=${brand}`);
         return { reanalyzed, failed };
       }
@@ -644,7 +669,9 @@ export class DesignAnalysisService {
         failed++;
         status.errors = failed;
         status.done = reanalyzed + failed;
+        status.failedIds.push(row.id);
         this.logger.warn(`Skipping sample ${row.id}: no sourceUrl`);
+        if (status.done % 10 === 0) this.persistStatus(brand, status);
         continue;
       }
       try {
@@ -676,6 +703,8 @@ export class DesignAnalysisService {
           failed++;
           status.errors = failed;
           status.done = reanalyzed + failed;
+          status.failedIds.push(row.id);
+          if (status.done % 10 === 0) this.persistStatus(brand, status);
           continue;
         }
 
@@ -694,16 +723,20 @@ export class DesignAnalysisService {
         status.done = reanalyzed + failed;
         status.errors = failed;
         this.logger.log(`Reanalyzed ${reanalyzed}/${rows.length} — ${row.id}: ${dna.layout_type}`);
+        if (status.done % 10 === 0) this.persistStatus(brand, status);
       } catch (err) {
         failed++;
         status.errors = failed;
         status.done = reanalyzed + failed;
+        status.failedIds.push(row.id);
         this.logger.warn(`Failed to reanalyze sample ${row.id}: ${(err as Error).message}`);
+        if (status.done % 10 === 0) this.persistStatus(brand, status);
       }
     }
 
     status.running = false;
     status.cancelled = false;
+    this.persistStatus(brand, status);
     this.logger.log(`Reanalysis complete: ${reanalyzed} reanalyzed, ${failed} failed for brand=${brand}`);
 
     if (autoCluster && reanalyzed > 0) {
@@ -714,5 +747,77 @@ export class DesignAnalysisService {
     }
 
     return { reanalyzed, failed };
+  }
+
+  async retryFailed(brand: string, autoCluster = false): Promise<{ queued: number }> {
+    const [row] = await this.db.db
+      .select({ failedIds: designReanalysisState.failedIds })
+      .from(designReanalysisState)
+      .where(eq(designReanalysisState.brand, brand))
+      .limit(1)
+      .catch(() => []);
+    const ids = (row?.failedIds as string[] | null) ?? [];
+    if (!ids.length) return { queued: 0 };
+
+    const rows = await this.db.db
+      .select({ id: knowledgeEntries.id, sourceUrl: knowledgeEntries.sourceUrl })
+      .from(knowledgeEntries)
+      .where(and(
+        eq(knowledgeEntries.entryType, 'design_sample'),
+        eq(knowledgeEntries.agentKeys, 'canva'),
+        eq(knowledgeEntries.siteKeys, brand),
+        sql`id = ANY(${ids}::text[])`,
+      ));
+
+    this.cancelledBrands.delete(brand);
+    const status: ReanalysisStatus = { done: 0, total: rows.length, errors: 0, running: true, cancelled: false, failedIds: [] };
+    this.reanalysisProgress.set(brand, status);
+    this.persistStatus(brand, status);
+
+    void (async () => {
+      let reanalyzed = 0;
+      let failed = 0;
+      for (const row of rows) {
+        if (this.cancelledBrands.has(brand)) {
+          status.running = false; status.cancelled = true;
+          this.persistStatus(brand, status);
+          break;
+        }
+        try {
+          let buffer: Buffer;
+          if (!row.sourceUrl) throw new Error('no sourceUrl');
+          if (row.sourceUrl.startsWith('local://')) {
+            buffer = await fs.readFile(row.sourceUrl.slice('local://'.length));
+          } else {
+            const res = await fetch(row.sourceUrl);
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            buffer = Buffer.from(await res.arrayBuffer());
+          }
+          const imageBase64 = buffer.toString('base64');
+          const llmRes = await this.llm.complete({ messages: [{ role: 'user', content: DNA_PROMPT }], imageBase64, imageMimeType: 'image/png', maxTokens: 2000, temperature: 0.1, agentKey: 'canva' });
+          const jsonMatch = llmRes.content.match(/```(?:json)?\s*([\s\S]+?)\s*```/) ?? llmRes.content.match(/(\{[\s\S]+\})/);
+          const dna: DesignDNA = JSON.parse(jsonMatch?.[1] ?? llmRes.content);
+          const content = this.buildKbContent(dna);
+          const title = `Design Sample — ${dna.slide_type} — ${dna.platform_fit[0] ?? 'any'} — ${row.id}`;
+          await this.db.db.execute(sql`UPDATE knowledge_entries SET content = ${content}, title = ${title}, updated_at = NOW() WHERE id = ${row.id}`);
+          void this.kb.embedEntry(row.id, this.buildEmbeddingText(dna));
+          reanalyzed++;
+        } catch (err) {
+          failed++;
+          status.failedIds.push(row.id);
+          this.logger.warn(`Retry failed for ${row.id}: ${(err as Error).message}`);
+        }
+        status.done = reanalyzed + failed;
+        status.errors = failed;
+        if (status.done % 10 === 0) this.persistStatus(brand, status);
+      }
+      status.running = false;
+      status.cancelled = false;
+      this.persistStatus(brand, status);
+      this.logger.log(`Retry complete: ${reanalyzed} reanalyzed, ${failed} still failed for brand=${brand}`);
+      if (autoCluster && reanalyzed > 0) void this.designPattern.cluster(brand).catch(() => {});
+    })();
+
+    return { queued: rows.length };
   }
 }

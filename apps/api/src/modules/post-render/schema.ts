@@ -14,6 +14,18 @@ export const postFormats = pgTable('post_formats', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const designReanalysisState = pgTable('design_reanalysis_state', {
+  brand: text('brand').primaryKey(),
+  done: integer('done').notNull().default(0),
+  total: integer('total').notNull().default(0),
+  errors: integer('errors').notNull().default(0),
+  running: boolean('running').notNull().default(false),
+  cancelled: boolean('cancelled').notNull().default(false),
+  failedIds: jsonb('failed_ids').notNull().default([]),
+  startedAt: timestamp('started_at', { withTimezone: true }),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const postRenders = pgTable('post_renders', {
   id: text('id').primaryKey(),
   formatId: text('format_id').notNull(),
