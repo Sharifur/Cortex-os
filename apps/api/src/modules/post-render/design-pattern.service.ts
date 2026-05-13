@@ -219,7 +219,7 @@ export class DesignPatternService {
             sampleNotes ? `\nNotable observations from samples:\n${sampleNotes}` : '',
             svgHints ? `\nRecurring shape hints:\n${svgHints}` : '',
             ``,
-            `Write 25–40 specific, actionable design pattern rules using ALL frequency data above. Multiple rules per category are required.`,
+            `Write 50–80 specific, actionable design pattern rules using ALL frequency data above. Minimum 3 rules per category required — more if the frequency data is rich.`,
             `Categories (use exactly these prefixes):`,
             `[LAYOUT] [COLOR] [TYPOGRAPHY] [HEADING-STYLE] [BODY-TEXT] [SPACING] [ICONS] [ILLUSTRATION] [PHOTOGRAPHY]`,
             `[SHAPES] [DECORATION] [ACCENT] [CTA] [LOGO] [BRAND-BAR] [CONTENT-TONE] [TEXT-PATTERN] [HIERARCHY] [PLATFORM]`,
@@ -240,7 +240,7 @@ export class DesignPatternService {
           ].join('\n'),
         },
       ],
-      maxTokens: 4000,
+      maxTokens: 6000,
       temperature: 0.3,
       agentKey: 'canva',
     });
