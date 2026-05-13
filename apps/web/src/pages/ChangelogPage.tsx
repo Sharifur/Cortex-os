@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.36.2',
+    date: '2026-05-13',
+    entries: [
+      { tag: 'fix', scope: 'design-samples', description: 'All re-analysis failures now log a warn with the reason. The inner JSON-parse catch was completely silent before — no logger call. Each failure now records {id, reason} in failedDetails and persists to DB. Hovering the "N failed" badge shows the error reason for each item.' },
+    ],
+  },
+  {
     version: 'v4.36.1',
     date: '2026-05-13',
     entries: [

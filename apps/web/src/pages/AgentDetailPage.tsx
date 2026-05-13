@@ -3940,7 +3940,7 @@ function DesignSamplesTab({ token }: { token: string }) {
 
   const [reanalyzing, setReanalyzing] = useState(false);
   const [cancelling, setCancelling] = useState(false);
-  const [reanalysisProgress, setReanalysisProgress] = useState<{ done: number; total: number; errors: number; running: boolean; cancelled?: boolean } | null>(null);
+  const [reanalysisProgress, setReanalysisProgress] = useState<{ done: number; total: number; errors: number; running: boolean; cancelled?: boolean; failedDetails?: { id: string; reason: string }[] } | null>(null);
   const reanalysisPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const [clusteringStatus, setClusteringStatus] = useState<{ phase: string; pass: number; totalPasses: number; sampleCount: number; patternsFound: number; running: boolean } | null>(null);
@@ -4124,7 +4124,12 @@ function DesignSamplesTab({ token }: { token: string }) {
                   ? `Cancelled at ${reanalysisProgress.done} / ${reanalysisProgress.total} — ${reanalysisProgress.done - reanalysisProgress.errors} updated`
                   : `Re-analysis complete: ${reanalysisProgress.done - reanalysisProgress.errors} updated`}
               {reanalysisProgress.errors > 0 && (
-                <span className="text-red-400 ml-2">{reanalysisProgress.errors} failed</span>
+                <span
+                  className="text-red-400 ml-2 cursor-help"
+                  title={reanalysisProgress.failedDetails?.map(f => `${f.id.slice(-8)}: ${f.reason}`).join('\n') ?? `${reanalysisProgress.errors} items failed`}
+                >
+                  {reanalysisProgress.errors} failed
+                </span>
               )}
             </span>
             <span>{reanalysisProgress.total > 0 ? Math.round((reanalysisProgress.done / reanalysisProgress.total) * 100) : 0}%</span>
