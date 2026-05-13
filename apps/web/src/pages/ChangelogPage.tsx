@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.20.0',
+    date: '2026-05-13',
+    entries: [
+      { tag: 'feat', scope: 'post-render', description: 'Re-analyze all now shows a live progress bar: polls GET /posts/design-samples/reanalyze/status every 3s and displays done/total count and percentage. Progress bar turns green on completion. After all images are re-analyzed, pattern clustering runs automatically (autoCluster=true).' },
+      { tag: 'fix', scope: 'post-render', description: 'Re-analyze all was storing a simplified 14-line KB entry (missing text_elements, layer_stack, composite_effects, decorative_illustrations, scene_composition, photo_subjects). Fixed: both analyzeAndStore and reanalyzeSamples now use the same full buildKbContent() builder. Embeddings are also regenerated after each image so pattern search benefits from the updated DNA.' },
+    ],
+  },
+  {
     version: 'v4.19.0',
     date: '2026-05-13',
     entries: [

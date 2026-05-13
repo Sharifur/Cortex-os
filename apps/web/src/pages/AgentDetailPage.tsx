@@ -3940,7 +3940,33 @@ function DesignSamplesTab({ token }: { token: string }) {
   }
 
   const [reanalyzing, setReanalyzing] = useState(false);
-  const [reanalyzeMsg, setReanalyzeMsg] = useState('');
+  const [reanalysisProgress, setReanalysisProgress] = useState<{ done: number; total: number; errors: number; running: boolean } | null>(null);
+  const reanalysisPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  function stopReanalysisPoll() {
+    if (reanalysisPollRef.current) {
+      clearInterval(reanalysisPollRef.current);
+      reanalysisPollRef.current = null;
+    }
+  }
+
+  function startReanalysisPoll() {
+    stopReanalysisPoll();
+    reanalysisPollRef.current = setInterval(async () => {
+      try {
+        const status = await apiFetch(token, '/posts/design-samples/reanalyze/status?brand=default');
+        setReanalysisProgress(status);
+        if (!status.running) {
+          stopReanalysisPoll();
+          await loadData();
+        }
+      } catch {
+        stopReanalysisPoll();
+      }
+    }, 3000);
+  }
+
+  useEffect(() => () => stopReanalysisPoll(), []);
 
   async function cluster() {
     setClustering(true);
@@ -3954,12 +3980,13 @@ function DesignSamplesTab({ token }: { token: string }) {
 
   async function reanalyze() {
     setReanalyzing(true);
-    setReanalyzeMsg('');
+    setReanalysisProgress(null);
     try {
-      const data = await apiFetch(token, '/posts/design-samples/reanalyze', { method: 'POST', body: JSON.stringify({ brand: 'default' }) });
-      setReanalyzeMsg(`Re-analysis started for ${data.queued} images (runs in background)`);
+      const data = await apiFetch(token, '/posts/design-samples/reanalyze', { method: 'POST', body: JSON.stringify({ brand: 'default', autoCluster: true }) });
+      setReanalysisProgress({ done: 0, total: data.queued, errors: 0, running: true });
+      startReanalysisPoll();
     } catch {
-      setReanalyzeMsg('Re-analysis failed to start');
+      setReanalysisProgress(null);
     } finally {
       setReanalyzing(false);
     }
@@ -3985,15 +4012,15 @@ function DesignSamplesTab({ token }: { token: string }) {
         <div className="ml-auto pb-1 flex items-center gap-2">
           <button
             onClick={reanalyze}
-            disabled={reanalyzing || samples.length === 0}
+            disabled={reanalyzing || (reanalysisProgress?.running ?? false) || samples.length === 0}
             className="px-3 py-1.5 border border-border rounded-lg text-xs font-medium disabled:opacity-50 text-muted-foreground"
             title="Re-run vision LLM on all uploaded images to refresh DNA data"
           >
-            {reanalyzing ? 'Starting...' : 'Re-analyze all'}
+            {reanalyzing ? 'Starting...' : (reanalysisProgress?.running ? 'Running...' : 'Re-analyze all')}
           </button>
           <button
             onClick={cluster}
-            disabled={clustering || samples.length < 3}
+            disabled={clustering || (reanalysisProgress?.running ?? false) || samples.length < 3}
             className="px-4 py-1.5 border border-border rounded-lg text-sm font-medium disabled:opacity-50"
             title={samples.length < 3 ? 'Need 3+ samples to cluster' : ''}
           >
@@ -4002,8 +4029,29 @@ function DesignSamplesTab({ token }: { token: string }) {
         </div>
       </div>
 
-      {reanalyzeMsg && (
-        <p className="text-xs text-muted-foreground bg-muted/40 rounded-lg px-3 py-2">{reanalyzeMsg}</p>
+      {reanalysisProgress && (
+        <div className="space-y-1">
+          <div className="flex items-center justify-between text-xs text-muted-foreground">
+            <span>
+              {reanalysisProgress.running
+                ? `Re-analyzing: ${reanalysisProgress.done} / ${reanalysisProgress.total} images...`
+                : `Re-analysis complete: ${reanalysisProgress.done - reanalysisProgress.errors} updated`}
+              {reanalysisProgress.errors > 0 && (
+                <span className="text-red-400 ml-2">{reanalysisProgress.errors} failed</span>
+              )}
+            </span>
+            <span>{reanalysisProgress.total > 0 ? Math.round((reanalysisProgress.done / reanalysisProgress.total) * 100) : 0}%</span>
+          </div>
+          <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all duration-500 ${reanalysisProgress.running ? 'bg-primary' : 'bg-green-500'}`}
+              style={{ width: `${reanalysisProgress.total > 0 ? (reanalysisProgress.done / reanalysisProgress.total) * 100 : 0}%` }}
+            />
+          </div>
+          {!reanalysisProgress.running && (
+            <p className="text-xs text-muted-foreground">Patterns will be re-learned automatically.</p>
+          )}
+        </div>
       )}
 
       {dsSubTab === 'samples' && (
