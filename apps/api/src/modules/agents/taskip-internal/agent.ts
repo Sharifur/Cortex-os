@@ -1585,7 +1585,7 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
             subject: subject.trim(),
             body: textBody.trim(),
             workspaceUuid: workspaceUuid?.trim() || undefined,
-            metadata: accountId ? { accountId } : undefined,
+            accountId: accountId?.trim() || undefined,
             plainText: plainText === true,
           });
         },

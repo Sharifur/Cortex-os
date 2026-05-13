@@ -5,8 +5,16 @@ import { useAuthStore } from '@/stores/authStore';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
-  Mail, Eye, EyeOff, MessageSquare, RefreshCw, Bot, Loader2, Clock, ChevronRight, Reply, Send, X, Search,
+  Mail, Eye, EyeOff, MessageSquare, RefreshCw, Bot, Loader2, Clock, ChevronRight, Reply, Send, X, Search, Pencil, ChevronDown,
 } from 'lucide-react';
+
+interface GmailAccount {
+  id: string;
+  label: string;
+  email: string;
+  displayName: string | null;
+  isDefault: boolean;
+}
 
 interface InboxRow {
   id: string;
@@ -331,7 +339,71 @@ export default function InboxPage() {
   const [replySending, setReplySending] = useState(false);
   const [replySent, setReplySent] = useState(false);
   const [replyError, setReplyError] = useState<string | null>(null);
+  const [replyAccountId, setReplyAccountId] = useState('');
   const replyRef = useRef<HTMLTextAreaElement>(null);
+
+  // Compose new email
+  const [composeOpen, setComposeOpen] = useState(false);
+  const [composeTo, setComposeTo] = useState('');
+  const [composeSubject, setComposeSubject] = useState('');
+  const [composeBody, setComposeBody] = useState('');
+  const [composePurpose, setComposePurpose] = useState<string>('other');
+  const [composePlainText, setComposePlainText] = useState(false);
+  const [composeAccountId, setComposeAccountId] = useState('');
+  const [composeSending, setComposeSending] = useState(false);
+  const [composeSent, setComposeSent] = useState(false);
+  const [composeError, setComposeError] = useState<string | null>(null);
+
+  const accountsQuery = useQuery<GmailAccount[]>({
+    queryKey: ['gmail-accounts'],
+    queryFn: () => api<GmailAccount[]>(token, '/gmail/accounts'),
+    staleTime: 60_000,
+  });
+  const accounts = accountsQuery.data ?? [];
+
+  // Set default account when accounts load
+  useEffect(() => {
+    const def = accounts.find(a => a.isDefault) ?? accounts[0];
+    if (def) {
+      if (!composeAccountId) setComposeAccountId(def.id);
+      if (!replyAccountId) setReplyAccountId(def.id);
+    }
+  }, [accounts]);
+
+  async function handleSendCompose() {
+    if (!composeTo.trim() || !composeSubject.trim() || !composeBody.trim()) return;
+    setComposeSending(true);
+    setComposeError(null);
+    try {
+      const res = await fetch('/taskip-internal/inbox/send', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          recipient: composeTo.trim(),
+          subject: composeSubject.trim(),
+          textBody: composeBody.trim(),
+          purpose: composePurpose,
+          accountId: composeAccountId || undefined,
+          plainText: composePlainText,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as any).message ?? `HTTP ${res.status}`);
+      setComposeSent(true);
+      setTimeout(() => {
+        setComposeOpen(false);
+        setComposeTo('');
+        setComposeSubject('');
+        setComposeBody('');
+        setComposeSent(false);
+      }, 1200);
+      qc.invalidateQueries({ queryKey: ['inbox'] });
+    } catch (e) {
+      setComposeError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setComposeSending(false);
+    }
+  }
 
   useEffect(() => {
     setReplyOpen(false);
@@ -360,6 +432,7 @@ export default function InboxPage() {
           subject: selected.subject.startsWith('Re:') ? selected.subject : `Re: ${selected.subject}`,
           textBody: replyBody.trim(),
           purpose: 'followup',
+          accountId: replyAccountId || undefined,
           plainText: replyPlainText,
         }),
       });
@@ -419,6 +492,12 @@ export default function InboxPage() {
           <span className="text-[11px] text-blue-400 border border-blue-400/30 rounded-full px-2.5 py-0.5">
             {rows.filter((r) => r.replyCount > 0).length} replied
           </span>
+          <button
+            onClick={() => { setComposeOpen(true); setSelectedId(null); setComposeSent(false); setComposeError(null); }}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-[11px] hover:bg-primary/90 transition-colors font-medium"
+          >
+            <Pencil className="w-3 h-3" /> Compose
+          </button>
           <button
             onClick={() => refetch()}
             className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-border text-[11px] text-muted-foreground hover:text-foreground transition-colors"
@@ -563,16 +642,141 @@ export default function InboxPage() {
 
         {/* Detail panel */}
         <div className="flex-1 min-w-0 overflow-y-auto">
-          {!selected && (
+
+          {/* Compose panel */}
+          {composeOpen && (
+            <div className="p-6 max-w-2xl">
+              <div className="flex items-center justify-between mb-5">
+                <div className="flex items-center gap-2">
+                  <div className="h-7 w-7 rounded-lg bg-gradient-to-br from-indigo-500 to-violet-500 flex items-center justify-center">
+                    <Pencil className="w-3.5 h-3.5 text-white" />
+                  </div>
+                  <h2 className="text-base font-semibold">New Email</h2>
+                </div>
+                <button onClick={() => setComposeOpen(false)} className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="rounded-xl border border-border bg-card overflow-hidden">
+                {/* From */}
+                {accounts.length > 0 && (
+                  <div className="flex items-center gap-3 px-4 py-2.5 border-b border-border">
+                    <span className="text-xs text-muted-foreground w-16 shrink-0">From</span>
+                    <div className="relative flex-1">
+                      <select
+                        value={composeAccountId}
+                        onChange={e => setComposeAccountId(e.target.value)}
+                        className="w-full text-sm pl-0 pr-6 py-0 bg-transparent text-foreground focus:outline-none appearance-none cursor-pointer"
+                      >
+                        {accounts.map(a => (
+                          <option key={a.id} value={a.id}>
+                            {a.displayName ? `${a.displayName} <${a.email}>` : a.email}{a.isDefault ? ' (default)' : ''}
+                          </option>
+                        ))}
+                      </select>
+                      <ChevronDown className="absolute right-0 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
+                    </div>
+                  </div>
+                )}
+                {/* To */}
+                <div className="flex items-center gap-3 px-4 py-2.5 border-b border-border">
+                  <span className="text-xs text-muted-foreground w-16 shrink-0">To</span>
+                  <input
+                    type="email"
+                    value={composeTo}
+                    onChange={e => setComposeTo(e.target.value)}
+                    placeholder="recipient@example.com"
+                    className="flex-1 text-sm bg-transparent focus:outline-none placeholder:text-muted-foreground/50"
+                    autoFocus
+                  />
+                </div>
+                {/* Subject */}
+                <div className="flex items-center gap-3 px-4 py-2.5 border-b border-border">
+                  <span className="text-xs text-muted-foreground w-16 shrink-0">Subject</span>
+                  <input
+                    type="text"
+                    value={composeSubject}
+                    onChange={e => setComposeSubject(e.target.value)}
+                    placeholder="Email subject…"
+                    className="flex-1 text-sm bg-transparent focus:outline-none placeholder:text-muted-foreground/50"
+                  />
+                </div>
+                {/* Purpose + Plain text row */}
+                <div className="flex items-center gap-3 px-4 py-2 border-b border-border bg-muted/10">
+                  <span className="text-[11px] text-muted-foreground w-16 shrink-0">Purpose</span>
+                  <div className="relative">
+                    <select
+                      value={composePurpose}
+                      onChange={e => setComposePurpose(e.target.value)}
+                      className="text-[11px] pl-2 pr-6 py-1 rounded border border-border bg-muted/30 text-foreground focus:outline-none focus:ring-1 focus:ring-primary appearance-none cursor-pointer"
+                    >
+                      {['other', 'marketing', 'followup', 'offer'].map(p => (
+                        <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>
+                      ))}
+                    </select>
+                    <ChevronDown className="absolute right-1.5 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground pointer-events-none" />
+                  </div>
+                  <label className="flex items-center gap-1.5 cursor-pointer ml-auto">
+                    <div
+                      onClick={() => setComposePlainText(v => !v)}
+                      className={`w-7 h-4 rounded-full transition-colors relative ${composePlainText ? 'bg-emerald-500' : 'bg-muted-foreground/30'}`}
+                    >
+                      <span className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-transform shadow ${composePlainText ? 'translate-x-3.5' : 'translate-x-0.5'}`} />
+                    </div>
+                    <span className="text-[11px] text-muted-foreground">Plain text</span>
+                  </label>
+                </div>
+                {/* Body */}
+                <textarea
+                  value={composeBody}
+                  onChange={e => setComposeBody(e.target.value)}
+                  placeholder="Write your email…"
+                  className="w-full px-4 py-3 text-sm bg-transparent focus:outline-none resize-none font-mono leading-relaxed"
+                  style={{ minHeight: '240px' }}
+                />
+                {/* Footer */}
+                <div className="px-4 py-2.5 border-t border-border flex items-center justify-between gap-2 bg-muted/10">
+                  <span className="text-[11px] text-muted-foreground tabular-nums">
+                    {composeBody.trim() ? composeBody.trim().split(/\s+/).length : 0} words
+                    {composePlainText && <span className="ml-2 text-emerald-400">plain text</span>}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    {composeError && <span className="text-[11px] text-destructive">{composeError}</span>}
+                    {composeSent && <span className="text-[11px] text-emerald-400">Sent — tracking replies…</span>}
+                    <button
+                      onClick={handleSendCompose}
+                      disabled={composeSending || !composeTo.trim() || !composeSubject.trim() || !composeBody.trim()}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs hover:bg-primary/90 disabled:opacity-50 transition-colors"
+                    >
+                      {composeSending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                      Send email
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <p className="text-[11px] text-muted-foreground mt-3">
+                After sending, replies are fetched automatically every 15 min. Use Sync on the sent email to check immediately.
+              </p>
+            </div>
+          )}
+
+          {!composeOpen && !selected && (
             <div className="flex items-center justify-center h-full">
               <div className="text-center">
                 <Mail className="w-10 h-10 text-muted-foreground/30 mx-auto mb-3" />
                 <p className="text-sm text-muted-foreground">Select an email to read</p>
+                <button
+                  onClick={() => setComposeOpen(true)}
+                  className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border text-xs text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors"
+                >
+                  <Pencil className="w-3 h-3" /> Compose new email
+                </button>
               </div>
             </div>
           )}
 
-          {selected && (
+          {!composeOpen && selected && (
             <div className="p-6 max-w-2xl">
               {/* Header */}
               <div className="mb-4">
@@ -685,23 +889,40 @@ export default function InboxPage() {
               {/* Inline reply composer */}
               {replyOpen && (
                 <div className="rounded-xl border border-border bg-card mb-4 overflow-hidden">
-                  <div className="px-4 py-2.5 border-b border-border bg-muted/20 flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <Reply className="w-3.5 h-3.5" />
-                      <span>To: <span className="text-foreground font-medium">{selected.recipient}</span></span>
-                      <span className="text-muted-foreground/50">·</span>
-                      <span className="truncate max-w-[200px]">Re: {selected.subject}</span>
+                  <div className="px-4 py-2.5 border-b border-border bg-muted/20 flex items-center justify-between gap-2 flex-wrap">
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground min-w-0">
+                      <Reply className="w-3.5 h-3.5 shrink-0" />
+                      <span className="shrink-0">To: <span className="text-foreground font-medium">{selected.recipient}</span></span>
+                      <span className="text-muted-foreground/50 shrink-0">·</span>
+                      <span className="truncate max-w-[160px]">Re: {selected.subject}</span>
                     </div>
-                    {/* Plain text toggle */}
-                    <label className="flex items-center gap-1.5 cursor-pointer">
-                      <div
-                        onClick={() => setReplyPlainText(v => !v)}
-                        className={`w-7 h-4 rounded-full transition-colors relative ${replyPlainText ? 'bg-emerald-500' : 'bg-muted-foreground/30'}`}
-                      >
-                        <span className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-transform shadow ${replyPlainText ? 'translate-x-3.5' : 'translate-x-0.5'}`} />
-                      </div>
-                      <span className="text-[11px] text-muted-foreground">Plain text</span>
-                    </label>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {accounts.length > 0 && (
+                        <div className="relative">
+                          <select
+                            value={replyAccountId}
+                            onChange={e => setReplyAccountId(e.target.value)}
+                            className="text-[11px] pl-2 pr-6 py-1 rounded border border-border bg-muted/30 text-foreground focus:outline-none focus:ring-1 focus:ring-primary appearance-none cursor-pointer"
+                          >
+                            {accounts.map(a => (
+                              <option key={a.id} value={a.id}>
+                                {a.displayName ? `${a.displayName} <${a.email}>` : a.email}{a.isDefault ? ' (default)' : ''}
+                              </option>
+                            ))}
+                          </select>
+                          <ChevronDown className="absolute right-1.5 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground pointer-events-none" />
+                        </div>
+                      )}
+                      <label className="flex items-center gap-1.5 cursor-pointer">
+                        <div
+                          onClick={() => setReplyPlainText(v => !v)}
+                          className={`w-7 h-4 rounded-full transition-colors relative ${replyPlainText ? 'bg-emerald-500' : 'bg-muted-foreground/30'}`}
+                        >
+                          <span className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-transform shadow ${replyPlainText ? 'translate-x-3.5' : 'translate-x-0.5'}`} />
+                        </div>
+                        <span className="text-[11px] text-muted-foreground">Plain</span>
+                      </label>
+                    </div>
                   </div>
                   {replyPlainText && (
                     <div className="px-4 py-1.5 bg-emerald-500/5 border-b border-emerald-500/20">
