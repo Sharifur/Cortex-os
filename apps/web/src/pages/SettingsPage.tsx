@@ -580,6 +580,21 @@ function HrTab({ rows, token }: { rows: SettingRow[]; token: string }) {
   );
 }
 
+function CanvaTab({ rows, token }: { rows: SettingRow[]; token: string }) {
+  if (!rows.length) return null;
+  return (
+    <div className="rounded-xl border border-border bg-card mb-6">
+      <div className="px-5 py-3 border-b border-border flex items-center gap-2">
+        <Zap className="w-4 h-4 text-primary" />
+        <span className="text-sm font-semibold">Canva Agent</span>
+      </div>
+      <div className="px-5">
+        {rows.map((s) => <SettingField key={s.key} setting={s} token={token} />)}
+      </div>
+    </div>
+  );
+}
+
 
 const IMAGE_PROVIDER_TABS = [
   { key: 'openai', label: 'OpenAI' },
@@ -817,6 +832,7 @@ export default function SettingsPage() {
           <LlmTab rows={grouped['llm'] ?? []} token={token} />
           <ImageTab rows={grouped['image'] ?? []} token={token} />
           <HrTab rows={grouped['hr'] ?? []} token={token} />
+          <CanvaTab rows={grouped['canva'] ?? []} token={token} />
         </>
       )}
     </div>

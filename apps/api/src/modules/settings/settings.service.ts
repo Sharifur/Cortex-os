@@ -17,8 +17,12 @@ export interface SettingRow {
   options?: Array<{ value: string; label: string; desc?: string }> | null;
 }
 
+const CACHE_TTL_MS = 60_000; // 1 minute
+
 @Injectable()
 export class SettingsService {
+  private readonly cache = new Map<string, { value: string | null; expiresAt: number }>();
+
   async getAll(): Promise<SettingRow[]> {
     type Row = typeof platformSettings.$inferSelect;
     const rows: Row[] = await db.select().from(platformSettings);
@@ -48,14 +52,18 @@ export class SettingsService {
     const def = SETTING_DEFINITIONS[key];
     if (!def) return null;
 
+    const cached = this.cache.get(key);
+    if (cached && cached.expiresAt > Date.now()) return cached.value;
+
     const [row] = await db
       .select()
       .from(platformSettings)
       .where(eq(platformSettings.key, key))
       .limit(1);
 
-    if (!row) return def.defaultValue ?? null;
-    return def.isSecret ? decrypt(row.value) : row.value;
+    const value = row ? (def.isSecret ? decrypt(row.value) : row.value) : (def.defaultValue ?? null);
+    this.cache.set(key, { value, expiresAt: Date.now() + CACHE_TTL_MS });
+    return value;
   }
 
   async upsert(key: string, rawValue: string): Promise<void> {
@@ -77,9 +85,12 @@ export class SettingsService {
         target: platformSettings.key,
         set: { value: storedValue, updatedAt: new Date() },
       });
+
+    this.cache.delete(key);
   }
 
   async delete(key: string): Promise<void> {
     await db.delete(platformSettings).where(eq(platformSettings.key, key));
+    this.cache.delete(key);
   }
 }

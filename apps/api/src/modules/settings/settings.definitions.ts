@@ -2,7 +2,7 @@ export interface SettingDefinition {
   label: string;
   description?: string;
   isSecret: boolean;
-  group: 'general' | 'llm' | 'telegram' | 'ses' | 'gmail' | 'whatsapp' | 'linkedin' | 'reddit' | 'license' | 'storage' | 'insight' | 'safety' | 'hr' | 'geoip' | 'support' | 'image';
+  group: 'general' | 'llm' | 'telegram' | 'ses' | 'gmail' | 'whatsapp' | 'linkedin' | 'reddit' | 'license' | 'storage' | 'insight' | 'safety' | 'hr' | 'geoip' | 'support' | 'image' | 'canva';
   defaultValue?: string;
   provider?: 'openai' | 'gemini' | 'deepseek' | 'stability' | 'general';
   options?: Array<{ value: string; label: string; desc?: string }>;
@@ -546,5 +546,14 @@ export const SETTING_DEFINITIONS: Record<string, SettingDefinition> = {
       { value: 'stable-diffusion-xl-1024-v1-0', label: 'SDXL 1.0', desc: '~$0.002/img — cheapest' },
       { value: 'stable-image-ultra', label: 'Stable Image Ultra', desc: '~$0.008/img — best quality' },
     ],
+  },
+
+  // Canva Agent
+  canva_dna_max_tokens: {
+    label: 'Design DNA Max Tokens',
+    description: 'Maximum tokens the vision LLM may return when extracting design DNA from a sample image. Increase if you see "invalid JSON for design DNA" errors on complex designs.',
+    isSecret: false,
+    group: 'canva',
+    defaultValue: '10000',
   },
 };
