@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.31.0',
+    date: '2026-05-13',
+    entries: [
+      { tag: 'feat', scope: 'support', description: 'Purchase code gate added to support agent. Tickets without a purchase code receive an automated reply requesting it before any AI response is drafted. The code is verified against Envato/Xgenious API and the result stored on the ticket so it is not re-verified on subsequent runs.' },
+      { tag: 'feat', scope: 'support', description: 'When a customer replies to a purchase-code-requested ticket, the ticket is automatically reopened and re-processed so the agent can extract and verify the provided code.' },
+    ],
+  },
+  {
     version: 'v4.30.0',
     date: '2026-05-13',
     entries: [

@@ -122,6 +122,53 @@ export class SupportAgent implements IAgent, OnModuleInit {
 
     for (const ticket of tickets) {
       try {
+        const ticketText = `${ticket.subject ?? ''} ${ticket.body ?? ''}`;
+        const purchaseCodes = PurchaseVerifyService.extractPurchaseCodes(ticketText);
+
+        // --- Purchase code gate ---
+        // Tickets that already have a final purchase status don't need a new code request
+        const alreadyGated = ticket.purchaseCodeStatus === 'verified'
+          || ticket.purchaseCodeStatus === 'invalid'
+          || ticket.purchaseCodeStatus === 'expired';
+
+        if (!alreadyGated && purchaseCodes.length === 0) {
+          // No purchase code in ticket — ask politely before doing anything else
+          if (ticket.purchaseCodeStatus !== 'requested') {
+            actions.push({
+              type: 'request_purchase_code',
+              summary: `Request purchase code: ${ticket.subject} from ${ticket.userEmail}`,
+              payload: {
+                ticketId: ticket.id,
+                crmTicketId: ticket.externalId ? Number(ticket.externalId) : null,
+                subject: ticket.subject,
+                userEmail: ticket.userEmail,
+                draft: `Thank you for reaching out. To verify your purchase and provide you with the best support, could you please share your purchase code? You can find it in your Envato purchase email. It looks like one of these formats:\n\na99d70b3-372c-4d2e-b602-02320c5f5151\nor\nXGENIOUS-4471-3938-4712-8776\n\nOnce verified, we will be happy to assist you.`,
+              },
+              riskLevel: 'low',
+            });
+          }
+          continue;
+        }
+
+        // --- Verify purchase code if we have one and haven't verified yet ---
+        let purchaseBlock = '';
+        if (purchaseCodes.length && !alreadyGated) {
+          const verifyResult = await this.purchaseVerify.verify(purchaseCodes[0]);
+          if (verifyResult) {
+            purchaseBlock = PurchaseVerifyService.buildVerifyPromptBlock(verifyResult);
+            // Store the verification outcome so we don't re-verify on every run
+            await this.db.db
+              .update(supportTickets)
+              .set({
+                purchaseCode: purchaseCodes[0],
+                purchaseCodeStatus: verifyResult.supportIsActive ? 'verified'
+                  : (verifyResult.action === 'reject_invalid_code' ? 'invalid' : 'expired'),
+                updatedAt: new Date(),
+              })
+              .where(eq(supportTickets.id, ticket.id));
+          }
+        }
+
         const [references, previousTickets] = await Promise.all([
           this.kb.searchEntries(`${ticket.subject} ${ticket.body?.slice(0, 200) ?? ''}`, this.key, 5),
           this.getContactHistory(ticket.userEmail),
@@ -148,14 +195,6 @@ export class SupportAgent implements IAgent, OnModuleInit {
               .join('\n')}`
           : '';
 
-        let purchaseBlock = '';
-        const ticketText = `${ticket.subject ?? ''} ${ticket.body ?? ''}`;
-        const purchaseCodes = PurchaseVerifyService.extractPurchaseCodes(ticketText);
-        if (purchaseCodes.length && PurchaseVerifyService.hasSupportIntent(ticketText)) {
-          const verifyResult = await this.purchaseVerify.verify(purchaseCodes[0]);
-          if (verifyResult) purchaseBlock = PurchaseVerifyService.buildVerifyPromptBlock(verifyResult);
-        }
-
         const systemPrompt = (template?.system ?? SYSTEM_PROMPT) + kbBlock + contactMemory + purchaseBlock;
 
         const response = await this.llm.complete({
@@ -177,7 +216,6 @@ export class SupportAgent implements IAgent, OnModuleInit {
           continue;
         }
 
-        // Self-critique + blocklist check
         parsed.reply = await this.selfCritique(
           parsed.reply,
           alwaysOn.find(e => e.entryType === 'voice_profile')?.content,
@@ -214,12 +252,28 @@ export class SupportAgent implements IAgent, OnModuleInit {
   }
 
   requiresApproval(action: ProposedAction): boolean {
-    return action.type === 'post_reply' || action.type === 'escalate_to_owner';
+    return action.type === 'post_reply' || action.type === 'escalate_to_owner' || action.type === 'request_purchase_code';
   }
 
   async execute(action: ProposedAction): Promise<ActionResult> {
     if (action.type === 'noop') return { success: true };
     const p = action.payload as any;
+
+    if (action.type === 'request_purchase_code') {
+      if (p.ticketId) {
+        await this.db.db
+          .update(supportTickets)
+          .set({ purchaseCodeStatus: 'requested', status: 'replied', repliedAt: new Date(), updatedAt: new Date() })
+          .where(eq(supportTickets.id, p.ticketId));
+      }
+      if (p.crmTicketId) {
+        await this.postCrmReply(p.crmTicketId, p.draft);
+      }
+      await this.telegram.sendMessage(
+        `Purchase code requested: ${p.subject}\nFrom: ${p.userEmail}\n\nSent:\n${p.draft}`,
+      );
+      return { success: true, data: { ticketId: p.ticketId } };
+    }
 
     if (action.type === 'post_reply' || action.type === 'escalate_to_owner') {
       const now = new Date();
@@ -483,6 +537,24 @@ export class SupportAgent implements IAgent, OnModuleInit {
       this.logger.log(`CRM fetch OK for ticket #${ticket.id} (${body.length} chars)`);
     } else {
       this.logger.warn(`CRM fetch returned empty body for ticket #${ticket.id} — proceeding with subject only`);
+    }
+
+    // Customer reply on a ticket that's awaiting a purchase code — re-open for re-processing
+    if (event === 'support.ticket.replied') {
+      const [existing] = await this.db.db
+        .select({ id: supportTickets.id, purchaseCodeStatus: supportTickets.purchaseCodeStatus })
+        .from(supportTickets)
+        .where(eq(supportTickets.externalId, String(ticket.id)));
+
+      if (existing?.purchaseCodeStatus === 'requested') {
+        await this.db.db
+          .update(supportTickets)
+          .set({ status: 'open', body: body || undefined, updatedAt: new Date() })
+          .where(eq(supportTickets.id, existing.id));
+        this.logger.log(`Ticket #${ticket.id} reopened after customer reply — will re-check for purchase code`);
+        await this.writeWebhookLog({ status: 'reopened', externalId: String(ticket.id), ticketId: existing.id, rawPayload });
+        return { ok: true, status: 'reopened', ticketId: existing.id, externalId: String(ticket.id) };
+      }
     }
 
     const [row] = await this.db.db
