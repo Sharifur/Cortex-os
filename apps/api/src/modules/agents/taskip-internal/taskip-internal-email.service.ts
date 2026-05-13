@@ -277,7 +277,6 @@ export class TaskipInternalEmailService {
 
     for (const msg of thread.messages) {
       if (!msg.id || ourMsgIds.has(msg.id)) continue;
-      if (this.fromIsSelf(msg.from)) continue;
 
       try {
         await this.db.db.insert(taskipInternalEmailReplies).values({
@@ -393,9 +392,4 @@ export class TaskipInternalEmailService {
     return { ok: true, metadata: row.metadata, openCount };
   }
 
-  private fromIsSelf(from: string): boolean {
-    if (!from) return false;
-    const lower = from.toLowerCase();
-    return lower.includes('sharifur') || lower.includes('xgenious') || lower.includes('taskip.net');
-  }
 }

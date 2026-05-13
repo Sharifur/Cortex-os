@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.35.2',
+    date: '2026-05-13',
+    entries: [
+      { tag: 'fix', scope: 'inbox', description: 'Sync now captures replies sent from your own Gmail address. Previously the fromIsSelf filter silently dropped any thread message whose sender contained "sharifur", "xgenious", or "taskip.net" — blocking self-replies. The original sent message is already excluded by message-ID dedup, so the filter was redundant and harmful.' },
+    ],
+  },
+  {
     version: 'v4.35.1',
     date: '2026-05-13',
     entries: [
