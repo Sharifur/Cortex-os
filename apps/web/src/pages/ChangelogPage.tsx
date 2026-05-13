@@ -16,6 +16,16 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.24.0',
+    date: '2026-05-13',
+    entries: [
+      { tag: 'feat', scope: 'post-render', description: 'Per-role layout selection: when 20+ design samples exist, each slide role (cover/content/cta/stat/list/quote) uses the dominant layout type observed in that role across all samples instead of the format template default. Safety rules: list-layout never applied to non-list roles, overlay never applied to cover/cta.' },
+      { tag: 'feat', scope: 'post-render', description: 'Gradient backgrounds: when DNA shows gradient-dark or gradient-light background style, cover and CTA slides render as CSS linear-gradient computed from the learned hex and a darkened variant at the dominant gradient angle from the sample set. Content slides remain flat for readability.' },
+      { tag: 'feat', scope: 'post-render', description: 'Learned font pairing: when brand uses default Inter fonts, getDominantDNA font_style field maps to a Google Font pair (geometric→Montserrat, classic-serif→Playfair Display/Lato, rounded→Nunito, slab-serif→Roboto Slab, display→Bebas Neue). Only overrides when brand has not customised fonts.' },
+      { tag: 'feat', scope: 'post-render', description: 'Structured pattern rules in content prompt: pattern rules are now filtered by relevance — copy/text rules get priority (up to 20), per-slide-type rules next (up to 8), a few visual rules last. Total up from 5 to 33 rules injected into content generation, driving copy length, tone, and structure from the learned dataset.' },
+    ],
+  },
+  {
     version: 'v4.23.0',
     date: '2026-05-13',
     entries: [

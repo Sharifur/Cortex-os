@@ -4,7 +4,7 @@ import { LlmRouterService } from '../llm/llm-router.service';
 import { KnowledgeBaseService } from '../knowledge-base/knowledge-base.service';
 import { DbService } from '../../db/db.service';
 import { knowledgeEntries } from '../knowledge-base/schema';
-import type { DesignDNA, DominantDNA } from './types';
+import type { DesignDNA, DominantDNA, LayoutType } from './types';
 
 const MIN_SAMPLES_FOR_CLUSTERING = 3;
 
@@ -506,6 +506,33 @@ export class DesignPatternService {
       if (topBg) slideTypeColors[slideType] = { bg: topBg, accent: topAccent || topBg, textHex: topText };
     }
 
+    // Per-slide-role dominant layout type
+    const LAYOUT_REMAP: Record<string, LayoutType> = {
+      centered: 'centered', 'left-aligned': 'left-aligned',
+      'split-panel': 'split-panel', overlay: 'overlay',
+      grid: 'list-layout', diagonal: 'left-aligned', asymmetric: 'split-panel',
+    };
+    const slideRoleLayouts: Partial<Record<string, LayoutType>> = {};
+    const roleLayoutCounts: Record<string, Record<string, number>> = {};
+    for (const d of dnaList) {
+      const role = String(d.slide_type || '');
+      const layout = String(d.layout_type || '');
+      if (!role || !layout) continue;
+      if (!roleLayoutCounts[role]) roleLayoutCounts[role] = {};
+      roleLayoutCounts[role][layout] = (roleLayoutCounts[role][layout] ?? 0) + 1;
+    }
+    for (const [role, counts] of Object.entries(roleLayoutCounts)) {
+      const top = Object.entries(counts).filter(([, n]) => n >= 3).sort((a, b) => b[1] - a[1])[0];
+      if (!top) continue;
+      const mapped = LAYOUT_REMAP[top[0]];
+      if (mapped) {
+        // Never force list-layout on non-list roles; never force overlay on cover/cta
+        if (mapped === 'list-layout' && role !== 'list') continue;
+        if (mapped === 'overlay' && (role === 'cover' || role === 'cta')) continue;
+        slideRoleLayouts[role] = mapped;
+      }
+    }
+
     // Most common gradient angle
     const gradientAngles = dnaList
       .flatMap(d => (d.shape_elements ?? []).map(s => s.gradient_angle).filter(a => a != null)) as number[];
@@ -561,6 +588,7 @@ export class DesignPatternService {
       dominant_cta_hex: dominantHexFromColorUsage('cta_background_hex'),
       background_gradient_angle: gradientAngle,
       slide_type_colors: slideTypeColors,
+      slide_role_layouts: slideRoleLayouts,
     };
   }
 

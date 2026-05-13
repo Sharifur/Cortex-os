@@ -89,6 +89,20 @@ export function resolveBackground(styleRules: StyleRules, contract: ThemeContrac
   }
 }
 
+export function resolveBackgroundStyle(styleRules: StyleRules, contract: ThemeContract): object {
+  const v = styleRules.backgroundVariant;
+  if (v === 'brand-primary' || v === 'gradient') {
+    if (contract.backgroundCoverGradient) return { backgroundImage: contract.backgroundCoverGradient };
+    return { backgroundColor: contract.backgroundCover };
+  }
+  if (v === 'brand-secondary') {
+    if (contract.backgroundCtaGradient) return { backgroundImage: contract.backgroundCtaGradient };
+    return { backgroundColor: contract.backgroundCta };
+  }
+  if (v === 'dark') return { backgroundColor: '#111111' };
+  return { backgroundColor: contract.backgroundContent };
+}
+
 export function resolveTextColor(bg: string, contract: ThemeContract): string {
   const c = bg.replace('#', '');
   if (c.length < 6) return contract.headlineColor;

@@ -132,6 +132,16 @@ async function fetchLogoBase64(logoUrl: string): Promise<string> {
   }
 }
 
+const FONT_STYLE_PAIRS: Record<string, { heading: string; body: string }> = {
+  'modern-sans':  { heading: 'Inter',            body: 'Inter' },
+  geometric:      { heading: 'Montserrat',        body: 'Montserrat' },
+  rounded:        { heading: 'Nunito',            body: 'Nunito' },
+  'classic-serif':{ heading: 'Playfair Display',  body: 'Lato' },
+  'slab-serif':   { heading: 'Roboto Slab',       body: 'Roboto' },
+  monospace:      { heading: 'Space Mono',         body: 'Inter' },
+  display:        { heading: 'Bebas Neue',         body: 'Inter' },
+};
+
 @Injectable()
 export class PostBrandService {
   private readonly logger = new Logger(PostBrandService.name);
@@ -178,5 +188,20 @@ export class PostBrandService {
       logoBase64: logoBase64 || undefined,
       voiceProfile: brand.voiceProfile,
     };
+  }
+
+  async applyFontDNA(brand: ResolvedBrand, fontStyle: string): Promise<ResolvedBrand> {
+    const pair = FONT_STYLE_PAIRS[fontStyle];
+    if (!pair) return brand;
+    // Only override if brand is using default fonts (heading === body === 'Inter')
+    const isDefault = brand.headingFont === 'Inter' && brand.bodyFont === 'Inter';
+    if (!isDefault) return brand;
+    if (pair.heading === 'Inter' && pair.body === 'Inter') return brand;
+    this.logger.log(`Font DNA override: ${fontStyle} → ${pair.heading} / ${pair.body}`);
+    const [headingFontData, bodyFontData] = await Promise.all([
+      fetchFontData(pair.heading, 700).catch(() => brand.headingFontData),
+      fetchFontData(pair.body, 400).catch(() => brand.bodyFontData),
+    ]);
+    return { ...brand, headingFont: pair.heading, bodyFont: pair.body, headingFontData, bodyFontData };
   }
 }

@@ -97,12 +97,24 @@ export class ThemeContractService {
     // Body size: slightly larger for display/huge, smaller for tight whitespace
     const bodySize = headingSize >= 76 ? 18 : headingSize >= 64 ? 20 : 22;
 
+    // Gradient backgrounds — when DNA shows gradient style, compute CSS gradient strings
+    const bgStyle = dna?.background_style ?? '';
+    const gradientAngle = dna?.background_gradient_angle ?? 135;
+    let backgroundCoverGradient: string | undefined;
+    let backgroundCtaGradient: string | undefined;
+    if (useLearned && (bgStyle.includes('gradient') || bgStyle === 'textured')) {
+      backgroundCoverGradient = `linear-gradient(${gradientAngle}deg, ${darken(coverBg, 0.3)}, ${coverBg})`;
+      backgroundCtaGradient = `linear-gradient(${gradientAngle}deg, ${darken(ctaBg, 0.3)}, ${ctaBg})`;
+    }
+
     const totalSlides = format.slides.length;
 
     const contract: ThemeContract = {
       backgroundCover: coverBg,
       backgroundContent: contentBg,
       backgroundCta: ctaBg,
+      backgroundCoverGradient,
+      backgroundCtaGradient,
       accentColor: accent,
       headlineColor,
       bodyColor,

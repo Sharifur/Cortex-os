@@ -44,8 +44,16 @@ export class PostContentService {
       ? `Content tone: ${opts.contentTone}${opts.moodKeywords?.length ? ` — mood: ${opts.moodKeywords.join(', ')}` : ''}`
       : '';
 
-    const patternContext = opts.patternRules?.length
-      ? `Learned brand design patterns (use for copy style):\n${opts.patternRules.slice(0, 5).map((r, i) => `${i + 1}. ${r}`).join('\n')}`
+    // Filter pattern rules: prioritise copy/text rules, then per-slide-type rules, then a few visual
+    const COPY_KEYWORDS = /headline|body\s+text|copy|word|sentence|cta|tone|length|brief|punchy|concise|short|hook|question|number|stat|list item|bullet/i;
+    const SLIDE_TYPE_KEYWORDS = /cover slide|content slide|cta slide|stat slide|list slide|quote slide/i;
+    const rules = opts.patternRules ?? [];
+    const copyRules = rules.filter(r => COPY_KEYWORDS.test(r)).slice(0, 20);
+    const slideTypeRules = rules.filter(r => SLIDE_TYPE_KEYWORDS.test(r)).slice(0, 8);
+    const remainingRules = rules.filter(r => !COPY_KEYWORDS.test(r) && !SLIDE_TYPE_KEYWORDS.test(r)).slice(0, 5);
+    const selectedRules = [...copyRules, ...slideTypeRules, ...remainingRules];
+    const patternContext = selectedRules.length
+      ? `Learned brand content patterns — apply to copy style and length:\n${selectedRules.map((r, i) => `${i + 1}. ${r}`).join('\n')}`
       : '';
 
     const systemPrompt = [

@@ -1,4 +1,4 @@
-import { resolveBackground, resolveTextColor, slideIndicatorText, getSlot, renderDecorations, ctaStyle as buildCtaStyle } from './layout-helpers';
+import { resolveBackground, resolveBackgroundStyle, resolveTextColor, slideIndicatorText, getSlot, renderDecorations, ctaStyle as buildCtaStyle } from './layout-helpers';
 import type { LayoutProps } from './layout.types';
 
 export function leftAlignedLayout({ slide, contract, width, height, slideNumber, backgroundImageBase64 }: LayoutProps): object {
@@ -80,7 +80,7 @@ export function leftAlignedLayout({ slide, contract, width, height, slideNumber,
         height,
         ...(backgroundImageBase64
           ? { backgroundImage: `url(${backgroundImageBase64})`, backgroundSize: 'cover', backgroundPosition: 'center' }
-          : { backgroundColor: bg }),
+          : resolveBackgroundStyle(slide.styleRules, contract)),
         fontFamily: contract.bodyFont,
         padding: `${contract.paddingY}px ${contract.paddingX}px`,
         overflow: 'hidden',

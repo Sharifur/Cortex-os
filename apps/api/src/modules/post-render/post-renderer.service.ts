@@ -77,15 +77,21 @@ export class PostRendererService {
     ).catch(() => {});
 
     // Resolve brand identity and dominant design DNA in parallel
-    const [brand, dominantDNA] = await Promise.all([
+    const [brandRaw, dominantDNA] = await Promise.all([
       this.brandSvc.resolve(req.brand),
       this.designPattern.getDominantDNA(req.brand).catch(() => null as DominantDNA | null),
     ]);
 
+    // Feature 3: apply learned font pairing when brand uses default Inter fonts
+    const useLearned = !!(dominantDNA && dominantDNA.sampleCount >= 20);
+    const brand = useLearned && dominantDNA!.font_style
+      ? await this.brandSvc.applyFontDNA(brandRaw, dominantDNA!.font_style)
+      : brandRaw;
+
     if (dominantDNA) {
       await this.logSvc.debug(runId ?? 'post-render',
-        `Design DNA loaded: ${dominantDNA.sampleCount} samples — tone:${dominantDNA.content_tone} cta:${dominantDNA.cta_style} radius:${dominantDNA.border_radius_style} icons:${dominantDNA.icon_style}`,
-        { event_type: 'post_dna_loaded', sample_count: dominantDNA.sampleCount, content_tone: dominantDNA.content_tone, cta_style: dominantDNA.cta_style },
+        `Design DNA loaded: ${dominantDNA.sampleCount} samples — tone:${dominantDNA.content_tone} cta:${dominantDNA.cta_style} radius:${dominantDNA.border_radius_style} icons:${dominantDNA.icon_style} font:${dominantDNA.font_style}`,
+        { event_type: 'post_dna_loaded', sample_count: dominantDNA.sampleCount, content_tone: dominantDNA.content_tone, cta_style: dominantDNA.cta_style, font_style: dominantDNA.font_style },
       ).catch(() => {});
     }
 
@@ -114,6 +120,14 @@ export class PostRendererService {
       designContext: dominantDNA?.banner_brief || undefined,
       runId,
     });
+
+    // Feature 1: override per-slide layout from learned DNA (per-role dominant layout)
+    if (useLearned && dominantDNA!.slide_role_layouts) {
+      for (const slide of filledSlides) {
+        const learned = dominantDNA!.slide_role_layouts[slide.role];
+        if (learned) slide.layout = learned;
+      }
+    }
 
     await this.logSvc.info(runId ?? 'post-render',
       `Content ready: ${filledSlides.length} slides filled`,

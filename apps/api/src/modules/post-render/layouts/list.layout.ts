@@ -1,4 +1,4 @@
-import { resolveBackground, resolveTextColor, slideIndicatorText, getSlot, getListSlot } from './layout-helpers';
+import { resolveBackground, resolveBackgroundStyle, resolveTextColor, slideIndicatorText, getSlot, getListSlot } from './layout-helpers';
 import type { LayoutProps } from './layout.types';
 
 export function listLayout({ slide, contract, width, height, slideNumber }: LayoutProps): object {
@@ -89,7 +89,7 @@ export function listLayout({ slide, contract, width, height, slideNumber }: Layo
         flexDirection: 'column',
         width,
         height,
-        backgroundColor: bg,
+        ...resolveBackgroundStyle(slide.styleRules, contract),
         fontFamily: contract.bodyFont,
         padding: `${contract.paddingY}px ${contract.paddingX}px`,
       },
