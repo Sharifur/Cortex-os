@@ -29,24 +29,16 @@ export class TrackingController {
         SET open_count    = COALESCE(open_count, 0) + 1,
             first_open_at = COALESCE(first_open_at, ${now}),
             last_open_at  = ${now}
-        WHERE tracking_token = ${token}
+        WHERE id = ${token}
       `);
       const rowCount = (result as unknown as { rowCount?: number }).rowCount ?? 0;
       if (rowCount === 0) {
-        this.logger.warn(`tracking pixel fired but no email matched token ${token}`);
+        this.logger.warn(`tracking pixel fired but no email matched id ${token}`);
       } else {
-        this.logger.log(`open recorded for token ${token}`);
+        this.logger.log(`open recorded for email id ${token}`);
       }
-    } catch {
-      // migration 0063 columns absent — fall back to metadata JSONB
-      await this.db.db.execute(sql`
-        UPDATE taskip_internal_emails
-        SET metadata = COALESCE(metadata, '{}'::jsonb)
-                       || jsonb_build_object('pixelOpened', true, 'pixelOpenedAt', ${now.toISOString()})
-        WHERE tracking_token = ${token}
-      `).catch((err: unknown) => {
-        this.logger.error(`tracking fallback also failed for token ${token}: ${(err as Error).message}`);
-      });
+    } catch (err) {
+      this.logger.error(`tracking update failed for id ${token}: ${(err as Error).message}`);
     }
 
     // Allow any origin — email client proxies (Gmail, Apple, Outlook) load pixels

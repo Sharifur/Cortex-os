@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.41.0',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'fix', scope: 'inbox', description: 'Tracking pixel now uses the email record id directly in the pixel URL (/track/open/:id.gif) instead of a separate tracking_token column. Opens are now reliably recorded in production without requiring migration 0063.' },
+      { tag: 'feat', scope: 'inbox', description: 'Delete button added to email detail panel. Removes the email and all its reply records from the database and clears the selection.' },
+    ],
+  },
+  {
     version: 'v4.40.0',
     date: '2026-05-14',
     entries: [

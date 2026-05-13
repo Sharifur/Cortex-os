@@ -5,7 +5,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
-  Mail, Eye, EyeOff, MessageSquare, RefreshCw, Bot, Loader2, Clock, ChevronRight, Reply, Send, X, Search, Pencil, ChevronDown,
+  Mail, Eye, EyeOff, MessageSquare, RefreshCw, Bot, Loader2, Clock, ChevronRight, Reply, Send, X, Search, Pencil, ChevronDown, Trash2,
 } from 'lucide-react';
 
 interface GmailAccount {
@@ -265,6 +265,14 @@ export default function InboxPage() {
       qc.setQueryData<{ email: InboxRow; replies: unknown[] }>(['inbox-detail', id], (old) =>
         old ? { ...old, email: { ...old.email, ...patch } } : old
       );
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => api<{ ok: boolean }>(token, `/taskip-internal/inbox/${id}`, { method: 'DELETE' }),
+    onSuccess: (_data, id) => {
+      if (selectedId === id) setSelectedId(null);
+      qc.setQueryData<InboxRow[]>(['inbox', purpose], (old) => old?.filter((r) => r.id !== id));
     },
   });
 
@@ -877,6 +885,22 @@ export default function InboxPage() {
                     ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" />
                     : <RefreshCw className="w-3.5 h-3.5 mr-1" />}
                   Sync
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    if (confirm('Delete this email record? This cannot be undone.')) {
+                      deleteMutation.mutate(selected.id);
+                    }
+                  }}
+                  disabled={deleteMutation.isPending}
+                  className="text-destructive hover:text-destructive border-destructive/30 hover:border-destructive/60 hover:bg-destructive/5"
+                >
+                  {deleteMutation.isPending
+                    ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" />
+                    : <Trash2 className="w-3.5 h-3.5 mr-1" />}
+                  Delete
                 </Button>
                 {selected.lastSyncedAt && (
                   <span className="text-[11px] text-muted-foreground flex items-center gap-1">
