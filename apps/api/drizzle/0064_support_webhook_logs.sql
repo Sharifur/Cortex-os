@@ -1,4 +1,4 @@
-CREATE TABLE "support_webhook_logs" (
+CREATE TABLE IF NOT EXISTS "support_webhook_logs" (
   "id" text PRIMARY KEY NOT NULL,
   "status" text NOT NULL,
   "external_id" text,
