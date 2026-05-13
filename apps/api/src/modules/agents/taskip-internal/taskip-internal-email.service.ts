@@ -255,18 +255,13 @@ export class TaskipInternalEmailService {
   }
 
   async syncReplies(emailId: string): Promise<{ added: number; total: number }> {
-    const [email] = await this.db.db
-      .select({
-        id: taskipInternalEmails.id,
-        gmailMessageId: taskipInternalEmails.gmailMessageId,
-        gmailThreadId: taskipInternalEmails.gmailThreadId,
-        status: taskipInternalEmails.status,
-        replyCount: taskipInternalEmails.replyCount,
-        lastReplyAt: taskipInternalEmails.lastReplyAt,
-      })
-      .from(taskipInternalEmails)
-      .where(eq(taskipInternalEmails.id, emailId))
-      .limit(1);
+    const [email] = await this.db.db.execute(sql`
+      SELECT id, gmail_message_id AS "gmailMessageId", gmail_thread_id AS "gmailThreadId",
+             status, reply_count AS "replyCount", last_reply_at AS "lastReplyAt",
+             COALESCE(open_count, 0) AS "openCount",
+             first_open_at AS "firstOpenAt"
+      FROM taskip_internal_emails WHERE id = ${emailId} LIMIT 1
+    `).then(r => (r as unknown[])[0] as { id: string; gmailMessageId: string | null; gmailThreadId: string | null; status: string; replyCount: number; lastReplyAt: Date | null; openCount: number; firstOpenAt: Date | null } | undefined);
     if (!email || !email.gmailThreadId) return { added: 0, total: email?.replyCount ?? 0 };
 
     const thread = await this.gmail.getThread(email.gmailThreadId);
@@ -323,6 +318,18 @@ export class TaskipInternalEmailService {
         lastSyncedAt: new Date(),
       })
       .where(eq(taskipInternalEmails.id, emailId));
+
+    // A reply proves the recipient opened the email — auto-mark opened if not already.
+    if (added > 0 && email.openCount === 0 && lastReplyAt) {
+      await this.db.db.execute(sql`
+        UPDATE taskip_internal_emails
+        SET open_count    = 1,
+            first_open_at = COALESCE(first_open_at, ${lastReplyAt}),
+            last_open_at  = COALESCE(last_open_at,  ${lastReplyAt})
+        WHERE id = ${emailId} AND COALESCE(open_count, 0) = 0
+      `).catch(() => {});
+      this.logger.log(`auto-marked opened for ${emailId} — reply received at ${lastReplyAt.toISOString()}`);
+    }
 
     return { added, total: total.length };
   }

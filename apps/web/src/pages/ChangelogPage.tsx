@@ -16,6 +16,44 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.36.5',
+    date: '2026-05-13',
+    entries: [
+      { tag: 'fix', scope: 'design-samples', description: 'Patterns count now updates after re-analysis completes. When re-analysis finishes with auto-cluster, the frontend starts polling cluster status to catch the backend auto-cluster and refresh patterns from DB when done.' },
+      { tag: 'fix', scope: 'design-samples', description: 'Cluster status is now checked on page load — if clustering is already running (e.g. after page reload during auto-cluster), polling resumes automatically.' },
+    ],
+  },
+  {
+    version: 'v4.36.4',
+    date: '2026-05-13',
+    entries: [
+      { tag: 'fix', scope: 'support', description: 'Webhook logs now appear in the Webhooks tab. Switched writeWebhookLog from raw SQL to Drizzle ORM insert so errors surface instead of being swallowed silently. listWebhookLogs also logs query failures.' },
+      { tag: 'fix', scope: 'support', description: 'Support ticket body and purchase codes now extracted from webhook description field when CRM API is not configured or returns empty. HTML tags are stripped before storage.' },
+      { tag: 'fix', scope: 'support', description: 'Webhook log status "stored" and "reopened" now display as green in the Webhooks tab (were incorrectly shown as red).' },
+    ],
+  },
+  {
+    version: 'v4.36.3',
+    date: '2026-05-13',
+    entries: [
+      { tag: 'feat', scope: 'design-samples', description: 'Failed items log panel added to Design Samples re-analysis. Clicking "show" expands a scrollable list of failed sample IDs with their exact error reasons. Updates live during analysis. Includes a "Copy all" button for the full log. Retry Failed button still appears when analysis is complete.' },
+    ],
+  },
+  {
+    version: 'v4.36.2',
+    date: '2026-05-13',
+    entries: [
+      { tag: 'fix', scope: 'design-samples', description: 'All re-analysis failures now log a warn with the reason. The inner JSON-parse catch was completely silent before — no logger call. Each failure now records {id, reason} in failedDetails and persists to DB. Hovering the "N failed" badge shows the error reason for each item.' },
+    ],
+  },
+  {
+    version: 'v4.36.1',
+    date: '2026-05-13',
+    entries: [
+      { tag: 'fix', scope: 'inbox', description: 'Sync now auto-marks an email as opened when a reply is found. A reply proves the recipient read the message, so first_open_at and open_count are set to the reply timestamp if open tracking had not already fired. The "Not opened yet" status disappears automatically after Sync.' },
+    ],
+  },
+  {
     version: 'v4.36.0',
     date: '2026-05-13',
     entries: [

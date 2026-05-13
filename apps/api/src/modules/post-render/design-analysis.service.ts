@@ -340,7 +340,8 @@ Rules for composite_effects:
 - overlap_region: bounding box (as %) where the two elements actually intersect.
 - Empty array if there are no significant overlapping relationships.`;
 
-type ReanalysisStatus = { done: number; total: number; errors: number; running: boolean; cancelled: boolean; failedIds: string[] };
+type FailedItem = { id: string; reason: string };
+type ReanalysisStatus = { done: number; total: number; errors: number; running: boolean; cancelled: boolean; failedIds: string[]; failedDetails: FailedItem[] };
 
 @Injectable()
 export class DesignAnalysisService {
@@ -469,8 +470,13 @@ export class DesignAnalysisService {
       .where(eq(designReanalysisState.brand, brand))
       .limit(1)
       .catch(() => []);
-    if (!row) return { done: 0, total: 0, errors: 0, running: false, cancelled: false, failedIds: [] };
-    return { done: row.done, total: row.total, errors: row.errors, running: false, cancelled: row.cancelled, failedIds: (row.failedIds as string[]) ?? [] };
+    if (!row) return { done: 0, total: 0, errors: 0, running: false, cancelled: false, failedIds: [], failedDetails: [] };
+    const stored = (row.failedIds as unknown) as FailedItem[] | string[] | null;
+    const failedDetails: FailedItem[] = Array.isArray(stored) && stored.length > 0 && typeof stored[0] === 'object'
+      ? (stored as FailedItem[])
+      : [];
+    const failedIds = failedDetails.map(f => f.id);
+    return { done: row.done, total: row.total, errors: row.errors, running: false, cancelled: row.cancelled, failedIds, failedDetails };
   }
 
   cancelReanalysis(brand: string): void {
@@ -482,10 +488,10 @@ export class DesignAnalysisService {
   private persistStatus(brand: string, status: ReanalysisStatus): void {
     this.db.db
       .insert(designReanalysisState)
-      .values({ brand, ...status, failedIds: status.failedIds, updatedAt: new Date() })
+      .values({ brand, ...status, failedIds: status.failedDetails, updatedAt: new Date() })
       .onConflictDoUpdate({
         target: designReanalysisState.brand,
-        set: { done: status.done, total: status.total, errors: status.errors, running: status.running, cancelled: status.cancelled, failedIds: status.failedIds, updatedAt: new Date() },
+        set: { done: status.done, total: status.total, errors: status.errors, running: status.running, cancelled: status.cancelled, failedIds: status.failedDetails, updatedAt: new Date() },
       })
       .catch((err: unknown) => this.logger.warn(`persist reanalysis state failed: ${(err as Error).message}`));
   }
@@ -649,7 +655,7 @@ export class DesignAnalysisService {
       ));
 
     this.cancelledBrands.delete(brand);
-    const status: ReanalysisStatus = { done: 0, total: rows.length, errors: 0, running: true, cancelled: false, failedIds: [] };
+    const status: ReanalysisStatus = { done: 0, total: rows.length, errors: 0, running: true, cancelled: false, failedIds: [], failedDetails: [] };
     this.reanalysisProgress.set(brand, status);
     this.persistStatus(brand, status);
 
@@ -670,6 +676,7 @@ export class DesignAnalysisService {
         status.errors = failed;
         status.done = reanalyzed + failed;
         status.failedIds.push(row.id);
+        status.failedDetails.push({ id: row.id, reason: 'no sourceUrl' });
         this.logger.warn(`Skipping sample ${row.id}: no sourceUrl`);
         if (status.done % 10 === 0) this.persistStatus(brand, status);
         continue;
@@ -700,10 +707,13 @@ export class DesignAnalysisService {
           const jsonMatch = llmRes.content.match(/```(?:json)?\s*([\s\S]+?)\s*```/) ?? llmRes.content.match(/(\{[\s\S]+\})/);
           dna = JSON.parse(jsonMatch?.[1] ?? llmRes.content);
         } catch {
+          const reason = 'LLM returned invalid JSON for design DNA';
           failed++;
           status.errors = failed;
           status.done = reanalyzed + failed;
           status.failedIds.push(row.id);
+          status.failedDetails.push({ id: row.id, reason });
+          this.logger.warn(`Failed to reanalyze sample ${row.id}: ${reason}`);
           if (status.done % 10 === 0) this.persistStatus(brand, status);
           continue;
         }
@@ -725,11 +735,13 @@ export class DesignAnalysisService {
         this.logger.log(`Reanalyzed ${reanalyzed}/${rows.length} — ${row.id}: ${dna.layout_type}`);
         if (status.done % 10 === 0) this.persistStatus(brand, status);
       } catch (err) {
+        const reason = (err as Error).message;
         failed++;
         status.errors = failed;
         status.done = reanalyzed + failed;
         status.failedIds.push(row.id);
-        this.logger.warn(`Failed to reanalyze sample ${row.id}: ${(err as Error).message}`);
+        status.failedDetails.push({ id: row.id, reason });
+        this.logger.warn(`Failed to reanalyze sample ${row.id}: ${reason}`);
         if (status.done % 10 === 0) this.persistStatus(brand, status);
       }
     }
@@ -756,7 +768,10 @@ export class DesignAnalysisService {
       .where(eq(designReanalysisState.brand, brand))
       .limit(1)
       .catch(() => []);
-    const ids = (row?.failedIds as string[] | null) ?? [];
+    const stored = (row?.failedIds as FailedItem[] | string[] | null) ?? [];
+    const ids: string[] = stored.length > 0 && typeof stored[0] === 'object'
+      ? (stored as FailedItem[]).map(f => f.id)
+      : (stored as string[]);
     if (!ids.length) return { queued: 0 };
 
     const rows = await this.db.db
@@ -770,7 +785,7 @@ export class DesignAnalysisService {
       ));
 
     this.cancelledBrands.delete(brand);
-    const status: ReanalysisStatus = { done: 0, total: rows.length, errors: 0, running: true, cancelled: false, failedIds: [] };
+    const status: ReanalysisStatus = { done: 0, total: rows.length, errors: 0, running: true, cancelled: false, failedIds: [], failedDetails: [] };
     this.reanalysisProgress.set(brand, status);
     this.persistStatus(brand, status);
 
@@ -803,9 +818,11 @@ export class DesignAnalysisService {
           void this.kb.embedEntry(row.id, this.buildEmbeddingText(dna));
           reanalyzed++;
         } catch (err) {
+          const reason = (err as Error).message;
           failed++;
           status.failedIds.push(row.id);
-          this.logger.warn(`Retry failed for ${row.id}: ${(err as Error).message}`);
+          status.failedDetails.push({ id: row.id, reason });
+          this.logger.warn(`Retry failed for ${row.id}: ${reason}`);
         }
         status.done = reanalyzed + failed;
         status.errors = failed;

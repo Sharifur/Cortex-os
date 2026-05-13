@@ -534,15 +534,14 @@ export class SupportAgent implements IAgent, OnModuleInit {
     rawPayload?: string | null;
     error?: string | null;
   }) {
-    const id = createId();
-    await this.db.db.execute(sql`
-      INSERT INTO support_webhook_logs (id, status, external_id, ticket_id, raw_payload, error, received_at)
-      VALUES (
-        ${id}, ${entry.status}, ${entry.externalId ?? null}, ${entry.ticketId ?? null},
-        ${entry.rawPayload ?? null}, ${entry.error ?? null}, NOW()
-      )
-    `).catch((dbErr: unknown) => {
-      this.logger.error(`writeWebhookLog failed (table may not exist on this environment): ${(dbErr as Error).message} | status=${entry.status} externalId=${entry.externalId ?? 'none'} error=${entry.error ?? 'none'}`);
+    await this.db.db.insert(supportWebhookLogs).values({
+      status: entry.status,
+      externalId: entry.externalId ?? null,
+      ticketId: entry.ticketId ?? null,
+      rawPayload: entry.rawPayload ?? null,
+      error: entry.error ?? null,
+    }).catch((dbErr: unknown) => {
+      this.logger.error(`writeWebhookLog failed: ${(dbErr as Error).message} | status=${entry.status} externalId=${entry.externalId ?? 'none'}`);
     });
   }
 
@@ -620,12 +619,19 @@ export class SupportAgent implements IAgent, OnModuleInit {
       (typeof ticket.priority === 'string' && VALID_PRIORITIES.includes(ticket.priority))
         ? ticket.priority
         : (PRIORITY_MAP[ticket.priority as number] ?? 'medium');
-    const body = await this.fetchCrmTicket(ticket.id);
+
+    let body = await this.fetchCrmTicket(ticket.id);
 
     if (body) {
       this.logger.log(`CRM fetch OK for ticket #${ticket.id} (${body.length} chars)`);
     } else {
-      this.logger.warn(`CRM fetch returned empty body for ticket #${ticket.id} — proceeding with subject only`);
+      const rawDesc: string = ticket.description ?? ticket.message ?? '';
+      body = rawDesc.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+      if (body) {
+        this.logger.log(`Using webhook description field for ticket #${ticket.id} (${body.length} chars)`);
+      } else {
+        this.logger.warn(`No body available for ticket #${ticket.id} — proceeding with subject only`);
+      }
     }
 
     // Customer reply on a ticket that's awaiting a purchase code — re-open for re-processing
@@ -690,7 +696,10 @@ export class SupportAgent implements IAgent, OnModuleInit {
       .from(supportWebhookLogs)
       .orderBy(desc(supportWebhookLogs.receivedAt))
       .limit(Math.min(Number(limit ?? 100), 500))
-      .catch(() => []);
+      .catch((err: unknown) => {
+        this.logger.error(`listWebhookLogs query failed: ${(err as Error).message}`);
+        return [];
+      });
   }
 
   private async crmHeaders(): Promise<Record<string, string>> {
