@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.36.5',
+    date: '2026-05-13',
+    entries: [
+      { tag: 'fix', scope: 'design-samples', description: 'Patterns count now updates after re-analysis completes. When re-analysis finishes with auto-cluster, the frontend starts polling cluster status to catch the backend auto-cluster and refresh patterns from DB when done.' },
+      { tag: 'fix', scope: 'design-samples', description: 'Cluster status is now checked on page load — if clustering is already running (e.g. after page reload during auto-cluster), polling resumes automatically.' },
+    ],
+  },
+  {
     version: 'v4.36.4',
     date: '2026-05-13',
     entries: [

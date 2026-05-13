@@ -3977,6 +3977,8 @@ function DesignSamplesTab({ token }: { token: string }) {
         if (!status.running) {
           stopReanalysisPoll();
           await loadData();
+          // Backend fires auto-cluster after reanalysis; start polling to catch it
+          startClusterPoll(true);
         }
       } catch {
         stopReanalysisPoll();
@@ -3984,12 +3986,22 @@ function DesignSamplesTab({ token }: { token: string }) {
     }, 3000);
   }
 
-  function startClusterPoll() {
+  function startClusterPoll(afterReanalysis = false) {
     stopClusterPoll();
+    let idlePolls = 0;
+    const MAX_IDLE_POLLS = afterReanalysis ? 15 : 0; // wait up to 30s for auto-cluster to start
     clusterPollRef.current = setInterval(async () => {
       try {
         const status = await apiFetch(token, '/posts/design-samples/cluster/status?brand=default');
         setClusteringStatus(status);
+        if (!status.running && status.phase === 'idle') {
+          idlePolls++;
+          if (idlePolls > MAX_IDLE_POLLS) {
+            stopClusterPoll();
+          }
+          return;
+        }
+        idlePolls = 0;
         if (!status.running && status.phase !== 'idle') {
           stopClusterPoll();
           await loadData();
@@ -4000,7 +4012,7 @@ function DesignSamplesTab({ token }: { token: string }) {
     }, 2000);
   }
 
-  // On mount: check if analysis is already running (survives page reload)
+  // On mount: check if reanalysis or clustering is already running (survives page reload)
   useEffect(() => {
     apiFetch(token, '/posts/design-samples/reanalyze/status?brand=default').then(status => {
       if (status.running) {
@@ -4008,6 +4020,12 @@ function DesignSamplesTab({ token }: { token: string }) {
         startReanalysisPoll();
       } else if (status.done > 0 || status.errors > 0) {
         setReanalysisProgress(status);
+      }
+    }).catch(() => {});
+    apiFetch(token, '/posts/design-samples/cluster/status?brand=default').then(status => {
+      if (status.running) {
+        setClusteringStatus(status);
+        startClusterPoll();
       }
     }).catch(() => {});
     return () => { stopReanalysisPoll(); stopClusterPoll(); };
