@@ -16,6 +16,15 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.36.7',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'fix', scope: 'design-samples', description: 'Active tab (renders/brands/design-samples/settings/setup) is now persisted to sessionStorage. Refreshing the page restores the last active tab so a running re-analysis progress bar is visible immediately.' },
+      { tag: 'fix', scope: 'design-samples', description: 'On tab mount, if the cluster already finished while the page was unloaded, loadData() is now called to refresh patterns from DB immediately.' },
+      { tag: 'fix', scope: 'design-samples', description: 'cluster() is now wrapped in try-catch-finally: on any LLM or DB failure, status.running is set to false and status.phase to "error". Previously a failed cluster left running=true forever, locking the frontend poll and keeping patterns stale.' },
+    ],
+  },
+  {
     version: 'v4.36.6',
     date: '2026-05-13',
     entries: [
