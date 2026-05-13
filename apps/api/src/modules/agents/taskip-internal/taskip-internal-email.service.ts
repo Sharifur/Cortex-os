@@ -48,7 +48,8 @@ function buildHtmlEmail(textBody: string, pixelUrl: string): string {
     return `<p style="margin:0 0 12px">${content}</p>`;
   });
   const body = htmlParts.join('');
-  return `<!DOCTYPE html><html><body style="font-family:sans-serif;font-size:14px;line-height:1.6;color:#222;max-width:600px;padding:16px">${body}<img src="${pixelUrl}" width="1" height="1" style="display:block;width:1px;height:1px;border:0" alt="" loading="eager"></body></html>`;
+  const pixel = pixelUrl ? `<img src="${pixelUrl}" width="1" height="1" style="display:block;width:1px;height:1px;border:0" alt="" loading="eager">` : '';
+  return `<!DOCTYPE html><html><body style="font-family:sans-serif;font-size:14px;line-height:1.6;color:#222;max-width:600px;padding:16px">${body}${pixel}</body></html>`;
 }
 
 export type TaskipEmailPurpose = 'marketing' | 'followup' | 'offer' | 'other';
@@ -95,10 +96,15 @@ export class TaskipInternalEmailService {
     const trackingToken = createId();
 
     let htmlBody: string | undefined;
-    if (!input.plainText) {
-      const apiBase = (process.env.COOLIFY_URL ?? process.env.API_PUBLIC_URL ?? 'http://localhost:3000').replace(/\/$/, '');
+    const apiBase = (process.env.COOLIFY_URL ?? process.env.API_PUBLIC_URL ?? process.env.VITE_API_URL ?? '').replace(/\/$/, '');
+    if (!apiBase) {
+      this.logger.warn('COOLIFY_URL / API_PUBLIC_URL not set — tracking pixel URL will be empty and opens will not be recorded');
+    }
+    if (!input.plainText && apiBase) {
       const pixelUrl = `${apiBase}/track/open/${trackingToken}.gif`;
       htmlBody = buildHtmlEmail(textBody, pixelUrl);
+    } else if (!input.plainText) {
+      htmlBody = buildHtmlEmail(textBody, '');
     }
 
     try {
@@ -119,27 +125,39 @@ export class TaskipInternalEmailService {
       }
 
       const id = createId();
-      // Use raw SQL to guarantee only stable columns are inserted.
-      // Drizzle client-side defaults (e.g. open_count=0) would reference columns
-      // that may not exist on older environments where migration 0063 hasn't run.
-      await this.db.db.execute(sql`
+      // Include tracking_token in the INSERT atomically so it is always stored,
+      // even if a migration that adds the column was applied after startup.
+      // If the column is absent (pre-0063 env), the INSERT will fail on the column
+      // name and we fall back to the no-token INSERT below.
+      const insertOk = await this.db.db.execute(sql`
         INSERT INTO taskip_internal_emails
           (id, purpose, workspace_uuid, recipient, subject, body,
-           gmail_message_id, gmail_thread_id, status, metadata, sent_at)
+           gmail_message_id, gmail_thread_id, status, metadata, sent_at, tracking_token)
         VALUES
           (${id}, ${input.purpose}, ${input.workspaceUuid ?? null},
            ${input.recipient}, ${input.subject}, ${input.body},
            ${messageId}, ${threadId}, 'sent',
            ${input.metadata ?? null},
-           NOW())
-      `);
+           NOW(), ${trackingToken})
+      `).then(() => true).catch(async () => {
+        // tracking_token column absent — insert without it
+        await this.db.db.execute(sql`
+          INSERT INTO taskip_internal_emails
+            (id, purpose, workspace_uuid, recipient, subject, body,
+             gmail_message_id, gmail_thread_id, status, metadata, sent_at)
+          VALUES
+            (${id}, ${input.purpose}, ${input.workspaceUuid ?? null},
+             ${input.recipient}, ${input.subject}, ${input.body},
+             ${messageId}, ${threadId}, 'sent',
+             ${input.metadata ?? null},
+             NOW())
+        `);
+        return false;
+      });
 
-      // Best-effort: set tracking token if the column exists
-      await this.db.db.execute(sql`
-        UPDATE taskip_internal_emails
-        SET tracking_token = ${trackingToken}
-        WHERE id = ${id}
-      `).catch(() => { /* column not yet migrated */ });
+      if (!insertOk) {
+        this.logger.warn(`tracking_token column absent — open tracking disabled for email ${id}`);
+      }
 
       return { id, gmailMessageId: messageId, status: 'sent' };
     } catch (err) {

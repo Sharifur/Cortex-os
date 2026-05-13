@@ -640,16 +640,23 @@ export class DesignAnalysisService {
         return { reanalyzed, failed };
       }
       const url = row.sourceUrl;
-      if (!url || url.startsWith('local://')) {
+      if (!url) {
         failed++;
         status.errors = failed;
         status.done = reanalyzed + failed;
+        this.logger.warn(`Skipping sample ${row.id}: no sourceUrl`);
         continue;
       }
       try {
-        const res = await fetch(url);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const buffer = Buffer.from(await res.arrayBuffer());
+        let buffer: Buffer;
+        if (url.startsWith('local://')) {
+          const localPath = url.slice('local://'.length);
+          buffer = await fs.readFile(localPath);
+        } else {
+          const res = await fetch(url);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          buffer = Buffer.from(await res.arrayBuffer());
+        }
 
         const imageBase64 = buffer.toString('base64');
         const llmRes = await this.llm.complete({

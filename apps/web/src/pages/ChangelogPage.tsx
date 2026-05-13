@@ -16,6 +16,15 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.35.0',
+    date: '2026-05-13',
+    entries: [
+      { tag: 'fix', scope: 'tracking', description: 'Tracking pixel now works correctly end-to-end. Security headers (CSP, X-Frame-Options) are no longer applied to the /track/* route — CDN and proxy layers between email clients and the API were rejecting GIF responses that carried page-level security directives. Access-Control-Allow-Origin: * is now set explicitly on pixel responses. Token is saved atomically in the INSERT rather than a separate best-effort UPDATE so it can no longer be silently lost. VITE_API_URL is now recognised as a fallback for the pixel base URL so no new env var is needed on Coolify.' },
+      { tag: 'fix', scope: 'inbox', description: 'Inbox detail view now polls every 30 seconds while the selected email has not been opened yet, so the open status updates automatically without requiring a manual Sync click.' },
+      { tag: 'fix', scope: 'design-samples', description: 'Re-analysis now handles local:// scheme image URLs by reading the file from disk instead of making an HTTP request, fixing re-analysis failures for locally stored samples.' },
+    ],
+  },
+  {
     version: 'v4.34.0',
     date: '2026-05-13',
     entries: [
