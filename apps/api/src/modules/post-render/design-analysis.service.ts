@@ -81,16 +81,32 @@ Use exactly this JSON structure (choose the closest enum value where applicable)
   "element_positions": [
     {
       "name": "logo",
-      "type": "logo",
+      "type": "logo|text|image|shape|icon|cta-button|brand-bar|divider",
       "x": 5, "y": 5, "w": 20, "h": 8,
-      "align": "left",
-      "z_layer": "foreground"
-    },
+      "align": "left|center|right",
+      "rotation_deg": 0,
+      "z_layer": "background|mid|foreground"
+    }
+  ],
+
+  "text_elements": [
     {
-      "name": "headline",
-      "type": "text",
-      "x": 5, "y": 30, "w": 90, "h": 18,
-      "align": "left",
+      "role": "eyebrow|headline|subheadline|body|caption|stat-number|stat-label|list-item|cta-label|attribution|slide-number|tag|watermark",
+      "content_preview": "First few words or '[stat]' placeholder",
+      "x": 5, "y": 20, "w": 90, "h": 12,
+      "align": "left|center|right",
+      "rotation_deg": 0,
+      "font_weight": "thin|regular|medium|semibold|bold|black|extrabold",
+      "estimated_size_px": 52,
+      "color_hex": "#ffffff",
+      "background_hex": "none or #hex if text has a background fill",
+      "letter_spacing": "tight|normal|wide|very-wide",
+      "line_height": "tight|normal|relaxed",
+      "case_style": "uppercase|title-case|sentence-case|lowercase|mixed",
+      "decoration": "none|underline|strikethrough|highlight-bg|outline-stroke",
+      "is_multiline": false,
+      "line_count": 1,
+      "opacity": 1.0,
       "z_layer": "foreground"
     }
   ],
@@ -153,7 +169,17 @@ Rules for element_positions:
 - x, y, w, h are ALL percentages of the canvas dimensions (0–100). Estimate carefully by looking at where the element starts and ends relative to the full canvas edges.
 - z_layer: background = behind content, mid = between bg and text, foreground = top-most layer.
 - grid_columns: count the number of equal columns the layout uses (1 for single-column, 2 for side-by-side, 3 for 3-column grid, etc.)
-- content_zone: the bounding box of the main content area, excluding any full-bleed backgrounds.`;
+- content_zone: the bounding box of the main content area, excluding any full-bleed backgrounds.
+- element_positions.rotation_deg: 0 for normal horizontal text; use positive degrees for clockwise tilt (e.g. 45 for diagonal text), negative for counter-clockwise. Most elements will be 0.
+
+Rules for text_elements:
+- List EVERY distinct text layer visible in the image as a separate entry — do not merge separate text blocks.
+- If text is split across multiple visual lines at different positions (e.g. two halves of a headline at different y values, or a stat number above a label), create one entry per visually distinct text block.
+- rotation_deg: 0 for standard horizontal text; set to the actual clockwise angle in degrees for any rotated or angled text (e.g. 90 for vertical sideways text, -15 for a slight left tilt, 45 for diagonal). This is the most important field for capturing unusual layouts.
+- estimated_size_px: estimate the font size in pixels relative to a 1080px canvas height. A headline taking ~10% of canvas height = ~108px.
+- content_preview: write the first 4–6 visible words or use a placeholder like [headline], [stat], [url], [date] for content you cannot read clearly.
+- Do not skip small text: include captions, slide numbers, watermarks, social handles, URLs, copyright lines — all are separate entries.
+- Empty array only if the image contains zero readable text.`;
 
 @Injectable()
 export class DesignAnalysisService {
@@ -288,7 +314,20 @@ export class DesignAnalysisService {
       `-- Spatial Layout --`,
       `Grid columns: ${dna.grid_columns ?? 1}`,
       `Content zone: x=${dna.content_zone?.x}% y=${dna.content_zone?.y}% w=${dna.content_zone?.w}% h=${dna.content_zone?.h}%`,
-      `Elements (${(dna.element_positions ?? []).length}): ${(dna.element_positions ?? []).map(e => `${e.name}[${e.type}] x=${e.x}% y=${e.y}% w=${e.w}% h=${e.h}% ${e.align} ${e.z_layer}`).join(' | ')}`,
+      `Elements (${(dna.element_positions ?? []).length}): ${(dna.element_positions ?? []).map(e => `${e.name}[${e.type}] x=${e.x}% y=${e.y}% w=${e.w}% h=${e.h}% align:${e.align} rot:${e.rotation_deg ?? 0}deg ${e.z_layer}`).join(' | ')}`,
+      ``,
+      `-- Text Elements (${(dna.text_elements ?? []).length}) --`,
+      ...(dna.text_elements ?? []).map(t =>
+        [
+          `[${t.role}] "${t.content_preview}"`,
+          `pos: x=${t.x}% y=${t.y}% w=${t.w}% h=${t.h}%`,
+          `rotation: ${t.rotation_deg ?? 0}deg`,
+          `style: ${t.font_weight} ${t.estimated_size_px}px ${t.case_style} spacing:${t.letter_spacing} lh:${t.line_height}`,
+          `color: ${t.color_hex}${t.background_hex && t.background_hex !== 'none' ? ` bg:${t.background_hex}` : ''}`,
+          `lines: ${t.line_count ?? 1}${t.decoration && t.decoration !== 'none' ? ` decoration:${t.decoration}` : ''}`,
+          `opacity: ${t.opacity ?? 1.0}`,
+        ].join(' | ')
+      ),
       ``,
       `-- Shape Elements (${(dna.shape_elements ?? []).length}) --`,
       ...(dna.shape_elements ?? []).map(s =>

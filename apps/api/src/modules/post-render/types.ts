@@ -240,22 +240,95 @@ export interface DesignDNA {
 
   // Spatial layout — Elementor-style element positions (percentage of canvas width/height)
   element_positions: Array<{
-    name: string;         // e.g. "logo", "eyebrow", "headline", "body", "icon", "cta-button", "brand-bar", "decoration-circle"
+    name: string;
     type: 'text' | 'icon' | 'illustration' | 'photo' | 'button' | 'shape' | 'logo' | 'bar' | 'divider';
-    x: number;            // left edge, 0–100% of canvas width
-    y: number;            // top edge, 0–100% of canvas height
-    w: number;            // width, 0–100% of canvas width
-    h: number;            // height, 0–100% of canvas height
+    x: number;
+    y: number;
+    w: number;
+    h: number;
     align: 'left' | 'center' | 'right';
+    rotation_deg?: number;
     z_layer: 'background' | 'mid' | 'foreground';
   }>;
-  grid_columns: 1 | 2 | 3 | 4;   // column grid structure of the layout
-  content_zone: {                   // main content bounding box as % of canvas
+
+  // Per-text-layer detail — one entry per visually distinct text block
+  text_elements?: Array<{
+    role: 'eyebrow' | 'headline' | 'subheadline' | 'body' | 'caption' | 'stat-number' | 'stat-label' | 'list-item' | 'cta-label' | 'attribution' | 'slide-number' | 'tag' | 'watermark';
+    content_preview: string;
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+    align: 'left' | 'center' | 'right';
+    rotation_deg: number;
+    font_weight: 'thin' | 'regular' | 'medium' | 'semibold' | 'bold' | 'black' | 'extrabold';
+    estimated_size_px: number;
+    color_hex: string;
+    background_hex: string;
+    letter_spacing: 'tight' | 'normal' | 'wide' | 'very-wide';
+    line_height: 'tight' | 'normal' | 'relaxed';
+    case_style: 'uppercase' | 'title-case' | 'sentence-case' | 'lowercase' | 'mixed';
+    decoration: 'none' | 'underline' | 'strikethrough' | 'highlight-bg' | 'outline-stroke';
+    is_multiline: boolean;
+    line_count: number;
+    opacity: number;
+    z_layer: 'background' | 'mid' | 'foreground';
+  }>;
+
+  grid_columns: 1 | 2 | 3 | 4;
+  content_zone: {
     x: number; y: number; w: number; h: number;
   };
 
+  // Extended typography metadata
+  typography?: {
+    heading_case: 'uppercase' | 'title-case' | 'sentence-case' | 'mixed';
+    heading_letter_spacing: 'tight' | 'normal' | 'wide' | 'very-wide';
+    heading_line_height: 'tight' | 'normal' | 'relaxed';
+    heading_word_count_typical: '1-3' | '4-6' | '7-10' | '10+';
+    uses_eyebrow_label: boolean;
+    eyebrow_style: 'none' | 'uppercase-small-caps' | 'colored-label' | 'outlined-tag';
+    body_present: boolean;
+    body_line_count_typical: '1' | '2-3' | '4-6' | 'block';
+    font_mix: 'single-font' | 'two-fonts' | 'three-plus-fonts';
+    heading_estimated_size_px: number;
+    body_estimated_size_px: number;
+    uses_highlight_text: boolean;
+    highlight_style: 'none' | 'colored-word' | 'underline' | 'background-highlight' | 'bold-word';
+  };
+
+  // Spacing rhythm metadata
+  spacing?: {
+    outer_padding_style: 'tight-5' | 'medium-8' | 'comfortable-10' | 'generous-12-plus';
+    headline_to_body_gap: 'tight' | 'medium' | 'large';
+    element_vertical_rhythm: 'tight' | 'even' | 'spacious';
+    cta_margin_top: 'tight' | 'medium' | 'large';
+    logo_margin: 'flush' | 'small' | 'medium' | 'large';
+  };
+
+  // Exact hex values per role
+  color_usage?: {
+    background_hex?: string;
+    headline_text_hex?: string;
+    body_text_hex?: string;
+    cta_background_hex?: string;
+    cta_text_hex?: string;
+    accent_bar_hex?: string;
+    icon_color_hex?: string;
+  };
+
+  // Content pattern analysis
+  text_content_pattern?: {
+    headline_starts_with: 'number' | 'question' | 'verb' | 'noun' | 'adjective' | 'proper-noun';
+    uses_brand_name_in_headline: boolean;
+    has_social_handle: boolean;
+    has_url: boolean;
+    has_tagline: boolean;
+    has_copyright: boolean;
+  };
+
   // Free-text observations
-  pattern_notes: string;           // any notable detail not captured by fields above
+  pattern_notes: string;
 }
 
 export interface RenderRequest {

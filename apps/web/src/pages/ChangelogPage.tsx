@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.17.7',
+    date: '2026-05-13',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'DNA now captures every text layer individually via a text_elements array — each entry stores role, content preview, x/y/w/h position (% of canvas), rotation_deg (0 for normal, 90 for vertical, etc.), font weight, estimated size in px, color hex, background hex, letter-spacing, line-height, case style, decoration, line count, and opacity. rotation_deg also added to element_positions. DesignDNA TypeScript interface updated with text_elements, typography, spacing, color_usage, and text_content_pattern fields.' },
+    ],
+  },
+  {
     version: 'v4.17.6',
     date: '2026-05-13',
     entries: [
