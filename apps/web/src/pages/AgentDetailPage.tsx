@@ -4850,6 +4850,7 @@ function CanvaSettingsTab({ agent, token }: { agent: AgentDetail; token: string 
   const [formats, setFormats] = useState<string[]>((cfg.formats as string[]) ?? ['carousel', 'reel', 'post', 'story', 'youtube']);
   const [debugMode, setDebugMode] = useState(!!(cfg.debugMode));
   const [maxCostUsd, setMaxCostUsd] = useState(String(cfg.maxCostUsd ?? 5.0));
+  const [patternConsistency, setPatternConsistency] = useState(!!(cfg.patternConsistency));
   const [overrideLlm, setOverrideLlm] = useState(!!(initialLlm?.provider || initialLlm?.model));
   const [llmProvider, setLlmProvider] = useState(initialLlm?.provider ?? 'auto');
   const [llmModel, setLlmModel] = useState(initialLlm?.model ?? '');
@@ -4887,6 +4888,7 @@ function CanvaSettingsTab({ agent, token }: { agent: AgentDetail; token: string 
       brands: brands?.filter((b) => b.active).map((b) => b.name) ?? (cfg.brands as string[] ?? ['taskip', 'xgenious']),
       debugMode,
       maxCostUsd: parseFloat(maxCostUsd) || 5.0,
+      patternConsistency,
     };
     if (overrideLlm && (llmProvider !== 'auto' || llmModel)) {
       config.llm = { ...(llmProvider ? { provider: llmProvider } : {}), ...(llmModel ? { model: llmModel } : {}) };
@@ -4971,6 +4973,14 @@ function CanvaSettingsTab({ agent, token }: { agent: AgentDetail; token: string 
             />
             <span className="text-xs text-muted-foreground">Agent switches from DALL-E to Stability AI when this is exceeded</span>
           </div>
+        </div>
+
+        <div className="flex items-center justify-between py-0.5">
+          <div>
+            <p className="text-sm">Pattern consistency</p>
+            <p className="text-xs text-muted-foreground">Inject per-slide-type learned patterns into content generation (cover / content / cta each get their own rules)</p>
+          </div>
+          <BigToggle enabled={patternConsistency} onClick={() => setPatternConsistency(!patternConsistency)} />
         </div>
 
         <div className="flex items-center justify-between py-0.5">

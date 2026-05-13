@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.39.0',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'Pattern consistency layer: getPatternsBySlideType() groups per-image design rules by slide_type (cover/content/cta/stat/list/quote/testimonial). When enabled, each slide role receives its own set of learned patterns in the AI prompt.' },
+      { tag: 'feat', scope: 'canva', description: 'Pattern consistency toggle added to Canva agent Settings tab. Enabling it injects per-slide-type patterns alongside the global patternRules so cover, inner, and CTA slides each follow the brand patterns learned for that role.' },
+    ],
+  },
+  {
     version: 'v4.38.0',
     date: '2026-05-14',
     entries: [

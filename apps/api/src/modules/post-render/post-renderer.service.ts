@@ -77,9 +77,12 @@ export class PostRendererService {
     ).catch(() => {});
 
     // Resolve brand identity and dominant design DNA in parallel
-    const [brandRaw, dominantDNA] = await Promise.all([
+    const [brandRaw, dominantDNA, patternsBySlideType] = await Promise.all([
       this.brandSvc.resolve(req.brand),
       this.designPattern.getDominantDNA(req.brand).catch(() => null as DominantDNA | null),
+      req.patternConsistency
+        ? this.designPattern.getPatternsBySlideType(req.brand).catch(() => ({} as Record<string, string[]>))
+        : Promise.resolve(null as Record<string, string[]> | null),
     ]);
 
     // Feature 3: apply learned font pairing when brand uses default Inter fonts
@@ -117,6 +120,7 @@ export class PostRendererService {
       contentTone: dominantDNA?.content_tone,
       moodKeywords: dominantDNA?.mood_keywords,
       patternRules: dominantDNA?.pattern_rules,
+      patternsBySlideType: patternsBySlideType ?? undefined,
       designContext: dominantDNA?.banner_brief || undefined,
       runId,
     });

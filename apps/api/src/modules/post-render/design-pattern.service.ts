@@ -651,6 +651,51 @@ export class DesignPatternService {
     };
   }
 
+  async getPatternsBySlideType(brand?: string): Promise<Record<string, string[]>> {
+    const effectiveBrand = brand || 'default';
+    const sampleRows = await this.db.db
+      .select({ content: knowledgeEntries.content })
+      .from(knowledgeEntries)
+      .where(and(
+        eq(knowledgeEntries.entryType, 'design_sample'),
+        eq(knowledgeEntries.agentKeys, 'canva'),
+        eq(knowledgeEntries.siteKeys, effectiveBrand),
+      ));
+
+    const byType: Record<string, Map<string, number>> = {};
+    for (const row of sampleRows) {
+      const patternSection = row.content.split('-- Design Patterns --')[1]?.split('DNA JSON:')[0] ?? '';
+      const rules = patternSection
+        .split('\n')
+        .filter(line => /^\d+\./.test(line.trim()))
+        .map(line => line.replace(/^\d+\.\s*/, '').trim())
+        .filter(Boolean);
+      if (!rules.length) continue;
+
+      // Extract slide_type from DNA JSON
+      const dnaMatch = row.content.match(/DNA JSON: (\{[\s\S]+\})\s*$/m);
+      let slideType = 'content';
+      if (dnaMatch) {
+        try {
+          const dna = JSON.parse(dnaMatch[1]) as { slide_type?: string };
+          slideType = dna.slide_type ?? 'content';
+        } catch { /* keep default */ }
+      }
+
+      if (!byType[slideType]) byType[slideType] = new Map();
+      const freq = byType[slideType];
+      for (const r of rules) freq.set(r, (freq.get(r) ?? 0) + 1);
+    }
+
+    const result: Record<string, string[]> = {};
+    for (const [type, freq] of Object.entries(byType)) {
+      result[type] = [...freq.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .map(([rule]) => rule);
+    }
+    return result;
+  }
+
   async getBannerBrief(brand?: string): Promise<string> {
     const effectiveBrand = brand || 'default';
     const rows = await this.db.db

@@ -37,6 +37,7 @@ interface CanvaConfig {
   debugMode?: boolean;
   maxCostUsd?: number;
   llm?: { provider?: string; model?: string };
+  patternConsistency?: boolean;
 }
 
 const DEFAULT_CONFIG: CanvaConfig = {
@@ -290,7 +291,8 @@ Return ONLY a JSON array (no markdown):
     if (action.type === 'post_render') {
       const { formatId, brand, topic, intent, _runId } = action.payload as any;
       try {
-        const result = await this.renderer.render({ formatId, brand, topic, intent }, _runId as string | undefined);
+        const config = await this.getConfig();
+        const result = await this.renderer.render({ formatId, brand, topic, intent, patternConsistency: config.patternConsistency }, _runId as string | undefined);
         const slideList = result.slideUrls.map((u, i) => `Slide ${i + 1}: ${u}`).join('\n');
         const message = `Render complete — ${result.slideUrls.length} slides generated\n\n${slideList}\n\nExports:\nPPTX (Canva layers): /posts/renders/${result.id}/pptx\nCSV (Bulk Create): /posts/renders/${result.id}/canva-csv\nPlain text: /posts/renders/${result.id}/text-export`;
         return { success: true, data: { message, slideUrls: result.slideUrls, renderId: result.id } };
