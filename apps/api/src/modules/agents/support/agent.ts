@@ -3,7 +3,7 @@ import { eq, desc, sql, and, ilike, or } from 'drizzle-orm';
 import { createId } from '@paralleldrive/cuid2';
 import { DbService } from '../../../db/db.service';
 import { agents } from '../../../db/schema';
-import { supportTickets, supportWebhookLogs } from './schema';
+import { supportTickets, supportWebhookLogs, supportTicketEvents } from './schema';
 import { AgentRegistryService } from '../runtime/agent-registry.service';
 import { LlmRouterService } from '../../llm/llm-router.service';
 import { TelegramService } from '../../telegram/telegram.service';
@@ -122,6 +122,79 @@ export class SupportAgent implements IAgent, OnModuleInit {
 
     for (const ticket of tickets) {
       try {
+        const ticketText = `${ticket.subject ?? ''} ${ticket.body ?? ''}`;
+        const purchaseCodes = PurchaseVerifyService.extractPurchaseCodes(ticketText);
+
+        // --- Purchase code gate ---
+        // Tickets that already have a final purchase status don't need a new code request
+        const alreadyGated = ticket.purchaseCodeStatus === 'verified'
+          || ticket.purchaseCodeStatus === 'invalid'
+          || ticket.purchaseCodeStatus === 'expired';
+
+        if (!alreadyGated && purchaseCodes.length === 0) {
+          if (ticket.purchaseCodeStatus !== 'requested') {
+            await this.writeTicketEvent({
+              ticketId: ticket.id,
+              externalId: ticket.externalId,
+              eventType: 'purchase_code_not_found',
+              summary: 'No purchase code in ticket — queued request_purchase_code action',
+              payload: { subject: ticket.subject, userEmail: ticket.userEmail },
+            });
+            actions.push({
+              type: 'request_purchase_code',
+              summary: `Request purchase code: ${ticket.subject} from ${ticket.userEmail}`,
+              payload: {
+                ticketId: ticket.id,
+                crmTicketId: ticket.externalId ? Number(ticket.externalId) : null,
+                subject: ticket.subject,
+                userEmail: ticket.userEmail,
+                draft: `Thank you for reaching out. To verify your purchase and provide you with the best support, could you please share your purchase code? You can find it in your Envato purchase email. It looks like one of these formats:\n\na99d70b3-372c-4d2e-b602-02320c5f5151\nor\nXGENIOUS-4471-3938-4712-8776\n\nOnce verified, we will be happy to assist you.`,
+              },
+              riskLevel: 'low',
+            });
+          }
+          continue;
+        }
+
+        // --- Verify purchase code if we have one and haven't verified yet ---
+        let purchaseBlock = '';
+        if (purchaseCodes.length && !alreadyGated) {
+          await this.writeTicketEvent({
+            ticketId: ticket.id,
+            externalId: ticket.externalId,
+            eventType: 'purchase_code_found',
+            summary: `Found ${purchaseCodes.length} code(s) — verifying first`,
+            payload: { codes: purchaseCodes },
+          });
+          const verifyResult = await this.purchaseVerify.verify(purchaseCodes[0]);
+          if (verifyResult) {
+            purchaseBlock = PurchaseVerifyService.buildVerifyPromptBlock(verifyResult);
+            await this.writeTicketEvent({
+              ticketId: ticket.id,
+              externalId: ticket.externalId,
+              eventType: verifyResult.supportIsActive ? 'purchase_code_verified'
+                : (verifyResult.action === 'reject_invalid_code' ? 'purchase_code_invalid' : 'purchase_code_expired'),
+              summary: verifyResult.summary,
+              payload: {
+                action: verifyResult.action,
+                supportIsActive: verifyResult.supportIsActive,
+                supportDaysRemaining: verifyResult.supportDaysRemaining,
+                buyerUsername: verifyResult.buyerUsername,
+                licenseKey: verifyResult.licenseKey,
+              },
+            });
+            await this.db.db
+              .update(supportTickets)
+              .set({
+                purchaseCode: purchaseCodes[0],
+                purchaseCodeStatus: verifyResult.supportIsActive ? 'verified'
+                  : (verifyResult.action === 'reject_invalid_code' ? 'invalid' : 'expired'),
+                updatedAt: new Date(),
+              })
+              .where(eq(supportTickets.id, ticket.id));
+          }
+        }
+
         const [references, previousTickets] = await Promise.all([
           this.kb.searchEntries(`${ticket.subject} ${ticket.body?.slice(0, 200) ?? ''}`, this.key, 5),
           this.getContactHistory(ticket.userEmail),
@@ -148,14 +221,6 @@ export class SupportAgent implements IAgent, OnModuleInit {
               .join('\n')}`
           : '';
 
-        let purchaseBlock = '';
-        const ticketText = `${ticket.subject ?? ''} ${ticket.body ?? ''}`;
-        const purchaseCodes = PurchaseVerifyService.extractPurchaseCodes(ticketText);
-        if (purchaseCodes.length && PurchaseVerifyService.hasSupportIntent(ticketText)) {
-          const verifyResult = await this.purchaseVerify.verify(purchaseCodes[0]);
-          if (verifyResult) purchaseBlock = PurchaseVerifyService.buildVerifyPromptBlock(verifyResult);
-        }
-
         const systemPrompt = (template?.system ?? SYSTEM_PROMPT) + kbBlock + contactMemory + purchaseBlock;
 
         const response = await this.llm.complete({
@@ -177,7 +242,14 @@ export class SupportAgent implements IAgent, OnModuleInit {
           continue;
         }
 
-        // Self-critique + blocklist check
+        await this.writeTicketEvent({
+          ticketId: ticket.id,
+          externalId: ticket.externalId,
+          eventType: 'reply_drafted',
+          summary: `[${parsed.category}/${parsed.priority}] ${parsed.reply.slice(0, 120)}`,
+          payload: { category: parsed.category, priority: parsed.priority, draft: parsed.reply },
+        });
+
         parsed.reply = await this.selfCritique(
           parsed.reply,
           alwaysOn.find(e => e.entryType === 'voice_profile')?.content,
@@ -207,6 +279,13 @@ export class SupportAgent implements IAgent, OnModuleInit {
         });
       } catch (err) {
         this.logger.warn(`Failed to process ticket ${ticket.id}: ${err}`);
+        await this.writeTicketEvent({
+          ticketId: ticket.id,
+          externalId: ticket.externalId,
+          eventType: 'decide_error',
+          summary: `Failed to process ticket: ${(err as Error).message}`,
+          error: (err as Error).message,
+        });
       }
     }
 
@@ -214,12 +293,35 @@ export class SupportAgent implements IAgent, OnModuleInit {
   }
 
   requiresApproval(action: ProposedAction): boolean {
-    return action.type === 'post_reply' || action.type === 'escalate_to_owner';
+    return action.type === 'post_reply' || action.type === 'escalate_to_owner' || action.type === 'request_purchase_code';
   }
 
   async execute(action: ProposedAction): Promise<ActionResult> {
     if (action.type === 'noop') return { success: true };
     const p = action.payload as any;
+
+    if (action.type === 'request_purchase_code') {
+      if (p.ticketId) {
+        await this.db.db
+          .update(supportTickets)
+          .set({ purchaseCodeStatus: 'requested', status: 'replied', repliedAt: new Date(), updatedAt: new Date() })
+          .where(eq(supportTickets.id, p.ticketId));
+      }
+      if (p.crmTicketId) {
+        await this.postCrmReply(p.crmTicketId, p.draft);
+      }
+      await this.writeTicketEvent({
+        ticketId: p.ticketId,
+        externalId: p.crmTicketId ? String(p.crmTicketId) : null,
+        eventType: 'purchase_code_requested',
+        summary: 'Sent purchase code request reply to CRM',
+        payload: { draft: p.draft },
+      });
+      await this.telegram.sendMessage(
+        `Purchase code requested: ${p.subject}\nFrom: ${p.userEmail}\n\nSent:\n${p.draft}`,
+      );
+      return { success: true, data: { ticketId: p.ticketId } };
+    }
 
     if (action.type === 'post_reply' || action.type === 'escalate_to_owner') {
       const now = new Date();
@@ -241,6 +343,21 @@ export class SupportAgent implements IAgent, OnModuleInit {
 
       if (isReply && p.crmTicketId) {
         await this.postCrmReply(p.crmTicketId, p.draft);
+        await this.writeTicketEvent({
+          ticketId: p.ticketId,
+          externalId: p.crmTicketId ? String(p.crmTicketId) : null,
+          eventType: 'reply_sent',
+          summary: `Reply posted to CRM for ticket #${p.crmTicketId}`,
+          payload: { draft: p.draft, category: p.category, priority: p.priority },
+        });
+      } else if (!isReply) {
+        await this.writeTicketEvent({
+          ticketId: p.ticketId,
+          externalId: p.crmTicketId ? String(p.crmTicketId) : null,
+          eventType: 'escalated',
+          summary: 'Ticket escalated to owner',
+          payload: { draft: p.draft, priority: p.priority },
+        });
       }
 
       await this.telegram.sendMessage(
@@ -367,6 +484,12 @@ export class SupportAgent implements IAgent, OnModuleInit {
           return this.ingestWebhook(body);
         },
       },
+      {
+        method: 'GET',
+        path: '/support/tickets/:id/events',
+        requiresAuth: true,
+        handler: async (params) => this.listTicketEvents((params as any).id),
+      },
     ];
   }
 
@@ -382,6 +505,26 @@ export class SupportAgent implements IAgent, OnModuleInit {
       .onConflictDoNothing()
       .returning();
     return row;
+  }
+
+  private async writeTicketEvent(entry: {
+    ticketId?: string | null;
+    externalId?: string | null;
+    eventType: string;
+    summary?: string;
+    payload?: Record<string, unknown>;
+    error?: string;
+  }) {
+    await this.db.db.insert(supportTicketEvents).values({
+      ticketId: entry.ticketId ?? null,
+      externalId: entry.externalId ?? null,
+      eventType: entry.eventType,
+      summary: entry.summary ?? null,
+      payload: entry.payload ?? null,
+      error: entry.error ?? null,
+    }).catch((err: unknown) => {
+      this.logger.warn(`writeTicketEvent failed: ${(err as Error).message} | type=${entry.eventType}`);
+    });
   }
 
   private async writeWebhookLog(entry: {
@@ -483,6 +626,30 @@ export class SupportAgent implements IAgent, OnModuleInit {
       this.logger.log(`CRM fetch OK for ticket #${ticket.id} (${body.length} chars)`);
     } else {
       this.logger.warn(`CRM fetch returned empty body for ticket #${ticket.id} — proceeding with subject only`);
+    }
+
+    // Customer reply on a ticket that's awaiting a purchase code — re-open for re-processing
+    if (event === 'support.ticket.replied') {
+      const [existing] = await this.db.db
+        .select({ id: supportTickets.id, purchaseCodeStatus: supportTickets.purchaseCodeStatus })
+        .from(supportTickets)
+        .where(eq(supportTickets.externalId, String(ticket.id)));
+
+      if (existing?.purchaseCodeStatus === 'requested') {
+        await this.db.db
+          .update(supportTickets)
+          .set({ status: 'open', body: body || undefined, updatedAt: new Date() })
+          .where(eq(supportTickets.id, existing.id));
+        this.logger.log(`Ticket #${ticket.id} reopened after customer reply — will re-check for purchase code`);
+        await this.writeWebhookLog({ status: 'reopened', externalId: String(ticket.id), ticketId: existing.id, rawPayload });
+        await this.writeTicketEvent({
+          ticketId: existing.id,
+          externalId: String(ticket.id),
+          eventType: 'ticket_reopened',
+          summary: 'Customer replied — ticket reopened for purchase code re-check',
+        });
+        return { ok: true, status: 'reopened', ticketId: existing.id, externalId: String(ticket.id) };
+      }
     }
 
     const [row] = await this.db.db
@@ -669,6 +836,16 @@ If not, rewrite and return: {"ok":false,"revised":"improved reply here"}`,
       // fail-open: use original draft
     }
     return draft;
+  }
+
+  async listTicketEvents(ticketId: string) {
+    return this.db.db
+      .select()
+      .from(supportTicketEvents)
+      .where(eq(supportTicketEvents.ticketId, ticketId))
+      .orderBy(desc(supportTicketEvents.createdAt))
+      .limit(100)
+      .catch(() => []);
   }
 
   private async getConfig(): Promise<SupportConfig> {

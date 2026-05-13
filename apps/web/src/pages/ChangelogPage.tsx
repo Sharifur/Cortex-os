@@ -16,6 +16,60 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.32.0',
+    date: '2026-05-13',
+    entries: [
+      { tag: 'feat', scope: 'support', description: 'Every step the support agent takes on a ticket is now recorded in a new support_ticket_events table — purchase code not found, code found and verified/invalid/expired, reply drafted, reply sent, escalated, ticket reopened, and any errors. Queryable via GET /support/tickets/:id/events.' },
+      { tag: 'chore', scope: 'db', description: 'Migration 0070 adds support_ticket_events table with indexes on ticket_id and external_id.' },
+    ],
+  },
+  {
+    version: 'v4.31.0',
+    date: '2026-05-13',
+    entries: [
+      { tag: 'feat', scope: 'support', description: 'Purchase code gate added to support agent. Tickets without a purchase code receive an automated reply requesting it before any AI response is drafted. The code is verified against Envato/Xgenious API and the result stored on the ticket so it is not re-verified on subsequent runs.' },
+      { tag: 'feat', scope: 'support', description: 'When a customer replies to a purchase-code-requested ticket, the ticket is automatically reopened and re-processed so the agent can extract and verify the provided code.' },
+    ],
+  },
+  {
+    version: 'v4.30.0',
+    date: '2026-05-13',
+    entries: [
+      { tag: 'feat', scope: 'design-samples', description: 'Re-analysis progress now persists across page reloads. On mount the UI checks the server status and automatically resumes polling if analysis is still running.' },
+      { tag: 'feat', scope: 'design-samples', description: 'Added Cancel button during re-analysis. Clicking it signals the backend loop to stop after the current image and marks the progress bar yellow.' },
+    ],
+  },
+  {
+    version: 'v4.29.0',
+    date: '2026-05-13',
+    entries: [
+      { tag: 'feat', scope: 'support', description: 'Support tickets now track purchase code and verification status. purchaseCode and purchaseCodeStatus columns added to support_tickets table via migration 0069.' },
+      { tag: 'fix', scope: 'purchase-verify', description: 'Purchase code extractor now recognises Xgenious-format codes (XGENIOUS-XXXX-XXXX-XXXX-XXXX) in addition to UUID-format codes.' },
+    ],
+  },
+  {
+    version: 'v4.28.0',
+    date: '2026-05-13',
+    entries: [
+      { tag: 'fix', scope: 'llm', description: 'Vision calls (design sample re-analyze) now skip DeepSeek automatically since it has no image support. When the default provider is DeepSeek and an image is attached, the router falls through to OpenAI or Gemini. Also added vision support to the Gemini provider via inlineData parts, so image analysis works with either OpenAI or Gemini as fallback.' },
+      { tag: 'fix', scope: 'llm', description: 'autoRoute() now filters out DeepSeek from the provider list when imageBase64 is present, preventing silent failures where the image was dropped and the LLM returned garbage text instead of DNA JSON.' },
+    ],
+  },
+  {
+    version: 'v4.27.2',
+    date: '2026-05-13',
+    entries: [
+      { tag: 'fix', scope: 'api', description: 'JSON parser now tolerates webhook payloads containing raw control characters (ASCII 0x00-0x1F) sent by some CRM platforms. Invalid characters are stripped on a second parse attempt instead of returning a 400 Bad Request.' },
+    ],
+  },
+  {
+    version: 'v4.27.1',
+    date: '2026-05-13',
+    entries: [
+      { tag: 'fix', scope: 'cors', description: 'Webhook endpoints (those using secret-based signature verification) now bypass the CORS origin allowlist and respond with Access-Control-Allow-Origin: * so any external platform can call them. Added X-Webhook-Secret, X-Hub-Signature-256, and X-Hub-Signature to the global CORS allowedHeaders list.' },
+    ],
+  },
+  {
     version: 'v4.27.0',
     date: '2026-05-13',
     entries: [

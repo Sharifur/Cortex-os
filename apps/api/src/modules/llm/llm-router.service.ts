@@ -47,8 +47,13 @@ export class LlmRouterService {
 
     // Read configured default provider from settings
     const configuredDefault = await this.settings.getDecrypted('llm_default_provider') ?? 'auto';
+    const hasImage = !!opts.imageBase64;
 
     if (configuredDefault !== 'auto') {
+      // DeepSeek does not support vision — fall through to autoRoute when image is present
+      if (configuredDefault === 'deepseek' && hasImage) {
+        return this.autoRoute(opts);
+      }
       switch (configuredDefault) {
         case 'openai': return this.callOpenAi(opts);
         case 'gemini': return this.callGemini(opts);
@@ -281,7 +286,12 @@ export class LlmRouterService {
     const enabledChecks = await Promise.all(
       order.map(async (p) => ({ name: p, enabled: await this.isProviderEnabled(p) })),
     );
-    const active = enabledChecks.filter((e) => e.enabled).map((e) => e.name);
+    // DeepSeek does not support vision — skip it when an image is attached
+    const visionOnly = !!opts.imageBase64;
+    const active = enabledChecks
+      .filter((e) => e.enabled)
+      .filter((e) => !visionOnly || e.name !== 'deepseek')
+      .map((e) => e.name);
 
     if (!active.length) {
       throw new Error('No LLM providers are enabled. Toggle at least one provider on in Settings.');
@@ -381,7 +391,13 @@ export class LlmRouterService {
       ...(systemMsg ? { systemInstruction: systemMsg } : {}),
     });
 
-    const result = await chat.sendMessage(lastUserMsg);
+    // Vision support: attach image as inlineData part when imageBase64 is provided
+    const messageParts: (string | { inlineData: { mimeType: string; data: string } })[] = [lastUserMsg];
+    if (opts.imageBase64) {
+      messageParts.unshift({ inlineData: { mimeType: opts.imageMimeType ?? 'image/jpeg', data: opts.imageBase64 } });
+    }
+
+    const result = await chat.sendMessage(messageParts);
     const text = result.response.text();
 
     const response: LlmResponse = {

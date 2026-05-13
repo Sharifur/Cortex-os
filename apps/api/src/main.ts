@@ -65,8 +65,15 @@ async function bootstrap() {
       (req as { rawBody?: string }).rawBody = body;
       try {
         done(null, body && body.length ? JSON.parse(body) : {});
-      } catch (err) {
-        done(err as Error);
+      } catch {
+        // Some CRM/webhook senders embed raw control characters inside string values.
+        // Strip ASCII 0x00–0x08, 0x0B–0x0C, 0x0E–0x1F (keeps \t \n \r which are valid when escaped).
+        const sanitized = body.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
+        try {
+          done(null, JSON.parse(sanitized));
+        } catch (err2) {
+          done(err2 as Error);
+        }
       }
     }) as never,
   );
@@ -119,7 +126,7 @@ async function bootstrap() {
       return cb(new Error(`CORS: origin ${origin} not allowed`), false);
     },
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-Id'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-Id', 'X-Webhook-Secret', 'X-Hub-Signature-256', 'X-Hub-Signature'],
     credentials: false,
     maxAge: 86400,
   });

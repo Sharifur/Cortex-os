@@ -454,10 +454,17 @@ export class DesignAnalysisService {
     return rows.length;
   }
 
-  private reanalysisProgress = new Map<string, { done: number; total: number; errors: number; running: boolean }>();
+  private reanalysisProgress = new Map<string, { done: number; total: number; errors: number; running: boolean; cancelled: boolean }>();
+  private cancelledBrands = new Set<string>();
 
-  getReanalysisStatus(brand: string): { done: number; total: number; errors: number; running: boolean } {
-    return this.reanalysisProgress.get(brand) ?? { done: 0, total: 0, errors: 0, running: false };
+  getReanalysisStatus(brand: string): { done: number; total: number; errors: number; running: boolean; cancelled: boolean } {
+    return this.reanalysisProgress.get(brand) ?? { done: 0, total: 0, errors: 0, running: false, cancelled: false };
+  }
+
+  cancelReanalysis(brand: string): void {
+    this.cancelledBrands.add(brand);
+    const status = this.reanalysisProgress.get(brand);
+    if (status) status.running = false;
   }
 
   private buildKbContent(dna: DesignDNA): string {
@@ -618,13 +625,20 @@ export class DesignAnalysisService {
         eq(knowledgeEntries.siteKeys, brand),
       ));
 
-    const status = { done: 0, total: rows.length, errors: 0, running: true };
+    this.cancelledBrands.delete(brand);
+    const status = { done: 0, total: rows.length, errors: 0, running: true, cancelled: false };
     this.reanalysisProgress.set(brand, status);
 
     let reanalyzed = 0;
     let failed = 0;
 
     for (const row of rows) {
+      if (this.cancelledBrands.has(brand)) {
+        status.running = false;
+        status.cancelled = true;
+        this.logger.log(`Reanalysis cancelled at ${reanalyzed + failed}/${rows.length} for brand=${brand}`);
+        return { reanalyzed, failed };
+      }
       const url = row.sourceUrl;
       if (!url || url.startsWith('local://')) {
         failed++;
@@ -682,6 +696,7 @@ export class DesignAnalysisService {
     }
 
     status.running = false;
+    status.cancelled = false;
     this.logger.log(`Reanalysis complete: ${reanalyzed} reanalyzed, ${failed} failed for brand=${brand}`);
 
     if (autoCluster && reanalyzed > 0) {

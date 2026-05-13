@@ -164,11 +164,32 @@ export class AgentRouteDispatcherService implements OnApplicationBootstrap {
           }
         };
 
+        // Webhook routes (verifySignature) authenticate via secret — bypass CORS origin restriction
+        if (route.verifySignature) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          fastify.options(route.path, async (_req: unknown, reply: any) => {
+            reply
+              .header('Access-Control-Allow-Origin', '*')
+              .header('Access-Control-Allow-Methods', 'POST, OPTIONS')
+              .header('Access-Control-Allow-Headers', 'Content-Type, X-Webhook-Secret, X-Hub-Signature-256, X-Hub-Signature')
+              .header('Access-Control-Max-Age', '86400')
+              .status(204)
+              .send();
+          });
+        }
+
         try {
           fastify.route({
             method: route.method,
             url: route.path,
-            preHandler,
+            preHandler: route.verifySignature
+              ? [
+                  ...preHandler,
+                  async (_req: unknown, reply: any) => {
+                    reply.header('Access-Control-Allow-Origin', '*');
+                  },
+                ]
+              : preHandler,
             handler,
           });
           mounted++;
