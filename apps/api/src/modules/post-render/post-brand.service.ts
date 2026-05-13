@@ -1,11 +1,39 @@
 import { Injectable, Logger } from '@nestjs/common';
+import * as fs from 'fs/promises';
+import * as path from 'path';
+import * as os from 'os';
 import { eq } from 'drizzle-orm';
 import { DbService } from '../../db/db.service';
 import { canvaBrands } from '../agents/canva/schema';
 import type { ResolvedBrand } from './types';
 
-const FONT_CACHE = new Map<string, ArrayBuffer>();
+const FONTS_DISK_DIR = path.join(os.homedir(), '.cortex', 'fonts-cache');
+const FONT_MEM_CACHE = new Map<string, ArrayBuffer>();
 const LOGO_CACHE = new Map<string, string>();
+
+function fontDiskPath(family: string, weight: number): string {
+  const safe = family.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  return path.join(FONTS_DISK_DIR, `${safe}-${weight}.bin`);
+}
+
+async function readFontFromDisk(family: string, weight: number): Promise<ArrayBuffer | null> {
+  try {
+    const buf = await fs.readFile(fontDiskPath(family, weight));
+    const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
+    return isValidFontBuffer(ab) ? ab : null;
+  } catch {
+    return null;
+  }
+}
+
+async function writeFontToDisk(family: string, weight: number, buf: ArrayBuffer): Promise<void> {
+  try {
+    await fs.mkdir(FONTS_DISK_DIR, { recursive: true });
+    await fs.writeFile(fontDiskPath(family, weight), Buffer.from(buf));
+  } catch {
+    // disk write failure is non-fatal — in-memory cache still works
+  }
+}
 
 const VALID_FONT_SIGNATURES = [
   '00010000', // TTF
@@ -37,42 +65,55 @@ async function fetchFontFromGoogleCss(family: string, weight: number): Promise<A
 
 async function fetchFontData(family: string, weight = 400): Promise<ArrayBuffer> {
   const cacheKey = `${family}:${weight}`;
-  if (FONT_CACHE.has(cacheKey)) return FONT_CACHE.get(cacheKey)!;
 
-  // Try requested font
-  try {
-    const buf = await fetchFontFromGoogleCss(family, weight);
-    if (buf) {
-      FONT_CACHE.set(cacheKey, buf);
-      return buf;
-    }
-  } catch {
-    // fall through
+  // L1: in-memory
+  if (FONT_MEM_CACHE.has(cacheKey)) return FONT_MEM_CACHE.get(cacheKey)!;
+
+  // L2: disk cache (survives restarts)
+  const fromDisk = await readFontFromDisk(family, weight);
+  if (fromDisk) {
+    FONT_MEM_CACHE.set(cacheKey, fromDisk);
+    return fromDisk;
   }
 
-  // Try same font at weight 400 if non-400 weight failed (some fonts are regular-only)
+  // L3: fetch from Google Fonts, then persist to both caches
+  const persist = async (buf: ArrayBuffer, diskFamily: string, diskWeight: number) => {
+    FONT_MEM_CACHE.set(cacheKey, buf);
+    void writeFontToDisk(diskFamily, diskWeight, buf);
+  };
+
+  // Try requested font at requested weight
+  try {
+    const buf = await fetchFontFromGoogleCss(family, weight);
+    if (buf) { await persist(buf, family, weight); return buf; }
+  } catch { /* fall through */ }
+
+  // Try same font at weight 400 (some fonts are regular-only, e.g. Instrument Serif)
   if (weight !== 400) {
     try {
       const buf = await fetchFontFromGoogleCss(family, 400);
-      if (buf) {
-        FONT_CACHE.set(cacheKey, buf);
-        return buf;
-      }
-    } catch {
-      // fall through
-    }
+      if (buf) { await persist(buf, family, 400); return buf; }
+    } catch { /* fall through */ }
   }
 
-  // Final fallback: Inter via Google Fonts CSS (reliable, always TTF/WOFF2)
-  const interKey = `Inter:${weight}`;
-  if (!FONT_CACHE.has(interKey)) {
-    const interWeight = weight >= 600 ? 700 : 400;
-    const buf = await fetchFontFromGoogleCss('Inter', interWeight).catch(() => null);
-    if (buf) FONT_CACHE.set(interKey, buf);
+  // Final fallback: Inter
+  const interWeight = weight >= 600 ? 700 : 400;
+  const interKey = `Inter:${interWeight}`;
+  if (!FONT_MEM_CACHE.has(interKey)) {
+    const fromInterDisk = await readFontFromDisk('Inter', interWeight);
+    if (fromInterDisk) {
+      FONT_MEM_CACHE.set(interKey, fromInterDisk);
+    } else {
+      const buf = await fetchFontFromGoogleCss('Inter', interWeight).catch(() => null);
+      if (buf) {
+        FONT_MEM_CACHE.set(interKey, buf);
+        void writeFontToDisk('Inter', interWeight, buf);
+      }
+    }
   }
-  const fallback = FONT_CACHE.get(interKey);
+  const fallback = FONT_MEM_CACHE.get(interKey);
   if (fallback) {
-    FONT_CACHE.set(cacheKey, fallback);
+    FONT_MEM_CACHE.set(cacheKey, fallback);
     return fallback;
   }
 

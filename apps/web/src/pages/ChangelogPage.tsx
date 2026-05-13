@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.18.2',
+    date: '2026-05-13',
+    entries: [
+      { tag: 'feat', scope: 'post-render', description: 'Persistent font disk cache at ~/.cortex/fonts-cache/: fonts are saved as binary files after first fetch and loaded from disk on server restarts — no re-download needed. Two-layer lookup: L1 in-memory Map (zero cost within a process lifetime), L2 disk (survives restarts), L3 Google Fonts API (only on first-ever use). Inter fallback is also disk-cached so it never hits the network after the first render.' },
+    ],
+  },
+  {
     version: 'v4.18.1',
     date: '2026-05-13',
     entries: [
