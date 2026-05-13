@@ -430,6 +430,7 @@ export interface RenderRequest {
   topic?: string;
   intent?: string;
   imageProvider?: ImageProvider;
+  patternConsistency?: boolean;
 }
 
 export interface RenderResult {

@@ -19,9 +19,11 @@ import { CandidateAggregatorService } from './candidate-aggregator.service';
 import { CanvaAdapter } from './adapters/canva.adapter';
 import { AIImageAdapter } from './adapters/ai-image.adapter';
 import { LocalRenderAdapter } from './adapters/local-render.adapter';
+import { CanvaBrandsController } from './canva-brands.controller';
 
 @Module({
   imports: [AgentsModule, LlmModule, TelegramModule, McpModule, SettingsModule, PostRenderModule],
+  controllers: [CanvaBrandsController],
   providers: [
     CanvaAgent,
     CanvaMcpService,

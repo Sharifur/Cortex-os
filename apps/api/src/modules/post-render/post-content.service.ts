@@ -23,6 +23,7 @@ export class PostContentService {
       contentTone?: string;
       moodKeywords?: string[];
       patternRules?: string[];
+      patternsBySlideType?: Record<string, string[]>;
       runId?: string;
     },
   ): Promise<FilledSlide[]> {
@@ -56,11 +57,22 @@ export class PostContentService {
       ? `Learned brand content patterns — apply to copy style and length:\n${selectedRules.map((r, i) => `${i + 1}. ${r}`).join('\n')}`
       : '';
 
+    let slideTypePatternContext = '';
+    if (opts.patternsBySlideType && Object.keys(opts.patternsBySlideType).length > 0) {
+      const lines: string[] = ['Per-slide-type learned patterns — apply the matching section to each slide role:'];
+      for (const [slideType, rules] of Object.entries(opts.patternsBySlideType)) {
+        const top = rules.slice(0, 10);
+        if (top.length) lines.push(`${slideType.toUpperCase()} slides:\n${top.map((r, i) => `  ${i + 1}. ${r}`).join('\n')}`);
+      }
+      slideTypePatternContext = lines.join('\n');
+    }
+
     const systemPrompt = [
       `You are a professional social media content strategist specialising in ${format.platform} ${format.category} posts.`,
       opts.voiceProfile ? `Brand voice: ${opts.voiceProfile}` : '',
       toneInstruction,
       patternContext,
+      slideTypePatternContext,
       opts.designContext ? `Design context: ${opts.designContext}` : '',
     ].filter(Boolean).join('\n');
 

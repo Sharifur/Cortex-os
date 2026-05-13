@@ -9,6 +9,7 @@ import {
   Bug, AlertTriangle, AlertCircle,
   Plus, Loader2, RefreshCw, Radio,
   CalendarClock, Zap, RotateCcw, ListTodo, ExternalLink,
+  ImageIcon, Upload,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -3729,111 +3730,21 @@ const STATIC_FORMATS = [
 
 // Post Renders Tab
 function PostRendersTab({ token }: { token: string }) {
-  const [formats, setFormats] = useState<any[]>(STATIC_FORMATS);
-  const [brands, setBrands] = useState<string[]>([]);
   const [renders, setRenders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [generating, setGenerating] = useState(false);
-  const [form, setForm] = useState({ formatId: '', brand: '', topic: '', intent: '' });
-  const [error, setError] = useState('');
 
   useEffect(() => {
-    Promise.all([
-      apiFetch(token, '/posts/formats').catch(() => null),
-      apiFetch(token, '/posts/renders?limit=30').catch(() => []),
-      apiFetch(token, '/canva/brands').catch(() => []),
-    ]).then(([f, r, b]) => {
-      if (Array.isArray(f) && f.length > 0) setFormats(f);
-      setRenders(Array.isArray(r) ? r : []);
-      const brandNames: string[] = Array.isArray(b) ? b.map((br: any) => br.name).filter(Boolean) : [];
-      setBrands(brandNames);
-      if (brandNames.length > 0) setForm(prev => ({ ...prev, brand: prev.brand || brandNames[0] }));
-    }).finally(() => setLoading(false));
+    apiFetch(token, '/posts/renders?limit=30')
+      .then(r => setRenders(Array.isArray(r) ? r : []))
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, [token]);
-
-  async function generate() {
-    if (!form.formatId || !form.brand) { setError('Format and brand are required'); return; }
-    setGenerating(true); setError('');
-    try {
-      const res = await apiFetch(token, '/posts/render', { method: 'POST', body: JSON.stringify(form) });
-      setRenders(prev => [res, ...prev]);
-      setForm(f => ({ ...f, topic: '', intent: '' }));
-    } catch (e: any) {
-      setError(e.message ?? 'Render failed');
-    } finally {
-      setGenerating(false);
-    }
-  }
 
   if (loading) return <p className="text-sm text-muted-foreground">Loading...</p>;
 
   return (
-    <div className="space-y-5">
-      <div className="bg-card border border-border rounded-xl p-4 space-y-3">
-        <p className="text-sm font-medium">Generate new render</p>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="text-xs text-muted-foreground mb-1 block">Format</label>
-            <select
-              className="w-full bg-muted border border-border rounded-lg px-3 py-2 text-sm"
-              value={form.formatId}
-              onChange={e => setForm(f => ({ ...f, formatId: e.target.value }))}
-            >
-              <option value="">Select format...</option>
-              {formats.map((f: any) => (
-                <option key={f.id} value={f.id}>{f.name} ({f.platform})</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="text-xs text-muted-foreground mb-1 block">Brand</label>
-            {brands.length > 0 ? (
-              <select
-                className="w-full bg-muted border border-border rounded-lg px-3 py-2 text-sm"
-                value={form.brand}
-                onChange={e => setForm(f => ({ ...f, brand: e.target.value }))}
-              >
-                <option value="">Select brand...</option>
-                {brands.map(b => <option key={b} value={b}>{b}</option>)}
-              </select>
-            ) : (
-              <input
-                className="w-full bg-muted border border-border rounded-lg px-3 py-2 text-sm"
-                placeholder="taskip"
-                value={form.brand}
-                onChange={e => setForm(f => ({ ...f, brand: e.target.value }))}
-              />
-            )}
-          </div>
-          <div>
-            <label className="text-xs text-muted-foreground mb-1 block">Topic</label>
-            <input
-              className="w-full bg-muted border border-border rounded-lg px-3 py-2 text-sm"
-              placeholder="client portals for freelancers"
-              value={form.topic}
-              onChange={e => setForm(f => ({ ...f, topic: e.target.value }))}
-            />
-          </div>
-          <div>
-            <label className="text-xs text-muted-foreground mb-1 block">Intent</label>
-            <input
-              className="w-full bg-muted border border-border rounded-lg px-3 py-2 text-sm"
-              placeholder="tips / announcement / quote / stat"
-              value={form.intent}
-              onChange={e => setForm(f => ({ ...f, intent: e.target.value }))}
-            />
-          </div>
-        </div>
-        {error && <p className="text-xs text-destructive">{error}</p>}
-        <button
-          onClick={generate}
-          disabled={generating}
-          className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium disabled:opacity-50"
-        >
-          {generating ? 'Generating...' : 'Generate'}
-        </button>
-      </div>
-
+    <div className="space-y-4">
+      <p className="text-xs text-muted-foreground">Generate renders by chatting with the agent — type: <code className="bg-muted px-1.5 py-0.5 rounded">Generate a linkedin-howto-carousel for brand taskip about "your topic"</code></p>
       <div className="space-y-3">
         {renders.length === 0 && <p className="text-sm text-muted-foreground">No renders yet.</p>}
         {renders.map((r: any) => (
@@ -3872,12 +3783,61 @@ function DesignSamplesTab({ token }: { token: string }) {
   const [patterns, setPatterns] = useState<string[]>([]);
   const [bannerBrief, setBannerBrief] = useState('');
   const [progress, setProgress] = useState<{ done: number; total: number; errors: number } | null>(null);
-  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const [dsSubTab, setDsSubTab] = useState<'samples' | 'patterns'>('samples');
   const [visibleCount, setVisibleCount] = useState(60);
   const SAMPLE_PAGE_SIZE = 60;
   const fileRef = useRef<HTMLInputElement>(null);
+
+  const [selectedSample, setSelectedSample] = useState<{ id: string; sourceUrl: string | null; patterns: string[]; dnaSummary: Record<string, unknown> } | null>(null);
+  const [loadingDetail, setLoadingDetail] = useState(false);
+  const [reanalyzingId, setReanalyzingId] = useState<string | null>(null);
+  const [clearingPatterns, setClearingPatterns] = useState(false);
+  const [removingPattern, setRemovingPattern] = useState<string | null>(null);
+
+  async function openSampleDetail(id: string) {
+    setLoadingDetail(true);
+    setSelectedSample(null);
+    try {
+      const detail = await apiFetch(token, `/posts/design-samples/${id}`);
+      setSelectedSample(detail);
+    } catch { /* ignore */ } finally {
+      setLoadingDetail(false);
+    }
+  }
+
+  async function reanalyzeSingle(id: string) {
+    setReanalyzingId(id);
+    try {
+      await apiFetch(token, `/posts/design-samples/${id}/reanalyze`, { method: 'POST' });
+      const detail = await apiFetch(token, `/posts/design-samples/${id}`);
+      setSelectedSample(detail);
+      void loadData();
+    } catch { /* ignore */ } finally {
+      setReanalyzingId(null);
+    }
+  }
+
+  async function clearAllPatterns() {
+    if (!confirm('Remove all patterns from all design samples? This cannot be undone.')) return;
+    setClearingPatterns(true);
+    try {
+      await apiFetch(token, '/posts/design-samples/patterns/all?brand=default', { method: 'DELETE' });
+      await loadData();
+    } catch { /* ignore */ } finally {
+      setClearingPatterns(false);
+    }
+  }
+
+  async function removePattern(pattern: string) {
+    setRemovingPattern(pattern);
+    try {
+      await apiFetch(token, '/posts/design-samples/patterns/remove', { method: 'POST', body: JSON.stringify({ pattern, brand: 'default' }) });
+      setPatterns(prev => prev.filter(p => p !== pattern));
+    } catch { /* ignore */ } finally {
+      setRemovingPattern(null);
+    }
+  }
 
   async function loadData() {
     const [s, p, b] = await Promise.all([
@@ -4309,19 +4269,18 @@ function DesignSamplesTab({ token }: { token: string }) {
             {samples.slice(0, visibleCount).map((s: any) => (
               <div key={s.id} className="relative w-[60px] h-[60px] shrink-0">
                 <button
-                  onClick={() => s.sourceUrl && setLightboxUrl(s.sourceUrl)}
+                  onClick={() => openSampleDetail(s.id)}
                   className="w-full h-full focus:outline-none"
-                  title="View full image"
-                  disabled={!s.sourceUrl}
+                  title="View patterns and DNA"
                 >
                   {s.sourceUrl ? (
-                    <img src={s.sourceUrl} alt="" className="w-[60px] h-[60px] object-cover rounded-lg border border-border" />
+                    <img src={s.sourceUrl} alt="" className="w-[60px] h-[60px] object-cover rounded-lg border border-border hover:border-primary transition-colors" />
                   ) : (
                     <div className="w-[60px] h-[60px] rounded-lg bg-muted border border-border" />
                   )}
                 </button>
-                {patterns.length > 0 && (
-                  <span className="absolute bottom-0.5 right-0.5 bg-green-600 rounded p-0.5 leading-none">
+                {s.content?.includes('-- Design Patterns --') && (
+                  <span className="absolute bottom-0.5 right-0.5 bg-green-600 rounded p-0.5 leading-none pointer-events-none">
                     <BookOpen className="w-2.5 h-2.5 text-white" />
                   </span>
                 )}
@@ -4355,7 +4314,7 @@ function DesignSamplesTab({ token }: { token: string }) {
           )}
           {patterns.length === 0 && !clusteringStatus?.running ? (
             <div className="bg-card border border-border rounded-xl p-4">
-              <p className="text-sm text-muted-foreground">No patterns learned yet. Upload 3+ samples and click "Learn patterns".</p>
+              <p className="text-sm text-muted-foreground">No patterns yet. Upload samples and re-analyze them to extract per-image patterns automatically.</p>
             </div>
           ) : patterns.length > 0 ? (
             <>
@@ -4366,9 +4325,30 @@ function DesignSamplesTab({ token }: { token: string }) {
                 </div>
               )}
               <div className="bg-card border border-border rounded-xl p-4 space-y-3">
-                <p className="text-xs text-muted-foreground">{patterns.length} pattern{patterns.length !== 1 ? 's' : ''} from {samples.length} samples</p>
+                <div className="flex items-center justify-between">
+                  <p className="text-xs text-muted-foreground">{patterns.length} pattern{patterns.length !== 1 ? 's' : ''} from {samples.length} samples</p>
+                  <button
+                    onClick={clearAllPatterns}
+                    disabled={clearingPatterns}
+                    className="text-xs text-destructive hover:underline disabled:opacity-50"
+                  >
+                    {clearingPatterns ? 'Clearing...' : 'Clear all patterns'}
+                  </button>
+                </div>
                 {patterns.map((p, i) => (
-                  <p key={i} className="text-xs text-muted-foreground border-l-2 border-primary pl-2">{p}</p>
+                  <div key={i} className="flex items-start gap-2 group">
+                    <p className="text-xs text-muted-foreground border-l-2 border-primary pl-2 flex-1">{p}</p>
+                    <button
+                      onClick={() => removePattern(p)}
+                      disabled={removingPattern === p}
+                      className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-opacity disabled:opacity-50 shrink-0 mt-0.5"
+                      title="Remove this pattern"
+                    >
+                      {removingPattern === p
+                        ? <Loader2 className="w-3 h-3 animate-spin" />
+                        : <span className="text-[10px] leading-none">✕</span>}
+                    </button>
+                  </div>
                 ))}
               </div>
             </>
@@ -4376,17 +4356,83 @@ function DesignSamplesTab({ token }: { token: string }) {
         </div>
       )}
 
-      {lightboxUrl && (
+      {(selectedSample || loadingDetail) && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80"
-          onClick={() => setLightboxUrl(null)}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4"
+          onClick={() => setSelectedSample(null)}
         >
-          <img
-            src={lightboxUrl}
-            alt="Design sample"
-            className="max-w-[90vw] max-h-[90vh] rounded-xl shadow-2xl object-contain"
+          <div
+            className="bg-card border border-border rounded-2xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-hidden flex flex-col"
             onClick={e => e.stopPropagation()}
-          />
+          >
+            {loadingDetail && (
+              <div className="flex items-center justify-center p-12">
+                <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+              </div>
+            )}
+            {selectedSample && (
+              <>
+                <div className="flex items-center justify-between px-5 py-3 border-b border-border">
+                  <p className="text-sm font-medium text-foreground truncate">
+                    {String(selectedSample.dnaSummary.slide_type ?? 'sample')} — {String(selectedSample.dnaSummary.layout_type ?? '')}
+                  </p>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      onClick={() => reanalyzeSingle(selectedSample.id)}
+                      disabled={reanalyzingId === selectedSample.id}
+                      className="px-3 py-1 text-xs border border-border rounded-lg hover:bg-muted disabled:opacity-50 flex items-center gap-1.5"
+                    >
+                      {reanalyzingId === selectedSample.id
+                        ? <><Loader2 className="w-3 h-3 animate-spin" /> Re-analyzing...</>
+                        : <><RotateCcw className="w-3 h-3" /> Re-analyze</>}
+                    </button>
+                    {selectedSample.sourceUrl && (
+                      <a href={selectedSample.sourceUrl} target="_blank" rel="noreferrer" className="px-3 py-1 text-xs border border-border rounded-lg hover:bg-muted flex items-center gap-1.5">
+                        <ExternalLink className="w-3 h-3" /> Full image
+                      </a>
+                    )}
+                    <button onClick={() => setSelectedSample(null)} className="text-muted-foreground hover:text-foreground px-2">✕</button>
+                  </div>
+                </div>
+                <div className="flex flex-1 overflow-hidden">
+                  {selectedSample.sourceUrl && (
+                    <div className="w-48 shrink-0 border-r border-border bg-muted/30 flex items-center justify-center p-3">
+                      <img src={selectedSample.sourceUrl} alt="" className="max-w-full max-h-full object-contain rounded-lg" />
+                    </div>
+                  )}
+                  <div className="flex-1 overflow-y-auto p-5 space-y-4">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">DNA Summary</p>
+                      <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                        {Object.entries(selectedSample.dnaSummary).filter(([, v]) => v !== undefined && v !== null && v !== '').map(([k, v]) => (
+                          <div key={k} className="flex items-start gap-1.5">
+                            <span className="text-[11px] text-muted-foreground shrink-0 w-28">{k.replace(/_/g, ' ')}</span>
+                            <span className="text-[11px] text-foreground break-words">
+                              {Array.isArray(v) ? v.join(', ') : String(v)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
+                        Extracted patterns ({selectedSample.patterns.length})
+                      </p>
+                      {selectedSample.patterns.length === 0 ? (
+                        <p className="text-xs text-muted-foreground italic">No patterns yet — click Re-analyze to extract them.</p>
+                      ) : (
+                        <div className="space-y-1">
+                          {selectedSample.patterns.map((p, i) => (
+                            <p key={i} className="text-xs text-muted-foreground border-l-2 border-primary/60 pl-2">{p}</p>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
         </div>
       )}
     </div>
@@ -4600,6 +4646,9 @@ function CanvaBrandsTab({ token }: { token: string }) {
   const [websiteUrl, setWebsiteUrl] = useState('');
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
+  const [logoUploading, setLogoUploading] = useState(false);
+  const [logoError, setLogoError] = useState<string | null>(null);
+  const logoInputRef = useRef<HTMLInputElement>(null);
 
   const { data: brands, isLoading } = useQuery<CanvaBrand[]>({
     queryKey: ['canva-brands'],
@@ -4682,6 +4731,30 @@ function CanvaBrandsTab({ token }: { token: string }) {
     }
   }
 
+  async function uploadLogo(file: File) {
+    if (!editing) return;
+    setLogoUploading(true);
+    setLogoError(null);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await fetch(`/api/canva/brands/${editing.name}/logo`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: fd,
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Upload failed' }));
+        throw new Error(err.error ?? 'Upload failed');
+      }
+      qc.invalidateQueries({ queryKey: ['canva-brands'] });
+    } catch (e: any) {
+      setLogoError(e?.message ?? 'Upload failed');
+    } finally {
+      setLogoUploading(false);
+    }
+  }
+
   const handleSave = () => {
     saveMut.mutate({
       name: form.name,
@@ -4707,24 +4780,33 @@ function CanvaBrandsTab({ token }: { token: string }) {
       {brands && brands.map((b) => (
         <div key={b.name} className="bg-card border border-border rounded-xl p-4">
           <div className="flex items-start justify-between gap-3">
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
-                <p className="font-medium text-sm">{b.displayName}</p>
-                <code className="text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded">{b.name}</code>
-                {b.active && <span className="text-[10px] bg-green-500/15 text-green-400 px-1.5 py-0.5 rounded-full font-medium">active</span>}
-              </div>
-              {b.voiceProfile && <p className="mt-1 text-xs text-muted-foreground line-clamp-2">{b.voiceProfile}</p>}
-              <div className="flex items-center gap-3 mt-2 flex-wrap">
-                {b.palette.length > 0 && (
-                  <div className="flex gap-1">
-                    {b.palette.map((c) => (
-                      <div key={c} className="w-3.5 h-3.5 rounded-full border border-border/50" style={{ backgroundColor: c }} title={c} />
-                    ))}
-                  </div>
-                )}
-                {b.fonts.length > 0 && <span className="text-xs text-muted-foreground">{b.fonts.join(', ')}</span>}
-                {b.platforms.length > 0 && <span className="text-xs text-muted-foreground">{b.platforms.join(', ')}</span>}
-                {b.canvaKitId && <span className="text-xs text-muted-foreground">Kit: {b.canvaKitId.slice(0, 12)}…</span>}
+            <div className="flex items-start gap-3 flex-1 min-w-0">
+              {b.logoUrl ? (
+                <img src={b.logoUrl} alt={b.displayName} className="w-10 h-10 object-contain rounded-lg border border-border/50 shrink-0 bg-muted" />
+              ) : (
+                <div className="w-10 h-10 rounded-lg border border-dashed border-border/50 bg-muted flex items-center justify-center shrink-0">
+                  <ImageIcon className="w-4 h-4 text-muted-foreground/40" />
+                </div>
+              )}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <p className="font-medium text-sm">{b.displayName}</p>
+                  <code className="text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded">{b.name}</code>
+                  {b.active && <span className="text-[10px] bg-green-500/15 text-green-400 px-1.5 py-0.5 rounded-full font-medium">active</span>}
+                </div>
+                {b.voiceProfile && <p className="mt-1 text-xs text-muted-foreground line-clamp-2">{b.voiceProfile}</p>}
+                <div className="flex items-center gap-3 mt-2 flex-wrap">
+                  {b.palette.length > 0 && (
+                    <div className="flex gap-1">
+                      {b.palette.map((c) => (
+                        <div key={c} className="w-3.5 h-3.5 rounded-full border border-border/50" style={{ backgroundColor: c }} title={c} />
+                      ))}
+                    </div>
+                  )}
+                  {b.fonts.length > 0 && <span className="text-xs text-muted-foreground">{b.fonts.join(', ')}</span>}
+                  {b.platforms.length > 0 && <span className="text-xs text-muted-foreground">{b.platforms.join(', ')}</span>}
+                  {b.canvaKitId && <span className="text-xs text-muted-foreground">Kit: {b.canvaKitId.slice(0, 12)}…</span>}
+                </div>
               </div>
             </div>
             <div className="flex items-center gap-1 shrink-0">
@@ -4790,6 +4872,42 @@ function CanvaBrandsTab({ token }: { token: string }) {
               </div>
             </div>
 
+            {editing && (
+              <div>
+                <label className="text-xs text-muted-foreground block mb-1.5">Brand logo</label>
+                <div className="flex items-center gap-3">
+                  {editing.logoUrl ? (
+                    <img src={editing.logoUrl} alt="logo" className="w-14 h-14 object-contain rounded-lg border border-border bg-muted" />
+                  ) : (
+                    <div className="w-14 h-14 rounded-lg border border-dashed border-border bg-muted flex items-center justify-center">
+                      <ImageIcon className="w-5 h-5 text-muted-foreground/40" />
+                    </div>
+                  )}
+                  <div>
+                    <input
+                      ref={logoInputRef}
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                      className="hidden"
+                      onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadLogo(f); e.target.value = ''; }}
+                    />
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => logoInputRef.current?.click()}
+                      disabled={logoUploading}
+                      className="gap-1.5"
+                    >
+                      {logoUploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+                      {editing.logoUrl ? 'Replace logo' : 'Upload logo'}
+                    </Button>
+                    <p className="text-[11px] text-muted-foreground mt-1">PNG, JPG, WEBP or SVG. Used on slide covers and CTAs.</p>
+                    {logoError && <p className="text-xs text-destructive mt-1">{logoError}</p>}
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div>
               <label className="text-xs text-muted-foreground block mb-1">Voice &amp; tone profile</label>
               <textarea
@@ -4850,6 +4968,7 @@ function CanvaSettingsTab({ agent, token }: { agent: AgentDetail; token: string 
   const [formats, setFormats] = useState<string[]>((cfg.formats as string[]) ?? ['carousel', 'reel', 'post', 'story', 'youtube']);
   const [debugMode, setDebugMode] = useState(!!(cfg.debugMode));
   const [maxCostUsd, setMaxCostUsd] = useState(String(cfg.maxCostUsd ?? 5.0));
+  const [patternConsistency, setPatternConsistency] = useState(!!(cfg.patternConsistency));
   const [overrideLlm, setOverrideLlm] = useState(!!(initialLlm?.provider || initialLlm?.model));
   const [llmProvider, setLlmProvider] = useState(initialLlm?.provider ?? 'auto');
   const [llmModel, setLlmModel] = useState(initialLlm?.model ?? '');
@@ -4887,6 +5006,7 @@ function CanvaSettingsTab({ agent, token }: { agent: AgentDetail; token: string 
       brands: brands?.filter((b) => b.active).map((b) => b.name) ?? (cfg.brands as string[] ?? ['taskip', 'xgenious']),
       debugMode,
       maxCostUsd: parseFloat(maxCostUsd) || 5.0,
+      patternConsistency,
     };
     if (overrideLlm && (llmProvider !== 'auto' || llmModel)) {
       config.llm = { ...(llmProvider ? { provider: llmProvider } : {}), ...(llmModel ? { model: llmModel } : {}) };
@@ -4971,6 +5091,14 @@ function CanvaSettingsTab({ agent, token }: { agent: AgentDetail; token: string 
             />
             <span className="text-xs text-muted-foreground">Agent switches from DALL-E to Stability AI when this is exceeded</span>
           </div>
+        </div>
+
+        <div className="flex items-center justify-between py-0.5">
+          <div>
+            <p className="text-sm">Pattern consistency</p>
+            <p className="text-xs text-muted-foreground">Inject per-slide-type learned patterns into content generation (cover / content / cta each get their own rules)</p>
+          </div>
+          <BigToggle enabled={patternConsistency} onClick={() => setPatternConsistency(!patternConsistency)} />
         </div>
 
         <div className="flex items-center justify-between py-0.5">

@@ -16,6 +16,32 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.40.0',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'design-samples', description: 'Per-image pattern inspector: clicking any sample thumbnail opens a detail modal showing extracted patterns, DNA summary fields (slide_type, layout_type, background_style, colors, tone, mood, CTA, icons), and a Re-analyze button for that single image.' },
+      { tag: 'feat', scope: 'design-samples', description: 'Individual re-analyze: POST /posts/design-samples/:id/reanalyze re-runs the vision LLM on one image and refreshes the KB entry without touching other samples.' },
+      { tag: 'feat', scope: 'design-samples', description: 'Pattern management: Clear all patterns button removes the Design Patterns section from all design_sample KB entries and deletes design_pattern entries. Each pattern in the list has an X button to remove it from all samples that carry it.' },
+      { tag: 'feat', scope: 'canva', description: 'Removed the "Generate new render" form from the Post Renders tab — renders are generated via chat. Tab now shows a tip and the renders history only.' },
+    ],
+  },
+  {
+    version: 'v4.39.1',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'Brand logo upload: new POST /canva/brands/:name/logo endpoint accepts multipart image (PNG/JPG/WEBP/SVG), stores in MinIO, and saves the URL back to the brand record.' },
+      { tag: 'feat', scope: 'canva', description: 'Brands tab shows logo thumbnail on each brand card. Edit form shows current logo preview and an Upload/Replace button — upload fires immediately, no Save needed.' },
+    ],
+  },
+  {
+    version: 'v4.39.0',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'Pattern consistency layer: getPatternsBySlideType() groups per-image design rules by slide_type (cover/content/cta/stat/list/quote/testimonial). When enabled, each slide role receives its own set of learned patterns in the AI prompt.' },
+      { tag: 'feat', scope: 'canva', description: 'Pattern consistency toggle added to Canva agent Settings tab. Enabling it injects per-slide-type patterns alongside the global patternRules so cover, inner, and CTA slides each follow the brand patterns learned for that role.' },
+    ],
+  },
+  {
     version: 'v4.38.0',
     date: '2026-05-14',
     entries: [
