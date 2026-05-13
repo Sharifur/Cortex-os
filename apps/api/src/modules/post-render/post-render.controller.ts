@@ -352,6 +352,32 @@ export class PostRenderController {
     return this.designAnalysis.retryFailed(body.brand ?? 'default', body.autoCluster ?? true);
   }
 
+  @Get('design-samples/:id')
+  async getDesignSample(@Param('id') id: string) {
+    const sample = await this.designAnalysis.getSampleById(id);
+    if (!sample) throw new Error(`Sample ${id} not found`);
+    return sample;
+  }
+
+  @Post('design-samples/:id/reanalyze')
+  @HttpCode(HttpStatus.OK)
+  async reanalyzeSingleSample(@Param('id') id: string) {
+    return this.designAnalysis.reanalyzeSingleById(id);
+  }
+
+  @Delete('design-samples/patterns/all')
+  @HttpCode(HttpStatus.OK)
+  async clearAllPatterns(@Query('brand') brand?: string) {
+    return this.designPattern.clearPatterns(brand ?? 'default');
+  }
+
+  @Post('design-samples/patterns/remove')
+  @HttpCode(HttpStatus.OK)
+  async removePatternItem(@Body() body: { pattern: string; brand?: string }) {
+    if (!body.pattern) throw new Error('pattern is required');
+    return this.designPattern.removePatternItem(body.pattern, body.brand ?? 'default');
+  }
+
   @Delete('design-samples/:id')
   async deleteDesignSample(@Param('id') id: string) {
     return { ok: true, message: 'Delete via KB entries DELETE endpoint' };

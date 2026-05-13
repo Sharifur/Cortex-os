@@ -454,6 +454,94 @@ export class DesignAnalysisService {
       .orderBy(knowledgeEntries.createdAt);
   }
 
+  async getSampleById(id: string): Promise<{ id: string; sourceUrl: string | null; patterns: string[]; dnaSummary: Record<string, unknown> } | null> {
+    const [row] = await this.db.db
+      .select({ id: knowledgeEntries.id, sourceUrl: knowledgeEntries.sourceUrl, content: knowledgeEntries.content })
+      .from(knowledgeEntries)
+      .where(eq(knowledgeEntries.id, id))
+      .limit(1);
+    if (!row) return null;
+
+    const patternSection = row.content.split('-- Design Patterns --')[1]?.split('DNA JSON:')[0] ?? '';
+    const patterns = patternSection
+      .split('\n')
+      .filter(line => /^\d+\./.test(line.trim()))
+      .map(line => line.replace(/^\d+\.\s*/, '').trim())
+      .filter(Boolean);
+
+    let dnaSummary: Record<string, unknown> = {};
+    const dnaMatch = row.content.match(/DNA JSON: (\{[\s\S]+\})\s*$/m);
+    if (dnaMatch) {
+      try {
+        const dna = JSON.parse(dnaMatch[1]) as Record<string, unknown>;
+        dnaSummary = {
+          slide_type: dna.slide_type,
+          layout_type: dna.layout_type,
+          background_style: dna.background_style,
+          primary_color: dna.primary_color,
+          accent_color: dna.accent_color,
+          content_tone: dna.content_tone,
+          mood_keywords: dna.mood_keywords,
+          cta_style: dna.cta_style,
+          icon_style: dna.icon_style,
+          font_weight_heading: dna.font_weight_heading,
+          font_style: dna.font_style,
+          text_alignment: dna.text_alignment,
+          whitespace: dna.whitespace,
+        };
+      } catch { /* ignore */ }
+    }
+    return { id: row.id, sourceUrl: row.sourceUrl, patterns, dnaSummary };
+  }
+
+  async reanalyzeSingleById(id: string): Promise<{ ok: boolean; patterns: number }> {
+    const [row] = await this.db.db
+      .select({ id: knowledgeEntries.id, sourceUrl: knowledgeEntries.sourceUrl })
+      .from(knowledgeEntries)
+      .where(eq(knowledgeEntries.id, id))
+      .limit(1);
+    if (!row || !row.sourceUrl) throw new Error('Sample not found or has no source URL');
+
+    let buffer: Buffer;
+    if (row.sourceUrl.startsWith('local://')) {
+      buffer = await fs.readFile(row.sourceUrl.slice('local://'.length));
+    } else {
+      const res = await fetch(row.sourceUrl);
+      if (!res.ok) throw new Error(`Failed to fetch image: HTTP ${res.status}`);
+      buffer = Buffer.from(await res.arrayBuffer());
+    }
+
+    const imageBase64 = buffer.toString('base64');
+    const llmRes = await this.llm.complete({
+      messages: [{ role: 'user', content: DNA_PROMPT }],
+      imageBase64,
+      imageMimeType: 'image/png',
+      maxTokens: await this.getDnaMaxTokens(),
+      temperature: 0.1,
+      agentKey: 'canva',
+    });
+
+    const jsonMatch = llmRes.content.match(/```(?:json)?\s*([\s\S]+?)\s*```/) ?? llmRes.content.match(/(\{[\s\S]+\})/);
+    const dna = JSON.parse(jsonMatch?.[1] ?? llmRes.content) as DesignDNA;
+
+    const content = this.buildKbContent(dna);
+    const title = `Design Sample — ${dna.slide_type} — ${dna.platform_fit[0] ?? 'any'} — ${id}`;
+
+    await this.db.db.execute(sql`
+      UPDATE knowledge_entries
+      SET content = ${content}, title = ${title}, updated_at = NOW()
+      WHERE id = ${id}
+    `);
+
+    void this.kb.embedEntry(id, this.buildEmbeddingText(dna));
+
+    const patternSection = content.split('-- Design Patterns --')[1]?.split('DNA JSON:')[0] ?? '';
+    const patterns = patternSection.split('\n').filter(line => /^\d+\./.test(line.trim())).length;
+
+    this.logger.log(`Reanalyzed single sample ${id}: ${dna.layout_type} — ${patterns} patterns`);
+    return { ok: true, patterns };
+  }
+
   async countSamples(brand: string): Promise<number> {
     const rows = await this.db.db
       .select({ id: knowledgeEntries.id })

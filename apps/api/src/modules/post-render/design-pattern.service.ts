@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { LlmRouterService } from '../llm/llm-router.service';
 import { KnowledgeBaseService } from '../knowledge-base/knowledge-base.service';
 import { DbService } from '../../db/db.service';
@@ -710,6 +710,69 @@ export class DesignPatternService {
     const content = rows[0]?.content ?? '';
     const match = content.match(/^Banner Brief:\s*(.+)$/m);
     return match?.[1]?.trim() ?? '';
+  }
+
+  async clearPatterns(brand?: string): Promise<{ samplesUpdated: number }> {
+    const effectiveBrand = brand || 'default';
+
+    await this.db.db.delete(knowledgeEntries).where(and(
+      eq(knowledgeEntries.entryType, 'design_pattern'),
+      eq(knowledgeEntries.agentKeys, 'canva'),
+      eq(knowledgeEntries.siteKeys, effectiveBrand),
+    ));
+
+    const sampleRows = await this.db.db
+      .select({ id: knowledgeEntries.id, content: knowledgeEntries.content })
+      .from(knowledgeEntries)
+      .where(and(
+        eq(knowledgeEntries.entryType, 'design_sample'),
+        eq(knowledgeEntries.agentKeys, 'canva'),
+        eq(knowledgeEntries.siteKeys, effectiveBrand),
+      ));
+
+    let samplesUpdated = 0;
+    for (const row of sampleRows) {
+      if (!row.content.includes('-- Design Patterns --')) continue;
+      const newContent = row.content.replace(/\n-- Design Patterns --\n[\s\S]*?(?=\nDNA JSON:)/, '');
+      if (newContent !== row.content) {
+        await this.db.db.execute(sql`
+          UPDATE knowledge_entries SET content = ${newContent}, updated_at = NOW() WHERE id = ${row.id}
+        `);
+        samplesUpdated++;
+      }
+    }
+    this.logger.log(`Cleared patterns for brand=${effectiveBrand}: ${samplesUpdated} samples updated`);
+    return { samplesUpdated };
+  }
+
+  async removePatternItem(pattern: string, brand?: string): Promise<{ samplesUpdated: number }> {
+    const effectiveBrand = brand || 'default';
+
+    const sampleRows = await this.db.db
+      .select({ id: knowledgeEntries.id, content: knowledgeEntries.content })
+      .from(knowledgeEntries)
+      .where(and(
+        eq(knowledgeEntries.entryType, 'design_sample'),
+        eq(knowledgeEntries.agentKeys, 'canva'),
+        eq(knowledgeEntries.siteKeys, effectiveBrand),
+      ));
+
+    let samplesUpdated = 0;
+    for (const row of sampleRows) {
+      if (!row.content.includes(pattern)) continue;
+      const newContent = row.content
+        .split('\n')
+        .filter(line => line.replace(/^\d+\.\s*/, '').trim() !== pattern)
+        .join('\n');
+      if (newContent !== row.content) {
+        await this.db.db.execute(sql`
+          UPDATE knowledge_entries SET content = ${newContent}, updated_at = NOW() WHERE id = ${row.id}
+        `);
+        samplesUpdated++;
+      }
+    }
+    this.logger.log(`Removed pattern "${pattern.slice(0, 60)}" from ${samplesUpdated} samples`);
+    return { samplesUpdated };
   }
 
   async getPatterns(brand?: string): Promise<string[]> {
