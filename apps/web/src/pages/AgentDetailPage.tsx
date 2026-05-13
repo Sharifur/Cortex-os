@@ -5380,6 +5380,7 @@ interface WebhookLog {
   externalId: string | null;
   ticketId: string | null;
   rawPayload: string | null;
+  responseBody: string | null;
   error: string | null;
   receivedAt: string;
 }
@@ -5557,9 +5558,17 @@ function WebhookLogsTab({ token }: { token: string }) {
                   )}
                   {log.rawPayload && (
                     <div>
-                      <p className="text-[11px] font-medium text-muted-foreground mb-1.5">Raw payload</p>
+                      <p className="text-[11px] font-medium text-muted-foreground mb-1.5">Request payload</p>
                       <pre className="text-[11px] bg-muted rounded-lg p-3 overflow-x-auto leading-relaxed">
                         {(() => { try { return JSON.stringify(JSON.parse(log.rawPayload), null, 2); } catch { return log.rawPayload; } })()}
+                      </pre>
+                    </div>
+                  )}
+                  {log.responseBody && (
+                    <div>
+                      <p className="text-[11px] font-medium text-muted-foreground mb-1.5">Response</p>
+                      <pre className={`text-[11px] rounded-lg p-3 overflow-x-auto leading-relaxed ${log.status === 'stored' || log.status === 'reopened' || log.status === 'skipped_agent_reply' ? 'bg-emerald-500/10 text-emerald-300' : log.status === 'duplicate' ? 'bg-amber-500/10 text-amber-300' : 'bg-rose-500/10 text-rose-300'}`}>
+                        {(() => { try { return JSON.stringify(JSON.parse(log.responseBody), null, 2); } catch { return log.responseBody; } })()}
                       </pre>
                     </div>
                   )}

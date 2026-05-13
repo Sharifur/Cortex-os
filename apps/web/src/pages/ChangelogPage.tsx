@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.43.0',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'fix', scope: 'support', description: 'Webhook log tab now stores and shows the response body for every incoming event — rejected (secret_not_configured, missing_header, header_mismatch), stored, duplicate, reopened, skipped_agent_reply. Migration 0072 adds response_body column to support_webhook_logs.' },
+      { tag: 'fix', scope: 'support', description: 'Renamed "Raw payload" to "Request payload" in the expanded webhook log row. Added a colour-coded Response section below it showing the exact JSON the server returned for that event.' },
+    ],
+  },
+  {
     version: 'v4.42.0',
     date: '2026-05-14',
     entries: [
