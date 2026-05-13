@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.18.1',
+    date: '2026-05-13',
+    entries: [
+      { tag: 'fix', scope: 'post-render', description: 'Fix "Unsupported OpenType signature <!DO" crash: font loader now checks HTTP response status before reading bytes, validates font magic bytes (TTF/OTF/WOFF/WOFF2 signatures) before caching, falls back to weight 400 of the same font if bold weight unavailable (e.g. Instrument Serif), then falls back to Inter via Google Fonts CSS API — no more hardcoded gstatic WOFF URL that could return HTML on failure.' },
+    ],
+  },
+  {
     version: 'v4.18.0',
     date: '2026-05-13',
     entries: [
