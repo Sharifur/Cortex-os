@@ -16,6 +16,15 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.36.4',
+    date: '2026-05-13',
+    entries: [
+      { tag: 'fix', scope: 'support', description: 'Webhook logs now appear in the Webhooks tab. Switched writeWebhookLog from raw SQL to Drizzle ORM insert so errors surface instead of being swallowed silently. listWebhookLogs also logs query failures.' },
+      { tag: 'fix', scope: 'support', description: 'Support ticket body and purchase codes now extracted from webhook description field when CRM API is not configured or returns empty. HTML tags are stripped before storage.' },
+      { tag: 'fix', scope: 'support', description: 'Webhook log status "stored" and "reopened" now display as green in the Webhooks tab (were incorrectly shown as red).' },
+    ],
+  },
+  {
     version: 'v4.36.3',
     date: '2026-05-13',
     entries: [

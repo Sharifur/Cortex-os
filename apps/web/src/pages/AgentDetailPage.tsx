@@ -5264,7 +5264,7 @@ function WebhookLogsTab({ token }: { token: string }) {
   }
 
   function statusChip(status: string) {
-    if (status === 'ok') return 'bg-emerald-500/15 text-emerald-400';
+    if (status === 'ok' || status === 'stored' || status === 'reopened') return 'bg-emerald-500/15 text-emerald-400';
     if (status === 'duplicate') return 'bg-amber-500/15 text-amber-400';
     if (status === 'skipped_agent_reply') return 'bg-slate-500/15 text-slate-400';
     return 'bg-rose-500/15 text-rose-400';
