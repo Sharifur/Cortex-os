@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.21.0',
+    date: '2026-05-13',
+    entries: [
+      { tag: 'feat', scope: 'post-render', description: 'Learn patterns now shows real-time progress: "Learn patterns" fires in background immediately, frontend polls GET /posts/design-samples/cluster/status every 2s and shows the current phase (Loading samples / Aggregating DNA frequencies / Generating patterns (LLM) / Writing banner brief / Saving). Progress bar advances through phases with a pulse animation. Switches to Patterns tab automatically on click.' },
+      { tag: 'feat', scope: 'post-render', description: 'Patterns tab updates in real-time during clustering: shows phase label while running, then refreshes the full pattern list and banner brief when clustering completes — no manual page reload needed.' },
+    ],
+  },
+  {
     version: 'v4.20.0',
     date: '2026-05-13',
     entries: [

@@ -301,7 +301,15 @@ export class PostRenderController {
   @Post('design-samples/cluster')
   @HttpCode(HttpStatus.OK)
   async clusterPatterns(@Body() body: { brand: string }) {
-    return this.designPattern.cluster(body.brand);
+    void this.designPattern.cluster(body.brand ?? 'default').catch(e =>
+      this.logger.error(`cluster failed: ${(e as Error).message}`),
+    );
+    return { ok: true, queued: true };
+  }
+
+  @Get('design-samples/cluster/status')
+  getClusteringStatus(@Query('brand') brand?: string) {
+    return this.designPattern.getClusteringStatus(brand ?? 'default');
   }
 
   @Get('design-samples/patterns')

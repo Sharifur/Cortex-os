@@ -3862,7 +3862,6 @@ function DesignSamplesTab({ token }: { token: string }) {
   const [patterns, setPatterns] = useState<string[]>([]);
   const [bannerBrief, setBannerBrief] = useState('');
   const [progress, setProgress] = useState<{ done: number; total: number; errors: number } | null>(null);
-  const [clustering, setClustering] = useState(false);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const [dsSubTab, setDsSubTab] = useState<'samples' | 'patterns'>('samples');
@@ -3943,11 +3942,24 @@ function DesignSamplesTab({ token }: { token: string }) {
   const [reanalysisProgress, setReanalysisProgress] = useState<{ done: number; total: number; errors: number; running: boolean } | null>(null);
   const reanalysisPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  const [clusteringStatus, setClusteringStatus] = useState<{ phase: string; sampleCount: number; patternsFound: number; running: boolean } | null>(null);
+  const clusterPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const PHASE_LABEL: Record<string, string> = {
+    loading: 'Loading samples...',
+    aggregating: 'Aggregating DNA frequencies...',
+    'generating-patterns': 'Generating patterns (LLM)...',
+    'generating-brief': 'Writing banner brief...',
+    saving: 'Saving patterns...',
+    done: 'Done',
+  };
+
   function stopReanalysisPoll() {
-    if (reanalysisPollRef.current) {
-      clearInterval(reanalysisPollRef.current);
-      reanalysisPollRef.current = null;
-    }
+    if (reanalysisPollRef.current) { clearInterval(reanalysisPollRef.current); reanalysisPollRef.current = null; }
+  }
+
+  function stopClusterPoll() {
+    if (clusterPollRef.current) { clearInterval(clusterPollRef.current); clusterPollRef.current = null; }
   }
 
   function startReanalysisPoll() {
@@ -3966,15 +3978,32 @@ function DesignSamplesTab({ token }: { token: string }) {
     }, 3000);
   }
 
-  useEffect(() => () => stopReanalysisPoll(), []);
+  function startClusterPoll() {
+    stopClusterPoll();
+    clusterPollRef.current = setInterval(async () => {
+      try {
+        const status = await apiFetch(token, '/posts/design-samples/cluster/status?brand=default');
+        setClusteringStatus(status);
+        if (!status.running && status.phase !== 'idle') {
+          stopClusterPoll();
+          await loadData();
+        }
+      } catch {
+        stopClusterPoll();
+      }
+    }, 2000);
+  }
+
+  useEffect(() => () => { stopReanalysisPoll(); stopClusterPoll(); }, []);
 
   async function cluster() {
-    setClustering(true);
+    setClusteringStatus({ phase: 'loading', sampleCount: 0, patternsFound: 0, running: true });
+    setDsSubTab('patterns');
     try {
       await apiFetch(token, '/posts/design-samples/cluster', { method: 'POST', body: JSON.stringify({ brand: 'default' }) });
-      await loadData();
-    } finally {
-      setClustering(false);
+      startClusterPoll();
+    } catch {
+      setClusteringStatus(null);
     }
   }
 
@@ -4020,11 +4049,11 @@ function DesignSamplesTab({ token }: { token: string }) {
           </button>
           <button
             onClick={cluster}
-            disabled={clustering || (reanalysisProgress?.running ?? false) || samples.length < 3}
+            disabled={(clusteringStatus?.running ?? false) || (reanalysisProgress?.running ?? false) || samples.length < 3}
             className="px-4 py-1.5 border border-border rounded-lg text-sm font-medium disabled:opacity-50"
             title={samples.length < 3 ? 'Need 3+ samples to cluster' : ''}
           >
-            {clustering ? 'Clustering...' : 'Learn patterns'}
+            {clusteringStatus?.running ? 'Learning...' : 'Learn patterns'}
           </button>
         </div>
       </div>
@@ -4051,6 +4080,29 @@ function DesignSamplesTab({ token }: { token: string }) {
           {!reanalysisProgress.running && (
             <p className="text-xs text-muted-foreground">Patterns will be re-learned automatically.</p>
           )}
+        </div>
+      )}
+
+      {clusteringStatus && clusteringStatus.phase !== 'idle' && (
+        <div className="bg-card border border-border rounded-xl px-4 py-3 space-y-2">
+          <div className="flex items-center justify-between text-xs">
+            <span className="font-medium text-foreground">
+              {clusteringStatus.running ? PHASE_LABEL[clusteringStatus.phase] ?? clusteringStatus.phase : `Done — ${clusteringStatus.patternsFound} patterns learned from ${clusteringStatus.sampleCount} samples`}
+            </span>
+            {clusteringStatus.running && (
+              <span className="text-muted-foreground">{clusteringStatus.sampleCount > 0 ? `${clusteringStatus.sampleCount} samples` : ''}</span>
+            )}
+          </div>
+          <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all duration-700 ${clusteringStatus.running ? 'bg-primary animate-pulse' : 'bg-green-500'}`}
+              style={{
+                width: clusteringStatus.running
+                  ? ({ loading: '10%', aggregating: '25%', 'generating-patterns': '55%', 'generating-brief': '80%', saving: '95%' }[clusteringStatus.phase] ?? '10%')
+                  : '100%',
+              }}
+            />
+          </div>
         </div>
       )}
 
@@ -4134,11 +4186,17 @@ function DesignSamplesTab({ token }: { token: string }) {
 
       {dsSubTab === 'patterns' && (
         <div className="space-y-3">
-          {patterns.length === 0 ? (
+          {clusteringStatus?.running && (
+            <div className="bg-card border border-border rounded-xl p-4 space-y-2">
+              <p className="text-sm font-medium text-foreground">Learning patterns...</p>
+              <p className="text-xs text-muted-foreground">{PHASE_LABEL[clusteringStatus.phase] ?? clusteringStatus.phase}</p>
+            </div>
+          )}
+          {patterns.length === 0 && !clusteringStatus?.running ? (
             <div className="bg-card border border-border rounded-xl p-4">
               <p className="text-sm text-muted-foreground">No patterns learned yet. Upload 3+ samples and click "Learn patterns".</p>
             </div>
-          ) : (
+          ) : patterns.length > 0 ? (
             <>
               {bannerBrief && (
                 <div className="bg-primary/5 border border-primary/20 rounded-xl p-4">
@@ -4153,7 +4211,7 @@ function DesignSamplesTab({ token }: { token: string }) {
                 ))}
               </div>
             </>
-          )}
+          ) : null}
         </div>
       )}
 

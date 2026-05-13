@@ -12,14 +12,27 @@ const MIN_SAMPLES_FOR_CLUSTERING = 3;
 export class DesignPatternService {
   private readonly logger = new Logger(DesignPatternService.name);
 
+  private clusteringStatus = new Map<string, {
+    phase: 'idle' | 'loading' | 'aggregating' | 'generating-patterns' | 'generating-brief' | 'saving' | 'done';
+    sampleCount: number;
+    patternsFound: number;
+    running: boolean;
+  }>();
+
   constructor(
     private readonly llm: LlmRouterService,
     private readonly kb: KnowledgeBaseService,
     private readonly db: DbService,
   ) {}
 
+  getClusteringStatus(brand: string) {
+    return this.clusteringStatus.get(brand) ?? { phase: 'idle' as const, sampleCount: 0, patternsFound: 0, running: false };
+  }
+
   async cluster(brand: string): Promise<{ patternCount: number; patterns: string[]; bannerBrief: string }> {
     const effectiveBrand = brand || 'default';
+    const status: { phase: 'idle' | 'loading' | 'aggregating' | 'generating-patterns' | 'generating-brief' | 'saving' | 'done'; sampleCount: number; patternsFound: number; running: boolean } = { phase: 'loading', sampleCount: 0, patternsFound: 0, running: true };
+    this.clusteringStatus.set(effectiveBrand, status);
 
     const designSamples = await this.db.db
       .select({ id: knowledgeEntries.id, content: knowledgeEntries.content })
@@ -30,12 +43,17 @@ export class DesignPatternService {
         eq(knowledgeEntries.siteKeys, effectiveBrand),
       ));
 
+    status.sampleCount = designSamples.length;
+
     if (designSamples.length < MIN_SAMPLES_FOR_CLUSTERING) {
+      status.phase = 'done';
+      status.running = false;
       this.logger.warn(`Not enough samples for clustering: ${designSamples.length}/${MIN_SAMPLES_FOR_CLUSTERING} for brand=${effectiveBrand}`);
       return { patternCount: 0, patterns: [], bannerBrief: '' };
     }
 
     this.logger.log(`Clustering ${designSamples.length} samples for brand: ${effectiveBrand}`);
+    status.phase = 'aggregating';
 
     // Extract DNA JSON blobs from each sample — use all available
     const dnaList: Record<string, unknown>[] = [];
@@ -183,6 +201,7 @@ export class DesignPatternService {
       .map(n => `- ${n}`)
       .join('\n');
 
+    status.phase = 'generating-patterns';
     const res = await this.llm.complete({
       messages: [
         {
@@ -232,7 +251,8 @@ export class DesignPatternService {
       .map(line => line.replace(/^\d+\.\s*/, '').trim())
       .filter(Boolean);
 
-    // Generate a combined banner brief — one holistic paragraph synthesizing all learned elements
+    status.patternsFound = patterns.length;
+    status.phase = 'generating-brief';
     const briefRes = await this.llm.complete({
       messages: [
         {
@@ -273,6 +293,7 @@ export class DesignPatternService {
       patterns.map((p, i) => `${i + 1}. ${p}`).join('\n'),
     ].join('\n');
 
+    status.phase = 'saving';
     // Remove old pattern entries for this brand
     const oldPatterns = await this.db.db
       .select({ id: knowledgeEntries.id })
@@ -296,6 +317,8 @@ export class DesignPatternService {
       sourceType: 'clustering',
     });
 
+    status.phase = 'done';
+    status.running = false;
     this.logger.log(`Clustering complete: ${patterns.length} patterns for ${effectiveBrand}`);
     return { patternCount: patterns.length, patterns, bannerBrief };
   }
