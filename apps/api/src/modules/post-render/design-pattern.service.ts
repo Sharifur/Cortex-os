@@ -193,6 +193,7 @@ export class DesignPatternService {
       running: true,
     };
     this.clusteringStatus.set(effectiveBrand, status);
+    try {
 
     const designSamples = await this.db.db
       .select({ id: knowledgeEntries.id, content: knowledgeEntries.content })
@@ -398,10 +399,16 @@ export class DesignPatternService {
       });
     }
 
-    status.phase = 'done';
-    status.running = false;
-    this.logger.log(`Clustering complete: ${allPatterns.length} patterns across ${TOTAL_PASSES} passes for brand=${effectiveBrand}`);
-    return { patternCount: allPatterns.length, patterns: allPatterns, bannerBrief };
+      status.phase = 'done';
+      status.running = false;
+      this.logger.log(`Clustering complete: ${allPatterns.length} patterns across ${TOTAL_PASSES} passes for brand=${effectiveBrand}`);
+      return { patternCount: allPatterns.length, patterns: allPatterns, bannerBrief };
+    } catch (err) {
+      status.phase = 'error';
+      status.running = false;
+      this.logger.error(`Clustering failed for brand=${effectiveBrand}: ${(err as Error).message}`);
+      throw err;
+    }
   }
 
   async getDominantDNA(brand: string): Promise<DominantDNA | null> {

@@ -3663,8 +3663,18 @@ interface CanvaBrand {
   active: boolean;
 }
 
+const CANVA_TAB_KEY = 'canva_active_tab';
+
 function CanvaAgentPage({ agent, token }: { agent: AgentDetail; token: string }) {
-  const [tab, setTab] = useState<CanvaTab>('renders');
+  const [tab, setTab] = useState<CanvaTab>(() => {
+    const saved = sessionStorage.getItem(CANVA_TAB_KEY) as CanvaTab | null;
+    return (saved && ['renders', 'brands', 'design-samples', 'settings', 'setup'].includes(saved)) ? saved : 'renders';
+  });
+
+  function switchTab(t: CanvaTab) {
+    sessionStorage.setItem(CANVA_TAB_KEY, t);
+    setTab(t);
+  }
 
   const tabs: { key: CanvaTab; label: string }[] = [
     { key: 'renders', label: 'Post Renders' },
@@ -3680,7 +3690,7 @@ function CanvaAgentPage({ agent, token }: { agent: AgentDetail; token: string })
         {tabs.map((t) => (
           <button
             key={t.key}
-            onClick={() => setTab(t.key)}
+            onClick={() => switchTab(t.key)}
             className={`px-3.5 py-1.5 rounded-md text-sm font-medium transition-colors ${
               tab === t.key ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
             }`}
@@ -3949,6 +3959,7 @@ function DesignSamplesTab({ token }: { token: string }) {
   function clusterPhaseLabel(s: { phase: string; pass: number; totalPasses: number } | null): string {
     if (!s) return '';
     if (s.phase === 'done') return 'Done';
+    if (s.phase === 'error') return 'Failed — patterns not updated';
     if (s.pass > 0 && s.totalPasses > 0) return `Pass ${s.pass}/${s.totalPasses}: ${s.phase.replace(/^Pass \d+\/\d+:\s*/, '')}`;
     return s.phase;
   }
@@ -4026,6 +4037,10 @@ function DesignSamplesTab({ token }: { token: string }) {
       if (status.running) {
         setClusteringStatus(status);
         startClusterPoll();
+      } else if (status.phase !== 'idle') {
+        // Cluster finished while page was not loaded — refresh patterns from DB
+        setClusteringStatus(status);
+        loadData();
       }
     }).catch(() => {});
     return () => { stopReanalysisPoll(); stopClusterPoll(); };
