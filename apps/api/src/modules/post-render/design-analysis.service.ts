@@ -6,6 +6,7 @@ import { createId } from '@paralleldrive/cuid2';
 import { and, eq, like, sql } from 'drizzle-orm';
 import { LlmRouterService } from '../llm/llm-router.service';
 import { KnowledgeBaseService } from '../knowledge-base/knowledge-base.service';
+import { SettingsService } from '../settings/settings.service';
 import { StorageService } from '../storage/storage.service';
 import { DbService } from '../../db/db.service';
 import { knowledgeEntries } from '../knowledge-base/schema';
@@ -350,10 +351,17 @@ export class DesignAnalysisService {
   constructor(
     private readonly llm: LlmRouterService,
     private readonly kb: KnowledgeBaseService,
+    private readonly settings: SettingsService,
     private readonly storage: StorageService,
     private readonly db: DbService,
     private readonly designPattern: DesignPatternService,
   ) {}
+
+  private async getDnaMaxTokens(): Promise<number> {
+    const raw = await this.settings.getDecrypted('canva_dna_max_tokens');
+    const parsed = parseInt(raw ?? '', 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 10000;
+  }
 
   async analyzeAndStore(
     imageBuffer: Buffer,
@@ -388,7 +396,7 @@ export class DesignAnalysisService {
       ],
       imageBase64,
       imageMimeType: 'image/png',
-      maxTokens: 2000,
+      maxTokens: await this.getDnaMaxTokens(),
       temperature: 0.1,
       agentKey: 'canva',
     });
@@ -697,7 +705,7 @@ export class DesignAnalysisService {
           messages: [{ role: 'user', content: DNA_PROMPT }],
           imageBase64,
           imageMimeType: 'image/png',
-          maxTokens: 2000,
+          maxTokens: await this.getDnaMaxTokens(),
           temperature: 0.1,
           agentKey: 'canva',
         });
@@ -809,7 +817,7 @@ export class DesignAnalysisService {
             buffer = Buffer.from(await res.arrayBuffer());
           }
           const imageBase64 = buffer.toString('base64');
-          const llmRes = await this.llm.complete({ messages: [{ role: 'user', content: DNA_PROMPT }], imageBase64, imageMimeType: 'image/png', maxTokens: 2000, temperature: 0.1, agentKey: 'canva' });
+          const llmRes = await this.llm.complete({ messages: [{ role: 'user', content: DNA_PROMPT }], imageBase64, imageMimeType: 'image/png', maxTokens: await this.getDnaMaxTokens(), temperature: 0.1, agentKey: 'canva' });
           const jsonMatch = llmRes.content.match(/```(?:json)?\s*([\s\S]+?)\s*```/) ?? llmRes.content.match(/(\{[\s\S]+\})/);
           const dna: DesignDNA = JSON.parse(jsonMatch?.[1] ?? llmRes.content);
           const content = this.buildKbContent(dna);

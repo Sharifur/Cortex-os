@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.36.6',
+    date: '2026-05-13',
+    entries: [
+      { tag: 'feat', scope: 'settings', description: 'Canva Agent section added to Settings page with a configurable Design DNA Max Tokens field. The vision LLM token limit for design DNA extraction is now set from the UI — no redeployment needed.' },
+      { tag: 'feat', scope: 'settings', description: 'SettingsService.getDecrypted now caches results in-memory with a 60-second TTL. Cache is invalidated immediately on upsert or delete. All services (image-gen, design-analysis, unsplash, llm-router) benefit without any per-service changes.' },
+    ],
+  },
+  {
     version: 'v4.36.5',
     date: '2026-05-13',
     entries: [
