@@ -16,6 +16,15 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.37.0',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'support', description: 'Ticket list rows now navigate to a dedicated detail page (/support/:id) instead of expanding inline. Detail page shows ticket body, purchase code status, and an activity timeline with all events.' },
+      { tag: 'feat', scope: 'support', description: 'Generate Draft button on the ticket detail page triggers the AI agent to write a reply draft on demand, saving it to the ticket and logging a manual_draft event to the timeline.' },
+      { tag: 'fix', scope: 'support', description: 'request_purchase_code action requires Telegram approval again (reverted auto-execute). Example codes in the purchase code request message replaced with format placeholders to avoid sharing real-looking codes.' },
+    ],
+  },
+  {
     version: 'v4.36.8',
     date: '2026-05-14',
     entries: [

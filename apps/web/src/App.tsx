@@ -24,6 +24,7 @@ import LlmUsagePage from '@/pages/LlmUsagePage';
 import OpsPage from '@/pages/OpsPage';
 import ContactsPage from '@/pages/ContactsPage';
 import SupportTicketsPage from '@/pages/SupportTicketsPage';
+import SupportTicketDetailPage from '@/pages/SupportTicketDetailPage';
 import AdminPage from '@/pages/AdminPage';
 import ChangelogPage from '@/pages/ChangelogPage';
 import EmailSuppressionsPage from '@/pages/EmailSuppressionsPage';
@@ -74,6 +75,7 @@ export default function App() {
             <Route path="/inbox" element={<InboxPage />} />
             <Route path="/contacts" element={<ContactsPage />} />
             <Route path="/support" element={<SupportTicketsPage />} />
+            <Route path="/support/:id" element={<SupportTicketDetailPage />} />
             <Route path="/debug-logs" element={<DebugLogsPage />} />
             <Route path="/approvals" element={<ApprovalsPage />} />
             <Route path="/runs/:id" element={<RunDetailPage />} />

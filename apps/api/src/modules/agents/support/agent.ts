@@ -148,7 +148,7 @@ export class SupportAgent implements IAgent, OnModuleInit {
                 crmTicketId: ticket.externalId ? Number(ticket.externalId) : null,
                 subject: ticket.subject,
                 userEmail: ticket.userEmail,
-                draft: `Thank you for reaching out. To verify your purchase and provide you with the best support, could you please share your purchase code? You can find it in your Envato purchase email. It looks like one of these formats:\n\na99d70b3-372c-4d2e-b602-02320c5f5151\nor\nXGENIOUS-4471-3938-4712-8776\n\nOnce verified, we will be happy to assist you.`,
+                draft: `Thank you for reaching out. To verify your purchase and provide you with the best support, could you please share your purchase code? You can find it in your Envato purchase email. It looks like one of these formats:\n\nxxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx\nor\nXGENIOUS-XXXX-XXXX-XXXX-XXXX\n\nOnce verified, we will be happy to assist you.`,
               },
               riskLevel: 'low',
             });
@@ -293,7 +293,7 @@ export class SupportAgent implements IAgent, OnModuleInit {
   }
 
   requiresApproval(action: ProposedAction): boolean {
-    return action.type === 'post_reply' || action.type === 'escalate_to_owner';
+    return action.type === 'post_reply' || action.type === 'escalate_to_owner' || action.type === 'request_purchase_code';
   }
 
   async execute(action: ProposedAction): Promise<ActionResult> {
@@ -489,6 +489,12 @@ export class SupportAgent implements IAgent, OnModuleInit {
         path: '/support/tickets/:id/events',
         requiresAuth: true,
         handler: async (params) => this.listTicketEvents((params as any).id),
+      },
+      {
+        method: 'POST',
+        path: '/support/tickets/:id/draft',
+        requiresAuth: true,
+        handler: async (params) => this.generateDraftForTicket((params as any).id),
       },
     ];
   }
@@ -845,6 +851,87 @@ If not, rewrite and return: {"ok":false,"revised":"improved reply here"}`,
       // fail-open: use original draft
     }
     return draft;
+  }
+
+  async generateDraftForTicket(ticketId: string): Promise<{ draft: string; category: string; priority: string } | { error: string }> {
+    const [ticket] = await this.db.db
+      .select()
+      .from(supportTickets)
+      .where(eq(supportTickets.id, ticketId));
+    if (!ticket) return { error: 'Ticket not found' };
+
+    const config = await this.getConfig();
+    const [alwaysOn, samples, blocklist, rejections] = await Promise.all([
+      this.kb.getAlwaysOnContext(this.key),
+      this.kb.getWritingSamples(this.key),
+      this.kb.getBlocklistRules(this.key),
+      this.kb.getRecentRejections(this.key, 3),
+    ]);
+    const template = await this.kb.getPromptTemplate(this.key);
+    const references = await this.kb.searchEntries(`${ticket.subject} ${ticket.body?.slice(0, 200) ?? ''}`, this.key, 5);
+    const previousTickets = await this.getContactHistory(ticket.userEmail);
+
+    const threadHistory: { role: 'customer' | 'agent'; text: string }[] = ticket.body
+      ? [{ role: 'customer', text: ticket.body.slice(0, 1500) }]
+      : [];
+
+    const kbBlock = this.kb.buildKbPromptBlock({
+      voiceProfile: alwaysOn.find(e => e.entryType === 'voice_profile') ?? null,
+      facts: alwaysOn.filter(e => e.entryType === 'fact'),
+      catalog: alwaysOn.filter(e => e.entryType === 'product' || e.entryType === 'service' || e.entryType === 'offer'),
+      references,
+      positiveSamples: samples.filter(s => s.polarity === 'positive'),
+      negativeSamples: samples.filter(s => s.polarity === 'negative'),
+      rejections,
+      threadHistory,
+    });
+
+    const contactMemory = previousTickets.length
+      ? `\n\nPrevious tickets from this user:\n${previousTickets
+          .map(t => `Subject: "${t.subject?.slice(0, 100)}" → You replied: "${t.lastDraft?.slice(0, 150)}"`)
+          .join('\n')}`
+      : '';
+
+    const systemPrompt = (template?.system ?? SYSTEM_PROMPT) + kbBlock + contactMemory;
+
+    try {
+      const response = await this.llm.complete({
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: `Subject: ${ticket.subject}\n\nBody: ${ticket.body}\n\nFrom: ${ticket.userEmail}` },
+        ],
+        ...agentLlmOpts(config),
+        agentKey: this.key,
+        maxTokens: 400,
+      });
+
+      const text = response.content.trim();
+      const match = text.match(/\{[\s\S]*\}/);
+      const parsed: { category: string; priority: string; reply: string } = JSON.parse(match?.[0] ?? text);
+
+      parsed.reply = await this.selfCritique(
+        parsed.reply,
+        alwaysOn.find(e => e.entryType === 'voice_profile')?.content,
+        blocklist,
+      );
+
+      await this.db.db
+        .update(supportTickets)
+        .set({ lastDraft: parsed.reply, category: parsed.category, priority: parsed.priority, updatedAt: new Date() })
+        .where(eq(supportTickets.id, ticketId));
+
+      await this.writeTicketEvent({
+        ticketId: ticket.id,
+        externalId: ticket.externalId,
+        eventType: 'manual_draft',
+        summary: `Manual draft generated: ${parsed.reply.slice(0, 120)}`,
+        payload: { category: parsed.category, priority: parsed.priority, draft: parsed.reply },
+      });
+
+      return { draft: parsed.reply, category: parsed.category, priority: parsed.priority };
+    } catch (err) {
+      return { error: (err as Error).message };
+    }
   }
 
   async listTicketEvents(ticketId: string) {
