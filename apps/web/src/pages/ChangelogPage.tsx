@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.28.0',
+    date: '2026-05-13',
+    entries: [
+      { tag: 'fix', scope: 'llm', description: 'Vision calls (design sample re-analyze) now skip DeepSeek automatically since it has no image support. When the default provider is DeepSeek and an image is attached, the router falls through to OpenAI or Gemini. Also added vision support to the Gemini provider via inlineData parts, so image analysis works with either OpenAI or Gemini as fallback.' },
+      { tag: 'fix', scope: 'llm', description: 'autoRoute() now filters out DeepSeek from the provider list when imageBase64 is present, preventing silent failures where the image was dropped and the LLM returned garbage text instead of DNA JSON.' },
+    ],
+  },
+  {
     version: 'v4.27.2',
     date: '2026-05-13',
     entries: [

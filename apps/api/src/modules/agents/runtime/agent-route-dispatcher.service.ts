@@ -166,7 +166,8 @@ export class AgentRouteDispatcherService implements OnApplicationBootstrap {
 
         // Webhook routes (verifySignature) authenticate via secret — bypass CORS origin restriction
         if (route.verifySignature) {
-          fastify.options(route.path, async (_req, reply) => {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          fastify.options(route.path, async (_req: unknown, reply: any) => {
             reply
               .header('Access-Control-Allow-Origin', '*')
               .header('Access-Control-Allow-Methods', 'POST, OPTIONS')
