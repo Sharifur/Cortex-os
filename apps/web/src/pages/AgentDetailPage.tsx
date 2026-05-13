@@ -3942,7 +3942,7 @@ function DesignSamplesTab({ token }: { token: string }) {
   const [reanalysisProgress, setReanalysisProgress] = useState<{ done: number; total: number; errors: number; running: boolean } | null>(null);
   const reanalysisPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const [clusteringStatus, setClusteringStatus] = useState<{ phase: string; sampleCount: number; patternsFound: number; running: boolean } | null>(null);
+  const [clusteringStatus, setClusteringStatus] = useState<{ phase: string; pass: number; totalPasses: number; sampleCount: number; patternsFound: number; running: boolean } | null>(null);
   const clusterPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   function clusterPhaseLabel(s: { phase: string; pass: number; totalPasses: number } | null): string {
@@ -4002,7 +4002,7 @@ function DesignSamplesTab({ token }: { token: string }) {
   useEffect(() => () => { stopReanalysisPoll(); stopClusterPoll(); }, []);
 
   async function cluster() {
-    setClusteringStatus({ phase: 'loading', sampleCount: 0, patternsFound: 0, running: true });
+    setClusteringStatus({ phase: 'loading', pass: 0, totalPasses: 0, sampleCount: 0, patternsFound: 0, running: true });
     setDsSubTab('patterns');
     try {
       await apiFetch(token, '/posts/design-samples/cluster', { method: 'POST', body: JSON.stringify({ brand: 'default' }) });
