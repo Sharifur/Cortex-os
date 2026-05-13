@@ -16,6 +16,73 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.18.2',
+    date: '2026-05-13',
+    entries: [
+      { tag: 'feat', scope: 'post-render', description: 'Persistent font disk cache at ~/.cortex/fonts-cache/: fonts are saved as binary files after first fetch and loaded from disk on server restarts — no re-download needed. Two-layer lookup: L1 in-memory Map (zero cost within a process lifetime), L2 disk (survives restarts), L3 Google Fonts API (only on first-ever use). Inter fallback is also disk-cached so it never hits the network after the first render.' },
+    ],
+  },
+  {
+    version: 'v4.18.1',
+    date: '2026-05-13',
+    entries: [
+      { tag: 'fix', scope: 'post-render', description: 'Fix "Unsupported OpenType signature <!DO" crash: font loader now checks HTTP response status before reading bytes, validates font magic bytes (TTF/OTF/WOFF/WOFF2 signatures) before caching, falls back to weight 400 of the same font if bold weight unavailable (e.g. Instrument Serif), then falls back to Inter via Google Fonts CSS API — no more hardcoded gstatic WOFF URL that could return HTML on failure.' },
+    ],
+  },
+  {
+    version: 'v4.18.0',
+    date: '2026-05-13',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'DNA now captures illustration scenes as unified compositions: scene_composition field stores type (unified-scene/scattered-icons), theme, one-sentence narrative, characters present, props present, and element_relationships (person-character [riding] shopping-cart, dollar-sign-circle [pointing-at] headline, etc.). decorative_illustrations subject enum expanded to 35+ types including shopping-cart, dollar-sign-circle, person-character, motion-lines, curved-arrow, geometric-arrow, growth-chart, trophy, rocket, speech-bubble, and more. Each instance tracks interacts_with[] and scene_group (main-scene/scattered/standalone). KB content builder renders scene narrative and all element interactions.' },
+    ],
+  },
+  {
+    version: 'v4.17.9',
+    date: '2026-05-13',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'DNA now captures paper planes, stars, arrows and all illustrative icons via decorative_illustrations[] — each entry stores subject type, render style (outline-stroke, filled, hand-drawn), stroke/fill colors, opacity, semantic role, and per-instance positions with individual x/y/w/h/rotation. Person cutout photos tracked in photo_subjects[] with treatment (cutout/full-frame/masked), body framing (portrait/halfbody/full-body), position anchor, z-index, and overlap list. Shape elements gain clipped_at_edge and visible_arc fields for partial circles that extend beyond the canvas edge. White glow/blur elements captured as shape_type:radial-glow. font_style (italic/normal) and font_family_style added to each text_elements entry.' },
+    ],
+  },
+  {
+    version: 'v4.17.8',
+    date: '2026-05-13',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'DNA now captures layering and overlap relationships: layer_stack (painting order back→front), z_index on every element, overlaps_with array naming which elements overlap, composite_effects describing how elements interact (number-as-background, word-highlight-shape, layered-eyebrow, inline-badge, shape-behind-text). Text elements gain background_shape, background_rotation_deg, and word_highlights (per-word inline background shapes with rotation and padding). Enables learning designs like: giant stat number behind headline text, eyebrow pill overlapping headline start, single word with rotated colored rectangle behind it.' },
+    ],
+  },
+  {
+    version: 'v4.17.7',
+    date: '2026-05-13',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'DNA now captures every text layer individually via a text_elements array — each entry stores role, content preview, x/y/w/h position (% of canvas), rotation_deg (0 for normal, 90 for vertical, etc.), font weight, estimated size in px, color hex, background hex, letter-spacing, line-height, case style, decoration, line count, and opacity. rotation_deg also added to element_positions. DesignDNA TypeScript interface updated with text_elements, typography, spacing, color_usage, and text_content_pattern fields.' },
+    ],
+  },
+  {
+    version: 'v4.17.6',
+    date: '2026-05-13',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'DNA prompt extended with full typography detail (case, letter-spacing, line-height, word count, eyebrow style, highlight usage), spacing measurements (outer padding, vertical rhythm, element gaps), exact color hex per element (background, headline, CTA, accent bar), and text content patterns (headline structure, brand name usage). Pattern prompt now generates 25-40 rules across 19 categories with mandatory hex codes, SVG shape hints, and positional data. maxTokens raised to 4000.' },
+      { tag: 'feat', scope: 'canva', description: 'Samples grid replaced Prev/Next pagination with a "Load more (N remaining)" button — starts at 60, grows by 60 on each click.' },
+    ],
+  },
+  {
+    version: 'v4.17.5',
+    date: '2026-05-13',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'Samples grid now paginates 60 images per page with Prev/Next controls — stays fast with 300+ samples.' },
+      { tag: 'feat', scope: 'canva', description: 'Pattern clustering now uses ALL uploaded DNA samples (removed 100-sample cap), generates 20-30 detailed rules across 10 categories (added SPACING and BRAND IDENTITY), and has a 2500-token budget for deep results.' },
+      { tag: 'feat', scope: 'canva', description: 'Re-analyze all button — fires background re-analysis of every stored sample through the vision LLM to refresh DNA data with the latest prompt. Returns immediately; processes in background.' },
+      { tag: 'fix', scope: 'canva', description: 'DNA extraction maxTokens increased to 2000 for best quality per-image analysis.' },
+    ],
+  },
+  {
+    version: 'v4.17.4',
+    date: '2026-05-13',
+    entries: [
+      { tag: 'fix', scope: 'canva', description: 'Removed hard .limit(200) from listSamples() DB query — all uploaded design samples are now returned regardless of count. Samples tab and count now correctly reflect 300+ images.' },
+    ],
+  },
+  {
     version: 'v4.17.3',
     date: '2026-05-13',
     entries: [

@@ -3866,6 +3866,8 @@ function DesignSamplesTab({ token }: { token: string }) {
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const [dsSubTab, setDsSubTab] = useState<'samples' | 'patterns'>('samples');
+  const [visibleCount, setVisibleCount] = useState(60);
+  const SAMPLE_PAGE_SIZE = 60;
   const fileRef = useRef<HTMLInputElement>(null);
 
   async function loadData() {
@@ -3937,6 +3939,9 @@ function DesignSamplesTab({ token }: { token: string }) {
     if (e.dataTransfer.files?.length) uploadFiles(e.dataTransfer.files);
   }
 
+  const [reanalyzing, setReanalyzing] = useState(false);
+  const [reanalyzeMsg, setReanalyzeMsg] = useState('');
+
   async function cluster() {
     setClustering(true);
     try {
@@ -3944,6 +3949,19 @@ function DesignSamplesTab({ token }: { token: string }) {
       await loadData();
     } finally {
       setClustering(false);
+    }
+  }
+
+  async function reanalyze() {
+    setReanalyzing(true);
+    setReanalyzeMsg('');
+    try {
+      const data = await apiFetch(token, '/posts/design-samples/reanalyze', { method: 'POST', body: JSON.stringify({ brand: 'default' }) });
+      setReanalyzeMsg(`Re-analysis started for ${data.queued} images (runs in background)`);
+    } catch {
+      setReanalyzeMsg('Re-analysis failed to start');
+    } finally {
+      setReanalyzing(false);
     }
   }
 
@@ -3964,7 +3982,15 @@ function DesignSamplesTab({ token }: { token: string }) {
             {tab === 'samples' ? `Samples (${samples.length})` : `Patterns (${patterns.length})`}
           </button>
         ))}
-        <div className="ml-auto pb-1">
+        <div className="ml-auto pb-1 flex items-center gap-2">
+          <button
+            onClick={reanalyze}
+            disabled={reanalyzing || samples.length === 0}
+            className="px-3 py-1.5 border border-border rounded-lg text-xs font-medium disabled:opacity-50 text-muted-foreground"
+            title="Re-run vision LLM on all uploaded images to refresh DNA data"
+          >
+            {reanalyzing ? 'Starting...' : 'Re-analyze all'}
+          </button>
           <button
             onClick={cluster}
             disabled={clustering || samples.length < 3}
@@ -3975,6 +4001,10 @@ function DesignSamplesTab({ token }: { token: string }) {
           </button>
         </div>
       </div>
+
+      {reanalyzeMsg && (
+        <p className="text-xs text-muted-foreground bg-muted/40 rounded-lg px-3 py-2">{reanalyzeMsg}</p>
+      )}
 
       {dsSubTab === 'samples' && (
         <>
@@ -4018,7 +4048,7 @@ function DesignSamplesTab({ token }: { token: string }) {
           </div>
 
           <div className="flex flex-wrap gap-3">
-            {samples.map((s: any) => (
+            {samples.slice(0, visibleCount).map((s: any) => (
               <div key={s.id} className="relative w-[60px] h-[60px] shrink-0">
                 <button
                   onClick={() => s.sourceUrl && setLightboxUrl(s.sourceUrl)}
@@ -4040,6 +4070,17 @@ function DesignSamplesTab({ token }: { token: string }) {
               </div>
             ))}
           </div>
+
+          {visibleCount < samples.length && (
+            <div className="flex justify-center pt-1">
+              <button
+                onClick={() => setVisibleCount(c => c + SAMPLE_PAGE_SIZE)}
+                className="px-4 py-1.5 text-xs border border-border rounded-lg text-muted-foreground hover:text-foreground"
+              >
+                Load more ({samples.length - visibleCount} remaining)
+              </button>
+            </div>
+          )}
         </>
       )}
 

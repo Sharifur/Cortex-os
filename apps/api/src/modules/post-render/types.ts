@@ -226,36 +226,190 @@ export interface DesignDNA {
 
   // Decorative shape details — enough info to regenerate via SVG
   shape_elements: Array<{
-    shape_type: 'circle' | 'ellipse' | 'rectangle' | 'rounded-rect' | 'polygon' | 'diagonal-cut' | 'wave' | 'blob' | 'ring' | 'arc' | 'custom-path';
+    shape_type: 'circle' | 'ellipse' | 'rectangle' | 'rounded-rect' | 'polygon' | 'diagonal-cut' | 'wave' | 'blob' | 'ring' | 'arc' | 'radial-glow' | 'custom-path';
     fill_type: 'solid' | 'linear-gradient' | 'radial-gradient' | 'none';
-    fill_colors: string[];          // hex colors; two entries for gradients
-    gradient_angle?: number;        // degrees for linear gradients
-    stroke_color?: string;          // hex, if outlined
-    stroke_width?: number;          // px estimate
-    opacity: number;                // 0–1
-    x: number; y: number; w: number; h: number;  // % of canvas
-    border_radius?: number;         // % of element size, for rounded shapes
-    svg_hint: string;               // brief description to reconstruct, e.g. "circle fill #6366f1 opacity 0.15 at top-right corner, roughly 40% canvas width"
+    fill_colors: string[];
+    gradient_angle?: number;
+    stroke_color?: string;
+    stroke_width?: number;
+    opacity: number;
+    x: number; y: number; w: number; h: number;
+    border_radius?: number;
+    clipped_at_edge?: boolean;
+    visible_arc?: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'full' | 'top-half' | 'bottom-half';
+    svg_hint: string;
   }>;
+
+  // Overall illustration/scene narrative
+  scene_composition?: {
+    type: 'unified-scene' | 'scattered-icons' | 'single-character' | 'none';
+    theme: 'business-growth' | 'ecommerce' | 'communication' | 'finance' | 'education' | 'health' | 'technology' | 'lifestyle' | 'custom';
+    narrative: string;
+    characters_present: string[];
+    props_present: string[];
+    element_relationships: Array<{
+      element_a: string;
+      relationship: 'inside' | 'riding' | 'holding' | 'pointing-at' | 'overlapping' | 'emerging-from' | 'connected-to' | 'standing-next-to';
+      element_b: string;
+      notes?: string;
+    }>;
+    scene_region?: { x: number; y: number; w: number; h: number };
+  };
+
+  // Recognisable illustrative / icon elements (not geometric shapes)
+  decorative_illustrations?: Array<{
+    subject: 'paper-plane' | 'geometric-arrow' | 'curved-arrow' | 'motion-lines' | 'dollar-sign' | 'dollar-sign-circle' | 'shopping-cart' | 'person-character' | 'star' | 'star-burst' | 'lightbulb' | 'leaf' | 'flower' | 'checkmark' | 'checkmark-circle' | 'quote-marks' | 'confetti' | 'lightning' | 'heart' | 'sparkle' | 'hand' | 'eye' | 'megaphone' | 'target' | 'clock' | 'growth-chart' | 'bar-chart' | 'pie-chart' | 'envelope' | 'phone' | 'lock' | 'globe' | 'trophy' | 'crown' | 'rocket' | 'coin' | 'badge' | 'tag' | 'speech-bubble' | 'custom';
+    subject_description: string;
+    render_style: 'outline-stroke' | 'filled-flat' | 'filled-gradient' | 'duotone' | 'hand-drawn' | 'emoji' | 'silhouette' | 'mixed';
+    stroke_color?: string;
+    fill_color?: string;
+    stroke_width_style: 'hairline' | 'thin' | 'medium' | 'thick';
+    opacity: number;
+    semantic_role: 'decorative' | 'bullet-point' | 'cta-indicator' | 'brand-element' | 'section-divider' | 'scene-prop' | 'scene-character' | 'motion-indicator';
+    scene_group?: 'main-scene' | 'scattered' | 'standalone';
+    instances: Array<{
+      x: number; y: number; w: number; h: number;
+      rotation_deg?: number;
+      size_relative: 'small' | 'medium' | 'large';
+      z_index?: number;
+      interacts_with?: string[];
+    }>;
+  }>;
+
+  // Person, product, or object photos used as design elements
+  photo_subjects?: Array<{
+    subject_type: 'person-portrait' | 'person-halfbody' | 'person-fullbody' | 'person-group' | 'product' | 'object' | 'hands' | 'face-closeup';
+    treatment: 'cutout' | 'full-frame' | 'circle-mask' | 'shape-mask' | 'blurred-bg';
+    position_alignment: 'right-anchored' | 'left-anchored' | 'center' | 'bottom-anchored' | 'top-anchored' | 'corner-bottom-right' | 'corner-bottom-left';
+    body_framing?: 'head-only' | 'head-shoulders' | 'waist-up' | 'full-body';
+    x: number; y: number; w: number; h: number;
+    z_index?: number;
+    z_layer: 'background' | 'mid' | 'foreground';
+    overlaps_with?: string[];
+    description?: string;
+  }>;
+
+  // Painting order: element names from bottom layer to top layer (back → front)
+  layer_stack?: string[];
 
   // Spatial layout — Elementor-style element positions (percentage of canvas width/height)
   element_positions: Array<{
-    name: string;         // e.g. "logo", "eyebrow", "headline", "body", "icon", "cta-button", "brand-bar", "decoration-circle"
+    name: string;
     type: 'text' | 'icon' | 'illustration' | 'photo' | 'button' | 'shape' | 'logo' | 'bar' | 'divider';
-    x: number;            // left edge, 0–100% of canvas width
-    y: number;            // top edge, 0–100% of canvas height
-    w: number;            // width, 0–100% of canvas width
-    h: number;            // height, 0–100% of canvas height
+    x: number;
+    y: number;
+    w: number;
+    h: number;
     align: 'left' | 'center' | 'right';
+    rotation_deg?: number;
+    z_index?: number;
     z_layer: 'background' | 'mid' | 'foreground';
+    overlaps_with?: string[];
   }>;
-  grid_columns: 1 | 2 | 3 | 4;   // column grid structure of the layout
-  content_zone: {                   // main content bounding box as % of canvas
+
+  // Per-text-layer detail — one entry per visually distinct text block
+  text_elements?: Array<{
+    role: 'eyebrow' | 'headline' | 'subheadline' | 'body' | 'caption' | 'stat-number' | 'stat-label' | 'list-item' | 'cta-label' | 'attribution' | 'slide-number' | 'tag' | 'watermark';
+    content_preview: string;
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+    align: 'left' | 'center' | 'right';
+    rotation_deg: number;
+    font_weight: 'thin' | 'regular' | 'medium' | 'semibold' | 'bold' | 'black' | 'extrabold';
+    font_style?: 'normal' | 'italic' | 'oblique';
+    font_family_style?: 'modern-sans' | 'classic-serif' | 'geometric' | 'rounded' | 'slab-serif' | 'monospace' | 'display' | 'script';
+    estimated_size_px: number;
+    color_hex: string;
+    background_hex: string;
+    background_shape?: 'none' | 'rectangle' | 'rounded-rect' | 'pill' | 'squircle';
+    background_rotation_deg?: number;
+    letter_spacing: 'tight' | 'normal' | 'wide' | 'very-wide';
+    line_height: 'tight' | 'normal' | 'relaxed';
+    case_style: 'uppercase' | 'title-case' | 'sentence-case' | 'lowercase' | 'mixed';
+    decoration: 'none' | 'underline' | 'strikethrough' | 'highlight-bg' | 'outline-stroke';
+    is_multiline: boolean;
+    line_count: number;
+    opacity: number;
+    z_index?: number;
+    z_layer: 'background' | 'mid' | 'foreground';
+    overlaps_with?: string[];
+    word_highlights?: Array<{
+      word_or_phrase: string;
+      background_hex: string;
+      background_shape: 'rectangle' | 'rounded-rect' | 'pill' | 'underline-bar';
+      rotation_deg?: number;
+      padding_h_px?: number;
+      padding_v_px?: number;
+      spans_line_width?: boolean;
+    }>;
+  }>;
+
+  // Explicit overlap/layering relationships between elements
+  composite_effects?: Array<{
+    type: 'number-as-background' | 'word-highlight-shape' | 'layered-eyebrow' | 'inline-badge' | 'text-overlap' | 'shape-behind-text' | 'photo-behind-text';
+    description: string;
+    elements_involved: string[];
+    bottom_element: string;
+    top_element: string;
+    overlap_region?: { x: number; y: number; w: number; h: number };
+  }>;
+
+  grid_columns: 1 | 2 | 3 | 4;
+  content_zone: {
     x: number; y: number; w: number; h: number;
   };
 
+  // Extended typography metadata
+  typography?: {
+    heading_case: 'uppercase' | 'title-case' | 'sentence-case' | 'mixed';
+    heading_letter_spacing: 'tight' | 'normal' | 'wide' | 'very-wide';
+    heading_line_height: 'tight' | 'normal' | 'relaxed';
+    heading_word_count_typical: '1-3' | '4-6' | '7-10' | '10+';
+    uses_eyebrow_label: boolean;
+    eyebrow_style: 'none' | 'uppercase-small-caps' | 'colored-label' | 'outlined-tag';
+    body_present: boolean;
+    body_line_count_typical: '1' | '2-3' | '4-6' | 'block';
+    font_mix: 'single-font' | 'two-fonts' | 'three-plus-fonts';
+    heading_estimated_size_px: number;
+    body_estimated_size_px: number;
+    uses_highlight_text: boolean;
+    highlight_style: 'none' | 'colored-word' | 'underline' | 'background-highlight' | 'bold-word';
+  };
+
+  // Spacing rhythm metadata
+  spacing?: {
+    outer_padding_style: 'tight-5' | 'medium-8' | 'comfortable-10' | 'generous-12-plus';
+    headline_to_body_gap: 'tight' | 'medium' | 'large';
+    element_vertical_rhythm: 'tight' | 'even' | 'spacious';
+    cta_margin_top: 'tight' | 'medium' | 'large';
+    logo_margin: 'flush' | 'small' | 'medium' | 'large';
+  };
+
+  // Exact hex values per role
+  color_usage?: {
+    background_hex?: string;
+    headline_text_hex?: string;
+    body_text_hex?: string;
+    cta_background_hex?: string;
+    cta_text_hex?: string;
+    accent_bar_hex?: string;
+    icon_color_hex?: string;
+  };
+
+  // Content pattern analysis
+  text_content_pattern?: {
+    headline_starts_with: 'number' | 'question' | 'verb' | 'noun' | 'adjective' | 'proper-noun';
+    uses_brand_name_in_headline: boolean;
+    has_social_handle: boolean;
+    has_url: boolean;
+    has_tagline: boolean;
+    has_copyright: boolean;
+  };
+
   // Free-text observations
-  pattern_notes: string;           // any notable detail not captured by fields above
+  pattern_notes: string;
 }
 
 export interface RenderRequest {

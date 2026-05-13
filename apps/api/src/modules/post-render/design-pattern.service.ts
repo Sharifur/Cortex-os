@@ -37,9 +37,9 @@ export class DesignPatternService {
 
     this.logger.log(`Clustering ${designSamples.length} samples for brand: ${effectiveBrand}`);
 
-    // Extract DNA JSON blobs from each sample
+    // Extract DNA JSON blobs from each sample — use all available
     const dnaList: Record<string, unknown>[] = [];
-    for (const s of designSamples.slice(0, 100)) {
+    for (const s of designSamples) {
       const match = s.content.match(/DNA JSON: (\{[\s\S]+\})\s*$/m);
       if (match) {
         try { dnaList.push(JSON.parse(match[1])); } catch { /* skip malformed */ }
@@ -54,34 +54,97 @@ export class DesignPatternService {
         const vals = Array.isArray(val) ? val : [String(val ?? '')];
         for (const v of vals) { if (v) counts[v] = (counts[v] ?? 0) + 1; }
       }
-      return Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([v, n]) => `${v}(${n})`).join(', ');
+      return Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([v, n]) => `${v}(${n})`).join(', ');
+    };
+
+    // Helper to extract nested field from DNA
+    const freqNested = (path: string) => {
+      const parts = path.split('.');
+      const counts: Record<string, number> = {};
+      for (const d of dnaList) {
+        let val: unknown = d;
+        for (const p of parts) val = (val as Record<string, unknown>)?.[p];
+        const vals = Array.isArray(val) ? val : [String(val ?? '')];
+        for (const v of vals) { if (v && v !== 'undefined' && v !== 'null') counts[v] = (counts[v] ?? 0) + 1; }
+      }
+      return Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([v, n]) => `${v}(${n})`).join(', ');
+    };
+
+    // Collect dominant hex colors
+    const collectHexFreq = (field: string) => {
+      const counts: Record<string, number> = {};
+      for (const d of dnaList) {
+        const val = (d['color_usage'] as Record<string, string> | undefined)?.[field] ?? (d[field] as string | undefined) ?? '';
+        if (val && val.startsWith('#')) counts[val.toLowerCase()] = (counts[val.toLowerCase()] ?? 0) + 1;
+      }
+      return Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([v, n]) => `${v}(${n})`).join(', ');
     };
 
     const aggregateSummary = [
       `Samples analysed: ${dnaList.length}`,
+      `--- LAYOUT ---`,
       `layout_type: ${freq('layout_type')}`,
       `composition: ${freq('composition')}`,
+      `text_alignment: ${freq('text_alignment')}`,
+      `whitespace: ${freq('whitespace')}`,
+      `element_density: ${freq('element_density')}`,
+      `grid_columns: ${freq('grid_columns')}`,
+      `--- BACKGROUND ---`,
       `background_style: ${freq('background_style')}`,
       `background_texture: ${freq('background_texture')}`,
+      `background_image_used: ${freq('background_image_used')}`,
+      `--- COLORS ---`,
       `color_count: ${freq('color_count')}`,
+      `primary_color: ${collectHexFreq('primary_color')}`,
+      `accent_color: ${collectHexFreq('accent_color')}`,
+      `background_hex: ${collectHexFreq('background_hex')}`,
+      `headline_text_hex: ${collectHexFreq('headline_text_hex')}`,
+      `cta_background_hex: ${collectHexFreq('cta_background_hex')}`,
+      `accent_bar_hex: ${collectHexFreq('accent_bar_hex')}`,
+      `--- TYPOGRAPHY ---`,
       `font_style: ${freq('font_style')}`,
+      `body_font_style: ${freq('body_font_style')}`,
       `font_weight_heading: ${freq('font_weight_heading')}`,
       `font_size_heading: ${freq('font_size_heading')}`,
+      `heading_case: ${freqNested('typography.heading_case')}`,
+      `heading_letter_spacing: ${freqNested('typography.heading_letter_spacing')}`,
+      `heading_line_height: ${freqNested('typography.heading_line_height')}`,
+      `heading_word_count_typical: ${freqNested('typography.heading_word_count_typical')}`,
+      `uses_eyebrow_label: ${freqNested('typography.uses_eyebrow_label')}`,
+      `eyebrow_style: ${freqNested('typography.eyebrow_style')}`,
+      `body_present: ${freqNested('typography.body_present')}`,
+      `body_line_count_typical: ${freqNested('typography.body_line_count_typical')}`,
+      `font_mix: ${freqNested('typography.font_mix')}`,
+      `uses_highlight_text: ${freqNested('typography.uses_highlight_text')}`,
+      `highlight_style: ${freqNested('typography.highlight_style')}`,
+      `number_stat_style: ${freq('number_stat_style')}`,
+      `--- SPACING ---`,
+      `outer_padding_style: ${freqNested('spacing.outer_padding_style')}`,
+      `headline_to_body_gap: ${freqNested('spacing.headline_to_body_gap')}`,
+      `element_vertical_rhythm: ${freqNested('spacing.element_vertical_rhythm')}`,
+      `cta_margin_top: ${freqNested('spacing.cta_margin_top')}`,
+      `--- ICONS & ILLUSTRATION ---`,
       `icon_style: ${freq('icon_style')}`,
       `icon_count: ${freq('icon_count')}`,
       `icon_size: ${freq('icon_size')}`,
       `illustration_style: ${freq('illustration_style')}`,
       `photography_style: ${freq('photography_style')}`,
+      `--- DECORATION & STRUCTURE ---`,
       `decoration_elements: ${freq('decoration_elements')}`,
       `accent_elements: ${freq('accent_elements')}`,
       `border_radius_style: ${freq('border_radius_style')}`,
       `shadow_usage: ${freq('shadow_usage')}`,
+      `divider_style: ${freq('divider_style')}`,
+      `brand_bar: ${freq('brand_bar')}`,
+      `logo_placement: ${freq('logo_placement')}`,
+      `--- CTA & CONTENT ---`,
       `cta_style: ${freq('cta_style')}`,
       `content_tone: ${freq('content_tone')}`,
       `mood_keywords: ${freq('mood_keywords')}`,
-      `text_alignment: ${freq('text_alignment')}`,
-      `whitespace: ${freq('whitespace')}`,
       `slide_type: ${freq('slide_type')}`,
+      `text_layers_count: ${freq('text_layers_count')}`,
+      `headline_starts_with: ${freqNested('text_content_pattern.headline_starts_with')}`,
+      `uses_brand_name_in_headline: ${freqNested('text_content_pattern.uses_brand_name_in_headline')}`,
     ].join('\n');
 
     // Aggregate shape types
@@ -92,7 +155,7 @@ export class DesignPatternService {
         shapeFreq[s.shape_type] = (shapeFreq[s.shape_type] ?? 0) + 1;
       }
     }
-    const topShapes = Object.entries(shapeFreq).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([v, n]) => `${v}(${n})`).join(', ');
+    const topShapes = Object.entries(shapeFreq).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([v, n]) => `${v}(${n})`).join(', ');
 
     // Aggregate icon sizes and common element positions
     const iconSizeFreq = freq('icon_size');
@@ -103,7 +166,7 @@ export class DesignPatternService {
       .flatMap(d => (d['shape_elements'] as Array<{ svg_hint: string }> | undefined) ?? [])
       .map(s => s.svg_hint)
       .filter(h => h && h.length > 5)
-      .slice(0, 15)
+      .slice(0, 30)
       .map(h => `- ${h}`)
       .join('\n');
 
@@ -116,7 +179,7 @@ export class DesignPatternService {
     const sampleNotes = dnaList
       .map(d => d['pattern_notes'] as string | undefined)
       .filter(n => n && n.length > 5)
-      .slice(0, 20)
+      .slice(0, 40)
       .map(n => `- ${n}`)
       .join('\n');
 
@@ -137,17 +200,28 @@ export class DesignPatternService {
             sampleNotes ? `\nNotable observations from samples:\n${sampleNotes}` : '',
             svgHints ? `\nRecurring shape hints:\n${svgHints}` : '',
             ``,
-            `Write 8–12 specific, reusable design pattern rules grouped into these categories:`,
-            `LAYOUT, COLOR, TYPOGRAPHY, ICONS, ILLUSTRATION & PHOTO, SHAPES & DECORATION, CONTENT TONE, CTA`,
+            `Write 25–40 specific, actionable design pattern rules using ALL frequency data above. Multiple rules per category are required.`,
+            `Categories (use exactly these prefixes):`,
+            `[LAYOUT] [COLOR] [TYPOGRAPHY] [HEADING-STYLE] [BODY-TEXT] [SPACING] [ICONS] [ILLUSTRATION] [PHOTOGRAPHY]`,
+            `[SHAPES] [DECORATION] [ACCENT] [CTA] [LOGO] [BRAND-BAR] [CONTENT-TONE] [TEXT-PATTERN] [HIERARCHY] [PLATFORM]`,
             ``,
-            `For SHAPES & DECORATION rules: describe the shape type, position, color/opacity, and include a brief SVG reconstruction note so a developer can rebuild it programmatically.`,
-            `Format each rule as:`,
-            `[CATEGORY] Rule text. Be specific: mention exact values (e.g. "flat-outlined icons at medium-decorative size at y=10%", "semi-transparent circle blob top-right #6366f1 opacity 0.12", "pill-button CTA at y=82% accent color").`,
-            `Numbered list. No preamble. No category headers — just the [CATEGORY] prefix.`,
+            `Mandatory rules per category:`,
+            `- [COLOR]: state the dominant background hex, dominant headline text hex, dominant accent/CTA hex; describe the tricolor or palette system`,
+            `- [TYPOGRAPHY]: state the dominant font weight, size tier, and letter-spacing for headings; note if eyebrow labels are used and their style`,
+            `- [HEADING-STYLE]: describe text case, word count typical, line height, and whether highlight/bold words are used`,
+            `- [BODY-TEXT]: describe whether body text is present, typical line count, and font style`,
+            `- [SPACING]: describe outer padding tier, vertical rhythm between elements, headline-to-body gap, CTA margin`,
+            `- [SHAPES]: for every shape type appearing in more than 15% of samples — describe type, position on canvas (e.g. top-right corner 30% radius), fill color/opacity, and include a minimal SVG reconstruction: <circle cx="90%" cy="10%" r="30%" fill="#hex" opacity="0.12"/>`,
+            `- [CTA]: describe button style (pill/flat/outlined), color, text color, position on slide (y%), and any hover treatment noted`,
+            `- [TEXT-PATTERN]: describe how headlines start (verb, number, adjective), typical word count, capitalization pattern`,
+            `- [HIERARCHY]: describe the full visual reading order from top to bottom with element names`,
+            ``,
+            `Format: [CATEGORY] Rule. Be specific with hex codes, percentages, and exact values.`,
+            `Numbered list. No preamble. No category headers — just the [CATEGORY] prefix on each line.`,
           ].join('\n'),
         },
       ],
-      maxTokens: 900,
+      maxTokens: 4000,
       temperature: 0.3,
       agentKey: 'canva',
     });
@@ -183,7 +257,7 @@ export class DesignPatternService {
           ].join('\n'),
         },
       ],
-      maxTokens: 300,
+      maxTokens: 500,
       temperature: 0.3,
       agentKey: 'canva',
     });

@@ -1,39 +1,123 @@
 import { Injectable, Logger } from '@nestjs/common';
+import * as fs from 'fs/promises';
+import * as path from 'path';
+import * as os from 'os';
 import { eq } from 'drizzle-orm';
 import { DbService } from '../../db/db.service';
 import { canvaBrands } from '../agents/canva/schema';
 import type { ResolvedBrand } from './types';
 
-const INTER_URL = 'https://fonts.gstatic.com/s/inter/v13/UcCO3FwrK3iLTeHuS_fvQtMwCp50KnMw2boKoduKmMEVuLyfAZ9hiJ-Ek-_EeA.woff';
-const FONT_CACHE = new Map<string, ArrayBuffer>();
+const FONTS_DISK_DIR = path.join(os.homedir(), '.cortex', 'fonts-cache');
+const FONT_MEM_CACHE = new Map<string, ArrayBuffer>();
 const LOGO_CACHE = new Map<string, string>();
+
+function fontDiskPath(family: string, weight: number): string {
+  const safe = family.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  return path.join(FONTS_DISK_DIR, `${safe}-${weight}.bin`);
+}
+
+async function readFontFromDisk(family: string, weight: number): Promise<ArrayBuffer | null> {
+  try {
+    const buf = await fs.readFile(fontDiskPath(family, weight));
+    const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
+    return isValidFontBuffer(ab) ? ab : null;
+  } catch {
+    return null;
+  }
+}
+
+async function writeFontToDisk(family: string, weight: number, buf: ArrayBuffer): Promise<void> {
+  try {
+    await fs.mkdir(FONTS_DISK_DIR, { recursive: true });
+    await fs.writeFile(fontDiskPath(family, weight), Buffer.from(buf));
+  } catch {
+    // disk write failure is non-fatal — in-memory cache still works
+  }
+}
+
+const VALID_FONT_SIGNATURES = [
+  '00010000', // TTF
+  '4f54544f', // OTF ('OTTO')
+  '774f4646', // WOFF ('wOFF')
+  '774f4632', // WOFF2 ('wOF2')
+  '74727565', // TrueType ('true')
+];
+
+function isValidFontBuffer(buf: ArrayBuffer): boolean {
+  if (buf.byteLength < 4) return false;
+  const bytes = new Uint8Array(buf, 0, 4);
+  const sig = Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+  return VALID_FONT_SIGNATURES.includes(sig);
+}
+
+async function fetchFontFromGoogleCss(family: string, weight: number): Promise<ArrayBuffer | null> {
+  const cssUrl = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(family)}:wght@${weight}&display=swap`;
+  const cssRes = await fetch(cssUrl, { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; node-fetch)' } });
+  if (!cssRes.ok) return null;
+  const css = await cssRes.text();
+  const match = css.match(/url\((https:\/\/fonts\.gstatic\.com[^)]+)\)/);
+  if (!match) return null;
+  const fontRes = await fetch(match[1]);
+  if (!fontRes.ok) return null;
+  const buf = await fontRes.arrayBuffer();
+  return isValidFontBuffer(buf) ? buf : null;
+}
 
 async function fetchFontData(family: string, weight = 400): Promise<ArrayBuffer> {
   const cacheKey = `${family}:${weight}`;
-  if (FONT_CACHE.has(cacheKey)) return FONT_CACHE.get(cacheKey)!;
 
+  // L1: in-memory
+  if (FONT_MEM_CACHE.has(cacheKey)) return FONT_MEM_CACHE.get(cacheKey)!;
+
+  // L2: disk cache (survives restarts)
+  const fromDisk = await readFontFromDisk(family, weight);
+  if (fromDisk) {
+    FONT_MEM_CACHE.set(cacheKey, fromDisk);
+    return fromDisk;
+  }
+
+  // L3: fetch from Google Fonts, then persist to both caches
+  const persist = async (buf: ArrayBuffer, diskFamily: string, diskWeight: number) => {
+    FONT_MEM_CACHE.set(cacheKey, buf);
+    void writeFontToDisk(diskFamily, diskWeight, buf);
+  };
+
+  // Try requested font at requested weight
   try {
-    const cssUrl = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(family)}:wght@${weight}&display=swap`;
-    const css = await fetch(cssUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } }).then(r => r.text());
-    const urlMatch = css.match(/url\((https:\/\/fonts\.gstatic\.com[^)]+\.(?:ttf|woff2?))\)/);
-    if (urlMatch) {
-      const buf = await fetch(urlMatch[1]).then(r => r.arrayBuffer());
-      FONT_CACHE.set(cacheKey, buf);
-      return buf;
-    }
-  } catch {
-    // fall through to Inter fallback
+    const buf = await fetchFontFromGoogleCss(family, weight);
+    if (buf) { await persist(buf, family, weight); return buf; }
+  } catch { /* fall through */ }
+
+  // Try same font at weight 400 (some fonts are regular-only, e.g. Instrument Serif)
+  if (weight !== 400) {
+    try {
+      const buf = await fetchFontFromGoogleCss(family, 400);
+      if (buf) { await persist(buf, family, 400); return buf; }
+    } catch { /* fall through */ }
   }
 
-  // Fallback: Inter from gstatic
-  const interKey = `Inter:${weight}`;
-  if (!FONT_CACHE.has(interKey)) {
-    const buf = await fetch(INTER_URL).then(r => r.arrayBuffer());
-    FONT_CACHE.set(interKey, buf);
+  // Final fallback: Inter
+  const interWeight = weight >= 600 ? 700 : 400;
+  const interKey = `Inter:${interWeight}`;
+  if (!FONT_MEM_CACHE.has(interKey)) {
+    const fromInterDisk = await readFontFromDisk('Inter', interWeight);
+    if (fromInterDisk) {
+      FONT_MEM_CACHE.set(interKey, fromInterDisk);
+    } else {
+      const buf = await fetchFontFromGoogleCss('Inter', interWeight).catch(() => null);
+      if (buf) {
+        FONT_MEM_CACHE.set(interKey, buf);
+        void writeFontToDisk('Inter', interWeight, buf);
+      }
+    }
   }
-  const fallback = FONT_CACHE.get(interKey)!;
-  FONT_CACHE.set(cacheKey, fallback);
-  return fallback;
+  const fallback = FONT_MEM_CACHE.get(interKey);
+  if (fallback) {
+    FONT_MEM_CACHE.set(cacheKey, fallback);
+    return fallback;
+  }
+
+  throw new Error(`Failed to load font: ${family} ${weight} — no valid font data from any source`);
 }
 
 async function fetchLogoBase64(logoUrl: string): Promise<string> {
