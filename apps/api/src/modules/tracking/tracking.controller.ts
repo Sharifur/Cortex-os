@@ -37,8 +37,16 @@ export class TrackingController {
       } else {
         this.logger.log(`open recorded for email id ${token}`);
       }
-    } catch (err) {
-      this.logger.error(`tracking update failed for id ${token}: ${(err as Error).message}`);
+    } catch {
+      // open_count / first_open_at / last_open_at columns absent — fall back to metadata JSONB
+      await this.db.db.execute(sql`
+        UPDATE taskip_internal_emails
+        SET metadata = COALESCE(metadata, '{}'::jsonb)
+                       || jsonb_build_object('pixelOpened', true, 'pixelOpenedAt', ${now.toISOString()})
+        WHERE id = ${token}
+      `).catch((err: unknown) => {
+        this.logger.error(`tracking fallback also failed for id ${token}: ${(err as Error).message}`);
+      });
     }
 
     // Allow any origin — email client proxies (Gmail, Apple, Outlook) load pixels
