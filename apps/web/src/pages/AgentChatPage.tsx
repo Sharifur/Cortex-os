@@ -1710,7 +1710,7 @@ function ChatTab({
     if (!q || triggerMutation.isPending || isThinking) return;
     setInput('');
 
-    if (isGreetingExact(q)) {
+    if (messages.length === 0 && isGreetingExact(q)) {
       const userMsg: ConvMessage = {
         id: `u-${Date.now()}`,
         role: 'user',

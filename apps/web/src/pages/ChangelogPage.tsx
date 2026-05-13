@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.33.0',
+    date: '2026-05-13',
+    entries: [
+      { tag: 'fix', scope: 'chat', description: 'Agent chat no longer treats affirmations like "yes", "ok", "sure", or "yeah" as greetings mid-conversation. The greeting shortcut now only fires when the conversation is empty, so confirming an agent proposal works correctly instead of resetting the chat to the intro message.' },
+    ],
+  },
+  {
     version: 'v4.32.0',
     date: '2026-05-13',
     entries: [
