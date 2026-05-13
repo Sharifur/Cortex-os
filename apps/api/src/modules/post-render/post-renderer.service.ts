@@ -13,6 +13,7 @@ import { LlmUsageService } from '../llm/llm-usage.service';
 import { postRenders } from './schema';
 import { PostBrandService } from './post-brand.service';
 import { PostContentService } from './post-content.service';
+import { PostVisualService } from './post-visual.service';
 import { ThemeContractService } from './theme-contract.service';
 import { ConsistencyValidator } from './consistency-validator';
 import { ImageGenService } from './image-gen.service';
@@ -24,7 +25,7 @@ import { leftAlignedLayout } from './layouts/left-aligned.layout';
 import { splitPanelLayout } from './layouts/split-panel.layout';
 import { overlayLayout } from './layouts/overlay.layout';
 import { listLayout } from './layouts/list.layout';
-import type { RenderRequest, RenderResult, FilledSlide, ThemeContract, LayoutType, DominantDNA } from './types';
+import type { RenderRequest, RenderResult, FilledSlide, ThemeContract, LayoutType, DominantDNA, SlideVisualSpec } from './types';
 
 const LAYOUT_MAP: Record<LayoutType, (props: import('./layouts/layout.types').LayoutProps) => object> = {
   'centered': centeredLayout,
@@ -33,6 +34,27 @@ const LAYOUT_MAP: Record<LayoutType, (props: import('./layouts/layout.types').La
   'overlay': overlayLayout,
   'list-layout': listLayout,
 };
+
+// Compatible layout options per slide role — used for randomised layout selection
+const ROLE_LAYOUT_POOL: Record<string, LayoutType[]> = {
+  cover:   ['centered', 'left-aligned', 'overlay'],
+  content: ['centered', 'left-aligned', 'split-panel'],
+  stat:    ['split-panel', 'centered', 'left-aligned'],
+  list:    ['list-layout', 'left-aligned'],
+  cta:     ['centered', 'left-aligned', 'overlay'],
+  quote:   ['centered', 'left-aligned'],
+};
+
+function pickLayout(role: string, dominant: LayoutType | undefined): LayoutType {
+  const pool = ROLE_LAYOUT_POOL[role] ?? ['centered', 'left-aligned'];
+  if (!dominant || !pool.includes(dominant)) {
+    return pool[Math.floor(Math.random() * pool.length)];
+  }
+  // 60 % dominant, 40 % random pick from the rest
+  if (Math.random() < 0.6) return dominant;
+  const others = pool.filter(l => l !== dominant);
+  return others.length ? others[Math.floor(Math.random() * others.length)] : dominant;
+}
 
 @Injectable()
 export class PostRendererService {
@@ -45,6 +67,7 @@ export class PostRendererService {
     private readonly usageSvc: LlmUsageService,
     private readonly brandSvc: PostBrandService,
     private readonly contentSvc: PostContentService,
+    private readonly visualSvc: PostVisualService,
     private readonly themeSvc: ThemeContractService,
     private readonly validator: ConsistencyValidator,
     private readonly imageGen: ImageGenService,
@@ -125,17 +148,27 @@ export class PostRendererService {
       runId,
     });
 
-    // Feature 1: override per-slide layout from learned DNA (per-role dominant layout)
-    if (useLearned && dominantDNA!.slide_role_layouts) {
-      for (const slide of filledSlides) {
-        const learned = dominantDNA!.slide_role_layouts[slide.role];
-        if (learned) slide.layout = learned;
-      }
+    // Feature 1: per-slide layout — 60 % dominant learned, 40 % random compatible variant
+    for (const slide of filledSlides) {
+      const dominant = useLearned ? dominantDNA!.slide_role_layouts?.[slide.role] : undefined;
+      slide.layout = pickLayout(slide.role, dominant);
     }
 
     await this.logSvc.info(runId ?? 'post-render',
       `Content ready: ${filledSlides.length} slides filled`,
       { event_type: 'post_content_end', duration_ms: Date.now() - t0Content, slide_count: filledSlides.length },
+    ).catch(() => {});
+
+    // Phase 2: Generate per-slide visual specs from pattern rules
+    const visualSpecs: SlideVisualSpec[] = dominantDNA?.pattern_rules?.length
+      ? await this.visualSvc.generateSpecs(filledSlides, dominantDNA.pattern_rules, contract, { runId })
+        .catch(() => [] as SlideVisualSpec[])
+      : [];
+    const visualSpecMap = new Map(visualSpecs.map(s => [s.slideIndex, s]));
+
+    await this.logSvc.debug(runId ?? 'post-render',
+      `Visual specs: ${visualSpecs.length} slides styled from ${dominantDNA?.pattern_rules?.length ?? 0} patterns`,
+      { event_type: 'post_visual_specs', spec_count: visualSpecs.length },
     ).catch(() => {});
 
     // Consistency validation
@@ -240,7 +273,7 @@ export class PostRendererService {
         }
       }
 
-      const pngBuffer = await this.renderSlide(slide, contract, format.dimensions, i + 1, backgroundImageBase64);
+      const pngBuffer = await this.renderSlide(slide, contract, format.dimensions, i + 1, backgroundImageBase64, visualSpecMap.get(i));
 
       await this.logSvc.debug(runId ?? 'post-render',
         `Slide ${i + 1} rendered: ${Math.round(pngBuffer.length / 1024)}KB PNG`,
@@ -379,12 +412,13 @@ export class PostRendererService {
     dims: { width: number; height: number },
     slideNumber: number,
     backgroundImageBase64?: string,
+    visualSpec?: SlideVisualSpec,
   ): Promise<Buffer> {
     const satori = (await import('satori')).default;
     const { Resvg } = await import('@resvg/resvg-js');
 
     const layoutFn = LAYOUT_MAP[slide.layout] ?? centeredLayout;
-    const jsxTree = layoutFn({ slide, contract, width: dims.width, height: dims.height, slideNumber, backgroundImageBase64 });
+    const jsxTree = layoutFn({ slide, contract, width: dims.width, height: dims.height, slideNumber, backgroundImageBase64, visualSpec });
 
     const fonts: Array<{ name: string; data: ArrayBuffer; weight: 100|200|300|400|500|600|700|800|900; style: 'normal' | 'italic' }> = [
       { name: contract.headingFont, data: contract.headingFontData, weight: 700, style: 'normal' },

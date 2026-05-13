@@ -3,11 +3,12 @@ import { createId } from '@paralleldrive/cuid2';
 
 export const supportWebhookLogs = pgTable('support_webhook_logs', {
   id: text('id').primaryKey().$defaultFn(() => createId()),
-  status: text('status').notNull(),       // 'ok' | 'duplicate' | 'error' | 'rejected'
-  externalId: text('external_id'),        // ticket.id from CRM
-  ticketId: text('ticket_id'),            // internal support_tickets.id if created
-  rawPayload: text('raw_payload'),        // first 5000 chars of the raw JSON body
-  error: text('error'),                   // error message when status = 'error'|'rejected'
+  status: text('status').notNull(),
+  externalId: text('external_id'),
+  ticketId: text('ticket_id'),
+  rawPayload: text('raw_payload'),
+  responseBody: text('response_body'),
+  error: text('error'),
   receivedAt: timestamp('received_at').defaultNow().notNull(),
 });
 

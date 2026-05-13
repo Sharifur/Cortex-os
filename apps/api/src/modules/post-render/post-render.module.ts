@@ -6,6 +6,7 @@ import { KnowledgeBaseModule } from '../knowledge-base/knowledge-base.module';
 import { SpamCheckerModule } from '../spam-checker/spam-checker.module';
 import { PostRendererService } from './post-renderer.service';
 import { PostContentService } from './post-content.service';
+import { PostVisualService } from './post-visual.service';
 import { PostBrandService } from './post-brand.service';
 import { ThemeContractService } from './theme-contract.service';
 import { ConsistencyValidator } from './consistency-validator';
@@ -22,6 +23,7 @@ import { DesignSampleController } from './design-sample.controller';
   providers: [
     PostRendererService,
     PostContentService,
+    PostVisualService,
     PostBrandService,
     ThemeContractService,
     ConsistencyValidator,

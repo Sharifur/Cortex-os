@@ -1,9 +1,10 @@
-import { resolveBackground, resolveBackgroundStyle, resolveTextColor, slideIndicatorText, getSlot, renderDecorations, ctaStyle as buildCtaStyle } from './layout-helpers';
+import { resolveVisualBackground, resolveVisualBackgroundStyle, resolveAccent, resolveTextColor, slideIndicatorText, getSlot, renderDecorations, ctaStyle as buildCtaStyle } from './layout-helpers';
 import type { LayoutProps } from './layout.types';
 
-export function leftAlignedLayout({ slide, contract, width, height, slideNumber, backgroundImageBase64 }: LayoutProps): object {
-  const bg = resolveBackground(slide.styleRules, contract);
+export function leftAlignedLayout({ slide, contract, width, height, slideNumber, backgroundImageBase64, visualSpec }: LayoutProps): object {
+  const bg = resolveVisualBackground(slide.styleRules, contract, visualSpec);
   const textColor = resolveTextColor(bg, contract);
+  const accent = resolveAccent(contract, visualSpec);
   const mutedColor = textColor === '#ffffff' ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.55)';
   const headline = getSlot(slide, 'headline');
   const body = getSlot(slide, 'body');
@@ -16,7 +17,7 @@ export function leftAlignedLayout({ slide, contract, width, height, slideNumber,
     topChildren.push({
       type: 'div',
       props: {
-        style: { width: 6, backgroundColor: contract.accentColor, borderRadius: 3, marginRight: 24, alignSelf: 'stretch', flexShrink: 0 },
+        style: { width: 6, backgroundColor: accent, borderRadius: 3, marginRight: 24, alignSelf: 'stretch', flexShrink: 0 },
       },
     });
   }
@@ -25,7 +26,7 @@ export function leftAlignedLayout({ slide, contract, width, height, slideNumber,
   if (slide.styleRules.showSlideIndicator && slideNumber != null) {
     textChildren.push({
       type: 'div',
-      props: { style: { fontSize: 13, color: contract.accentColor, fontWeight: 700, marginBottom: 12 }, children: slideIndicatorText(slideNumber, contract.totalSlides) },
+      props: { style: { fontSize: 13, color: accent, fontWeight: 700, marginBottom: 12 }, children: slideIndicatorText(slideNumber, contract.totalSlides) },
     });
   }
   if (headline) {
@@ -50,7 +51,7 @@ export function leftAlignedLayout({ slide, contract, width, height, slideNumber,
   if (cta) {
     textChildren.push({
       type: 'div',
-      props: { style: buildCtaStyle(cta, contract) },
+      props: { style: buildCtaStyle(cta, contract, visualSpec) },
     });
   }
 
@@ -67,7 +68,7 @@ export function leftAlignedLayout({ slide, contract, width, height, slideNumber,
     });
   }
 
-  const decorationDivs = !backgroundImageBase64 ? renderDecorations(contract, width, height) : [];
+  const decorationDivs = !backgroundImageBase64 ? renderDecorations(contract, width, height, visualSpec) : [];
 
   return {
     type: 'div',
@@ -80,7 +81,7 @@ export function leftAlignedLayout({ slide, contract, width, height, slideNumber,
         height,
         ...(backgroundImageBase64
           ? { backgroundImage: `url(${backgroundImageBase64})`, backgroundSize: 'cover', backgroundPosition: 'center' }
-          : resolveBackgroundStyle(slide.styleRules, contract)),
+          : resolveVisualBackgroundStyle(slide.styleRules, contract, visualSpec)),
         fontFamily: contract.bodyFont,
         padding: `${contract.paddingY}px ${contract.paddingX}px`,
         overflow: 'hidden',

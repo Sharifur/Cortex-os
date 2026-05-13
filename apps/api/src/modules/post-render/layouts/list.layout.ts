@@ -1,9 +1,10 @@
-import { resolveBackground, resolveBackgroundStyle, resolveTextColor, slideIndicatorText, getSlot, getListSlot } from './layout-helpers';
+import { resolveVisualBackground, resolveVisualBackgroundStyle, resolveAccent, resolveTextColor, slideIndicatorText, getSlot, getListSlot } from './layout-helpers';
 import type { LayoutProps } from './layout.types';
 
-export function listLayout({ slide, contract, width, height, slideNumber }: LayoutProps): object {
-  const bg = resolveBackground(slide.styleRules, contract);
+export function listLayout({ slide, contract, width, height, slideNumber, visualSpec }: LayoutProps): object {
+  const bg = resolveVisualBackground(slide.styleRules, contract, visualSpec);
   const textColor = resolveTextColor(bg, contract);
+  const accent = resolveAccent(contract, visualSpec);
   const mutedColor = textColor === '#ffffff' ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.55)';
   const headline = getSlot(slide, 'headline');
   const items = getListSlot(slide, 'list_items');
@@ -20,7 +21,7 @@ export function listLayout({ slide, contract, width, height, slideNumber }: Layo
               width: 24,
               height: 24,
               borderRadius: 12,
-              backgroundColor: contract.accentColor,
+              backgroundColor: accent,
               color: '#ffffff',
               fontSize: 12,
               fontWeight: 700,
@@ -46,7 +47,7 @@ export function listLayout({ slide, contract, width, height, slideNumber }: Layo
   if (slide.styleRules.accentType === 'left-stripe') {
     topChildren.push({
       type: 'div',
-      props: { style: { width: 6, backgroundColor: contract.accentColor, borderRadius: 3, marginRight: 24, alignSelf: 'stretch', flexShrink: 0 } },
+      props: { style: { width: 6, backgroundColor: accent, borderRadius: 3, marginRight: 24, alignSelf: 'stretch', flexShrink: 0 } },
     });
   }
 
@@ -54,7 +55,7 @@ export function listLayout({ slide, contract, width, height, slideNumber }: Layo
   if (slide.styleRules.showSlideIndicator && slideNumber != null) {
     innerChildren.push({
       type: 'div',
-      props: { style: { fontSize: 13, color: contract.accentColor, fontWeight: 700, marginBottom: 12 }, children: slideIndicatorText(slideNumber, contract.totalSlides) },
+      props: { style: { fontSize: 13, color: accent, fontWeight: 700, marginBottom: 12 }, children: slideIndicatorText(slideNumber, contract.totalSlides) },
     });
   }
   if (headline) {
@@ -89,7 +90,7 @@ export function listLayout({ slide, contract, width, height, slideNumber }: Layo
         flexDirection: 'column',
         width,
         height,
-        ...resolveBackgroundStyle(slide.styleRules, contract),
+        ...resolveVisualBackgroundStyle(slide.styleRules, contract, visualSpec),
         fontFamily: contract.bodyFont,
         padding: `${contract.paddingY}px ${contract.paddingX}px`,
       },

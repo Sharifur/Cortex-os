@@ -93,7 +93,7 @@ export class TaskipInternalEmailService {
 
     const textBody = input.body;
     const from = await this.gmail.getFromAddress(input.accountId);
-    const trackingToken = createId();
+    const id = createId();
 
     let htmlBody: string | undefined;
     const apiBase = (process.env.COOLIFY_URL ?? process.env.API_PUBLIC_URL ?? process.env.VITE_API_URL ?? '').replace(/\/$/, '');
@@ -101,7 +101,7 @@ export class TaskipInternalEmailService {
       this.logger.warn('COOLIFY_URL / API_PUBLIC_URL not set — tracking pixel URL will be empty and opens will not be recorded');
     }
     if (!input.plainText && apiBase) {
-      const pixelUrl = `${apiBase}/track/open/${trackingToken}.gif`;
+      const pixelUrl = `${apiBase}/track/open/${id}.gif`;
       htmlBody = buildHtmlEmail(textBody, pixelUrl);
     } else if (!input.plainText) {
       htmlBody = buildHtmlEmail(textBody, '');
@@ -124,40 +124,17 @@ export class TaskipInternalEmailService {
         this.logger.warn(`could not fetch threadId for ${messageId}: ${(err as Error).message}`);
       }
 
-      const id = createId();
-      // Include tracking_token in the INSERT atomically so it is always stored,
-      // even if a migration that adds the column was applied after startup.
-      // If the column is absent (pre-0063 env), the INSERT will fail on the column
-      // name and we fall back to the no-token INSERT below.
-      const insertOk = await this.db.db.execute(sql`
+      await this.db.db.execute(sql`
         INSERT INTO taskip_internal_emails
           (id, purpose, workspace_uuid, recipient, subject, body,
-           gmail_message_id, gmail_thread_id, status, metadata, sent_at, tracking_token)
+           gmail_message_id, gmail_thread_id, status, metadata, sent_at)
         VALUES
           (${id}, ${input.purpose}, ${input.workspaceUuid ?? null},
            ${input.recipient}, ${input.subject}, ${input.body},
            ${messageId}, ${threadId}, 'sent',
            ${input.metadata ?? null},
-           NOW(), ${trackingToken})
-      `).then(() => true).catch(async () => {
-        // tracking_token column absent — insert without it
-        await this.db.db.execute(sql`
-          INSERT INTO taskip_internal_emails
-            (id, purpose, workspace_uuid, recipient, subject, body,
-             gmail_message_id, gmail_thread_id, status, metadata, sent_at)
-          VALUES
-            (${id}, ${input.purpose}, ${input.workspaceUuid ?? null},
-             ${input.recipient}, ${input.subject}, ${input.body},
-             ${messageId}, ${threadId}, 'sent',
-             ${input.metadata ?? null},
-             NOW())
-        `);
-        return false;
-      });
-
-      if (!insertOk) {
-        this.logger.warn(`tracking_token column absent — open tracking disabled for email ${id}`);
-      }
+           NOW())
+      `);
 
       return { id, gmailMessageId: messageId, status: 'sent' };
     } catch (err) {
@@ -332,6 +309,12 @@ export class TaskipInternalEmailService {
     }
 
     return { added, total: total.length };
+  }
+
+  async deleteById(id: string): Promise<{ ok: boolean }> {
+    await this.db.db.execute(sql`DELETE FROM taskip_internal_email_replies WHERE email_id = ${id}`);
+    await this.db.db.execute(sql`DELETE FROM taskip_internal_emails WHERE id = ${id}`);
+    return { ok: true };
   }
 
   async sweepRecent(): Promise<{ scanned: number; updated: number }> {

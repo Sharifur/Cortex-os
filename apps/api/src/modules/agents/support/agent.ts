@@ -437,20 +437,35 @@ export class SupportAgent implements IAgent, OnModuleInit {
           const secret = raw?.trim() ?? '';
           if (!secret) {
             this.logger.warn('support_webhook_secret not configured in Settings — all webhook requests will be rejected');
-            await this.writeWebhookLog({ status: 'rejected', rawPayload: _rawBody.slice(0, 5000), error: 'secret_not_configured' });
+            await this.writeWebhookLog({
+              status: 'rejected',
+              rawPayload: _rawBody.slice(0, 5000),
+              responseBody: JSON.stringify({ ok: false, error: 'Invalid webhook signature', reason: 'secret_not_configured' }),
+              error: 'secret_not_configured',
+            });
             return { ok: false, reason: 'secret_not_configured' };
           }
           const sent = (headers['x-webhook-secret'] as string | undefined)?.trim() ?? '';
           if (!sent) {
             this.logger.warn('Webhook arrived without x-webhook-secret header');
-            await this.writeWebhookLog({ status: 'rejected', rawPayload: _rawBody.slice(0, 5000), error: 'missing_header' });
+            await this.writeWebhookLog({
+              status: 'rejected',
+              rawPayload: _rawBody.slice(0, 5000),
+              responseBody: JSON.stringify({ ok: false, error: 'Invalid webhook signature', reason: 'missing_header' }),
+              error: 'missing_header',
+            });
             return { ok: false, reason: 'missing_header' };
           }
           this.logger.debug(`Webhook secret check: sent.length=${sent.length} stored.length=${secret.length}`);
           const ok = safeEqualString(sent, secret);
           if (!ok) {
             this.logger.warn('Webhook x-webhook-secret header did not match stored secret');
-            await this.writeWebhookLog({ status: 'rejected', rawPayload: _rawBody.slice(0, 5000), error: 'header_mismatch' });
+            await this.writeWebhookLog({
+              status: 'rejected',
+              rawPayload: _rawBody.slice(0, 5000),
+              responseBody: JSON.stringify({ ok: false, error: 'Invalid webhook signature', reason: 'header_mismatch' }),
+              error: 'header_mismatch',
+            });
             return { ok: false, reason: 'header_mismatch' };
           }
           return true;
@@ -496,6 +511,12 @@ export class SupportAgent implements IAgent, OnModuleInit {
         requiresAuth: true,
         handler: async (params) => this.generateDraftForTicket((params as any).id),
       },
+      {
+        method: 'DELETE',
+        path: '/support/tickets/:id',
+        requiresAuth: true,
+        handler: async (params) => this.deleteTicket((params as any).id),
+      },
     ];
   }
 
@@ -511,6 +532,12 @@ export class SupportAgent implements IAgent, OnModuleInit {
       .onConflictDoNothing()
       .returning();
     return row;
+  }
+
+  private async deleteTicket(id: string): Promise<{ ok: boolean }> {
+    await this.db.db.delete(supportTicketEvents).where(eq(supportTicketEvents.ticketId, id));
+    await this.db.db.delete(supportTickets).where(eq(supportTickets.id, id));
+    return { ok: true };
   }
 
   private async writeTicketEvent(entry: {
@@ -538,6 +565,7 @@ export class SupportAgent implements IAgent, OnModuleInit {
     externalId?: string | null;
     ticketId?: string | null;
     rawPayload?: string | null;
+    responseBody?: string | null;
     error?: string | null;
   }) {
     await this.db.db.insert(supportWebhookLogs).values({
@@ -545,6 +573,7 @@ export class SupportAgent implements IAgent, OnModuleInit {
       externalId: entry.externalId ?? null,
       ticketId: entry.ticketId ?? null,
       rawPayload: entry.rawPayload ?? null,
+      responseBody: entry.responseBody ?? null,
       error: entry.error ?? null,
     }).catch((dbErr: unknown) => {
       this.logger.error(`writeWebhookLog failed: ${(dbErr as Error).message} | status=${entry.status} externalId=${entry.externalId ?? 'none'}`);
@@ -607,15 +636,17 @@ export class SupportAgent implements IAgent, OnModuleInit {
     if (!ticket?.id || !ticket?.subject) {
       const errMsg = `Missing ticket.id or ticket.subject after normalization (event="${event ?? 'none'}")`;
       this.logger.warn(`ingestWebhook: ${errMsg} — raw keys: ${Object.keys(payload ?? {}).join(', ')}`);
-      await this.writeWebhookLog({ status: 'error', rawPayload, error: errMsg });
-      return { ok: false, error: errMsg };
+      const errorResp = { ok: false, error: errMsg };
+      await this.writeWebhookLog({ status: 'error', rawPayload, responseBody: JSON.stringify(errorResp), error: errMsg });
+      return errorResp;
     }
 
     // For reply events triggered by our own agent, just log and skip — avoid feedback loops
     if (event === 'support.ticket.replied' && payload?.data?.replied_by?.type === 'agent') {
       this.logger.log(`ingestWebhook: skipping agent-replied event for ticket #${ticket.id}`);
-      await this.writeWebhookLog({ status: 'skipped_agent_reply', externalId: String(ticket.id), rawPayload });
-      return { ok: true, status: 'skipped', reason: 'agent_reply' };
+      const skippedResp = { ok: true, status: 'skipped', reason: 'agent_reply' };
+      await this.writeWebhookLog({ status: 'skipped_agent_reply', externalId: String(ticket.id), rawPayload, responseBody: JSON.stringify(skippedResp) });
+      return skippedResp;
     }
 
     this.logger.log(`Webhook received: ticket #${ticket.id} "${ticket.subject}" from ${contact?.email ?? '(no contact)'}`);
@@ -653,14 +684,15 @@ export class SupportAgent implements IAgent, OnModuleInit {
           .set({ status: 'open', body: body || undefined, updatedAt: new Date() })
           .where(eq(supportTickets.id, existing.id));
         this.logger.log(`Ticket #${ticket.id} reopened after customer reply — will re-check for purchase code`);
-        await this.writeWebhookLog({ status: 'reopened', externalId: String(ticket.id), ticketId: existing.id, rawPayload });
+        const reopenedResp = { ok: true, status: 'reopened', ticketId: existing.id, externalId: String(ticket.id) };
+        await this.writeWebhookLog({ status: 'reopened', externalId: String(ticket.id), ticketId: existing.id, rawPayload, responseBody: JSON.stringify(reopenedResp) });
         await this.writeTicketEvent({
           ticketId: existing.id,
           externalId: String(ticket.id),
           eventType: 'ticket_reopened',
           summary: 'Customer replied — ticket reopened for purchase code re-check',
         });
-        return { ok: true, status: 'reopened', ticketId: existing.id, externalId: String(ticket.id) };
+        return reopenedResp;
       }
     }
 
@@ -686,14 +718,16 @@ export class SupportAgent implements IAgent, OnModuleInit {
       this.logger.warn(`Ticket #${ticket.id} already exists (onConflictDoNothing) — skipped`);
     }
 
+    const finalResp = { ok: true, status, ticketId: row?.id ?? null, externalId: String(ticket.id) };
     await this.writeWebhookLog({
       status,
       externalId: String(ticket.id),
       ticketId: row?.id ?? null,
       rawPayload,
+      responseBody: JSON.stringify(finalResp),
     });
 
-    return { ok: true, status, ticketId: row?.id ?? null, externalId: String(ticket.id) };
+    return finalResp;
   }
 
   async listWebhookLogs(limit?: number) {

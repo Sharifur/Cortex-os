@@ -1563,6 +1563,15 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
         },
       },
       {
+        method: 'DELETE',
+        path: '/taskip-internal/inbox/:id',
+        requiresAuth: true,
+        handler: async (params) => {
+          const { id } = params as { id: string };
+          return this.emails.deleteById(id);
+        },
+      },
+      {
         method: 'POST',
         path: '/taskip-internal/inbox/send',
         requiresAuth: true,

@@ -1,8 +1,9 @@
-import { resolveTextColor, getSlot } from './layout-helpers';
+import { resolveTextColor, resolveAccent, getSlot } from './layout-helpers';
 import type { LayoutProps } from './layout.types';
 
-export function overlayLayout({ slide, contract, width, height, backgroundImageBase64 }: LayoutProps): object {
-  const bg = backgroundImageBase64 ? 'transparent' : '#111111';
+export function overlayLayout({ slide, contract, width, height, backgroundImageBase64, visualSpec }: LayoutProps): object {
+  const bg = backgroundImageBase64 ? 'transparent' : (visualSpec?.bgColor ?? '#111111');
+  const accent = resolveAccent(contract, visualSpec);
   const textColor = '#ffffff';
   const mutedColor = 'rgba(255,255,255,0.75)';
   const headline = getSlot(slide, 'headline');
@@ -32,7 +33,7 @@ export function overlayLayout({ slide, contract, width, height, backgroundImageB
     contentChildren.push({
       type: 'div',
       props: {
-        style: { marginTop: 32, padding: '10px 24px', backgroundColor: contract.accentColor, color: '#fff', fontWeight: 700, fontSize: 16, borderRadius: 6, display: 'flex' },
+        style: { marginTop: 32, padding: '10px 24px', backgroundColor: accent, color: '#fff', fontWeight: 700, fontSize: 16, borderRadius: 6, display: 'flex' },
         children: cta,
       },
     });

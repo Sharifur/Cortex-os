@@ -1,4 +1,4 @@
-import type { ThemeContract, FilledSlide } from '../types';
+import type { ThemeContract, FilledSlide, SlideVisualSpec } from '../types';
 
 export interface LayoutProps {
   slide: FilledSlide;
@@ -7,4 +7,5 @@ export interface LayoutProps {
   height: number;
   slideNumber?: number;
   backgroundImageBase64?: string;
+  visualSpec?: SlideVisualSpec;
 }

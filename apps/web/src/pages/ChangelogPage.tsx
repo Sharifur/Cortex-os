@@ -16,6 +16,50 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.44.1',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'fix', scope: 'design-samples', description: 'Render variety: PostVisualService now shuffles pattern rules before sampling (random 6 per tag, not always the first 8) and runs at temperature 0.7 so shape placement and colors differ on every render. A random session seed prevents LLM response caching. Layout selection is now probabilistic — 60% dominant learned layout, 40% compatible alternative (centered/left-aligned/split-panel/overlay/list-layout per role) — so the same prompt produces structurally different carousels.' },
+    ],
+  },
+  {
+    version: 'v4.44.0',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'design-samples', description: 'Two-phase render pipeline: after filling content slots, a second LLM call (PostVisualService) translates brand pattern rules ([BACKGROUND], [COLOR], [SHAPE], [LAYOUT], [COMPOSITION]) into per-slide visual specs — background color, accent color, and decorative shapes. Layout functions now receive a SlideVisualSpec and apply per-slide overrides for background, accent, CTA button, accent stripe, and shape decorations.' },
+    ],
+  },
+  {
+    version: 'v4.43.1',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'fix', scope: 'design-samples', description: 'Patterns tab now groups rules by category tag (LAYOUT, COLOR, TYPOGRAPHY, BACKGROUND, SHAPE, BRANDING, CTA, STYLE, SLIDE, TONE, MOOD, etc.) instead of a flat list. Tag prefix is shown as a section header; items under it show only the rule text.' },
+    ],
+  },
+  {
+    version: 'v4.43.0',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'fix', scope: 'support', description: 'Webhook log tab now stores and shows the response body for every incoming event — rejected (secret_not_configured, missing_header, header_mismatch), stored, duplicate, reopened, skipped_agent_reply. Migration 0072 adds response_body column to support_webhook_logs.' },
+      { tag: 'fix', scope: 'support', description: 'Renamed "Raw payload" to "Request payload" in the expanded webhook log row. Added a colour-coded Response section below it showing the exact JSON the server returned for that event.' },
+    ],
+  },
+  {
+    version: 'v4.42.0',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'support', description: 'Delete ticket: DELETE /support/tickets/:id removes the ticket and all its events. Detail page has a Delete ticket button in the header. Ticket list shows a trash icon on row hover.' },
+    ],
+  },
+  {
+    version: 'v4.41.0',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'fix', scope: 'inbox', description: 'Tracking pixel now uses the email record id directly in the pixel URL (/track/open/:id.gif) instead of a separate tracking_token column. Opens are now reliably recorded in production without requiring migration 0063.' },
+      { tag: 'feat', scope: 'inbox', description: 'Delete button added to email detail panel. Removes the email and all its reply records from the database and clears the selection.' },
+    ],
+  },
+  {
     version: 'v4.40.0',
     date: '2026-05-14',
     entries: [

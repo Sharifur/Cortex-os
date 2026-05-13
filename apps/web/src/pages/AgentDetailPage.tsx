@@ -4324,8 +4324,8 @@ function DesignSamplesTab({ token }: { token: string }) {
                   <p className="text-sm text-foreground leading-relaxed">{bannerBrief}</p>
                 </div>
               )}
-              <div className="bg-card border border-border rounded-xl p-4 space-y-3">
-                <div className="flex items-center justify-between">
+              <div className="bg-card border border-border rounded-xl overflow-hidden">
+                <div className="flex items-center justify-between px-4 py-3 border-b border-border">
                   <p className="text-xs text-muted-foreground">{patterns.length} pattern{patterns.length !== 1 ? 's' : ''} from {samples.length} samples</p>
                   <button
                     onClick={clearAllPatterns}
@@ -4335,21 +4335,45 @@ function DesignSamplesTab({ token }: { token: string }) {
                     {clearingPatterns ? 'Clearing...' : 'Clear all patterns'}
                   </button>
                 </div>
-                {patterns.map((p, i) => (
-                  <div key={i} className="flex items-start gap-2 group">
-                    <p className="text-xs text-muted-foreground border-l-2 border-primary pl-2 flex-1">{p}</p>
-                    <button
-                      onClick={() => removePattern(p)}
-                      disabled={removingPattern === p}
-                      className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-opacity disabled:opacity-50 shrink-0 mt-0.5"
-                      title="Remove this pattern"
-                    >
-                      {removingPattern === p
-                        ? <Loader2 className="w-3 h-3 animate-spin" />
-                        : <span className="text-[10px] leading-none">✕</span>}
-                    </button>
-                  </div>
-                ))}
+                {(() => {
+                  const TAG_ORDER = ['LAYOUT','COMPOSITION','GRID','SPACING','BACKGROUND','COLOR','TYPOGRAPHY','SHAPE','BRANDING','CTA','STYLE','SLIDE','TONE','MOOD'];
+                  const groups: Record<string, string[]> = {};
+                  for (const p of patterns) {
+                    const tag = p.match(/^\[([A-Z_]+)\]/)?.[1] ?? 'OTHER';
+                    (groups[tag] ??= []).push(p);
+                  }
+                  const sortedTags = [
+                    ...TAG_ORDER.filter(t => groups[t]),
+                    ...Object.keys(groups).filter(t => !TAG_ORDER.includes(t)).sort(),
+                  ];
+                  return sortedTags.map(tag => (
+                    <div key={tag} className="border-b border-border last:border-b-0">
+                      <div className="px-4 py-2 bg-muted/20 flex items-center gap-2">
+                        <span className="text-[10px] font-semibold uppercase tracking-wider text-primary">{tag}</span>
+                        <span className="text-[10px] text-muted-foreground">{groups[tag].length}</span>
+                      </div>
+                      <div className="px-4 py-2 space-y-1.5">
+                        {groups[tag].map((p, i) => (
+                          <div key={i} className="flex items-start gap-2 group">
+                            <p className="text-xs text-muted-foreground border-l-2 border-primary/40 pl-2 flex-1">
+                              {p.replace(/^\[[A-Z_]+\]\s*/, '')}
+                            </p>
+                            <button
+                              onClick={() => removePattern(p)}
+                              disabled={removingPattern === p}
+                              className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-opacity disabled:opacity-50 shrink-0 mt-0.5"
+                              title="Remove this pattern"
+                            >
+                              {removingPattern === p
+                                ? <Loader2 className="w-3 h-3 animate-spin" />
+                                : <span className="text-[10px] leading-none">✕</span>}
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ));
+                })()}
               </div>
             </>
           ) : null}
@@ -5380,6 +5404,7 @@ interface WebhookLog {
   externalId: string | null;
   ticketId: string | null;
   rawPayload: string | null;
+  responseBody: string | null;
   error: string | null;
   receivedAt: string;
 }
@@ -5557,9 +5582,17 @@ function WebhookLogsTab({ token }: { token: string }) {
                   )}
                   {log.rawPayload && (
                     <div>
-                      <p className="text-[11px] font-medium text-muted-foreground mb-1.5">Raw payload</p>
+                      <p className="text-[11px] font-medium text-muted-foreground mb-1.5">Request payload</p>
                       <pre className="text-[11px] bg-muted rounded-lg p-3 overflow-x-auto leading-relaxed">
                         {(() => { try { return JSON.stringify(JSON.parse(log.rawPayload), null, 2); } catch { return log.rawPayload; } })()}
+                      </pre>
+                    </div>
+                  )}
+                  {log.responseBody && (
+                    <div>
+                      <p className="text-[11px] font-medium text-muted-foreground mb-1.5">Response</p>
+                      <pre className={`text-[11px] rounded-lg p-3 overflow-x-auto leading-relaxed ${log.status === 'stored' || log.status === 'reopened' || log.status === 'skipped_agent_reply' ? 'bg-emerald-500/10 text-emerald-300' : log.status === 'duplicate' ? 'bg-amber-500/10 text-amber-300' : 'bg-rose-500/10 text-rose-300'}`}>
+                        {(() => { try { return JSON.stringify(JSON.parse(log.responseBody), null, 2); } catch { return log.responseBody; } })()}
                       </pre>
                     </div>
                   )}
