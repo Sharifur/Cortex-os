@@ -16,6 +16,30 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.35.1',
+    date: '2026-05-13',
+    entries: [
+      { tag: 'fix', scope: 'design-samples', description: 'Patterns tab count updates in real-time during Learn Patterns — shows patternsFound from cluster status instead of the stale loaded count while clustering is running.' },
+    ],
+  },
+  {
+    version: 'v4.35.0',
+    date: '2026-05-13',
+    entries: [
+      { tag: 'fix', scope: 'tracking', description: 'Tracking pixel now works correctly end-to-end. Security headers (CSP, X-Frame-Options) are no longer applied to the /track/* route — CDN and proxy layers between email clients and the API were rejecting GIF responses that carried page-level security directives. Access-Control-Allow-Origin: * is now set explicitly on pixel responses. Token is saved atomically in the INSERT rather than a separate best-effort UPDATE so it can no longer be silently lost. VITE_API_URL is now recognised as a fallback for the pixel base URL so no new env var is needed on Coolify.' },
+      { tag: 'fix', scope: 'inbox', description: 'Inbox detail view now polls every 30 seconds while the selected email has not been opened yet, so the open status updates automatically without requiring a manual Sync click.' },
+      { tag: 'fix', scope: 'design-samples', description: 'Re-analysis now handles local:// scheme image URLs by reading the file from disk instead of making an HTTP request, fixing re-analysis failures for locally stored samples.' },
+    ],
+  },
+  {
+    version: 'v4.34.0',
+    date: '2026-05-13',
+    entries: [
+      { tag: 'feat', scope: 'chat', description: 'Reply-to feature added to agent chat: hover any message and click the reply icon to quote it. A preview strip shows above the composer and the quoted context is prepended to the message sent to the AI for better conversational grounding.' },
+      { tag: 'feat', scope: 'chat', description: 'Inline Approve/Decline buttons now appear directly below any chat message that is awaiting approval. Clicking either calls the approvals API immediately and clears the pending state in the chat — no need to switch to the Tasks tab or wait for Telegram.' },
+    ],
+  },
+  {
     version: 'v4.33.0',
     date: '2026-05-13',
     entries: [

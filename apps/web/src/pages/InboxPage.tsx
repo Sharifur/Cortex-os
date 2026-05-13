@@ -236,6 +236,13 @@ export default function InboxPage() {
     queryKey: ['inbox-detail', selectedId],
     queryFn: () => api<{ email: InboxRow; replies: InboxReply[] }>(token, `/taskip-internal/inbox/${selectedId}`),
     enabled: !!selectedId,
+    // Poll while the selected email hasn't been opened yet so the UI updates as
+    // soon as the tracking pixel fires without requiring a manual Sync click.
+    refetchInterval: (q) => {
+      const email = q.state.data?.email;
+      if (!email) return false;
+      return isOpened(email) ? false : 30_000;
+    },
   });
 
   const syncMutation = useMutation({

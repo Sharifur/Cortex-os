@@ -87,13 +87,17 @@ async function bootstrap() {
   });
 
   fastify.addHook('onSend', async (_req: unknown, reply: { header: (k: string, v: string) => unknown }, payload: unknown) => {
+    // Skip page-level security headers for the tracking pixel endpoint.
+    // CDN/proxy layers between email clients and the API can reject a GIF that
+    // carries a Content-Security-Policy or X-Frame-Options header.
+    if ((_req as { url?: string }).url?.startsWith('/track/')) return payload;
+
     reply.header('X-Content-Type-Options', 'nosniff');
     reply.header('X-Frame-Options', 'DENY');
     reply.header('Referrer-Policy', 'strict-origin-when-cross-origin');
     reply.header('X-DNS-Prefetch-Control', 'off');
     reply.header('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
     reply.header('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
-    // Pure API — no scripts, frames, or embedded resources needed.
     reply.header('Content-Security-Policy', "default-src 'none'; frame-ancestors 'none'");
     return payload;
   });

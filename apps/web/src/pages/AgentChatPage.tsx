@@ -7,7 +7,7 @@ import {
   AlertCircle, MessageSquare, ListTodo, RotateCcw, History, X,
   ThumbsUp, ThumbsDown, ImagePlus, Copy, Mail, Check, Wrench, Zap,
   Bold, Italic, List, Radio, ShieldAlert, ShieldCheck, Image, FileImage, Layers,
-  ChevronLeft, ChevronRight, Download,
+  ChevronLeft, ChevronRight, Download, Reply,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -990,12 +990,15 @@ function SlideGrid({ slideUrls, renderId }: { slideUrls: string[]; renderId?: st
 // ─── Message bubble ───────────────────────────────────────────────────────────
 
 function MessageBubble({
-  msg, color, agentName, onFeedback, token, agentKey,
+  msg, color, agentName, onFeedback, onReply, onApprove, onReject, token, agentKey,
 }: {
   msg: ConvMessage & { pending?: boolean; feedback?: 'up' | 'down' };
   color: ReturnType<typeof agentColor>;
   agentName: string;
   onFeedback?: (msgId: string, rating: 'up' | 'down') => void;
+  onReply?: (msg: ConvMessage) => void;
+  onApprove?: () => void;
+  onReject?: () => void;
   token: string;
   agentKey?: string;
 }) {
@@ -1063,9 +1066,31 @@ function MessageBubble({
           );
         })()}
         {msg.requiresApproval && (
-          <div className="flex items-center gap-1 mt-1 px-1">
-            <AlertCircle className="w-3 h-3 text-amber-500" />
-            <span className="text-xs text-amber-500">Awaiting Telegram approval</span>
+          <div className="mt-2 flex flex-col gap-1.5">
+            {onApprove && onReject ? (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={onApprove}
+                  className="flex items-center gap-1 px-3 py-1 rounded-lg bg-green-500/15 border border-green-500/30 text-green-400 text-xs font-medium hover:bg-green-500/25 transition-colors"
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  Approve
+                </button>
+                <button
+                  onClick={onReject}
+                  className="flex items-center gap-1 px-3 py-1 rounded-lg bg-red-500/15 border border-red-500/30 text-red-400 text-xs font-medium hover:bg-red-500/25 transition-colors"
+                >
+                  <XCircle className="w-3.5 h-3.5" />
+                  Decline
+                </button>
+                <span className="text-[10px] text-muted-foreground/50">or approve via Telegram</span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1 px-1">
+                <AlertCircle className="w-3 h-3 text-amber-500" />
+                <span className="text-xs text-amber-500">Awaiting Telegram approval</span>
+              </div>
+            )}
           </div>
         )}
         <div className={`flex items-center gap-2 mt-0.5 px-1 ${isUser ? 'justify-end' : ''}`}>
@@ -1077,24 +1102,35 @@ function MessageBubble({
               run →
             </Link>
           )}
-          {!isUser && onFeedback && (
-            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+          <div className={`flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity`}>
+            {onReply && (
               <button
-                onClick={() => onFeedback(msg.id, 'up')}
-                title="Helpful"
-                className={`p-0.5 rounded transition-colors ${msg.feedback === 'up' ? 'text-green-400' : 'text-muted-foreground/40 hover:text-green-400'}`}
+                onClick={() => onReply(msg)}
+                title="Reply to this message"
+                className="p-0.5 rounded transition-colors text-muted-foreground/40 hover:text-foreground"
               >
-                <ThumbsUp className="w-3 h-3" />
+                <Reply className="w-3 h-3" />
               </button>
-              <button
-                onClick={() => onFeedback(msg.id, 'down')}
-                title="Not helpful"
-                className={`p-0.5 rounded transition-colors ${msg.feedback === 'down' ? 'text-red-400' : 'text-muted-foreground/40 hover:text-red-400'}`}
-              >
-                <ThumbsDown className="w-3 h-3" />
-              </button>
-            </div>
-          )}
+            )}
+            {!isUser && onFeedback && (
+              <>
+                <button
+                  onClick={() => onFeedback(msg.id, 'up')}
+                  title="Helpful"
+                  className={`p-0.5 rounded transition-colors ${msg.feedback === 'up' ? 'text-green-400' : 'text-muted-foreground/40 hover:text-green-400'}`}
+                >
+                  <ThumbsUp className="w-3 h-3" />
+                </button>
+                <button
+                  onClick={() => onFeedback(msg.id, 'down')}
+                  title="Not helpful"
+                  className={`p-0.5 rounded transition-colors ${msg.feedback === 'down' ? 'text-red-400' : 'text-muted-foreground/40 hover:text-red-400'}`}
+                >
+                  <ThumbsDown className="w-3 h-3" />
+                </button>
+              </>
+            )}
+          </div>
         </div>
       </div>
     </div>
@@ -1519,6 +1555,12 @@ function ChatTab({
   const [isThinking, setIsThinking] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [pastedImage, setPastedImage] = useState<{ base64: string; mimeType: string; previewUrl: string } | null>(null);
+  const [replyTo, setReplyTo] = useState<ConvMessage | null>(null);
+
+  function handleReply(msg: ConvMessage) {
+    setReplyTo(msg);
+    setTimeout(() => textareaRef.current?.focus(), 0);
+  }
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1548,6 +1590,38 @@ function ChatTab({
       if (lastAgentMsg?.runId) setLastRunId(lastAgentMsg.runId);
     }
   }, [history]);
+
+  const qc = useQueryClient();
+  const { data: pendingApprovals } = useQuery<TaskApproval[]>({
+    queryKey: ['pending-approvals'],
+    queryFn: () => apiFetch(token, '/approvals'),
+    refetchInterval: 10_000,
+    enabled: messages.some((m) => m.requiresApproval),
+  });
+
+  const approvalByRunId = useMemo(() => {
+    return (pendingApprovals ?? [])
+      .filter((a) => a.agentKey === agent.key)
+      .reduce<Record<string, TaskApproval>>((acc, a) => { acc[a.runId] = a; return acc; }, {});
+  }, [pendingApprovals, agent.key]);
+
+  const approveChatMutation = useMutation({
+    mutationFn: (approvalId: string) =>
+      apiFetch(token, `/approvals/${approvalId}/approve`, { method: 'POST' }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['pending-approvals'] });
+      setMessages((prev) => prev.map((m) => m.requiresApproval ? { ...m, requiresApproval: false } : m));
+    },
+  });
+
+  const rejectChatMutation = useMutation({
+    mutationFn: (approvalId: string) =>
+      apiFetch(token, `/approvals/${approvalId}/reject`, { method: 'POST' }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['pending-approvals'] });
+      setMessages((prev) => prev.map((m) => m.requiresApproval ? { ...m, requiresApproval: false } : m));
+    },
+  });
 
   function handleFeedback(msgId: string, rating: 'up' | 'down') {
     const msg = messages.find((m) => m.id === msgId);
@@ -1706,11 +1780,17 @@ function ChatTab({
   });
 
   function handleSend() {
-    const q = input.trim() || (pastedImage ? 'Draft a reply to this email.' : '');
-    if (!q || triggerMutation.isPending || isThinking) return;
+    const rawQ = input.trim() || (pastedImage ? 'Draft a reply to this email.' : '');
+    if (!rawQ || triggerMutation.isPending || isThinking) return;
     setInput('');
 
-    if (messages.length === 0 && isGreetingExact(q)) {
+    const replyPrefix = replyTo
+      ? `[Replying to ${replyTo.role === 'user' ? 'your message' : 'agent'}: "${replyTo.content.slice(0, 120)}${replyTo.content.length > 120 ? '…' : ''}"]\n\n`
+      : '';
+    const q = replyPrefix + rawQ;
+    setReplyTo(null);
+
+    if (messages.length === 0 && isGreetingExact(rawQ)) {
       const userMsg: ConvMessage = {
         id: `u-${Date.now()}`,
         role: 'user',
@@ -1879,9 +1959,23 @@ function ChatTab({
           </div>
         )}
 
-        {messages.map((msg) => (
-          <MessageBubble key={msg.id} msg={msg} color={color} agentName={agent.name} onFeedback={handleFeedback} token={token ?? ''} agentKey={agent.key} />
-        ))}
+        {messages.map((msg) => {
+          const approval = msg.runId ? approvalByRunId[msg.runId] : undefined;
+          return (
+            <MessageBubble
+              key={msg.id}
+              msg={msg}
+              color={color}
+              agentName={agent.name}
+              onFeedback={handleFeedback}
+              onReply={handleReply}
+              onApprove={approval ? () => approveChatMutation.mutate(approval.id) : undefined}
+              onReject={approval ? () => rejectChatMutation.mutate(approval.id) : undefined}
+              token={token ?? ''}
+              agentKey={agent.key}
+            />
+          );
+        })}
 
         {isThinking && (
   renderProgress
@@ -1906,6 +2000,22 @@ function ChatTab({
               textareaRef.current?.focus();
             }}
           />
+        )}
+        {replyTo && (
+          <div className="mb-2 flex items-start gap-2 px-3 py-2 rounded-xl bg-muted/50 border border-border">
+            <Reply className="w-3.5 h-3.5 mt-0.5 text-muted-foreground shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-[10px] text-muted-foreground mb-0.5">
+                Replying to {replyTo.role === 'user' ? 'your message' : 'agent'}
+              </p>
+              <p className="text-xs text-foreground/70 truncate">
+                {replyTo.content.slice(0, 100)}{replyTo.content.length > 100 ? '…' : ''}
+              </p>
+            </div>
+            <button onClick={() => setReplyTo(null)} className="text-muted-foreground hover:text-foreground p-0.5 shrink-0">
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
         )}
         {pastedImage && (
           <div className="mb-2 flex items-center gap-2">
