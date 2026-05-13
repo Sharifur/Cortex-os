@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.35.1',
+    date: '2026-05-13',
+    entries: [
+      { tag: 'fix', scope: 'design-samples', description: 'Patterns tab count updates in real-time during Learn Patterns — shows patternsFound from cluster status instead of the stale loaded count while clustering is running.' },
+    ],
+  },
+  {
     version: 'v4.35.0',
     date: '2026-05-13',
     entries: [

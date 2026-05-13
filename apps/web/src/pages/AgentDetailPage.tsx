@@ -4065,7 +4065,9 @@ function DesignSamplesTab({ token }: { token: string }) {
                 : 'border-transparent text-muted-foreground hover:text-foreground'
             }`}
           >
-            {tab === 'samples' ? `Samples (${samples.length})` : `Patterns (${patterns.length})`}
+            {tab === 'samples'
+              ? `Samples (${samples.length})`
+              : `Patterns (${clusteringStatus?.running && clusteringStatus.patternsFound > 0 ? clusteringStatus.patternsFound : patterns.length})`}
           </button>
         ))}
         <div className="ml-auto pb-1 flex items-center gap-2">
