@@ -484,6 +484,13 @@
       "when": 1747526400000,
       "tag": "0068_fix_email_suppressions",
       "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "6",
+      "when": 1747612800000,
+      "tag": "0069_support_purchase_code_status",
+      "breakpoints": true
     }
   ]
 }

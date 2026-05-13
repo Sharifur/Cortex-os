@@ -102,8 +102,9 @@ export class PurchaseVerifyService {
   }
 
   static extractPurchaseCodes(text: string): string[] {
-    const matches = text.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi);
-    return matches ? [...new Set(matches)] : [];
+    const uuids = text.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi) ?? [];
+    const xgenious = text.match(/XGENIOUS-\d{4}-\d{4}-\d{4}-\d{4}/gi) ?? [];
+    return [...new Set([...uuids, ...xgenious])];
   }
 
   static hasSupportIntent(text: string): boolean {

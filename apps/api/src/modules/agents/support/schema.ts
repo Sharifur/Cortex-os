@@ -25,6 +25,8 @@ export const supportTickets = pgTable('support_tickets', {
   status: text('status').notNull().default('open'),       // open | replied | escalated | closed
   assignedTo: text('assigned_to'),
   lastDraft: text('last_draft'),
+  purchaseCodeStatus: text('purchase_code_status'), // null | 'requested' | 'verified' | 'invalid' | 'expired'
+  purchaseCode: text('purchase_code'),
   repliedAt: timestamp('replied_at'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),

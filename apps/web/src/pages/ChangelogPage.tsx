@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.29.0',
+    date: '2026-05-13',
+    entries: [
+      { tag: 'feat', scope: 'support', description: 'Support tickets now track purchase code and verification status. purchaseCode and purchaseCodeStatus columns added to support_tickets table via migration 0069.' },
+      { tag: 'fix', scope: 'purchase-verify', description: 'Purchase code extractor now recognises Xgenious-format codes (XGENIOUS-XXXX-XXXX-XXXX-XXXX) in addition to UUID-format codes.' },
+    ],
+  },
+  {
     version: 'v4.28.0',
     date: '2026-05-13',
     entries: [
