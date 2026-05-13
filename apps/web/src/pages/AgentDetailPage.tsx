@@ -3861,9 +3861,8 @@ function DesignSamplesTab({ token }: { token: string }) {
   const [samples, setSamples] = useState<any[]>([]);
   const [patterns, setPatterns] = useState<string[]>([]);
   const [bannerBrief, setBannerBrief] = useState('');
-  const [uploading, setUploading] = useState(false);
+  const [progress, setProgress] = useState<{ done: number; total: number; errors: number } | null>(null);
   const [clustering, setClustering] = useState(false);
-  const [uploadResult, setUploadResult] = useState('');
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const [dsSubTab, setDsSubTab] = useState<'samples' | 'patterns'>('samples');
@@ -3882,26 +3881,40 @@ function DesignSamplesTab({ token }: { token: string }) {
 
   useEffect(() => { loadData(); }, [token]);
 
+  useEffect(() => {
+    if (progress && progress.done >= progress.total) {
+      const t = setTimeout(() => setProgress(null), 2500);
+      return () => clearTimeout(t);
+    }
+  }, [progress]);
+
   async function uploadFiles(files: FileList | File[]) {
     const list = Array.from(files).filter(f => f.type.startsWith('image/'));
     if (!list.length) return;
-    setUploading(true); setUploadResult('');
-    try {
-      const fd = new FormData();
-      for (const f of list) fd.append('files', f);
-      const res = await fetch('/posts/design-samples/upload', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-        body: fd,
-      });
-      const data = await res.json();
-      setUploadResult(`Uploaded ${data.uploaded} sample(s)`);
-      await loadData();
-    } catch {
-      setUploadResult('Upload failed');
-    } finally {
-      setUploading(false);
-      if (fileRef.current) fileRef.current.value = '';
+    if (fileRef.current) fileRef.current.value = '';
+
+    // Immediately add to progress total — drop zone stays active
+    setProgress(prev => ({
+      done: prev?.done ?? 0,
+      total: (prev?.total ?? 0) + list.length,
+      errors: prev?.errors ?? 0,
+    }));
+
+    // Upload one file at a time so progress increments smoothly
+    for (const file of list) {
+      try {
+        const fd = new FormData();
+        fd.append('files', file);
+        await fetch('/posts/design-samples/upload', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+          body: fd,
+        });
+        setProgress(prev => prev ? { ...prev, done: prev.done + 1 } : null);
+        void loadData(); // refresh grid after each image
+      } catch {
+        setProgress(prev => prev ? { ...prev, done: prev.done + 1, errors: prev.errors + 1 } : null);
+      }
     }
   }
 
@@ -3968,26 +3981,39 @@ function DesignSamplesTab({ token }: { token: string }) {
           <div className="bg-card border border-border rounded-xl p-4 space-y-3">
             <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={handleFileInput} />
             <div
-              onClick={() => !uploading && fileRef.current?.click()}
+              onClick={() => fileRef.current?.click()}
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
               onDrop={handleDrop}
               className={`border-2 border-dashed rounded-xl p-8 text-center transition-colors cursor-pointer ${
-                isDragOver
-                  ? 'border-primary bg-primary/5'
-                  : 'border-border hover:border-primary/50 hover:bg-muted/40'
-              } ${uploading ? 'pointer-events-none opacity-60' : ''}`}
+                isDragOver ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/50 hover:bg-muted/40'
+              }`}
             >
-              {uploading ? (
-                <p className="text-sm text-muted-foreground">Analyzing images...</p>
-              ) : (
-                <>
-                  <p className="text-sm font-medium">{isDragOver ? 'Drop images here' : 'Drop images or click to upload'}</p>
-                  <p className="text-xs text-muted-foreground mt-1">PNG, JPG, WEBP — multiple files supported</p>
-                </>
-              )}
+              <p className="text-sm font-medium">{isDragOver ? 'Drop images here' : 'Drop images or click to upload'}</p>
+              <p className="text-xs text-muted-foreground mt-1">PNG, JPG, WEBP — multiple files supported</p>
             </div>
-            {uploadResult && <p className="text-xs text-green-600">{uploadResult}</p>}
+
+            {progress && (
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-muted-foreground">
+                    {progress.done >= progress.total
+                      ? `Done — ${progress.total - progress.errors} analyzed${progress.errors > 0 ? `, ${progress.errors} failed` : ''}`
+                      : `Analyzing ${progress.done} / ${progress.total}...`}
+                  </span>
+                  {progress.errors > 0 && (
+                    <span className="text-red-400">{progress.errors} failed</span>
+                  )}
+                </div>
+                <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all duration-500 ${progress.done >= progress.total ? 'bg-green-500' : 'bg-primary'}`}
+                    style={{ width: `${Math.round((progress.done / Math.max(progress.total, 1)) * 100)}%` }}
+                  />
+                </div>
+              </div>
+            )}
+
             <p className="text-xs text-muted-foreground">{samples.length} sample{samples.length !== 1 ? 's' : ''} total</p>
           </div>
 
