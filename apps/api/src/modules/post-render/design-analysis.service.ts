@@ -3,7 +3,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
 import { createId } from '@paralleldrive/cuid2';
-import { and, eq, like } from 'drizzle-orm';
+import { and, eq, like, sql } from 'drizzle-orm';
 import { LlmRouterService } from '../llm/llm-router.service';
 import { KnowledgeBaseService } from '../knowledge-base/knowledge-base.service';
 import { StorageService } from '../storage/storage.service';
@@ -156,7 +156,7 @@ export class DesignAnalysisService {
       ],
       imageBase64,
       imageMimeType: 'image/png',
-      maxTokens: 1200,
+      maxTokens: 2000,
       temperature: 0.1,
       agentKey: 'canva',
     });
@@ -295,5 +295,100 @@ export class DesignAnalysisService {
       .from(knowledgeEntries)
       .where(and(...conditions))
       .orderBy(knowledgeEntries.createdAt);
+  }
+
+  async countSamples(brand: string): Promise<number> {
+    const rows = await this.db.db
+      .select({ id: knowledgeEntries.id })
+      .from(knowledgeEntries)
+      .where(and(
+        eq(knowledgeEntries.entryType, 'design_sample'),
+        eq(knowledgeEntries.agentKeys, 'canva'),
+        eq(knowledgeEntries.siteKeys, brand),
+      ));
+    return rows.length;
+  }
+
+  async reanalyzeSamples(brand: string): Promise<{ reanalyzed: number; failed: number }> {
+    const rows = await this.db.db
+      .select({
+        id: knowledgeEntries.id,
+        sourceUrl: knowledgeEntries.sourceUrl,
+        siteKeys: knowledgeEntries.siteKeys,
+      })
+      .from(knowledgeEntries)
+      .where(and(
+        eq(knowledgeEntries.entryType, 'design_sample'),
+        eq(knowledgeEntries.agentKeys, 'canva'),
+        eq(knowledgeEntries.siteKeys, brand),
+      ));
+
+    let reanalyzed = 0;
+    let failed = 0;
+
+    for (const row of rows) {
+      const url = row.sourceUrl;
+      if (!url || url.startsWith('local://')) {
+        failed++;
+        continue;
+      }
+      try {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const buffer = Buffer.from(await res.arrayBuffer());
+
+        // Extract fresh DNA via vision LLM
+        const imageBase64 = buffer.toString('base64');
+        const llmRes = await this.llm.complete({
+          messages: [{ role: 'user', content: DNA_PROMPT }],
+          imageBase64,
+          imageMimeType: 'image/png',
+          maxTokens: 2000,
+          temperature: 0.1,
+          agentKey: 'canva',
+        });
+
+        let dna: DesignDNA;
+        try {
+          const jsonMatch = llmRes.content.match(/```(?:json)?\s*([\s\S]+?)\s*```/) ?? llmRes.content.match(/(\{[\s\S]+\})/);
+          dna = JSON.parse(jsonMatch?.[1] ?? llmRes.content);
+        } catch {
+          failed++;
+          continue;
+        }
+
+        const content = [
+          `Design Sample Analysis`,
+          `Layout: ${dna.layout_type}`,
+          `Background: ${dna.background_style}`,
+          `Colors: primary ${dna.primary_color}, accent ${dna.accent_color}`,
+          `Typography: ${dna.font_weight_heading} ${dna.font_size_heading} ${dna.font_style}`,
+          `Hierarchy: ${dna.visual_hierarchy?.join(' > ')}`,
+          `Composition: ${dna.composition}, alignment: ${dna.text_alignment}`,
+          `Whitespace: ${dna.whitespace}, density: ${dna.element_density}`,
+          `Mood: ${dna.mood_keywords?.join(', ')}`,
+          `Platform: ${dna.platform_fit?.join(', ')}`,
+          `Slide type: ${dna.slide_type}`,
+          `Accent elements: ${dna.accent_elements?.join(', ')}`,
+          ``,
+          `DNA JSON: ${JSON.stringify(dna)}`,
+        ].join('\n');
+
+        // Update the KB entry content in-place
+        await this.db.db.execute(sql`
+          UPDATE knowledge_entries SET content = ${content}, updated_at = NOW()
+          WHERE id = ${row.id}
+        `);
+
+        reanalyzed++;
+        this.logger.log(`Reanalyzed sample ${row.id}: ${dna.layout_type} ${dna.mood_keywords?.join(',')}`);
+      } catch (err) {
+        failed++;
+        this.logger.warn(`Failed to reanalyze sample ${row.id}: ${(err as Error).message}`);
+      }
+    }
+
+    this.logger.log(`Reanalysis complete: ${reanalyzed} reanalyzed, ${failed} failed for brand=${brand}`);
+    return { reanalyzed, failed };
   }
 }

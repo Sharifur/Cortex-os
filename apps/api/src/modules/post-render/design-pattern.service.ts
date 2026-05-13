@@ -37,9 +37,9 @@ export class DesignPatternService {
 
     this.logger.log(`Clustering ${designSamples.length} samples for brand: ${effectiveBrand}`);
 
-    // Extract DNA JSON blobs from each sample
+    // Extract DNA JSON blobs from each sample — use all available
     const dnaList: Record<string, unknown>[] = [];
-    for (const s of designSamples.slice(0, 100)) {
+    for (const s of designSamples) {
       const match = s.content.match(/DNA JSON: (\{[\s\S]+\})\s*$/m);
       if (match) {
         try { dnaList.push(JSON.parse(match[1])); } catch { /* skip malformed */ }
@@ -54,7 +54,7 @@ export class DesignPatternService {
         const vals = Array.isArray(val) ? val : [String(val ?? '')];
         for (const v of vals) { if (v) counts[v] = (counts[v] ?? 0) + 1; }
       }
-      return Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([v, n]) => `${v}(${n})`).join(', ');
+      return Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([v, n]) => `${v}(${n})`).join(', ');
     };
 
     const aggregateSummary = [
@@ -92,7 +92,7 @@ export class DesignPatternService {
         shapeFreq[s.shape_type] = (shapeFreq[s.shape_type] ?? 0) + 1;
       }
     }
-    const topShapes = Object.entries(shapeFreq).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([v, n]) => `${v}(${n})`).join(', ');
+    const topShapes = Object.entries(shapeFreq).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([v, n]) => `${v}(${n})`).join(', ');
 
     // Aggregate icon sizes and common element positions
     const iconSizeFreq = freq('icon_size');
@@ -103,7 +103,7 @@ export class DesignPatternService {
       .flatMap(d => (d['shape_elements'] as Array<{ svg_hint: string }> | undefined) ?? [])
       .map(s => s.svg_hint)
       .filter(h => h && h.length > 5)
-      .slice(0, 15)
+      .slice(0, 30)
       .map(h => `- ${h}`)
       .join('\n');
 
@@ -116,7 +116,7 @@ export class DesignPatternService {
     const sampleNotes = dnaList
       .map(d => d['pattern_notes'] as string | undefined)
       .filter(n => n && n.length > 5)
-      .slice(0, 20)
+      .slice(0, 40)
       .map(n => `- ${n}`)
       .join('\n');
 
@@ -137,17 +137,20 @@ export class DesignPatternService {
             sampleNotes ? `\nNotable observations from samples:\n${sampleNotes}` : '',
             svgHints ? `\nRecurring shape hints:\n${svgHints}` : '',
             ``,
-            `Write 8–12 specific, reusable design pattern rules grouped into these categories:`,
-            `LAYOUT, COLOR, TYPOGRAPHY, ICONS, ILLUSTRATION & PHOTO, SHAPES & DECORATION, CONTENT TONE, CTA`,
+            `Write 20–30 specific, reusable design pattern rules grouped into these categories (multiple rules per category are encouraged):`,
+            `LAYOUT, COLOR, TYPOGRAPHY, ICONS, ILLUSTRATION & PHOTO, SHAPES & DECORATION, CONTENT TONE, CTA, SPACING, BRAND IDENTITY`,
             ``,
             `For SHAPES & DECORATION rules: describe the shape type, position, color/opacity, and include a brief SVG reconstruction note so a developer can rebuild it programmatically.`,
+            `For COLOR rules: name exact hex codes when a color appears in more than 20% of samples.`,
+            `For TYPOGRAPHY rules: specify exact sizes, weights, and line-height values observed.`,
+            `For SPACING rules: describe padding, margin, and whitespace patterns observed.`,
             `Format each rule as:`,
             `[CATEGORY] Rule text. Be specific: mention exact values (e.g. "flat-outlined icons at medium-decorative size at y=10%", "semi-transparent circle blob top-right #6366f1 opacity 0.12", "pill-button CTA at y=82% accent color").`,
             `Numbered list. No preamble. No category headers — just the [CATEGORY] prefix.`,
           ].join('\n'),
         },
       ],
-      maxTokens: 900,
+      maxTokens: 2500,
       temperature: 0.3,
       agentKey: 'canva',
     });
@@ -183,7 +186,7 @@ export class DesignPatternService {
           ].join('\n'),
         },
       ],
-      maxTokens: 300,
+      maxTokens: 500,
       temperature: 0.3,
       agentKey: 'canva',
     });

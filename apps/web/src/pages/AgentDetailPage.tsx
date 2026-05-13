@@ -3866,6 +3866,8 @@ function DesignSamplesTab({ token }: { token: string }) {
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const [dsSubTab, setDsSubTab] = useState<'samples' | 'patterns'>('samples');
+  const [samplePage, setSamplePage] = useState(0);
+  const SAMPLE_PAGE_SIZE = 60;
   const fileRef = useRef<HTMLInputElement>(null);
 
   async function loadData() {
@@ -3937,6 +3939,9 @@ function DesignSamplesTab({ token }: { token: string }) {
     if (e.dataTransfer.files?.length) uploadFiles(e.dataTransfer.files);
   }
 
+  const [reanalyzing, setReanalyzing] = useState(false);
+  const [reanalyzeMsg, setReanalyzeMsg] = useState('');
+
   async function cluster() {
     setClustering(true);
     try {
@@ -3944,6 +3949,19 @@ function DesignSamplesTab({ token }: { token: string }) {
       await loadData();
     } finally {
       setClustering(false);
+    }
+  }
+
+  async function reanalyze() {
+    setReanalyzing(true);
+    setReanalyzeMsg('');
+    try {
+      const data = await apiFetch(token, '/posts/design-samples/reanalyze', { method: 'POST', body: JSON.stringify({ brand: 'default' }) });
+      setReanalyzeMsg(`Re-analysis started for ${data.queued} images (runs in background)`);
+    } catch {
+      setReanalyzeMsg('Re-analysis failed to start');
+    } finally {
+      setReanalyzing(false);
     }
   }
 
@@ -3964,7 +3982,15 @@ function DesignSamplesTab({ token }: { token: string }) {
             {tab === 'samples' ? `Samples (${samples.length})` : `Patterns (${patterns.length})`}
           </button>
         ))}
-        <div className="ml-auto pb-1">
+        <div className="ml-auto pb-1 flex items-center gap-2">
+          <button
+            onClick={reanalyze}
+            disabled={reanalyzing || samples.length === 0}
+            className="px-3 py-1.5 border border-border rounded-lg text-xs font-medium disabled:opacity-50 text-muted-foreground"
+            title="Re-run vision LLM on all uploaded images to refresh DNA data"
+          >
+            {reanalyzing ? 'Starting...' : 'Re-analyze all'}
+          </button>
           <button
             onClick={cluster}
             disabled={clustering || samples.length < 3}
@@ -3975,6 +4001,10 @@ function DesignSamplesTab({ token }: { token: string }) {
           </button>
         </div>
       </div>
+
+      {reanalyzeMsg && (
+        <p className="text-xs text-muted-foreground bg-muted/40 rounded-lg px-3 py-2">{reanalyzeMsg}</p>
+      )}
 
       {dsSubTab === 'samples' && (
         <>
@@ -4017,29 +4047,59 @@ function DesignSamplesTab({ token }: { token: string }) {
             <p className="text-xs text-muted-foreground">{samples.length} sample{samples.length !== 1 ? 's' : ''} total</p>
           </div>
 
-          <div className="flex flex-wrap gap-3">
-            {samples.map((s: any) => (
-              <div key={s.id} className="relative w-[60px] h-[60px] shrink-0">
-                <button
-                  onClick={() => s.sourceUrl && setLightboxUrl(s.sourceUrl)}
-                  className="w-full h-full focus:outline-none"
-                  title="View full image"
-                  disabled={!s.sourceUrl}
-                >
-                  {s.sourceUrl ? (
-                    <img src={s.sourceUrl} alt="" className="w-[60px] h-[60px] object-cover rounded-lg border border-border" />
-                  ) : (
-                    <div className="w-[60px] h-[60px] rounded-lg bg-muted border border-border" />
-                  )}
-                </button>
-                {patterns.length > 0 && (
-                  <span className="absolute bottom-0.5 right-0.5 bg-green-600 rounded p-0.5 leading-none">
-                    <BookOpen className="w-2.5 h-2.5 text-white" />
-                  </span>
+          {(() => {
+            const pageCount = Math.ceil(samples.length / SAMPLE_PAGE_SIZE);
+            const visible = samples.slice(samplePage * SAMPLE_PAGE_SIZE, (samplePage + 1) * SAMPLE_PAGE_SIZE);
+            return (
+              <>
+                <div className="flex flex-wrap gap-3">
+                  {visible.map((s: any) => (
+                    <div key={s.id} className="relative w-[60px] h-[60px] shrink-0">
+                      <button
+                        onClick={() => s.sourceUrl && setLightboxUrl(s.sourceUrl)}
+                        className="w-full h-full focus:outline-none"
+                        title="View full image"
+                        disabled={!s.sourceUrl}
+                      >
+                        {s.sourceUrl ? (
+                          <img src={s.sourceUrl} alt="" className="w-[60px] h-[60px] object-cover rounded-lg border border-border" />
+                        ) : (
+                          <div className="w-[60px] h-[60px] rounded-lg bg-muted border border-border" />
+                        )}
+                      </button>
+                      {patterns.length > 0 && (
+                        <span className="absolute bottom-0.5 right-0.5 bg-green-600 rounded p-0.5 leading-none">
+                          <BookOpen className="w-2.5 h-2.5 text-white" />
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                {pageCount > 1 && (
+                  <div className="flex items-center justify-between pt-1">
+                    <button
+                      onClick={() => setSamplePage(p => Math.max(0, p - 1))}
+                      disabled={samplePage === 0}
+                      className="px-3 py-1 text-xs border border-border rounded-lg disabled:opacity-40"
+                    >
+                      Prev
+                    </button>
+                    <span className="text-xs text-muted-foreground">
+                      Page {samplePage + 1} of {pageCount} — {samples.length} total
+                    </span>
+                    <button
+                      onClick={() => setSamplePage(p => Math.min(pageCount - 1, p + 1))}
+                      disabled={samplePage >= pageCount - 1}
+                      className="px-3 py-1 text-xs border border-border rounded-lg disabled:opacity-40"
+                    >
+                      Next
+                    </button>
+                  </div>
                 )}
-              </div>
-            ))}
-          </div>
+              </>
+            );
+          })()}
         </>
       )}
 

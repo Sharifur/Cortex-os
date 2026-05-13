@@ -16,6 +16,16 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.17.5',
+    date: '2026-05-13',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'Samples grid now paginates 60 images per page with Prev/Next controls — stays fast with 300+ samples.' },
+      { tag: 'feat', scope: 'canva', description: 'Pattern clustering now uses ALL uploaded DNA samples (removed 100-sample cap), generates 20-30 detailed rules across 10 categories (added SPACING and BRAND IDENTITY), and has a 2500-token budget for deep results.' },
+      { tag: 'feat', scope: 'canva', description: 'Re-analyze all button — fires background re-analysis of every stored sample through the vision LLM to refresh DNA data with the latest prompt. Returns immediately; processes in background.' },
+      { tag: 'fix', scope: 'canva', description: 'DNA extraction maxTokens increased to 2000 for best quality per-image analysis.' },
+    ],
+  },
+  {
     version: 'v4.17.4',
     date: '2026-05-13',
     entries: [

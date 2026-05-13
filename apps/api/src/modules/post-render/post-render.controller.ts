@@ -314,9 +314,19 @@ export class PostRenderController {
     return { bannerBrief: await this.designPattern.getBannerBrief(brand) };
   }
 
+  @Post('design-samples/reanalyze')
+  @HttpCode(HttpStatus.OK)
+  async reanalyzeDesignSamples(@Body() body: { brand?: string }) {
+    const total = await this.designAnalysis.countSamples(body.brand ?? 'default');
+    // Fire reanalysis in background — returns immediately
+    void this.designAnalysis.reanalyzeSamples(body.brand ?? 'default').catch(e =>
+      this.logger.error(`reanalyzeSamples failed: ${(e as Error).message}`),
+    );
+    return { ok: true, queued: total };
+  }
+
   @Delete('design-samples/:id')
   async deleteDesignSample(@Param('id') id: string) {
-    // Import KB service dynamically — avoid circular dep, use a lightweight approach
     return { ok: true, message: 'Delete via KB entries DELETE endpoint' };
   }
 }
