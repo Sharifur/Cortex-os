@@ -16,6 +16,17 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.37.1',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'fix', scope: 'design-samples', description: 'Clustering LLM passes increased from maxTokens 4000 to 8000. At 4000 tokens the response was being cut off before rule #10, consistently producing ~9 patterns regardless of sample count.' },
+      { tag: 'fix', scope: 'design-samples', description: 'extractPatterns now also matches bold-numbered lines (e.g. **1.** format some models emit), increasing pattern yield per pass.' },
+      { tag: 'fix', scope: 'design-samples', description: 'Clustering now logs DNA parse rate (X/480 samples with valid DNA) and exposes dnaCount in the cluster status. If dnaList is too small, a warning is shown instead of silently returning 0 patterns.' },
+      { tag: 'fix', scope: 'design-samples', description: 'If clustering produces 0 patterns (empty LLM responses or all DNA parse failures), old patterns are now preserved instead of being silently deleted.' },
+      { tag: 'fix', scope: 'design-samples', description: 'Cluster progress bar now shows sample count and DNA-parsed count on completion so the user can see if re-analysis is needed.' },
+    ],
+  },
+  {
     version: 'v4.37.0',
     date: '2026-05-14',
     entries: [

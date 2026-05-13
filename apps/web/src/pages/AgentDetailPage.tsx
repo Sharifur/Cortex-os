@@ -4243,12 +4243,16 @@ function DesignSamplesTab({ token }: { token: string }) {
             <span className="font-medium text-foreground">
               {clusteringStatus.running
                 ? clusterPhaseLabel(clusteringStatus)
-                : `Done — ${clusteringStatus.patternsFound} patterns learned from ${clusteringStatus.sampleCount} samples`}
+                : clusteringStatus.phase === 'error'
+                  ? 'Clustering failed — check that all samples have been re-analysed'
+                  : `Done — ${clusteringStatus.patternsFound} patterns from ${clusteringStatus.sampleCount} samples (${(clusteringStatus as any).dnaCount ?? '?'} with valid DNA)`}
             </span>
             <span className="text-muted-foreground">
               {clusteringStatus.running && clusteringStatus.patternsFound > 0
                 ? `${clusteringStatus.patternsFound} patterns so far`
-                : clusteringStatus.sampleCount > 0 ? `${clusteringStatus.sampleCount} samples` : ''}
+                : clusteringStatus.sampleCount > 0
+                  ? `${clusteringStatus.sampleCount} samples / ${(clusteringStatus as any).dnaCount ?? '?'} DNA`
+                  : ''}
             </span>
           </div>
           <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
