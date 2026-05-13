@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.27.0',
+    date: '2026-05-13',
+    entries: [
+      { tag: 'fix', scope: 'webhooks', description: 'Log request and response body for successful webhook calls when signature verification is enabled, matching the existing logging for rejected signatures. Aids debugging of CRM and support webhook payloads.' },
+    ],
+  },
+  {
     version: 'v4.26.0',
     date: '2026-05-13',
     entries: [

@@ -86,6 +86,8 @@ export class AgentRouteDispatcherService implements OnApplicationBootstrap {
                   ip: logIp,
                   userAgent: logUserAgent,
                   queryString: logQuery,
+                  requestBody: rawBody.slice(0, 8000) || undefined,
+                  responseBody: JSON.stringify({ ok: false, error: 'Invalid webhook signature', reason: sigReason }),
                   errorMessage: `Webhook signature rejected: ${sigReason}`,
                 });
                 reply.status(401).send({ ok: false, error: 'Invalid webhook signature', reason: sigReason });
@@ -125,7 +127,21 @@ export class AgentRouteDispatcherService implements OnApplicationBootstrap {
                 });
             }
 
-            reply.send(result ?? { ok: true });
+            const responsePayload = result ?? { ok: true };
+            reply.send(responsePayload);
+            if (route.verifySignature) {
+              void this.requestLogs.record({
+                method: logMethod,
+                path: logPath,
+                statusCode: 200,
+                durationMs: Date.now() - startMs,
+                ip: logIp,
+                userAgent: logUserAgent,
+                queryString: logQuery,
+                requestBody: safeJson(request.body),
+                responseBody: safeJson(responsePayload),
+              });
+            }
           } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
             const stack = err instanceof Error ? err.stack : undefined;
