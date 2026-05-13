@@ -226,16 +226,48 @@ export interface DesignDNA {
 
   // Decorative shape details — enough info to regenerate via SVG
   shape_elements: Array<{
-    shape_type: 'circle' | 'ellipse' | 'rectangle' | 'rounded-rect' | 'polygon' | 'diagonal-cut' | 'wave' | 'blob' | 'ring' | 'arc' | 'custom-path';
+    shape_type: 'circle' | 'ellipse' | 'rectangle' | 'rounded-rect' | 'polygon' | 'diagonal-cut' | 'wave' | 'blob' | 'ring' | 'arc' | 'radial-glow' | 'custom-path';
     fill_type: 'solid' | 'linear-gradient' | 'radial-gradient' | 'none';
-    fill_colors: string[];          // hex colors; two entries for gradients
-    gradient_angle?: number;        // degrees for linear gradients
-    stroke_color?: string;          // hex, if outlined
-    stroke_width?: number;          // px estimate
-    opacity: number;                // 0–1
-    x: number; y: number; w: number; h: number;  // % of canvas
-    border_radius?: number;         // % of element size, for rounded shapes
-    svg_hint: string;               // brief description to reconstruct, e.g. "circle fill #6366f1 opacity 0.15 at top-right corner, roughly 40% canvas width"
+    fill_colors: string[];
+    gradient_angle?: number;
+    stroke_color?: string;
+    stroke_width?: number;
+    opacity: number;
+    x: number; y: number; w: number; h: number;
+    border_radius?: number;
+    clipped_at_edge?: boolean;
+    visible_arc?: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'full' | 'top-half' | 'bottom-half';
+    svg_hint: string;
+  }>;
+
+  // Recognisable illustrative / icon elements (not geometric shapes)
+  decorative_illustrations?: Array<{
+    subject: 'paper-plane' | 'arrow' | 'star' | 'lightbulb' | 'leaf' | 'flower' | 'checkmark' | 'quote-marks' | 'confetti-piece' | 'lightning' | 'heart' | 'sparkle' | 'hand' | 'eye' | 'megaphone' | 'target' | 'clock' | 'chart' | 'custom';
+    subject_description: string;
+    render_style: 'outline-stroke' | 'filled-flat' | 'filled-gradient' | 'duotone' | 'hand-drawn' | 'emoji' | 'silhouette';
+    stroke_color?: string;
+    fill_color?: string;
+    stroke_width_style: 'hairline' | 'thin' | 'medium' | 'thick';
+    opacity: number;
+    semantic_role: 'decorative' | 'bullet-point' | 'cta-indicator' | 'brand-element' | 'section-divider';
+    instances: Array<{
+      x: number; y: number; w: number; h: number;
+      rotation_deg?: number;
+      size_relative: 'small' | 'medium' | 'large';
+    }>;
+  }>;
+
+  // Person, product, or object photos used as design elements
+  photo_subjects?: Array<{
+    subject_type: 'person-portrait' | 'person-halfbody' | 'person-fullbody' | 'person-group' | 'product' | 'object' | 'hands' | 'face-closeup';
+    treatment: 'cutout' | 'full-frame' | 'circle-mask' | 'shape-mask' | 'blurred-bg';
+    position_alignment: 'right-anchored' | 'left-anchored' | 'center' | 'bottom-anchored' | 'top-anchored' | 'corner-bottom-right' | 'corner-bottom-left';
+    body_framing?: 'head-only' | 'head-shoulders' | 'waist-up' | 'full-body';
+    x: number; y: number; w: number; h: number;
+    z_index?: number;
+    z_layer: 'background' | 'mid' | 'foreground';
+    overlaps_with?: string[];
+    description?: string;
   }>;
 
   // Painting order: element names from bottom layer to top layer (back → front)
@@ -267,6 +299,8 @@ export interface DesignDNA {
     align: 'left' | 'center' | 'right';
     rotation_deg: number;
     font_weight: 'thin' | 'regular' | 'medium' | 'semibold' | 'bold' | 'black' | 'extrabold';
+    font_style?: 'normal' | 'italic' | 'oblique';
+    font_family_style?: 'modern-sans' | 'classic-serif' | 'geometric' | 'rounded' | 'slab-serif' | 'monospace' | 'display' | 'script';
     estimated_size_px: number;
     color_hex: string;
     background_hex: string;

@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.17.9',
+    date: '2026-05-13',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'DNA now captures paper planes, stars, arrows and all illustrative icons via decorative_illustrations[] — each entry stores subject type, render style (outline-stroke, filled, hand-drawn), stroke/fill colors, opacity, semantic role, and per-instance positions with individual x/y/w/h/rotation. Person cutout photos tracked in photo_subjects[] with treatment (cutout/full-frame/masked), body framing (portrait/halfbody/full-body), position anchor, z-index, and overlap list. Shape elements gain clipped_at_edge and visible_arc fields for partial circles that extend beyond the canvas edge. White glow/blur elements captured as shape_type:radial-glow. font_style (italic/normal) and font_family_style added to each text_elements entry.' },
+    ],
+  },
+  {
     version: 'v4.17.8',
     date: '2026-05-13',
     entries: [

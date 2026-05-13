@@ -64,7 +64,7 @@ Use exactly this JSON structure (choose the closest enum value where applicable)
 
   "shape_elements": [
     {
-      "shape_type": "circle|ellipse|rectangle|rounded-rect|polygon|diagonal-cut|wave|blob|ring|arc|custom-path",
+      "shape_type": "circle|ellipse|rectangle|rounded-rect|polygon|diagonal-cut|wave|blob|ring|arc|radial-glow|custom-path",
       "fill_type": "solid|linear-gradient|radial-gradient|none",
       "fill_colors": ["#hex"],
       "gradient_angle": 135,
@@ -73,9 +73,43 @@ Use exactly this JSON structure (choose the closest enum value where applicable)
       "opacity": 0.15,
       "x": 60, "y": 0, "w": 40, "h": 40,
       "border_radius": 50,
+      "clipped_at_edge": false,
+      "visible_arc": "top-left|top-right|bottom-left|bottom-right|full|top-half|bottom-half",
       "svg_hint": "Large semi-transparent circle at top-right, accent color, decorative only"
     }
   ],
+
+  "decorative_illustrations": [
+    {
+      "subject": "paper-plane|arrow|star|lightbulb|leaf|flower|checkmark|quote-marks|confetti-piece|lightning|heart|sparkle|hand|eye|megaphone|target|clock|chart|custom",
+      "subject_description": "Outline paper airplane pointing upper-right, line-art only with no fill",
+      "render_style": "outline-stroke|filled-flat|filled-gradient|duotone|hand-drawn|emoji|silhouette",
+      "stroke_color": "#ffffff",
+      "fill_color": "none",
+      "stroke_width_style": "hairline|thin|medium|thick",
+      "opacity": 1.0,
+      "semantic_role": "decorative|bullet-point|cta-indicator|brand-element|section-divider",
+      "instances": [
+        { "x": 62, "y": 2, "w": 22, "h": 18, "rotation_deg": 0, "size_relative": "large" },
+        { "x": 74, "y": 78, "w": 16, "h": 13, "rotation_deg": 15, "size_relative": "medium" }
+      ]
+    }
+  ],
+
+  "photo_subjects": [
+    {
+      "subject_type": "person-portrait|person-halfbody|person-fullbody|person-group|product|object|hands|face-closeup",
+      "treatment": "cutout|full-frame|circle-mask|shape-mask|blurred-bg",
+      "position_alignment": "right-anchored|left-anchored|center|bottom-anchored|top-anchored|corner-bottom-right|corner-bottom-left",
+      "body_framing": "head-only|head-shoulders|waist-up|full-body",
+      "x": 45, "y": 15, "w": 55, "h": 85,
+      "z_index": 8,
+      "z_layer": "foreground",
+      "overlaps_with": ["headline-text", "body-text"],
+      "description": "Professional man in dark suit, cutout with background removed, right-anchored, extends below canvas bottom edge"
+    }
+  ],
+
   "grid_columns": 1,
   "content_zone": { "x": 5, "y": 10, "w": 90, "h": 80 },
 
@@ -102,6 +136,8 @@ Use exactly this JSON structure (choose the closest enum value where applicable)
       "align": "left|center|right",
       "rotation_deg": 0,
       "font_weight": "thin|regular|medium|semibold|bold|black|extrabold",
+      "font_style": "normal|italic|oblique",
+      "font_family_style": "modern-sans|classic-serif|geometric|rounded|slab-serif|monospace|display|script",
       "estimated_size_px": 52,
       "color_hex": "#ffffff",
       "background_hex": "none or #hex if the entire text block has a background fill (e.g. pill, badge, colored label)",
@@ -189,11 +225,35 @@ Use exactly this JSON structure (choose the closest enum value where applicable)
 }
 
 Rules for shape_elements:
-- List every distinct decorative or structural shape: background blobs, corner circles, diagonal cuts, waves, stripes, rings, etc.
-- Ignore pure text elements — only capture actual shapes and graphic elements.
+- List every distinct decorative or structural shape: background blobs, corner circles, diagonal cuts, waves, stripes, rings, radial glows, etc.
+- Ignore pure text elements and recognisable illustration objects (those go in decorative_illustrations).
 - fill_colors: for gradients list [start_color, end_color]; for solid list [color].
-- svg_hint: write enough to reconstruct the shape programmatically — mention position (e.g. top-right corner), approximate size relative to canvas, color, opacity, and any notable property like whether it's clipped/masked.
+- clipped_at_edge: true when the shape extends beyond the canvas boundary and only a portion is visible (e.g. a large circle where only the bottom-right arc is visible in the top-left corner). Set visible_arc to describe which portion is showing.
+- For partial circles used as corner decorations (common in brand designs), use shape_type "ring" if hollow, "circle" if filled. Set clipped_at_edge: true and describe the visible portion in visible_arc and svg_hint.
+- For white/light soft glow blobs (radial light effect), use shape_type "radial-glow", fill_type "radial-gradient", fill_colors ["#ffffff", "transparent"] or similar, with appropriate low opacity.
+- svg_hint: write enough to reconstruct the shape programmatically — position, size relative to canvas, colors, opacity, whether clipped, which quadrant is visible.
 - Empty array if there are no decorative shapes.
+
+Rules for photo_subjects:
+- List every photo of a person, product, or object used as a design element (not as a background texture).
+- treatment: "cutout" = background removed, only the subject outline remains (most common for person photos); "full-frame" = photo with its own background filling a region; "circle-mask" = photo clipped to circle; "shape-mask" = clipped to another shape; "blurred-bg" = background intentionally blurred.
+- position_alignment: how the photo is anchored — right-anchored means the person is placed on the right half; corner-bottom-right means positioned starting from bottom-right. Many person cutouts are right-anchored and extend below the canvas bottom edge.
+- body_framing: how much of the body is visible — "head-only", "head-shoulders", "waist-up", "full-body".
+- z_index: person cutout photos are almost always the highest z_index element (rendered on top of everything including text in many designs).
+- overlaps_with: list every element whose bounding box the photo covers.
+- description: plain-English description including clothing color, general appearance, and any notable styling choices.
+- Empty array if the design has no photo subjects.
+
+Rules for decorative_illustrations:
+- Capture every non-geometric illustrative or icon element in the design: paper planes, arrows, stars, lightbulbs, leaves, flowers, sparkles, quote marks, confetti, hands, eyes, charts, etc.
+- Do NOT use this for simple geometric shapes (circles, rectangles, blobs) — those go in shape_elements. Use this ONLY for recognisable objects or icons.
+- subject: pick the closest value from the enum list or use "custom" with a detailed subject_description.
+- subject_description: always fill this — describe what the illustration depicts in plain English, including its visual style (e.g. "Outline paper airplane pointing upper-right, line-art only with no fill, white stroke on green background").
+- render_style: "outline-stroke" = line art with no fill; "filled-flat" = solid color fill; "filled-gradient" = gradient fill; "duotone" = two-color; "hand-drawn" = sketchy/brushy edges; "silhouette" = solid black/dark shape.
+- instances: list EVERY individual occurrence as a separate entry with its own x/y/w/h and rotation_deg. If the same paper plane appears twice (top-right large, bottom-right smaller), create TWO instances — each with its own coordinates and rotation.
+- size_relative: "small" = less than 10% canvas width, "medium" = 10–25%, "large" = 25%+.
+- semantic_role: "decorative" = purely visual; "bullet-point" = marks a list item; "cta-indicator" = points toward a CTA; "brand-element" = part of brand identity; "section-divider" = visually separates content areas.
+- Empty array [] only if the design has zero illustrative/icon elements.
 
 Rules for layer_stack:
 - List ALL element names in painting order — first item = drawn first (bottom-most), last item = drawn last (on top).
@@ -209,9 +269,22 @@ Rules for element_positions:
 - z_layer: background = behind all content, mid = decorative but behind text, foreground = top-most.
 - rotation_deg: 0 for upright; positive = clockwise tilt; negative = counter-clockwise.
 
+Rules for decorative_illustrations:
+- Capture every non-geometric illustrative or icon element in the design: paper planes, arrows, stars, lightbulbs, leaves, flowers, sparkles, quote marks, confetti, hands, eyes, charts, etc.
+- Do NOT use this for simple geometric shapes (circles, rectangles, blobs) — those go in shape_elements. Use this ONLY for recognisable objects or icons.
+- subject: pick the closest value from the enum list or use "custom" with a detailed subject_description.
+- subject_description: always fill this — describe what the illustration depicts in plain English, including its visual style (e.g. "Outline paper airplane pointing upper-right, line-art only with no fill, white stroke on green background").
+- render_style: "outline-stroke" = line art with no fill; "filled-flat" = solid color fill; "filled-gradient" = gradient fill; "duotone" = two-color; "hand-drawn" = sketchy/brushy edges; "silhouette" = solid black/dark shape.
+- instances: list EVERY individual occurrence as a separate entry with its own x/y/w/h and rotation_deg. If the same paper plane appears twice (top-right large, bottom-right smaller), create TWO instances — each with its own coordinates and rotation.
+- size_relative: "small" = less than 10% canvas width, "medium" = 10–25%, "large" = 25%+.
+- semantic_role: "decorative" = purely visual; "bullet-point" = marks a list item; "cta-indicator" = points toward a CTA; "brand-element" = part of brand identity; "section-divider" = visually separates content areas.
+- Empty array [] only if the design has zero illustrative/icon elements.
+
 Rules for text_elements:
 - List EVERY distinct text layer as a separate entry — never merge separate visual text blocks into one.
 - If a headline is split across multiple visual lines with different sizes, colors, or background treatments (e.g. "GROW" on line 1, "YOUR" on line 2, "PERSONAL" on line 3 with a yellow highlight behind it), create a SEPARATE entry for each line.
+- font_style: "normal" for upright text, "italic" for slanted/italic, "oblique" for artificially slanted. This is per text block — if "Are" is italic and "You Stuck?" is normal within a single headline, they are TWO entries.
+- font_family_style: the apparent typeface category for THIS block specifically — important when a design mixes italic script for one word and extrabold sans-serif for another.
 - z_index: must match the corresponding element in element_positions. Higher = on top.
 - overlaps_with: list names of elements whose bounding box overlaps this text. A stat-number display element that text renders on top of must appear here. An eyebrow pill overlapping the start of a headline must be listed.
 - background_hex + background_shape: use these when the ENTIRE text block has a fill (e.g. a teal pill for "transformational", a pink button for a URL, an amber badge for "traits:"). background_rotation_deg: if the background shape is tilted (like a slightly rotated highlight rectangle), specify the angle.
@@ -391,9 +464,23 @@ export class DesignAnalysisService {
         `[${ce.type}] ${ce.description} | bottom:${ce.bottom_element} top:${ce.top_element} | overlap:x=${ce.overlap_region?.x}% y=${ce.overlap_region?.y}% w=${ce.overlap_region?.w}% h=${ce.overlap_region?.h}%`
       ),
       ``,
+      `-- Decorative Illustrations (${(dna.decorative_illustrations ?? []).length}) --`,
+      ...(dna.decorative_illustrations ?? []).flatMap(ill => [
+        `[${ill.subject}] ${ill.subject_description}`,
+        `  render:${ill.render_style} stroke:${ill.stroke_color ?? 'none'} fill:${ill.fill_color ?? 'none'} stroke-weight:${ill.stroke_width_style} opacity:${ill.opacity} role:${ill.semantic_role}`,
+        ...ill.instances.map((inst, i) =>
+          `  instance[${i + 1}/${ill.instances.length}] x=${inst.x}% y=${inst.y}% w=${inst.w}% h=${inst.h}% rot:${inst.rotation_deg ?? 0}deg size:${inst.size_relative}`
+        ),
+      ]),
+      ``,
+      `-- Photo Subjects (${(dna.photo_subjects ?? []).length}) --`,
+      ...(dna.photo_subjects ?? []).map(ph =>
+        `[${ph.subject_type}] treatment:${ph.treatment} | pos: x=${ph.x}% y=${ph.y}% w=${ph.w}% h=${ph.h}% | z:${ph.z_index ?? '?'} ${ph.z_layer}${(ph.overlaps_with ?? []).length ? ` | overlaps:${ph.overlaps_with!.join(',')}` : ''} | anchor:${ph.position_alignment}${ph.body_framing ? ` framing:${ph.body_framing}` : ''}${ph.description ? ` — ${ph.description}` : ''}`
+      ),
+      ``,
       `-- Shape Elements (${(dna.shape_elements ?? []).length}) --`,
       ...(dna.shape_elements ?? []).map(s =>
-        `${s.shape_type} fill:${s.fill_type}(${s.fill_colors.join('->')}) opacity:${s.opacity} x:${s.x}% y:${s.y}% w:${s.w}% h:${s.h}%${s.gradient_angle != null ? ` angle:${s.gradient_angle}deg` : ''}${s.border_radius != null ? ` r:${s.border_radius}%` : ''} — ${s.svg_hint}`
+        `${s.shape_type}${(s as any).clipped_at_edge ? '[clipped]' : ''} fill:${s.fill_type}(${s.fill_colors.join('->')}) opacity:${s.opacity} x:${s.x}% y:${s.y}% w:${s.w}% h:${s.h}%${s.gradient_angle != null ? ` angle:${s.gradient_angle}deg` : ''}${s.border_radius != null ? ` r:${s.border_radius}%` : ''} — ${s.svg_hint}`
       ),
       ...(dna.pattern_notes ? [``, `Notes: ${dna.pattern_notes}`] : []),
       ``,
