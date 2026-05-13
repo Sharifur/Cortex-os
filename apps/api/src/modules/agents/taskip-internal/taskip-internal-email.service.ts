@@ -61,6 +61,7 @@ export interface SendTrackedEmailInput {
   workspaceUuid?: string;
   metadata?: Record<string, unknown>;
   plainText?: boolean;
+  accountId?: string;
 }
 
 @Injectable()
@@ -81,7 +82,7 @@ export class TaskipInternalEmailService {
     }
 
     const textBody = input.body;
-    const from = await this.gmail.getFromAddress();
+    const from = await this.gmail.getFromAddress(input.accountId);
     const trackingToken = createId();
 
     let htmlBody: string | undefined;
@@ -98,7 +99,7 @@ export class TaskipInternalEmailService {
         subject: input.subject,
         textBody,
         htmlBody,
-      });
+      }, input.accountId);
 
       let threadId: string | null = null;
       try {

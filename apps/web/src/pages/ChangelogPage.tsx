@@ -16,6 +16,15 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.19.0',
+    date: '2026-05-13',
+    entries: [
+      { tag: 'feat', scope: 'inbox', description: 'Compose new email from the inbox page: "Compose" button in top bar opens a full compose panel with From (account selector), To, Subject, Purpose, plain-text toggle, and body. Account selector populated from configured Gmail accounts, defaults to the default account. After sending, email appears in the inbox list and reply tracking starts automatically.' },
+      { tag: 'feat', scope: 'inbox', description: 'Account selector added to the reply composer: choose which Gmail account to send the reply from.' },
+      { tag: 'fix', scope: 'inbox', description: 'accountId now correctly wired through SendTrackedEmailInput to gmail.getFromAddress() and gmail.sendEmail() — previously accountId was stored only in metadata and the send always used the default account regardless.' },
+    ],
+  },
+  {
     version: 'v4.18.2',
     date: '2026-05-13',
     entries: [
