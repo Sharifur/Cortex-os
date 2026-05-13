@@ -2,6 +2,7 @@ import { Controller, Get, Logger, Param, Req, Res } from '@nestjs/common';
 import { FastifyReply } from 'fastify';
 import { sql } from 'drizzle-orm';
 import { DbService } from '../../db/db.service';
+import { RequestLogService } from '../debug-logs/request-log.service';
 
 const TRANSPARENT_GIF = Buffer.from(
   'R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7',
@@ -12,7 +13,10 @@ const TRANSPARENT_GIF = Buffer.from(
 export class TrackingController {
   private readonly logger = new Logger(TrackingController.name);
 
-  constructor(private readonly db: DbService) {}
+  constructor(
+    private readonly db: DbService,
+    private readonly requestLogs: RequestLogService,
+  ) {}
 
   @Get('open/:token')
   async trackOpen(
@@ -34,18 +38,30 @@ export class TrackingController {
       const rowCount = (result as unknown as { rowCount?: number }).rowCount ?? 0;
       if (rowCount === 0) {
         this.logger.warn(`tracking pixel fired but no email matched id ${token}`);
-      } else {
-        this.logger.log(`open recorded for email id ${token}`);
+        void this.requestLogs.record({
+          method: 'GET',
+          path: `/track/open/${token}`,
+          statusCode: 200,
+          errorMessage: `tracking pixel fired but no email matched id ${token}`,
+        });
       }
-    } catch {
+    } catch (err) {
+      const message = (err as Error).message;
       // open_count / first_open_at / last_open_at columns absent — fall back to metadata JSONB
       await this.db.db.execute(sql`
         UPDATE taskip_internal_emails
         SET metadata = COALESCE(metadata, '{}'::jsonb)
                        || jsonb_build_object('pixelOpened', true, 'pixelOpenedAt', ${now.toISOString()})
         WHERE id = ${token}
-      `).catch((err: unknown) => {
-        this.logger.error(`tracking fallback also failed for id ${token}: ${(err as Error).message}`);
+      `).catch((err2: unknown) => {
+        const fallbackMessage = (err2 as Error).message;
+        this.logger.error(`tracking fallback also failed for id ${token}: ${fallbackMessage}`);
+        void this.requestLogs.record({
+          method: 'GET',
+          path: `/track/open/${token}`,
+          statusCode: 500,
+          errorMessage: `primary: ${message} | fallback: ${fallbackMessage}`,
+        });
       });
     }
 
