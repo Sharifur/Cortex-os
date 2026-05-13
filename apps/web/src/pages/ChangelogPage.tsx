@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.44.1',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'fix', scope: 'design-samples', description: 'Render variety: PostVisualService now shuffles pattern rules before sampling (random 6 per tag, not always the first 8) and runs at temperature 0.7 so shape placement and colors differ on every render. A random session seed prevents LLM response caching. Layout selection is now probabilistic — 60% dominant learned layout, 40% compatible alternative (centered/left-aligned/split-panel/overlay/list-layout per role) — so the same prompt produces structurally different carousels.' },
+    ],
+  },
+  {
     version: 'v4.44.0',
     date: '2026-05-14',
     entries: [

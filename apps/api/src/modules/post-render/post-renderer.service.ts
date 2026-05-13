@@ -35,6 +35,27 @@ const LAYOUT_MAP: Record<LayoutType, (props: import('./layouts/layout.types').La
   'list-layout': listLayout,
 };
 
+// Compatible layout options per slide role — used for randomised layout selection
+const ROLE_LAYOUT_POOL: Record<string, LayoutType[]> = {
+  cover:   ['centered', 'left-aligned', 'overlay'],
+  content: ['centered', 'left-aligned', 'split-panel'],
+  stat:    ['split-panel', 'centered', 'left-aligned'],
+  list:    ['list-layout', 'left-aligned'],
+  cta:     ['centered', 'left-aligned', 'overlay'],
+  quote:   ['centered', 'left-aligned'],
+};
+
+function pickLayout(role: string, dominant: LayoutType | undefined): LayoutType {
+  const pool = ROLE_LAYOUT_POOL[role] ?? ['centered', 'left-aligned'];
+  if (!dominant || !pool.includes(dominant)) {
+    return pool[Math.floor(Math.random() * pool.length)];
+  }
+  // 60 % dominant, 40 % random pick from the rest
+  if (Math.random() < 0.6) return dominant;
+  const others = pool.filter(l => l !== dominant);
+  return others.length ? others[Math.floor(Math.random() * others.length)] : dominant;
+}
+
 @Injectable()
 export class PostRendererService {
   private readonly logger = new Logger(PostRendererService.name);
@@ -127,12 +148,10 @@ export class PostRendererService {
       runId,
     });
 
-    // Feature 1: override per-slide layout from learned DNA (per-role dominant layout)
-    if (useLearned && dominantDNA!.slide_role_layouts) {
-      for (const slide of filledSlides) {
-        const learned = dominantDNA!.slide_role_layouts[slide.role];
-        if (learned) slide.layout = learned;
-      }
+    // Feature 1: per-slide layout — 60 % dominant learned, 40 % random compatible variant
+    for (const slide of filledSlides) {
+      const dominant = useLearned ? dominantDNA!.slide_role_layouts?.[slide.role] : undefined;
+      slide.layout = pickLayout(slide.role, dominant);
     }
 
     await this.logSvc.info(runId ?? 'post-render',
