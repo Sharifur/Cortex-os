@@ -3939,7 +3939,8 @@ function DesignSamplesTab({ token }: { token: string }) {
   }
 
   const [reanalyzing, setReanalyzing] = useState(false);
-  const [reanalysisProgress, setReanalysisProgress] = useState<{ done: number; total: number; errors: number; running: boolean } | null>(null);
+  const [cancelling, setCancelling] = useState(false);
+  const [reanalysisProgress, setReanalysisProgress] = useState<{ done: number; total: number; errors: number; running: boolean; cancelled?: boolean } | null>(null);
   const reanalysisPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const [clusteringStatus, setClusteringStatus] = useState<{ phase: string; pass: number; totalPasses: number; sampleCount: number; patternsFound: number; running: boolean } | null>(null);
@@ -3999,7 +4000,18 @@ function DesignSamplesTab({ token }: { token: string }) {
     }, 2000);
   }
 
-  useEffect(() => () => { stopReanalysisPoll(); stopClusterPoll(); }, []);
+  // On mount: check if analysis is already running (survives page reload)
+  useEffect(() => {
+    apiFetch(token, '/posts/design-samples/reanalyze/status?brand=default').then(status => {
+      if (status.running) {
+        setReanalysisProgress(status);
+        startReanalysisPoll();
+      } else if (status.done > 0 || status.errors > 0) {
+        setReanalysisProgress(status);
+      }
+    }).catch(() => {});
+    return () => { stopReanalysisPoll(); stopClusterPoll(); };
+  }, []);
 
   async function cluster() {
     setClusteringStatus({ phase: 'loading', pass: 0, totalPasses: 0, sampleCount: 0, patternsFound: 0, running: true });
@@ -4026,6 +4038,19 @@ function DesignSamplesTab({ token }: { token: string }) {
     }
   }
 
+  async function cancelReanalyze() {
+    setCancelling(true);
+    try {
+      await apiFetch(token, '/posts/design-samples/reanalyze/cancel', { method: 'POST', body: JSON.stringify({ brand: 'default' }) });
+      stopReanalysisPoll();
+      setReanalysisProgress(prev => prev ? { ...prev, running: false, cancelled: true } : null);
+    } catch {
+      // ignore
+    } finally {
+      setCancelling(false);
+    }
+  }
+
   return (
     <div className="space-y-5">
       {/* Sub-tab header */}
@@ -4044,6 +4069,15 @@ function DesignSamplesTab({ token }: { token: string }) {
           </button>
         ))}
         <div className="ml-auto pb-1 flex items-center gap-2">
+          {reanalysisProgress?.running && (
+            <button
+              onClick={cancelReanalyze}
+              disabled={cancelling}
+              className="px-3 py-1.5 border border-red-500/40 rounded-lg text-xs font-medium text-red-400 hover:bg-red-500/10 disabled:opacity-50 transition-colors"
+            >
+              {cancelling ? 'Stopping...' : 'Cancel'}
+            </button>
+          )}
           <button
             onClick={reanalyze}
             disabled={reanalyzing || (reanalysisProgress?.running ?? false) || samples.length === 0}
@@ -4063,13 +4097,15 @@ function DesignSamplesTab({ token }: { token: string }) {
         </div>
       </div>
 
-      {reanalysisProgress && (
+      {reanalysisProgress && (reanalysisProgress.running || reanalysisProgress.done > 0 || reanalysisProgress.errors > 0) && (
         <div className="space-y-1">
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>
               {reanalysisProgress.running
                 ? `Re-analyzing: ${reanalysisProgress.done} / ${reanalysisProgress.total} images...`
-                : `Re-analysis complete: ${reanalysisProgress.done - reanalysisProgress.errors} updated`}
+                : reanalysisProgress.cancelled
+                  ? `Cancelled at ${reanalysisProgress.done} / ${reanalysisProgress.total} — ${reanalysisProgress.done - reanalysisProgress.errors} updated`
+                  : `Re-analysis complete: ${reanalysisProgress.done - reanalysisProgress.errors} updated`}
               {reanalysisProgress.errors > 0 && (
                 <span className="text-red-400 ml-2">{reanalysisProgress.errors} failed</span>
               )}
@@ -4078,12 +4114,12 @@ function DesignSamplesTab({ token }: { token: string }) {
           </div>
           <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
             <div
-              className={`h-full rounded-full transition-all duration-500 ${reanalysisProgress.running ? 'bg-primary' : 'bg-green-500'}`}
+              className={`h-full rounded-full transition-all duration-500 ${reanalysisProgress.running ? 'bg-primary' : reanalysisProgress.cancelled ? 'bg-yellow-500' : 'bg-green-500'}`}
               style={{ width: `${reanalysisProgress.total > 0 ? (reanalysisProgress.done / reanalysisProgress.total) * 100 : 0}%` }}
             />
           </div>
           {!reanalysisProgress.running && (
-            <p className="text-xs text-muted-foreground">Patterns will be re-learned automatically.</p>
+            <p className="text-xs text-muted-foreground">{reanalysisProgress.cancelled ? 'Analysis stopped. Run again to resume from scratch.' : 'Patterns will be re-learned automatically.'}</p>
           )}
         </div>
       )}

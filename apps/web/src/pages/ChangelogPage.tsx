@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.30.0',
+    date: '2026-05-13',
+    entries: [
+      { tag: 'feat', scope: 'design-samples', description: 'Re-analysis progress now persists across page reloads. On mount the UI checks the server status and automatically resumes polling if analysis is still running.' },
+      { tag: 'feat', scope: 'design-samples', description: 'Added Cancel button during re-analysis. Clicking it signals the backend loop to stop after the current image and marks the progress bar yellow.' },
+    ],
+  },
+  {
     version: 'v4.29.0',
     date: '2026-05-13',
     entries: [

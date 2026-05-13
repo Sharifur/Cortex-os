@@ -338,6 +338,13 @@ export class PostRenderController {
     return this.designAnalysis.getReanalysisStatus(brand ?? 'default');
   }
 
+  @Post('design-samples/reanalyze/cancel')
+  @HttpCode(HttpStatus.OK)
+  cancelReanalysis(@Body() body: { brand?: string }) {
+    this.designAnalysis.cancelReanalysis(body.brand ?? 'default');
+    return { ok: true };
+  }
+
   @Delete('design-samples/:id')
   async deleteDesignSample(@Param('id') id: string) {
     return { ok: true, message: 'Delete via KB entries DELETE endpoint' };
