@@ -294,7 +294,6 @@ export class DesignAnalysisService {
       })
       .from(knowledgeEntries)
       .where(and(...conditions))
-      .orderBy(knowledgeEntries.createdAt)
-      .limit(200);
+      .orderBy(knowledgeEntries.createdAt);
   }
 }

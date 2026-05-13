@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.17.4',
+    date: '2026-05-13',
+    entries: [
+      { tag: 'fix', scope: 'canva', description: 'Removed hard .limit(200) from listSamples() DB query — all uploaded design samples are now returned regardless of count. Samples tab and count now correctly reflect 300+ images.' },
+    ],
+  },
+  {
     version: 'v4.17.3',
     date: '2026-05-13',
     entries: [
