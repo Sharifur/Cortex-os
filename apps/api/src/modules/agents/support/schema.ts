@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp } from 'drizzle-orm/pg-core';
+import { pgTable, text, timestamp, jsonb } from 'drizzle-orm/pg-core';
 import { createId } from '@paralleldrive/cuid2';
 
 export const supportWebhookLogs = pgTable('support_webhook_logs', {
@@ -9,6 +9,17 @@ export const supportWebhookLogs = pgTable('support_webhook_logs', {
   rawPayload: text('raw_payload'),        // first 5000 chars of the raw JSON body
   error: text('error'),                   // error message when status = 'error'|'rejected'
   receivedAt: timestamp('received_at').defaultNow().notNull(),
+});
+
+export const supportTicketEvents = pgTable('support_ticket_events', {
+  id: text('id').primaryKey().$defaultFn(() => createId()),
+  ticketId: text('ticket_id'),
+  externalId: text('external_id'),
+  eventType: text('event_type').notNull(),
+  summary: text('summary'),
+  payload: jsonb('payload'),
+  error: text('error'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
 export const supportTickets = pgTable('support_tickets', {

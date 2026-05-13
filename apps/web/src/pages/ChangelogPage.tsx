@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.32.0',
+    date: '2026-05-13',
+    entries: [
+      { tag: 'feat', scope: 'support', description: 'Every step the support agent takes on a ticket is now recorded in a new support_ticket_events table — purchase code not found, code found and verified/invalid/expired, reply drafted, reply sent, escalated, ticket reopened, and any errors. Queryable via GET /support/tickets/:id/events.' },
+      { tag: 'chore', scope: 'db', description: 'Migration 0070 adds support_ticket_events table with indexes on ticket_id and external_id.' },
+    ],
+  },
+  {
     version: 'v4.31.0',
     date: '2026-05-13',
     entries: [
