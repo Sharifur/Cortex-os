@@ -4052,6 +4052,7 @@ function DesignSamplesTab({ token }: { token: string }) {
   }
 
   const [retrying, setRetrying] = useState(false);
+  const [showFailedLog, setShowFailedLog] = useState(false);
   async function retryFailed() {
     setRetrying(true);
     setReanalysisProgress(null);
@@ -4140,16 +4141,61 @@ function DesignSamplesTab({ token }: { token: string }) {
               style={{ width: `${reanalysisProgress.total > 0 ? (reanalysisProgress.done / reanalysisProgress.total) * 100 : 0}%` }}
             />
           </div>
-          {!reanalysisProgress.running && reanalysisProgress.errors > 0 && (
-            <div className="flex items-center gap-3">
-              <p className="text-xs text-muted-foreground flex-1">{reanalysisProgress.cancelled ? 'Analysis stopped.' : 'Analysis complete.'} {reanalysisProgress.errors} image{reanalysisProgress.errors !== 1 ? 's' : ''} could not be processed.</p>
-              <button
-                onClick={retryFailed}
-                disabled={retrying}
-                className="px-3 py-1 rounded-lg border border-border text-xs font-medium hover:bg-muted disabled:opacity-50 transition-colors"
-              >
-                {retrying ? 'Retrying...' : `Retry failed (${reanalysisProgress.errors})`}
-              </button>
+          {reanalysisProgress.errors > 0 && (
+            <div className="space-y-2">
+              {!reanalysisProgress.running && (
+                <div className="flex items-center gap-3">
+                  <p className="text-xs text-muted-foreground flex-1">
+                    {reanalysisProgress.cancelled ? 'Analysis stopped.' : 'Analysis complete.'} {reanalysisProgress.errors} image{reanalysisProgress.errors !== 1 ? 's' : ''} could not be processed.
+                  </p>
+                  <button
+                    onClick={retryFailed}
+                    disabled={retrying}
+                    className="px-3 py-1 rounded-lg border border-border text-xs font-medium hover:bg-muted disabled:opacity-50 transition-colors"
+                  >
+                    {retrying ? 'Retrying...' : `Retry failed (${reanalysisProgress.errors})`}
+                  </button>
+                </div>
+              )}
+              <div className="rounded-lg border border-red-500/20 bg-red-500/5 overflow-hidden">
+                <button
+                  onClick={() => setShowFailedLog(v => !v)}
+                  className="w-full flex items-center justify-between px-3 py-2 text-xs font-medium text-red-400 hover:bg-red-500/10 transition-colors"
+                >
+                  <span>{reanalysisProgress.running ? `Live failure log (${reanalysisProgress.errors} so far)` : `Failed items log (${reanalysisProgress.errors})`}</span>
+                  <span className="text-muted-foreground">{showFailedLog ? '▲ hide' : '▼ show'}</span>
+                </button>
+                {showFailedLog && (
+                  <div className="border-t border-red-500/20">
+                    <div className="flex items-center justify-between px-3 py-1.5 border-b border-red-500/10">
+                      <span className="text-[10px] text-muted-foreground uppercase tracking-wide">ID · Reason</span>
+                      <button
+                        onClick={() => {
+                          const text = (reanalysisProgress.failedDetails ?? [])
+                            .map(f => `${f.id}  ${f.reason}`)
+                            .join('\n');
+                          navigator.clipboard.writeText(text).catch(() => {});
+                        }}
+                        className="text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+                      >
+                        Copy all
+                      </button>
+                    </div>
+                    <div className="max-h-48 overflow-y-auto divide-y divide-red-500/10 font-mono">
+                      {(reanalysisProgress.failedDetails ?? []).length === 0 ? (
+                        <p className="px-3 py-2 text-xs text-muted-foreground italic">No detail available — deploy latest version to see reasons.</p>
+                      ) : (
+                        (reanalysisProgress.failedDetails ?? []).map((f, i) => (
+                          <div key={i} className="px-3 py-1.5 flex gap-2 text-[11px]">
+                            <span className="text-muted-foreground shrink-0 select-all">{f.id}</span>
+                            <span className="text-red-400 break-all">{f.reason}</span>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           )}
           {!reanalysisProgress.running && reanalysisProgress.errors === 0 && (

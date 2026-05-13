@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.36.3',
+    date: '2026-05-13',
+    entries: [
+      { tag: 'feat', scope: 'design-samples', description: 'Failed items log panel added to Design Samples re-analysis. Clicking "show" expands a scrollable list of failed sample IDs with their exact error reasons. Updates live during analysis. Includes a "Copy all" button for the full log. Retry Failed button still appears when analysis is complete.' },
+    ],
+  },
+  {
     version: 'v4.36.2',
     date: '2026-05-13',
     entries: [
