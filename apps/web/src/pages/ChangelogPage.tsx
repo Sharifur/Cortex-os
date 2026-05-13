@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.25.0',
+    date: '2026-05-13',
+    entries: [
+      { tag: 'fix', scope: 'taskip-internal', description: 'Fixed email send failure when email_suppressions table was missing — suppression check now has a try-catch that skips the check and logs a warning instead of throwing, unblocking all outbound sends.' },
+      { tag: 'chore', scope: 'db', description: 'Added migration 0068 to force-create email_suppressions table idempotently — fixes environments where migration 0067 was recorded in __drizzle_migrations but its DDL never committed.' },
+    ],
+  },
+  {
     version: 'v4.24.0',
     date: '2026-05-13',
     entries: [

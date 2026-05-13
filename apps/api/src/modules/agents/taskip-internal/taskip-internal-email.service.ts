@@ -71,11 +71,20 @@ export class TaskipInternalEmailService {
   constructor(private readonly db: DbService, private readonly gmail: GmailService) {}
 
   async send(input: SendTrackedEmailInput): Promise<{ id: string; gmailMessageId: string | null; status: 'sent' | 'failed'; error?: string }> {
-    const suppressed = await this.db.db
-      .select({ id: emailSuppressions.id })
-      .from(emailSuppressions)
-      .where(eq(emailSuppressions.email, input.recipient))
-      .limit(1);
+    let suppressed: Array<{ id: string }> = [];
+    try {
+      suppressed = await this.db.db
+        .select({ id: emailSuppressions.id })
+        .from(emailSuppressions)
+        .where(eq(emailSuppressions.email, input.recipient))
+        .limit(1);
+    } catch (err) {
+      if ((err as Error).message?.includes('email_suppressions')) {
+        this.logger.warn('email_suppressions table missing — skipping suppression check');
+      } else {
+        throw err;
+      }
+    }
     if (suppressed.length > 0) {
       const id = createId();
       return { id, gmailMessageId: null, status: 'failed', error: 'suppressed' };
