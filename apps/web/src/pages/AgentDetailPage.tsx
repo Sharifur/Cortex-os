@@ -3862,7 +3862,6 @@ function DesignSamplesTab({ token }: { token: string }) {
   const [patterns, setPatterns] = useState<string[]>([]);
   const [bannerBrief, setBannerBrief] = useState('');
   const [progress, setProgress] = useState<{ done: number; total: number; errors: number } | null>(null);
-  const [clustering, setClustering] = useState(false);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const [dsSubTab, setDsSubTab] = useState<'samples' | 'patterns'>('samples');
@@ -3940,26 +3939,88 @@ function DesignSamplesTab({ token }: { token: string }) {
   }
 
   const [reanalyzing, setReanalyzing] = useState(false);
-  const [reanalyzeMsg, setReanalyzeMsg] = useState('');
+  const [reanalysisProgress, setReanalysisProgress] = useState<{ done: number; total: number; errors: number; running: boolean } | null>(null);
+  const reanalysisPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const [clusteringStatus, setClusteringStatus] = useState<{ phase: string; sampleCount: number; patternsFound: number; running: boolean } | null>(null);
+  const clusterPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  function clusterPhaseLabel(s: { phase: string; pass: number; totalPasses: number } | null): string {
+    if (!s) return '';
+    if (s.phase === 'done') return 'Done';
+    if (s.pass > 0 && s.totalPasses > 0) return `Pass ${s.pass}/${s.totalPasses}: ${s.phase.replace(/^Pass \d+\/\d+:\s*/, '')}`;
+    return s.phase;
+  }
+
+  function clusterProgressPct(s: { phase: string; pass: number; totalPasses: number; running: boolean } | null): number {
+    if (!s || s.totalPasses === 0) return 5;
+    if (!s.running) return 100;
+    if (s.pass === 0) return 5;
+    return Math.round(((s.pass - 0.5) / s.totalPasses) * 100);
+  }
+
+  function stopReanalysisPoll() {
+    if (reanalysisPollRef.current) { clearInterval(reanalysisPollRef.current); reanalysisPollRef.current = null; }
+  }
+
+  function stopClusterPoll() {
+    if (clusterPollRef.current) { clearInterval(clusterPollRef.current); clusterPollRef.current = null; }
+  }
+
+  function startReanalysisPoll() {
+    stopReanalysisPoll();
+    reanalysisPollRef.current = setInterval(async () => {
+      try {
+        const status = await apiFetch(token, '/posts/design-samples/reanalyze/status?brand=default');
+        setReanalysisProgress(status);
+        if (!status.running) {
+          stopReanalysisPoll();
+          await loadData();
+        }
+      } catch {
+        stopReanalysisPoll();
+      }
+    }, 3000);
+  }
+
+  function startClusterPoll() {
+    stopClusterPoll();
+    clusterPollRef.current = setInterval(async () => {
+      try {
+        const status = await apiFetch(token, '/posts/design-samples/cluster/status?brand=default');
+        setClusteringStatus(status);
+        if (!status.running && status.phase !== 'idle') {
+          stopClusterPoll();
+          await loadData();
+        }
+      } catch {
+        stopClusterPoll();
+      }
+    }, 2000);
+  }
+
+  useEffect(() => () => { stopReanalysisPoll(); stopClusterPoll(); }, []);
 
   async function cluster() {
-    setClustering(true);
+    setClusteringStatus({ phase: 'loading', sampleCount: 0, patternsFound: 0, running: true });
+    setDsSubTab('patterns');
     try {
       await apiFetch(token, '/posts/design-samples/cluster', { method: 'POST', body: JSON.stringify({ brand: 'default' }) });
-      await loadData();
-    } finally {
-      setClustering(false);
+      startClusterPoll();
+    } catch {
+      setClusteringStatus(null);
     }
   }
 
   async function reanalyze() {
     setReanalyzing(true);
-    setReanalyzeMsg('');
+    setReanalysisProgress(null);
     try {
-      const data = await apiFetch(token, '/posts/design-samples/reanalyze', { method: 'POST', body: JSON.stringify({ brand: 'default' }) });
-      setReanalyzeMsg(`Re-analysis started for ${data.queued} images (runs in background)`);
+      const data = await apiFetch(token, '/posts/design-samples/reanalyze', { method: 'POST', body: JSON.stringify({ brand: 'default', autoCluster: true }) });
+      setReanalysisProgress({ done: 0, total: data.queued, errors: 0, running: true });
+      startReanalysisPoll();
     } catch {
-      setReanalyzeMsg('Re-analysis failed to start');
+      setReanalysisProgress(null);
     } finally {
       setReanalyzing(false);
     }
@@ -3985,25 +4046,69 @@ function DesignSamplesTab({ token }: { token: string }) {
         <div className="ml-auto pb-1 flex items-center gap-2">
           <button
             onClick={reanalyze}
-            disabled={reanalyzing || samples.length === 0}
+            disabled={reanalyzing || (reanalysisProgress?.running ?? false) || samples.length === 0}
             className="px-3 py-1.5 border border-border rounded-lg text-xs font-medium disabled:opacity-50 text-muted-foreground"
             title="Re-run vision LLM on all uploaded images to refresh DNA data"
           >
-            {reanalyzing ? 'Starting...' : 'Re-analyze all'}
+            {reanalyzing ? 'Starting...' : (reanalysisProgress?.running ? 'Running...' : 'Re-analyze all')}
           </button>
           <button
             onClick={cluster}
-            disabled={clustering || samples.length < 3}
+            disabled={(clusteringStatus?.running ?? false) || (reanalysisProgress?.running ?? false) || samples.length < 3}
             className="px-4 py-1.5 border border-border rounded-lg text-sm font-medium disabled:opacity-50"
             title={samples.length < 3 ? 'Need 3+ samples to cluster' : ''}
           >
-            {clustering ? 'Clustering...' : 'Learn patterns'}
+            {clusteringStatus?.running ? 'Learning...' : 'Learn patterns'}
           </button>
         </div>
       </div>
 
-      {reanalyzeMsg && (
-        <p className="text-xs text-muted-foreground bg-muted/40 rounded-lg px-3 py-2">{reanalyzeMsg}</p>
+      {reanalysisProgress && (
+        <div className="space-y-1">
+          <div className="flex items-center justify-between text-xs text-muted-foreground">
+            <span>
+              {reanalysisProgress.running
+                ? `Re-analyzing: ${reanalysisProgress.done} / ${reanalysisProgress.total} images...`
+                : `Re-analysis complete: ${reanalysisProgress.done - reanalysisProgress.errors} updated`}
+              {reanalysisProgress.errors > 0 && (
+                <span className="text-red-400 ml-2">{reanalysisProgress.errors} failed</span>
+              )}
+            </span>
+            <span>{reanalysisProgress.total > 0 ? Math.round((reanalysisProgress.done / reanalysisProgress.total) * 100) : 0}%</span>
+          </div>
+          <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all duration-500 ${reanalysisProgress.running ? 'bg-primary' : 'bg-green-500'}`}
+              style={{ width: `${reanalysisProgress.total > 0 ? (reanalysisProgress.done / reanalysisProgress.total) * 100 : 0}%` }}
+            />
+          </div>
+          {!reanalysisProgress.running && (
+            <p className="text-xs text-muted-foreground">Patterns will be re-learned automatically.</p>
+          )}
+        </div>
+      )}
+
+      {clusteringStatus && clusteringStatus.phase !== 'idle' && (
+        <div className="bg-card border border-border rounded-xl px-4 py-3 space-y-2">
+          <div className="flex items-center justify-between text-xs">
+            <span className="font-medium text-foreground">
+              {clusteringStatus.running
+                ? clusterPhaseLabel(clusteringStatus)
+                : `Done — ${clusteringStatus.patternsFound} patterns learned from ${clusteringStatus.sampleCount} samples`}
+            </span>
+            <span className="text-muted-foreground">
+              {clusteringStatus.running && clusteringStatus.patternsFound > 0
+                ? `${clusteringStatus.patternsFound} patterns so far`
+                : clusteringStatus.sampleCount > 0 ? `${clusteringStatus.sampleCount} samples` : ''}
+            </span>
+          </div>
+          <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all duration-700 ${clusteringStatus.running ? 'bg-primary' : 'bg-green-500'}`}
+              style={{ width: `${clusterProgressPct(clusteringStatus)}%` }}
+            />
+          </div>
+        </div>
       )}
 
       {dsSubTab === 'samples' && (
@@ -4086,11 +4191,20 @@ function DesignSamplesTab({ token }: { token: string }) {
 
       {dsSubTab === 'patterns' && (
         <div className="space-y-3">
-          {patterns.length === 0 ? (
+          {clusteringStatus?.running && (
+            <div className="bg-card border border-border rounded-xl p-4 space-y-1">
+              <p className="text-sm font-medium text-foreground">Learning patterns...</p>
+              <p className="text-xs text-muted-foreground">{clusterPhaseLabel(clusteringStatus)}</p>
+              {clusteringStatus.patternsFound > 0 && (
+                <p className="text-xs text-primary">{clusteringStatus.patternsFound} patterns found so far</p>
+              )}
+            </div>
+          )}
+          {patterns.length === 0 && !clusteringStatus?.running ? (
             <div className="bg-card border border-border rounded-xl p-4">
               <p className="text-sm text-muted-foreground">No patterns learned yet. Upload 3+ samples and click "Learn patterns".</p>
             </div>
-          ) : (
+          ) : patterns.length > 0 ? (
             <>
               {bannerBrief && (
                 <div className="bg-primary/5 border border-primary/20 rounded-xl p-4">
@@ -4105,7 +4219,7 @@ function DesignSamplesTab({ token }: { token: string }) {
                 ))}
               </div>
             </>
-          )}
+          ) : null}
         </div>
       )}
 

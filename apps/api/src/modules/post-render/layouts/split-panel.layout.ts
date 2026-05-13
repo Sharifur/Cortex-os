@@ -1,4 +1,4 @@
-import { resolveBackground, resolveTextColor, getSlot } from './layout-helpers';
+import { resolveBackground, resolveBackgroundStyle, resolveTextColor, getSlot } from './layout-helpers';
 import type { LayoutProps } from './layout.types';
 
 export function splitPanelLayout({ slide, contract, width, height }: LayoutProps): object {
@@ -69,7 +69,7 @@ export function splitPanelLayout({ slide, contract, width, height }: LayoutProps
         {
           type: 'div',
           props: {
-            style: { display: 'flex', flexDirection: 'column', justifyContent: 'center', flex: 1, backgroundColor: bg, padding: `${contract.paddingY}px ${contract.paddingX}px` },
+            style: { display: 'flex', flexDirection: 'column', justifyContent: 'center', flex: 1, ...resolveBackgroundStyle(slide.styleRules, contract), padding: `${contract.paddingY}px ${contract.paddingX}px` },
             children: rightChildren,
           },
         },

@@ -10,6 +10,7 @@ import { StorageService } from '../storage/storage.service';
 import { DbService } from '../../db/db.service';
 import { knowledgeEntries } from '../knowledge-base/schema';
 import type { DesignDNA } from './types';
+import { DesignPatternService } from './design-pattern.service';
 
 const LOCAL_SAMPLES_DIR = path.join(os.homedir(), 'Designs', 'AI-Agent', 'DesignSamples');
 
@@ -347,6 +348,7 @@ export class DesignAnalysisService {
     private readonly kb: KnowledgeBaseService,
     private readonly storage: StorageService,
     private readonly db: DbService,
+    private readonly designPattern: DesignPatternService,
   ) {}
 
   async analyzeAndStore(
@@ -396,145 +398,8 @@ export class DesignAnalysisService {
     }
 
     // Build KB entry content
-    const embeddingText = [
-      dna.layout_type,
-      dna.composition,
-      dna.font_style,
-      dna.icon_style,
-      dna.illustration_style,
-      dna.photography_style,
-      dna.content_tone,
-      ...dna.mood_keywords,
-      dna.slide_type,
-      ...dna.platform_fit,
-      ...dna.visual_hierarchy,
-      dna.whitespace,
-      dna.background_style,
-      dna.cta_style,
-      dna.border_radius_style,
-      ...(dna.decoration_elements ?? []),
-      ...(dna.accent_elements ?? []),
-    ].filter(Boolean).join(' ');
-
-    const content = [
-      `Design Sample Analysis`,
-      ``,
-      `-- Layout & Composition --`,
-      `Layout: ${dna.layout_type}`,
-      `Composition: ${dna.composition}`,
-      `Text alignment: ${dna.text_alignment}`,
-      `Whitespace: ${dna.whitespace}`,
-      `Element density: ${dna.element_density}`,
-      `Text layers: ${dna.text_layers_count}`,
-      `Visual hierarchy (top to bottom): ${dna.visual_hierarchy.join(' > ')}`,
-      ``,
-      `-- Color --`,
-      `Background: ${dna.background_style}${dna.background_image_used ? ' (photo/image used)' : ''}`,
-      `Background texture: ${dna.background_texture}`,
-      `Primary color: ${dna.primary_color}`,
-      `Accent color: ${dna.accent_color}`,
-      `Secondary colors: ${(dna.secondary_colors ?? []).join(', ') || 'none'}`,
-      `Color palette: ${dna.color_count}`,
-      ``,
-      `-- Typography --`,
-      `Heading: ${dna.font_weight_heading} weight, ${dna.font_size_heading} size, ${dna.font_style} style`,
-      `Body: ${dna.body_font_style} style`,
-      `Stat/number display: ${dna.number_stat_style}`,
-      ``,
-      `-- Icons --`,
-      `Icon style: ${dna.icon_style}`,
-      `Icon count: ${dna.icon_count}`,
-      `Icon size: ${dna.icon_size}`,
-      ``,
-      `-- Illustrations & Photography --`,
-      `Illustration style: ${dna.illustration_style}`,
-      `Photography style: ${dna.photography_style}`,
-      ``,
-      `-- Decoration & Visual Details --`,
-      `Decoration elements: ${(dna.decoration_elements ?? []).join(', ')}`,
-      `Accent elements: ${(dna.accent_elements ?? []).join(', ')}`,
-      `Border radius: ${dna.border_radius_style}`,
-      `Shadows: ${dna.shadow_usage}`,
-      `Divider: ${dna.divider_style}`,
-      ``,
-      `-- Branding & Structure --`,
-      `Logo placement: ${dna.logo_placement}`,
-      `Brand bar: ${dna.brand_bar}`,
-      `CTA style: ${dna.cta_style}`,
-      ``,
-      `-- Content & Tone --`,
-      `Slide type: ${dna.slide_type}`,
-      `Content tone: ${dna.content_tone}`,
-      `Mood: ${dna.mood_keywords.join(', ')}`,
-      `Platform fit: ${dna.platform_fit.join(', ')}`,
-      ``,
-      `-- Spatial Layout --`,
-      `Grid columns: ${dna.grid_columns ?? 1}`,
-      `Content zone: x=${dna.content_zone?.x}% y=${dna.content_zone?.y}% w=${dna.content_zone?.w}% h=${dna.content_zone?.h}%`,
-      `Layer stack (back→front): ${(dna.layer_stack ?? []).join(' > ')}`,
-      `Elements (${(dna.element_positions ?? []).length}):`,
-      ...(dna.element_positions ?? []).map(e =>
-        `  ${e.name}[${e.type}] x=${e.x}% y=${e.y}% w=${e.w}% h=${e.h}% | align:${e.align} rot:${e.rotation_deg ?? 0}deg | z:${e.z_index ?? '?'} ${e.z_layer}${(e.overlaps_with ?? []).length ? ` | overlaps:${e.overlaps_with!.join(',')}` : ''}`
-      ),
-      ``,
-      `-- Text Elements (${(dna.text_elements ?? []).length}) --`,
-      ...(dna.text_elements ?? []).flatMap(t => {
-        const bgPart = t.background_hex && t.background_hex !== 'none'
-          ? ` bg:${t.background_hex}[${t.background_shape ?? 'rect'}${(t as any).background_rotation_deg ? ` rot:${(t as any).background_rotation_deg}deg` : ''}]`
-          : '';
-        const overlapPart = (t.overlaps_with ?? []).length ? ` | overlaps:${t.overlaps_with!.join(',')}` : '';
-        const lines = [
-          `[${t.role}] "${t.content_preview}" | pos: x=${t.x}% y=${t.y}% w=${t.w}% h=${t.h}% | z:${t.z_index ?? '?'} ${t.z_layer}${overlapPart}`,
-          `  rotation:${t.rotation_deg ?? 0}deg | ${t.font_weight} ${t.estimated_size_px}px ${t.case_style} spacing:${t.letter_spacing} lh:${t.line_height}`,
-          `  color:${t.color_hex}${bgPart} | lines:${t.line_count ?? 1}${t.decoration && t.decoration !== 'none' ? ` decoration:${t.decoration}` : ''} | opacity:${t.opacity ?? 1.0}`,
-        ];
-        if (t.word_highlights && t.word_highlights.length) {
-          t.word_highlights.forEach(wh => {
-            lines.push(`  word-highlight: "${wh.word_or_phrase}" bg:${wh.background_hex} shape:${wh.background_shape} rot:${wh.rotation_deg ?? 0}deg pad:${wh.padding_h_px ?? 0}h/${wh.padding_v_px ?? 0}v fullWidth:${wh.spans_line_width ?? false}`);
-          });
-        }
-        return lines;
-      }),
-      ``,
-      `-- Composite Effects (${(dna.composite_effects ?? []).length}) --`,
-      ...(dna.composite_effects ?? []).map(ce =>
-        `[${ce.type}] ${ce.description} | bottom:${ce.bottom_element} top:${ce.top_element} | overlap:x=${ce.overlap_region?.x}% y=${ce.overlap_region?.y}% w=${ce.overlap_region?.w}% h=${ce.overlap_region?.h}%`
-      ),
-      ``,
-      `-- Scene Composition --`,
-      ...(dna.scene_composition && dna.scene_composition.type !== 'none' ? [
-        `Type: ${dna.scene_composition.type} | Theme: ${dna.scene_composition.theme}`,
-        `Narrative: ${dna.scene_composition.narrative}`,
-        `Characters: ${(dna.scene_composition.characters_present ?? []).join(', ') || 'none'}`,
-        `Props: ${(dna.scene_composition.props_present ?? []).join(', ') || 'none'}`,
-        `Region: x=${dna.scene_composition.scene_region?.x}% y=${dna.scene_composition.scene_region?.y}% w=${dna.scene_composition.scene_region?.w}% h=${dna.scene_composition.scene_region?.h}%`,
-        ...(dna.scene_composition.element_relationships ?? []).map(r =>
-          `  relation: ${r.element_a} [${r.relationship}] ${r.element_b}${r.notes ? ` — ${r.notes}` : ''}`
-        ),
-      ] : [`Type: none`]),
-      ``,
-      `-- Decorative Illustrations (${(dna.decorative_illustrations ?? []).length}) --`,
-      ...(dna.decorative_illustrations ?? []).flatMap(ill => [
-        `[${ill.subject}] ${ill.subject_description}`,
-        `  render:${ill.render_style} stroke:${ill.stroke_color ?? 'none'} fill:${ill.fill_color ?? 'none'} stroke-weight:${ill.stroke_width_style} opacity:${ill.opacity} role:${(ill as any).semantic_role} group:${(ill as any).scene_group ?? 'standalone'}`,
-        ...ill.instances.map((inst, i) =>
-          `  instance[${i + 1}/${ill.instances.length}] x=${inst.x}% y=${inst.y}% w=${inst.w}% h=${inst.h}% rot:${inst.rotation_deg ?? 0}deg size:${inst.size_relative}${(inst as any).interacts_with?.length ? ` interacts:${(inst as any).interacts_with.join(',')}` : ''}`
-        ),
-      ]),
-      ``,
-      `-- Photo Subjects (${(dna.photo_subjects ?? []).length}) --`,
-      ...(dna.photo_subjects ?? []).map(ph =>
-        `[${ph.subject_type}] treatment:${ph.treatment} | pos: x=${ph.x}% y=${ph.y}% w=${ph.w}% h=${ph.h}% | z:${ph.z_index ?? '?'} ${ph.z_layer}${(ph.overlaps_with ?? []).length ? ` | overlaps:${ph.overlaps_with!.join(',')}` : ''} | anchor:${ph.position_alignment}${ph.body_framing ? ` framing:${ph.body_framing}` : ''}${ph.description ? ` — ${ph.description}` : ''}`
-      ),
-      ``,
-      `-- Shape Elements (${(dna.shape_elements ?? []).length}) --`,
-      ...(dna.shape_elements ?? []).map(s =>
-        `${s.shape_type}${(s as any).clipped_at_edge ? '[clipped]' : ''} fill:${s.fill_type}(${s.fill_colors.join('->')}) opacity:${s.opacity} x:${s.x}% y:${s.y}% w:${s.w}% h:${s.h}%${s.gradient_angle != null ? ` angle:${s.gradient_angle}deg` : ''}${s.border_radius != null ? ` r:${s.border_radius}%` : ''} — ${s.svg_hint}`
-      ),
-      ...(dna.pattern_notes ? [``, `Notes: ${dna.pattern_notes}`] : []),
-      ``,
-      `DNA JSON: ${JSON.stringify(dna)}`,
-    ].join('\n');
+    const embeddingText = this.buildEmbeddingText(dna);
+    const content = this.buildKbContent(dna);
 
     const kbRow = await this.kb.createEntry({
       title: `Design Sample — ${dna.slide_type} — ${dna.platform_fit[0] ?? 'any'} — ${Date.now()}`,
@@ -589,7 +454,157 @@ export class DesignAnalysisService {
     return rows.length;
   }
 
-  async reanalyzeSamples(brand: string): Promise<{ reanalyzed: number; failed: number }> {
+  private reanalysisProgress = new Map<string, { done: number; total: number; errors: number; running: boolean }>();
+
+  getReanalysisStatus(brand: string): { done: number; total: number; errors: number; running: boolean } {
+    return this.reanalysisProgress.get(brand) ?? { done: 0, total: 0, errors: 0, running: false };
+  }
+
+  private buildKbContent(dna: DesignDNA): string {
+    return [
+      `Design Sample Analysis`,
+      ``,
+      `-- Layout & Composition --`,
+      `Layout: ${dna.layout_type}`,
+      `Composition: ${dna.composition}`,
+      `Text alignment: ${dna.text_alignment}`,
+      `Whitespace: ${dna.whitespace}`,
+      `Element density: ${dna.element_density}`,
+      `Text layers: ${dna.text_layers_count}`,
+      `Visual hierarchy (top to bottom): ${dna.visual_hierarchy.join(' > ')}`,
+      ``,
+      `-- Color --`,
+      `Background: ${dna.background_style}${dna.background_image_used ? ' (photo/image used)' : ''}`,
+      `Background texture: ${dna.background_texture}`,
+      `Primary color: ${dna.primary_color}`,
+      `Accent color: ${dna.accent_color}`,
+      `Secondary colors: ${(dna.secondary_colors ?? []).join(', ') || 'none'}`,
+      `Color palette: ${dna.color_count}`,
+      ``,
+      `-- Typography --`,
+      `Heading: ${dna.font_weight_heading} weight, ${dna.font_size_heading} size, ${dna.font_style} style`,
+      `Body: ${dna.body_font_style} style`,
+      `Stat/number display: ${dna.number_stat_style}`,
+      ``,
+      `-- Icons --`,
+      `Icon style: ${dna.icon_style}`,
+      `Icon count: ${dna.icon_count}`,
+      `Icon size: ${dna.icon_size}`,
+      ``,
+      `-- Illustrations & Photography --`,
+      `Illustration style: ${dna.illustration_style}`,
+      `Photography style: ${dna.photography_style}`,
+      ``,
+      `-- Decoration & Visual Details --`,
+      `Decoration elements: ${(dna.decoration_elements ?? []).join(', ')}`,
+      `Accent elements: ${(dna.accent_elements ?? []).join(', ')}`,
+      `Border radius: ${dna.border_radius_style}`,
+      `Shadows: ${dna.shadow_usage}`,
+      `Divider: ${dna.divider_style}`,
+      ``,
+      `-- Branding & Structure --`,
+      `Logo placement: ${dna.logo_placement}`,
+      `Brand bar: ${dna.brand_bar}`,
+      `CTA style: ${dna.cta_style}`,
+      ``,
+      `-- Content & Tone --`,
+      `Slide type: ${dna.slide_type}`,
+      `Content tone: ${dna.content_tone}`,
+      `Mood: ${dna.mood_keywords.join(', ')}`,
+      `Platform fit: ${dna.platform_fit.join(', ')}`,
+      ``,
+      `-- Spatial Layout --`,
+      `Grid columns: ${dna.grid_columns ?? 1}`,
+      `Content zone: x=${dna.content_zone?.x}% y=${dna.content_zone?.y}% w=${dna.content_zone?.w}% h=${dna.content_zone?.h}%`,
+      `Layer stack (back->front): ${(dna.layer_stack ?? []).join(' > ')}`,
+      `Elements (${(dna.element_positions ?? []).length}):`,
+      ...(dna.element_positions ?? []).map(e =>
+        `  ${e.name}[${e.type}] x=${e.x}% y=${e.y}% w=${e.w}% h=${e.h}% | align:${e.align} rot:${e.rotation_deg ?? 0}deg | z:${e.z_index ?? '?'} ${e.z_layer}${(e.overlaps_with ?? []).length ? ` | overlaps:${e.overlaps_with!.join(',')}` : ''}`
+      ),
+      ``,
+      `-- Text Elements (${(dna.text_elements ?? []).length}) --`,
+      ...(dna.text_elements ?? []).flatMap(t => {
+        const bgPart = t.background_hex && t.background_hex !== 'none'
+          ? ` bg:${t.background_hex}[${t.background_shape ?? 'rect'}${(t as any).background_rotation_deg ? ` rot:${(t as any).background_rotation_deg}deg` : ''}]`
+          : '';
+        const overlapPart = (t.overlaps_with ?? []).length ? ` | overlaps:${t.overlaps_with!.join(',')}` : '';
+        const lines = [
+          `[${t.role}] "${t.content_preview}" | pos: x=${t.x}% y=${t.y}% w=${t.w}% h=${t.h}% | z:${t.z_index ?? '?'} ${t.z_layer}${overlapPart}`,
+          `  rotation:${t.rotation_deg ?? 0}deg | ${t.font_weight} ${t.estimated_size_px}px ${t.case_style} spacing:${t.letter_spacing} lh:${t.line_height}`,
+          `  color:${t.color_hex}${bgPart} | lines:${t.line_count ?? 1}${t.decoration && t.decoration !== 'none' ? ` decoration:${t.decoration}` : ''} | opacity:${t.opacity ?? 1.0}`,
+        ];
+        if (t.word_highlights && t.word_highlights.length) {
+          t.word_highlights.forEach(wh => {
+            lines.push(`  word-highlight: "${wh.word_or_phrase}" bg:${wh.background_hex} shape:${wh.background_shape} rot:${wh.rotation_deg ?? 0}deg pad:${wh.padding_h_px ?? 0}h/${wh.padding_v_px ?? 0}v fullWidth:${wh.spans_line_width ?? false}`);
+          });
+        }
+        return lines;
+      }),
+      ``,
+      `-- Composite Effects (${(dna.composite_effects ?? []).length}) --`,
+      ...(dna.composite_effects ?? []).map(ce =>
+        `[${ce.type}] ${ce.description} | bottom:${ce.bottom_element} top:${ce.top_element} | overlap:x=${ce.overlap_region?.x}% y=${ce.overlap_region?.y}% w=${ce.overlap_region?.w}% h=${ce.overlap_region?.h}%`
+      ),
+      ``,
+      `-- Scene Composition --`,
+      ...(dna.scene_composition && dna.scene_composition.type !== 'none' ? [
+        `Type: ${dna.scene_composition.type} | Theme: ${dna.scene_composition.theme}`,
+        `Narrative: ${dna.scene_composition.narrative}`,
+        `Characters: ${(dna.scene_composition.characters_present ?? []).join(', ') || 'none'}`,
+        `Props: ${(dna.scene_composition.props_present ?? []).join(', ') || 'none'}`,
+        `Region: x=${dna.scene_composition.scene_region?.x}% y=${dna.scene_composition.scene_region?.y}% w=${dna.scene_composition.scene_region?.w}% h=${dna.scene_composition.scene_region?.h}%`,
+        ...(dna.scene_composition.element_relationships ?? []).map(r =>
+          `  relation: ${r.element_a} [${r.relationship}] ${r.element_b}${r.notes ? ` -- ${r.notes}` : ''}`
+        ),
+      ] : [`Type: none`]),
+      ``,
+      `-- Decorative Illustrations (${(dna.decorative_illustrations ?? []).length}) --`,
+      ...(dna.decorative_illustrations ?? []).flatMap(ill => [
+        `[${ill.subject}] ${ill.subject_description}`,
+        `  render:${ill.render_style} stroke:${ill.stroke_color ?? 'none'} fill:${ill.fill_color ?? 'none'} stroke-weight:${ill.stroke_width_style} opacity:${ill.opacity} role:${(ill as any).semantic_role} group:${(ill as any).scene_group ?? 'standalone'}`,
+        ...ill.instances.map((inst, i) =>
+          `  instance[${i + 1}/${ill.instances.length}] x=${inst.x}% y=${inst.y}% w=${inst.w}% h=${inst.h}% rot:${inst.rotation_deg ?? 0}deg size:${inst.size_relative}${(inst as any).interacts_with?.length ? ` interacts:${(inst as any).interacts_with.join(',')}` : ''}`
+        ),
+      ]),
+      ``,
+      `-- Photo Subjects (${(dna.photo_subjects ?? []).length}) --`,
+      ...(dna.photo_subjects ?? []).map(ph =>
+        `[${ph.subject_type}] treatment:${ph.treatment} | pos: x=${ph.x}% y=${ph.y}% w=${ph.w}% h=${ph.h}% | z:${ph.z_index ?? '?'} ${ph.z_layer}${(ph.overlaps_with ?? []).length ? ` | overlaps:${ph.overlaps_with!.join(',')}` : ''} | anchor:${ph.position_alignment}${ph.body_framing ? ` framing:${ph.body_framing}` : ''}${ph.description ? ` -- ${ph.description}` : ''}`
+      ),
+      ``,
+      `-- Shape Elements (${(dna.shape_elements ?? []).length}) --`,
+      ...(dna.shape_elements ?? []).map(s =>
+        `${s.shape_type}${(s as any).clipped_at_edge ? '[clipped]' : ''} fill:${s.fill_type}(${s.fill_colors.join('->')}) opacity:${s.opacity} x:${s.x}% y:${s.y}% w:${s.w}% h:${s.h}%${s.gradient_angle != null ? ` angle:${s.gradient_angle}deg` : ''}${s.border_radius != null ? ` r:${s.border_radius}%` : ''} -- ${s.svg_hint}`
+      ),
+      ...(dna.pattern_notes ? [``, `Notes: ${dna.pattern_notes}`] : []),
+      ``,
+      `DNA JSON: ${JSON.stringify(dna)}`,
+    ].join('\n');
+  }
+
+  private buildEmbeddingText(dna: DesignDNA): string {
+    return [
+      dna.layout_type,
+      dna.composition,
+      dna.font_style,
+      dna.icon_style,
+      dna.illustration_style,
+      dna.photography_style,
+      dna.content_tone,
+      ...dna.mood_keywords,
+      dna.slide_type,
+      ...dna.platform_fit,
+      ...dna.visual_hierarchy,
+      dna.whitespace,
+      dna.background_style,
+      dna.cta_style,
+      dna.border_radius_style,
+      ...(dna.decoration_elements ?? []),
+      ...(dna.accent_elements ?? []),
+    ].filter(Boolean).join(' ');
+  }
+
+  async reanalyzeSamples(brand: string, autoCluster = false): Promise<{ reanalyzed: number; failed: number }> {
     const rows = await this.db.db
       .select({
         id: knowledgeEntries.id,
@@ -603,6 +618,9 @@ export class DesignAnalysisService {
         eq(knowledgeEntries.siteKeys, brand),
       ));
 
+    const status = { done: 0, total: rows.length, errors: 0, running: true };
+    this.reanalysisProgress.set(brand, status);
+
     let reanalyzed = 0;
     let failed = 0;
 
@@ -610,6 +628,8 @@ export class DesignAnalysisService {
       const url = row.sourceUrl;
       if (!url || url.startsWith('local://')) {
         failed++;
+        status.errors = failed;
+        status.done = reanalyzed + failed;
         continue;
       }
       try {
@@ -617,7 +637,6 @@ export class DesignAnalysisService {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const buffer = Buffer.from(await res.arrayBuffer());
 
-        // Extract fresh DNA via vision LLM
         const imageBase64 = buffer.toString('base64');
         const llmRes = await this.llm.complete({
           messages: [{ role: 'user', content: DNA_PROMPT }],
@@ -634,41 +653,44 @@ export class DesignAnalysisService {
           dna = JSON.parse(jsonMatch?.[1] ?? llmRes.content);
         } catch {
           failed++;
+          status.errors = failed;
+          status.done = reanalyzed + failed;
           continue;
         }
 
-        const content = [
-          `Design Sample Analysis`,
-          `Layout: ${dna.layout_type}`,
-          `Background: ${dna.background_style}`,
-          `Colors: primary ${dna.primary_color}, accent ${dna.accent_color}`,
-          `Typography: ${dna.font_weight_heading} ${dna.font_size_heading} ${dna.font_style}`,
-          `Hierarchy: ${dna.visual_hierarchy?.join(' > ')}`,
-          `Composition: ${dna.composition}, alignment: ${dna.text_alignment}`,
-          `Whitespace: ${dna.whitespace}, density: ${dna.element_density}`,
-          `Mood: ${dna.mood_keywords?.join(', ')}`,
-          `Platform: ${dna.platform_fit?.join(', ')}`,
-          `Slide type: ${dna.slide_type}`,
-          `Accent elements: ${dna.accent_elements?.join(', ')}`,
-          ``,
-          `DNA JSON: ${JSON.stringify(dna)}`,
-        ].join('\n');
+        const content = this.buildKbContent(dna);
+        const title = `Design Sample — ${dna.slide_type} — ${dna.platform_fit[0] ?? 'any'} — ${row.id}`;
 
-        // Update the KB entry content in-place
         await this.db.db.execute(sql`
-          UPDATE knowledge_entries SET content = ${content}, updated_at = NOW()
+          UPDATE knowledge_entries
+          SET content = ${content}, title = ${title}, updated_at = NOW()
           WHERE id = ${row.id}
         `);
 
+        void this.kb.embedEntry(row.id, this.buildEmbeddingText(dna));
+
         reanalyzed++;
-        this.logger.log(`Reanalyzed sample ${row.id}: ${dna.layout_type} ${dna.mood_keywords?.join(',')}`);
+        status.done = reanalyzed + failed;
+        status.errors = failed;
+        this.logger.log(`Reanalyzed ${reanalyzed}/${rows.length} — ${row.id}: ${dna.layout_type}`);
       } catch (err) {
         failed++;
+        status.errors = failed;
+        status.done = reanalyzed + failed;
         this.logger.warn(`Failed to reanalyze sample ${row.id}: ${(err as Error).message}`);
       }
     }
 
+    status.running = false;
     this.logger.log(`Reanalysis complete: ${reanalyzed} reanalyzed, ${failed} failed for brand=${brand}`);
+
+    if (autoCluster && reanalyzed > 0) {
+      this.logger.log(`Auto-clustering patterns for brand=${brand}`);
+      void this.designPattern.cluster(brand).catch(e =>
+        this.logger.warn(`Auto-cluster failed: ${(e as Error).message}`),
+      );
+    }
+
     return { reanalyzed, failed };
   }
 }

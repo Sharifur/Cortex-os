@@ -16,6 +16,58 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.25.0',
+    date: '2026-05-13',
+    entries: [
+      { tag: 'fix', scope: 'taskip-internal', description: 'Fixed email send failure when email_suppressions table was missing — suppression check now has a try-catch that skips the check and logs a warning instead of throwing, unblocking all outbound sends.' },
+      { tag: 'chore', scope: 'db', description: 'Added migration 0068 to force-create email_suppressions table idempotently — fixes environments where migration 0067 was recorded in __drizzle_migrations but its DDL never committed.' },
+    ],
+  },
+  {
+    version: 'v4.24.0',
+    date: '2026-05-13',
+    entries: [
+      { tag: 'feat', scope: 'post-render', description: 'Per-role layout selection: when 20+ design samples exist, each slide role (cover/content/cta/stat/list/quote) uses the dominant layout type observed in that role across all samples instead of the format template default. Safety rules: list-layout never applied to non-list roles, overlay never applied to cover/cta.' },
+      { tag: 'feat', scope: 'post-render', description: 'Gradient backgrounds: when DNA shows gradient-dark or gradient-light background style, cover and CTA slides render as CSS linear-gradient computed from the learned hex and a darkened variant at the dominant gradient angle from the sample set. Content slides remain flat for readability.' },
+      { tag: 'feat', scope: 'post-render', description: 'Learned font pairing: when brand uses default Inter fonts, getDominantDNA font_style field maps to a Google Font pair (geometric→Montserrat, classic-serif→Playfair Display/Lato, rounded→Nunito, slab-serif→Roboto Slab, display→Bebas Neue). Only overrides when brand has not customised fonts.' },
+      { tag: 'feat', scope: 'post-render', description: 'Structured pattern rules in content prompt: pattern rules are now filtered by relevance — copy/text rules get priority (up to 20), per-slide-type rules next (up to 8), a few visual rules last. Total up from 5 to 33 rules injected into content generation, driving copy length, tone, and structure from the learned dataset.' },
+    ],
+  },
+  {
+    version: 'v4.23.0',
+    date: '2026-05-13',
+    entries: [
+      { tag: 'feat', scope: 'post-render', description: 'ThemeContract now uses colors learned from design samples instead of brand palette when 20+ samples exist. Cover background uses dominant cover-slide hex, content background uses learned content-slide hex, CTA background uses learned CTA-slide hex, accent uses learned dominant accent color. Text colors (headline/body/subtext) are computed from actual background for WCAG AA compliance.' },
+      { tag: 'fix', scope: 'post-render', description: 'Fixed headlineColor computation bug in ThemeContractService — previously always resolved to white regardless of background. Now correctly calls pickTextColor(contentBg) so dark content backgrounds get white text and light backgrounds get dark text.' },
+      { tag: 'feat', scope: 'post-render', description: 'getDominantDNA now extracts per-slide-type dominant colors (bg/accent/textHex for cover/content/cta/stat/list/quote/testimonial), dominant primary color, dominant accent color, dominant headline hex, CTA background hex, and background gradient angle from the full design sample dataset.' },
+    ],
+  },
+  {
+    version: 'v4.22.0',
+    date: '2026-05-13',
+    entries: [
+      { tag: 'feat', scope: 'post-render', description: 'Multi-pass clustering: "Learn patterns" now runs 6 focused LLM passes instead of one — Pass 1: Structure & Layout (50+ rules), Pass 2: Color System (50+), Pass 3: Typography (50+), Pass 4: Visual Elements (50+), Pass 5: Brand Identity & Content (40+), Pass 6: Per Slide Type (15+ rules per cover/content/cta/stat/list/quote type). Target: 300–400 patterns from 478 samples vs the previous 50-80 cap.' },
+      { tag: 'feat', scope: 'post-render', description: 'Patterns stored in chunks of 100 per KB entry so large pattern sets remain retrievable. getPatterns() and getDominantDNA() both read all chunks via flatMap. Banner brief always in chunk 1.' },
+      { tag: 'feat', scope: 'post-render', description: 'Frontend progress bar shows Pass N/M: [label] with accurate percentage (each pass = 1/totalPasses of the bar). Live counter shows patterns found so far while clustering runs.' },
+    ],
+  },
+  {
+    version: 'v4.21.0',
+    date: '2026-05-13',
+    entries: [
+      { tag: 'feat', scope: 'post-render', description: 'Learn patterns now shows real-time progress: "Learn patterns" fires in background immediately, frontend polls GET /posts/design-samples/cluster/status every 2s and shows the current phase (Loading samples / Aggregating DNA frequencies / Generating patterns (LLM) / Writing banner brief / Saving). Progress bar advances through phases with a pulse animation. Switches to Patterns tab automatically on click.' },
+      { tag: 'feat', scope: 'post-render', description: 'Patterns tab updates in real-time during clustering: shows phase label while running, then refreshes the full pattern list and banner brief when clustering completes — no manual page reload needed.' },
+    ],
+  },
+  {
+    version: 'v4.20.0',
+    date: '2026-05-13',
+    entries: [
+      { tag: 'feat', scope: 'post-render', description: 'Re-analyze all now shows a live progress bar: polls GET /posts/design-samples/reanalyze/status every 3s and displays done/total count and percentage. Progress bar turns green on completion. After all images are re-analyzed, pattern clustering runs automatically (autoCluster=true).' },
+      { tag: 'fix', scope: 'post-render', description: 'Re-analyze all was storing a simplified 14-line KB entry (missing text_elements, layer_stack, composite_effects, decorative_illustrations, scene_composition, photo_subjects). Fixed: both analyzeAndStore and reanalyzeSamples now use the same full buildKbContent() builder. Embeddings are also regenerated after each image so pattern search benefits from the updated DNA.' },
+    ],
+  },
+  {
     version: 'v4.19.0',
     date: '2026-05-13',
     entries: [

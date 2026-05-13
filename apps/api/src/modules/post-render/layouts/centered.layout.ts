@@ -1,4 +1,4 @@
-import { resolveBackground, resolveTextColor, slideIndicatorText, getSlot, renderDecorations, ctaStyle as buildCtaStyle } from './layout-helpers';
+import { resolveBackground, resolveBackgroundStyle, resolveTextColor, slideIndicatorText, getSlot, renderDecorations, ctaStyle as buildCtaStyle } from './layout-helpers';
 import type { LayoutProps } from './layout.types';
 
 // Returns a plain JS object tree that satori accepts (React element format)
@@ -119,7 +119,7 @@ export function centeredLayout({ slide, contract, width, height, slideNumber, ba
         height,
         ...(backgroundImageBase64
           ? { backgroundImage: `url(${backgroundImageBase64})`, backgroundSize: 'cover', backgroundPosition: 'center' }
-          : { backgroundColor: bg }),
+          : resolveBackgroundStyle(slide.styleRules, contract)),
         fontFamily: contract.bodyFont,
         paddingTop: contract.paddingY,
         overflow: 'hidden',

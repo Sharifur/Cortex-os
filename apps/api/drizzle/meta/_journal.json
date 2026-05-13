@@ -477,6 +477,13 @@
       "when": 1747267200000,
       "tag": "0067_ensure_email_tables",
       "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "6",
+      "when": 1747526400000,
+      "tag": "0068_fix_email_suppressions",
+      "breakpoints": true
     }
   ]
 }

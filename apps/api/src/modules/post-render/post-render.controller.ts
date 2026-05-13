@@ -301,7 +301,15 @@ export class PostRenderController {
   @Post('design-samples/cluster')
   @HttpCode(HttpStatus.OK)
   async clusterPatterns(@Body() body: { brand: string }) {
-    return this.designPattern.cluster(body.brand);
+    void this.designPattern.cluster(body.brand ?? 'default').catch(e =>
+      this.logger.error(`cluster failed: ${(e as Error).message}`),
+    );
+    return { ok: true, queued: true };
+  }
+
+  @Get('design-samples/cluster/status')
+  getClusteringStatus(@Query('brand') brand?: string) {
+    return this.designPattern.getClusteringStatus(brand ?? 'default');
   }
 
   @Get('design-samples/patterns')
@@ -316,13 +324,18 @@ export class PostRenderController {
 
   @Post('design-samples/reanalyze')
   @HttpCode(HttpStatus.OK)
-  async reanalyzeDesignSamples(@Body() body: { brand?: string }) {
-    const total = await this.designAnalysis.countSamples(body.brand ?? 'default');
-    // Fire reanalysis in background — returns immediately
-    void this.designAnalysis.reanalyzeSamples(body.brand ?? 'default').catch(e =>
+  async reanalyzeDesignSamples(@Body() body: { brand?: string; autoCluster?: boolean }) {
+    const brand = body.brand ?? 'default';
+    const total = await this.designAnalysis.countSamples(brand);
+    void this.designAnalysis.reanalyzeSamples(brand, body.autoCluster ?? true).catch(e =>
       this.logger.error(`reanalyzeSamples failed: ${(e as Error).message}`),
     );
     return { ok: true, queued: total };
+  }
+
+  @Get('design-samples/reanalyze/status')
+  getReanalysisStatus(@Query('brand') brand?: string) {
+    return this.designAnalysis.getReanalysisStatus(brand ?? 'default');
   }
 
   @Delete('design-samples/:id')

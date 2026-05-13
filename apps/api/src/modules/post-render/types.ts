@@ -85,9 +85,11 @@ export interface ResolvedBrand {
 // Locked once per render session; all slides read from this
 export interface ThemeContract {
   // Colors
-  backgroundCover: string;
-  backgroundContent: string;
-  backgroundCta: string;
+  backgroundCover: string;          // hex — used for text color computation
+  backgroundContent: string;        // hex
+  backgroundCta: string;            // hex
+  backgroundCoverGradient?: string; // CSS gradient override for rendering
+  backgroundCtaGradient?: string;   // CSS gradient override for rendering
   accentColor: string;
   headlineColor: string;
   bodyColor: string;
@@ -168,6 +170,16 @@ export interface DominantDNA {
   representative_shapes: DesignDNA['shape_elements'];
   pattern_rules: string[];
   banner_brief: string;
+  // Learned hex colors — extracted from dominant DNA samples
+  dominant_primary_color: string;    // most frequent primary_color hex across all samples
+  dominant_accent_color: string;     // most frequent accent_color hex
+  dominant_headline_hex: string;     // most frequent headline text color
+  dominant_cta_hex: string;          // most frequent CTA button background
+  background_gradient_angle?: number; // angle when background_style includes 'gradient'
+  // Per-slide-type learned backgrounds (only set when enough samples per type exist)
+  slide_type_colors: Record<string, { bg: string; accent: string; textHex: string }>;
+  // Per-slide-role dominant layout (only set when 3+ samples per role exist)
+  slide_role_layouts: Partial<Record<string, LayoutType>>;
 }
 
 // Design DNA extracted from a sample image by vision LLM

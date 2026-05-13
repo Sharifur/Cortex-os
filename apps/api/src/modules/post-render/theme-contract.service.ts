@@ -35,13 +35,29 @@ export class ThemeContractService {
   private readonly logger = new Logger(ThemeContractService.name);
 
   derive(brand: ResolvedBrand, format: PostFormat, dna?: DominantDNA | null): ThemeContract {
-    const primary = brand.palette[0] ?? '#1e1b4b';
-    const secondary = brand.palette[1] ?? darken(primary, 0.1);
-    const accent = brand.palette[2] ?? brand.palette[1] ?? '#6366f1';
+    const MIN_SAMPLES_FOR_LEARNED_COLORS = 20;
+    const useLearned = !!(dna && dna.sampleCount >= MIN_SAMPLES_FOR_LEARNED_COLORS);
 
-    const headlineColor = pickTextColor('#ffffff') === '#ffffff' ? '#111111' : '#ffffff';
-    const bodyColor = '#444444';
-    const subtextColor = '#888888';
+    // Background colors — prefer learned per-slide-type hex when enough samples exist
+    const coverBg = useLearned
+      ? (dna!.slide_type_colors?.['cover']?.bg || dna!.dominant_primary_color || brand.palette[0] || '#1e1b4b')
+      : (brand.palette[0] ?? '#1e1b4b');
+
+    const contentBg = useLearned
+      ? (dna!.slide_type_colors?.['content']?.bg || '#ffffff')
+      : '#ffffff';
+
+    const ctaBg = useLearned
+      ? (dna!.slide_type_colors?.['cta']?.bg || dna!.dominant_primary_color || brand.palette[1] || darken(coverBg, 0.1))
+      : (brand.palette[1] ?? darken(coverBg, 0.1));
+
+    const accent = useLearned
+      ? (dna!.dominant_accent_color || brand.palette[2] || brand.palette[1] || '#6366f1')
+      : (brand.palette[2] ?? brand.palette[1] ?? '#6366f1');
+
+    const headlineColor = pickTextColor(contentBg);
+    const bodyColor = headlineColor === '#ffffff' ? '#cccccc' : '#444444';
+    const subtextColor = headlineColor === '#ffffff' ? '#aaaaaa' : '#888888';
 
     // Heading size from DNA font_size_heading
     const headingSizeMap: Record<string, number> = {
@@ -81,12 +97,24 @@ export class ThemeContractService {
     // Body size: slightly larger for display/huge, smaller for tight whitespace
     const bodySize = headingSize >= 76 ? 18 : headingSize >= 64 ? 20 : 22;
 
+    // Gradient backgrounds — when DNA shows gradient style, compute CSS gradient strings
+    const bgStyle = dna?.background_style ?? '';
+    const gradientAngle = dna?.background_gradient_angle ?? 135;
+    let backgroundCoverGradient: string | undefined;
+    let backgroundCtaGradient: string | undefined;
+    if (useLearned && (bgStyle.includes('gradient') || bgStyle === 'textured')) {
+      backgroundCoverGradient = `linear-gradient(${gradientAngle}deg, ${darken(coverBg, 0.3)}, ${coverBg})`;
+      backgroundCtaGradient = `linear-gradient(${gradientAngle}deg, ${darken(ctaBg, 0.3)}, ${ctaBg})`;
+    }
+
     const totalSlides = format.slides.length;
 
     const contract: ThemeContract = {
-      backgroundCover: primary,
-      backgroundContent: '#ffffff',
-      backgroundCta: secondary,
+      backgroundCover: coverBg,
+      backgroundContent: contentBg,
+      backgroundCta: ctaBg,
+      backgroundCoverGradient,
+      backgroundCtaGradient,
       accentColor: accent,
       headlineColor,
       bodyColor,
@@ -138,9 +166,9 @@ export class ThemeContractService {
     };
 
     this.logger.log(
-      `Theme locked: ${brand.headingFont} accent:${accent} bg:${primary} ` +
-      `radius:${borderRadius} cta:${ctaStyle} tone:${contract.contentTone}` +
-      (dna ? ` [${dna.sampleCount} samples]` : ' [no samples]'),
+      `Theme locked: ${brand.headingFont} accent:${accent} cover:${coverBg} content:${contentBg} cta:${ctaBg} ` +
+      `radius:${borderRadius} cta-style:${ctaStyle} tone:${contract.contentTone}` +
+      (dna ? ` [${dna.sampleCount} samples${useLearned ? ' - learned colors' : ''}]` : ' [no samples]'),
     );
     return contract;
   }
