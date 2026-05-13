@@ -338,11 +338,18 @@ export class PostRenderController {
     return this.designAnalysis.getReanalysisStatus(brand ?? 'default');
   }
 
+
   @Post('design-samples/reanalyze/cancel')
   @HttpCode(HttpStatus.OK)
   cancelReanalysis(@Body() body: { brand?: string }) {
     this.designAnalysis.cancelReanalysis(body.brand ?? 'default');
     return { ok: true };
+  }
+
+  @Post('design-samples/reanalyze/retry')
+  @HttpCode(HttpStatus.OK)
+  async retryFailed(@Body() body: { brand?: string; autoCluster?: boolean }) {
+    return this.designAnalysis.retryFailed(body.brand ?? 'default', body.autoCluster ?? true);
   }
 
   @Delete('design-samples/:id')

@@ -4051,6 +4051,21 @@ function DesignSamplesTab({ token }: { token: string }) {
     }
   }
 
+  const [retrying, setRetrying] = useState(false);
+  async function retryFailed() {
+    setRetrying(true);
+    setReanalysisProgress(null);
+    try {
+      const data = await apiFetch(token, '/posts/design-samples/reanalyze/retry', { method: 'POST', body: JSON.stringify({ brand: 'default', autoCluster: true }) });
+      setReanalysisProgress({ done: 0, total: data.queued, errors: 0, running: true });
+      startReanalysisPoll();
+    } catch {
+      setReanalysisProgress(null);
+    } finally {
+      setRetrying(false);
+    }
+  }
+
   return (
     <div className="space-y-5">
       {/* Sub-tab header */}
@@ -4120,7 +4135,19 @@ function DesignSamplesTab({ token }: { token: string }) {
               style={{ width: `${reanalysisProgress.total > 0 ? (reanalysisProgress.done / reanalysisProgress.total) * 100 : 0}%` }}
             />
           </div>
-          {!reanalysisProgress.running && (
+          {!reanalysisProgress.running && reanalysisProgress.errors > 0 && (
+            <div className="flex items-center gap-3">
+              <p className="text-xs text-muted-foreground flex-1">{reanalysisProgress.cancelled ? 'Analysis stopped.' : 'Analysis complete.'} {reanalysisProgress.errors} image{reanalysisProgress.errors !== 1 ? 's' : ''} could not be processed.</p>
+              <button
+                onClick={retryFailed}
+                disabled={retrying}
+                className="px-3 py-1 rounded-lg border border-border text-xs font-medium hover:bg-muted disabled:opacity-50 transition-colors"
+              >
+                {retrying ? 'Retrying...' : `Retry failed (${reanalysisProgress.errors})`}
+              </button>
+            </div>
+          )}
+          {!reanalysisProgress.running && reanalysisProgress.errors === 0 && (
             <p className="text-xs text-muted-foreground">{reanalysisProgress.cancelled ? 'Analysis stopped. Run again to resume from scratch.' : 'Patterns will be re-learned automatically.'}</p>
           )}
         </div>
