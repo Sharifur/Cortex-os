@@ -194,6 +194,19 @@ export class CanvaAgent implements IAgent, OnModuleInit {
       results: string[];
     };
 
+    type ConfirmedSlide = { slideLabel?: string; headline: string; body?: string };
+
+    type ExtraParamsGatherState = {
+      confirmedSlides: ConfirmedSlide[];
+      templateSlides: Array<{ id: string; name: string }>;
+      extraParams: DnaParam[];
+      collected: Record<string, string>;
+      idx: number;
+    };
+
+    const CONTENT_PARAM_KEYS = new Set(['topic', 'subject', 'headline', 'title', 'body', 'content', 'description', 'text', 'message', 'copy']);
+    const isContentParam = (key: string) => CONTENT_PARAM_KEYS.has(key.toLowerCase().replace(/[^a-z]/g, ''));
+
     const histStr = history ?? '';
     const SLIDE_RENDER_STR = '__SLIDE_RENDER__:';
 
@@ -214,9 +227,47 @@ export class CanvaAgent implements IAgent, OnModuleInit {
     }
 
     const inParamGatherStep = lastAgentText.includes('[param-gather:');
-    const inCarouselGatherStep = cgSearchText.includes('[carousel-gather:') && !inParamGatherStep;
-    const inStylePickerStep = lastAgentText.includes('[styles:') && !inParamGatherStep && !inCarouselGatherStep;
-    const inContentConfirmStep = lastAgentText.includes('[pending:') && !lastAgentText.includes('[styles:') && !inParamGatherStep && !inCarouselGatherStep;
+    const inExtraParamsGatherStep = lastAgentText.includes('[extra-params-gather:') && !inParamGatherStep;
+    const inCarouselGatherStep = cgSearchText.includes('[carousel-gather:') && !inParamGatherStep && !inExtraParamsGatherStep;
+    const inStylePickerStep = lastAgentText.includes('[styles:') && !inParamGatherStep && !inExtraParamsGatherStep && !inCarouselGatherStep;
+    const inContentConfirmStep = lastAgentText.includes('[pending:') && !lastAgentText.includes('[styles:') && !inParamGatherStep && !inExtraParamsGatherStep && !inCarouselGatherStep;
+
+    // STEP 3b (FORCED): extra params gathering (author name, handle, etc.) before auto-generating confirmed slides
+    if (inExtraParamsGatherStep) {
+      const epMatch = lastAgentText.match(/\[extra-params-gather:(\{[\s\S]+?\})\]\s*$/);
+      if (epMatch) {
+        try {
+          const ep = JSON.parse(epMatch[1]) as ExtraParamsGatherState;
+          const collected = { ...ep.collected, [ep.extraParams[ep.idx].key]: query.trim() };
+          const nextIdx = ep.idx + 1;
+          if (nextIdx < ep.extraParams.length) {
+            const next = ep.extraParams[nextIdx];
+            const msg = [
+              `Got it. ${next.description}?`,
+              next.example ? `(e.g. ${next.example})` : '',
+              `[extra-params-gather:${JSON.stringify({ ...ep, collected, idx: nextIdx })}]`,
+            ].filter(Boolean).join('\n');
+            return [{ type: 'notify_result', summary: 'Extra param', payload: { message: msg }, riskLevel: 'low' }];
+          }
+          // All extra params collected — auto-generate all confirmed slides
+          const slideUrls: string[] = [];
+          const extraStr = Object.entries(collected).map(([k, v]) => `${k}: ${v}`).join(', ');
+          for (let i = 0; i < ep.confirmedSlides.length; i++) {
+            const cs = ep.confirmedSlides[i];
+            const tplSlide = ep.templateSlides[i % ep.templateSlides.length];
+            const prompt = [cs.headline, cs.body, extraStr].filter(Boolean).join(' | ');
+            try {
+              const { url } = await this.designStudio.generateAndSave(tplSlide.id, prompt);
+              slideUrls.push(url);
+            } catch (e) {
+              this.logger.warn(`Auto-gen slide ${i + 1} failed: ${(e as Error).message}`);
+            }
+          }
+          const msg = `${SLIDE_RENDER_STR}${JSON.stringify({ slideUrls })}`;
+          return [{ type: 'notify_result', summary: 'Carousel auto-generated', payload: { message: msg }, riskLevel: 'low' }];
+        } catch { /* fall through */ }
+      }
+    }
 
     // STEP 3 (FORCED): parameter gathering — user answered a param question
     if (inParamGatherStep) {
@@ -369,6 +420,22 @@ export class CanvaAgent implements IAgent, OnModuleInit {
         return [{ type: 'notify_result', summary: 'Template re-pick', payload: { message: msg }, riskLevel: 'low' }];
       }
 
+      // Extract pending context (confirmed content + topic)
+      let pendingTopic = '';
+      let confirmedSlides: ConfirmedSlide[] = [];
+      const lastPendingIdx2 = histStr.lastIndexOf('[pending:');
+      if (lastPendingIdx2 !== -1) {
+        const tail = histStr.slice(lastPendingIdx2);
+        const m = tail.match(/^\[pending:(\{.+\})\]/);
+        if (m) {
+          try {
+            const p = JSON.parse(m[1]) as { topic?: string; slides?: ConfirmedSlide[] };
+            pendingTopic = p.topic ?? '';
+            confirmedSlides = p.slides ?? [];
+          } catch { /* ignore */ }
+        }
+      }
+
       // Load template — check if it's a carousel set member first
       let templateParams: DnaParam[] = [];
       if (pickedId) {
@@ -377,7 +444,7 @@ export class CanvaAgent implements IAgent, OnModuleInit {
           const tplName = (tpl as any).name as string;
 
           if (tplName.includes('/')) {
-            // Carousel mode — load all slides in the set
+            // Carousel template — load all slides in the set
             const setName = tplName.split('/')[0];
             const allTpls = await this.designStudio.listTemplates() as Array<{ id: string; name: string; parameters: unknown }>;
             const setSlides = allTpls
@@ -385,6 +452,57 @@ export class CanvaAgent implements IAgent, OnModuleInit {
               .sort((a, b) => a.name.localeCompare(b.name));
 
             if (setSlides.length > 0) {
+              if (confirmedSlides.length > 0) {
+                // Content already confirmed — find extra params (not content-type)
+                const extraParamMap = new Map<string, DnaParam>();
+                for (const slide of setSlides) {
+                  const params = Array.isArray(slide.parameters) ? slide.parameters as DnaParam[] : [];
+                  for (const p of params) {
+                    if (!isContentParam(p.key) && !extraParamMap.has(p.key)) {
+                      extraParamMap.set(p.key, p);
+                    }
+                  }
+                }
+                const extraParams = [...extraParamMap.values()];
+                const templateSlidesRef = setSlides.map(t => ({ id: t.id, name: t.name }));
+
+                if (extraParams.length === 0) {
+                  // No extra params — auto-generate all confirmed slides immediately
+                  const slideUrls: string[] = [];
+                  for (let i = 0; i < confirmedSlides.length; i++) {
+                    const cs = confirmedSlides[i];
+                    const tplSlide = setSlides[i % setSlides.length];
+                    const prompt = [cs.headline, cs.body].filter(Boolean).join(' | ');
+                    try {
+                      const { url } = await this.designStudio.generateAndSave(tplSlide.id, prompt);
+                      slideUrls.push(url);
+                    } catch (e) {
+                      this.logger.warn(`Auto-gen slide ${i + 1} failed: ${(e as Error).message}`);
+                    }
+                  }
+                  const msg = `${SLIDE_RENDER_STR}${JSON.stringify({ slideUrls })}`;
+                  return [{ type: 'notify_result', summary: 'Carousel auto-generated', payload: { message: msg }, riskLevel: 'low' }];
+                } else {
+                  // Ask extra params one by one, then auto-generate
+                  const first = extraParams[0];
+                  const epState: ExtraParamsGatherState = {
+                    confirmedSlides,
+                    templateSlides: templateSlidesRef,
+                    extraParams,
+                    collected: {},
+                    idx: 0,
+                  };
+                  const msg = [
+                    'Template selected. Just need a couple of details that will appear on every slide:',
+                    `${first.description}?`,
+                    first.example ? `(e.g. ${first.example})` : '',
+                    `[extra-params-gather:${JSON.stringify(epState)}]`,
+                  ].filter(Boolean).join('\n');
+                  return [{ type: 'notify_result', summary: 'Extra params needed', payload: { message: msg }, riskLevel: 'low' }];
+                }
+              }
+
+              // No confirmed slides — fall back to carousel-gather (original flow)
               const firstSlide = setSlides[0];
               const firstParams = Array.isArray(firstSlide.parameters) ? firstSlide.parameters as DnaParam[] : [];
               const cgState: CarouselGatherState = {
@@ -419,15 +537,6 @@ export class CanvaAgent implements IAgent, OnModuleInit {
 
           templateParams = Array.isArray((tpl as any).parameters) ? (tpl as any).parameters as DnaParam[] : [];
         } catch { /* ignore */ }
-      }
-
-      // Extract topic from pending
-      let pendingTopic = '';
-      const lastPendingIdx2 = histStr.lastIndexOf('[pending:');
-      if (lastPendingIdx2 !== -1) {
-        const tail = histStr.slice(lastPendingIdx2);
-        const m = tail.match(/^\[pending:(\{.+\})\]/);
-        if (m) { try { pendingTopic = (JSON.parse(m[1]) as { topic?: string }).topic ?? ''; } catch { /* ignore */ } }
       }
 
       if (templateParams.length > 0) {

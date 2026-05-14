@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.65.7',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'When content is already confirmed (via content plan), picking a carousel template now auto-generates all slides immediately — no more slide-by-slide questioning. If the template has extra metadata params (Twitter handle, author name, etc.) the agent asks for those first, then generates all slides.' },
+      { tag: 'fix', scope: 'canva', description: 'Added [extra-params-gather:] to the list of stripped chat markers so raw JSON state never appears in the chat bubble.' },
+    ],
+  },
+  {
     version: 'v4.65.6',
     date: '2026-05-14',
     entries: [

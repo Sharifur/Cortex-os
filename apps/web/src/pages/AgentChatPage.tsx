@@ -1257,6 +1257,7 @@ function MessageBubble({
                       .replace(/\[pending:\{[^\n]*\}\]\n?/g, '')
                       .replace(/\[param-gather:\{[^\n]*\}\]\n?/g, '')
                       .replace(/\[carousel-gather:\{[^\n]*\}\]\n?/g, '')
+                      .replace(/\[extra-params-gather:\{[\s\S]*?\}\]\n?/g, '')
                       .trim()
                   ) }} />
               }
