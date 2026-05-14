@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.60.2',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'Slide thumbnail lightbox: clicking a slide in the Post Renders tab now opens a full-screen lightbox with prev/next navigation, copy-to-clipboard, and download. Keyboard shortcuts: Esc to close, arrow keys to navigate.' },
+    ],
+  },
+  {
     version: 'v4.60.1',
     date: '2026-05-14',
     entries: [

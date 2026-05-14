@@ -9,7 +9,7 @@ import {
   Bug, AlertTriangle, AlertCircle,
   Plus, Loader2, RefreshCw, Radio,
   CalendarClock, Zap, RotateCcw, ListTodo, ExternalLink,
-  ImageIcon, Upload,
+  ImageIcon, Upload, ChevronLeft, X, Copy, Check, Download,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -3794,10 +3794,93 @@ const STATIC_FORMATS = [
   { id: 'generic-checklist',         name: 'Checklist Card',               platform: 'any' },
 ];
 
+function SlideLightbox({
+  url, n, total, onClose, onPrev, onNext,
+}: {
+  url: string; n: number; total: number;
+  onClose: () => void; onPrev: () => void; onNext: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+      if (e.key === 'ArrowLeft') onPrev();
+      if (e.key === 'ArrowRight') onNext();
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [onClose, onPrev, onNext]);
+
+  async function copyImage() {
+    try {
+      const res = await fetch(url);
+      const blob = await res.blob();
+      const pngBlob = blob.type === 'image/png' ? blob : await new Promise<Blob>((resolve) => {
+        const img = new window.Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          canvas.width = img.naturalWidth; canvas.height = img.naturalHeight;
+          canvas.getContext('2d')!.drawImage(img, 0, 0);
+          canvas.toBlob((b) => resolve(b!), 'image/png');
+        };
+        img.src = URL.createObjectURL(blob);
+      });
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': pngBlob })]);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      window.open(url, '_blank');
+    }
+  }
+
+  function downloadImage() {
+    const a = document.createElement('a');
+    a.href = url; a.download = `slide-${n}.png`; a.click();
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/85 backdrop-blur-md" onClick={onClose}>
+      <div className="flex items-center justify-between w-full max-w-3xl px-4 pb-3" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-2">
+          {Array.from({ length: total }).map((_, i) => (
+            <div key={i} className={`rounded-full transition-all ${i + 1 === n ? 'w-4 h-2 bg-white' : 'w-2 h-2 bg-white/30'}`} />
+          ))}
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="text-white/40 text-xs mr-2">{n} / {total}</span>
+          <button onClick={copyImage} className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all ${copied ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-white/10 hover:bg-white/20 text-white border border-white/10'}`}>
+            {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+            <span>{copied ? 'Copied' : 'Copy'}</span>
+          </button>
+          <button onClick={downloadImage} className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium bg-white/10 hover:bg-white/20 text-white border border-white/10 transition-all">
+            <Download className="w-4 h-4" /><span>Download</span>
+          </button>
+          <button onClick={onClose} className="flex items-center justify-center w-9 h-9 rounded-lg bg-white/10 hover:bg-white/20 text-white/70 hover:text-white border border-white/10 transition-all ml-1">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+      <div className="flex items-center gap-3 w-full max-w-3xl px-2" onClick={(e) => e.stopPropagation()}>
+        <button onClick={onPrev} disabled={n === 1} className="flex-shrink-0 flex items-center justify-center w-11 h-11 rounded-full bg-white/10 hover:bg-white/25 disabled:opacity-20 disabled:cursor-not-allowed text-white border border-white/10 transition-all">
+          <ChevronLeft className="w-5 h-5" />
+        </button>
+        <div className="flex-1 min-w-0">
+          <img src={url} alt={`Slide ${n}`} className="w-full rounded-2xl shadow-2xl ring-1 ring-white/10" />
+        </div>
+        <button onClick={onNext} disabled={n === total} className="flex-shrink-0 flex items-center justify-center w-11 h-11 rounded-full bg-white/10 hover:bg-white/25 disabled:opacity-20 disabled:cursor-not-allowed text-white border border-white/10 transition-all">
+          <ChevronRight className="w-5 h-5" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // Post Renders Tab
 function PostRendersTab({ token }: { token: string }) {
   const [renders, setRenders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [lightbox, setLightbox] = useState<{ urls: string[]; index: number } | null>(null);
 
   // Quick Generate panel state
   const [styleSamples, setStyleSamples] = useState<any[]>([]);
@@ -3960,15 +4043,31 @@ function PostRendersTab({ token }: { token: string }) {
             {Array.isArray(r.slideUrls) && r.slideUrls.length > 0 && (
               <div className="flex gap-2 overflow-x-auto pb-1">
                 {r.slideUrls.map((url: string, i: number) => (
-                  <a key={i} href={url} target="_blank" rel="noreferrer">
-                    <img src={url} alt={`Slide ${i + 1}`} className="h-24 w-24 object-cover rounded-lg border border-border flex-shrink-0" />
-                  </a>
+                  <button
+                    key={i}
+                    onClick={() => setLightbox({ urls: r.slideUrls, index: i })}
+                    className="flex-shrink-0 group relative rounded-lg overflow-hidden border border-border"
+                  >
+                    <img src={url} alt={`Slide ${i + 1}`} className="h-24 w-24 object-cover" />
+                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors" />
+                  </button>
                 ))}
               </div>
             )}
           </div>
         ))}
       </div>
+
+      {lightbox !== null && (
+        <SlideLightbox
+          url={lightbox.urls[lightbox.index]}
+          n={lightbox.index + 1}
+          total={lightbox.urls.length}
+          onClose={() => setLightbox(null)}
+          onPrev={() => setLightbox(prev => prev ? { ...prev, index: Math.max(0, prev.index - 1) } : null)}
+          onNext={() => setLightbox(prev => prev ? { ...prev, index: Math.min(prev.urls.length - 1, prev.index + 1) } : null)}
+        />
+      )}
     </div>
   );
 }
