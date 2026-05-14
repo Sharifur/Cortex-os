@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.46.5',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'fix', scope: 'design-samples', description: 'Carousel upload is now non-blocking: clicking "Upload N-slide carousel" clears the staging area immediately so the next carousel can be staged and uploaded without waiting. Each in-flight carousel job shows as a progress card below the upload area with a label, per-slide phase text, and a progress bar that turns green on completion or red on failure. Multiple carousels can be uploading concurrently. Jobs auto-dismiss 3s after completion.' },
+    ],
+  },
+  {
     version: 'v4.46.4',
     date: '2026-05-14',
     entries: [

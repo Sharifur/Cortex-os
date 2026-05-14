@@ -3786,7 +3786,7 @@ function DesignSamplesTab({ token }: { token: string }) {
   const [isDragOver, setIsDragOver] = useState(false);
   const [uploadMode, setUploadMode] = useState<'individual' | 'carousel'>('individual');
   const [carouselStaging, setCarouselStaging] = useState<File[]>([]);
-  const [carouselProgress, setCarouselProgress] = useState<{ phase: string; current: number; total: number } | null>(null);
+  const [carouselJobs, setCarouselJobs] = useState<{ id: string; label: string; phase: string; current: number; total: number; done: boolean; error?: boolean }[]>([]);
   const [dsSubTab, setDsSubTab] = useState<'samples' | 'patterns'>('samples');
   const [visibleCount, setVisibleCount] = useState(60);
   const SAMPLE_PAGE_SIZE = 60;
@@ -4064,51 +4064,59 @@ function DesignSamplesTab({ token }: { token: string }) {
     }
   }
 
-  async function uploadCarousel() {
+  function uploadCarousel() {
     if (carouselStaging.length < 2) return;
-    const total = carouselStaging.length;
-    const collectedIds: string[] = [];
+    const files = [...carouselStaging];
+    const jobId = `carousel-${Date.now()}`;
+    const total = files.length; // slides + synthesis step = total + 1
+    const label = `${files.length}-slide carousel`;
 
-    // Step 1: upload + analyze each slide one at a time so the user sees per-slide progress
-    for (let i = 0; i < carouselStaging.length; i++) {
-      setCarouselProgress({ phase: `Analyzing slide ${i + 1} of ${total}`, current: i, total: total + 1 });
-      try {
-        const fd = new FormData();
-        fd.append('files', carouselStaging[i]);
-        const res = await fetch('/posts/design-samples/upload?brand=default', {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${token}` },
-          body: fd,
-        });
-        const data = await res.json();
-        const id: string | undefined = data?.results?.[0]?.kbEntryId;
-        if (id) collectedIds.push(id);
-      } catch { /* ignore individual failures */ }
-    }
-
-    if (collectedIds.length < 2) {
-      setCarouselProgress({ phase: 'Failed — could not analyze enough slides', current: total + 1, total: total + 1 });
-      setTimeout(() => setCarouselProgress(null), 3000);
-      return;
-    }
-
-    // Step 2: synthesize all slides into one carousel DNA entry
-    setCarouselProgress({ phase: 'Synthesizing carousel design system...', current: total, total: total + 1 });
-    try {
-      await fetch('/posts/design-samples/carousel-synthesize', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ entryIds: collectedIds, brand: 'default' }),
-      });
-    } catch { /* ignore */ }
-
-    setCarouselProgress({ phase: `Done — ${collectedIds.length} slides merged`, current: total + 1, total: total + 1 });
+    // Clear staging immediately so the user can start the next one
     setCarouselStaging([]);
-    void loadData();
-    setTimeout(() => {
-      setCarouselProgress(null);
-      setUploadMode('individual');
-    }, 2500);
+
+    const update = (phase: string, current: number, done = false, error = false) =>
+      setCarouselJobs(prev => prev.map(j => j.id === jobId ? { ...j, phase, current, done, error } : j));
+
+    setCarouselJobs(prev => [...prev, { id: jobId, label, phase: 'Starting...', current: 0, total: total + 1, done: false }]);
+
+    void (async () => {
+      const collectedIds: string[] = [];
+
+      for (let i = 0; i < files.length; i++) {
+        update(`Analyzing slide ${i + 1} of ${total}`, i);
+        try {
+          const fd = new FormData();
+          fd.append('files', files[i]);
+          const res = await fetch('/posts/design-samples/upload?brand=default', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token}` },
+            body: fd,
+          });
+          const data = await res.json();
+          const id: string | undefined = data?.results?.[0]?.kbEntryId;
+          if (id) collectedIds.push(id);
+        } catch { /* slide failed — continue */ }
+      }
+
+      if (collectedIds.length < 2) {
+        update('Failed — not enough slides analyzed', total + 1, true, true);
+        setTimeout(() => setCarouselJobs(prev => prev.filter(j => j.id !== jobId)), 4000);
+        return;
+      }
+
+      update('Synthesizing carousel design system...', total);
+      try {
+        await fetch('/posts/design-samples/carousel-synthesize', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ entryIds: collectedIds, brand: 'default' }),
+        });
+      } catch { /* ignore */ }
+
+      update(`Done — ${collectedIds.length} slides merged`, total + 1, true);
+      void loadData();
+      setTimeout(() => setCarouselJobs(prev => prev.filter(j => j.id !== jobId)), 3000);
+    })();
   }
 
   async function deleteAllSamples() {
@@ -4384,39 +4392,18 @@ function DesignSamplesTab({ token }: { token: string }) {
                     <div className="flex items-center gap-2">
                       <button
                         onClick={uploadCarousel}
-                        disabled={!!carouselProgress || carouselStaging.length < 2}
+                        disabled={carouselStaging.length < 2}
                         className="px-4 py-1.5 bg-primary text-primary-foreground rounded-lg text-sm font-medium disabled:opacity-50"
                       >
-                        {carouselProgress ? 'Working...' : `Upload ${carouselStaging.length}-slide carousel`}
+                        {`Upload ${carouselStaging.length}-slide carousel`}
                       </button>
-                      {!carouselProgress && (
-                        <button
-                          onClick={() => setCarouselStaging([])}
-                          className="text-xs text-muted-foreground hover:text-foreground"
-                        >
-                          Clear
-                        </button>
-                      )}
+                      <button
+                        onClick={() => setCarouselStaging([])}
+                        className="text-xs text-muted-foreground hover:text-foreground"
+                      >
+                        Clear
+                      </button>
                     </div>
-
-                    {carouselProgress && (
-                      <div className="space-y-1.5">
-                        <div className="flex items-center justify-between text-xs">
-                          <span className="text-muted-foreground">{carouselProgress.phase}</span>
-                          <span className="text-muted-foreground tabular-nums">
-                            {carouselProgress.current}/{carouselProgress.total}
-                          </span>
-                        </div>
-                        <div className="h-1.5 bg-muted rounded-full overflow-hidden">
-                          <div
-                            className={`h-full rounded-full transition-all duration-500 ${
-                              carouselProgress.current >= carouselProgress.total ? 'bg-green-500' : 'bg-primary'
-                            }`}
-                            style={{ width: `${Math.round((carouselProgress.current / Math.max(carouselProgress.total, 1)) * 100)}%` }}
-                          />
-                        </div>
-                      </div>
-                    )}
                   </div>
                 )}
               </div>
@@ -4445,6 +4432,29 @@ function DesignSamplesTab({ token }: { token: string }) {
 
             <p className="text-xs text-muted-foreground">{samples.length} sample{samples.length !== 1 ? 's' : ''} total</p>
           </div>
+
+          {carouselJobs.length > 0 && (
+            <div className="space-y-2">
+              {carouselJobs.map(job => (
+                <div key={job.id} className="bg-card border border-border rounded-xl px-4 py-3 space-y-1.5">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-medium text-foreground">{job.label}</span>
+                    <span className={`tabular-nums ${job.error ? 'text-red-400' : 'text-muted-foreground'}`}>
+                      {job.phase}
+                    </span>
+                  </div>
+                  <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all duration-500 ${
+                        job.error ? 'bg-red-500' : job.done ? 'bg-green-500' : 'bg-primary'
+                      }`}
+                      style={{ width: `${Math.round((job.current / Math.max(job.total, 1)) * 100)}%` }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
 
           <div className="flex flex-wrap gap-3">
             {samples.slice(0, visibleCount).map((s: any) => {
