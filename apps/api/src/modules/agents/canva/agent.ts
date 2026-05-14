@@ -165,6 +165,27 @@ export class CanvaAgent implements IAgent, OnModuleInit {
 
     type DnaParam = { key: string; description: string; example?: string };
     type StyleEntry = { num: string; id: string; title: string; thumb: string | null };
+
+    // Group carousel sets — one representative tile per set (alphabetically first slide)
+    const buildStyleSamples = (templates: Array<{ id: string; name: string }>): StyleEntry[] => {
+      const individuals = templates.filter(t => !t.name.includes('/'));
+      const setMap = new Map<string, { id: string; name: string }>();
+      for (const t of templates.filter(t => t.name.includes('/'))) {
+        const prefix = t.name.split('/')[0];
+        const cur = setMap.get(prefix);
+        if (!cur || t.name < cur.name) setMap.set(prefix, t);
+      }
+      const all = [
+        ...individuals,
+        ...[...setMap.values()],
+      ];
+      return all.map((t, i) => ({
+        num: String(i + 1),
+        id: t.id,
+        title: t.name.includes('/') ? t.name.split('/')[0] : t.name,
+        thumb: `/design-studio/templates/${t.id}/preview`,
+      }));
+    };
     type CarouselGatherState = {
       slides: Array<{ id: string; name: string; params: DnaParam[] }>;
       slideIdx: number;
@@ -325,10 +346,7 @@ export class CanvaAgent implements IAgent, OnModuleInit {
         } catch { /* fall through */ }
       }
       if (!samples.length) {
-        samples = dnaTemplates.map((t, i) => ({
-          num: String(i + 1), id: t.id, title: t.name,
-          thumb: `/design-studio/templates/${t.id}/preview`,
-        }));
+        samples = buildStyleSamples(dnaTemplates);
       }
 
       const numMatch = query.trim().match(/^\d+$/);
@@ -462,12 +480,7 @@ export class CanvaAgent implements IAgent, OnModuleInit {
         }
       }
       if (dnaTemplates.length > 0) {
-        const stylesPayload = JSON.stringify({
-          samples: dnaTemplates.map((t, i) => ({
-            num: String(i + 1), id: t.id, title: t.name,
-            thumb: `/design-studio/templates/${t.id}/preview`,
-          })),
-        });
+        const stylesPayload = JSON.stringify({ samples: buildStyleSamples(dnaTemplates) });
         const msg = [
           `Content confirmed — now choose a design template for "${topic}":`,
           '',
