@@ -879,12 +879,34 @@ export class SupportAgent implements IAgent, OnModuleInit {
     return { ticket: payload?.ticket ?? null, contact: payload?.contact ?? null, event, replyData: null };
   }
 
-  private async ingestWebhook(payload: any) {
+  private async ingestWebhook(payload: any): Promise<Record<string, unknown>> {
     this.logger.log(`ingestWebhook called — event: "${payload?.event ?? 'none'}" | payload keys: ${Object.keys(payload ?? {}).join(', ')}`);
     const rawPayload = JSON.stringify(payload).slice(0, 5000);
     const { ticket, contact, event, replyData } = this.normalizeCrmPayload(payload);
 
     if (!ticket?.id || !ticket?.subject) {
+      // Attempt to recover by extracting a ticket ID from the payload and fetching from CRM
+      const recoveredId = this.extractTicketIdFromPayload(payload);
+      if (recoveredId) {
+        this.logger.log(`ingestWebhook: normalization failed but found ticket id=${recoveredId} — fetching from CRM`);
+        try {
+          const recovered = await this.fetchCrmTicketFull(recoveredId);
+          if (recovered?.id && recovered?.subject) {
+            this.logger.log(`ingestWebhook: CRM fetch recovered ticket #${recovered.id} "${recovered.subject}"`);
+            // Re-enter ingest with the recovered ticket merged into the payload
+            return this.ingestWebhook({
+              ...payload,
+              ticket: recovered,
+              contact: {
+                email: recovered.created_by?.email ?? recovered.user?.email ?? '',
+                name: recovered.created_by?.full_name ?? recovered.created_by?.first_name ?? '',
+              },
+            });
+          }
+        } catch (err) {
+          this.logger.warn(`ingestWebhook: CRM fetch fallback failed for id=${recoveredId}: ${err}`);
+        }
+      }
       const errMsg = `Missing ticket.id or ticket.subject after normalization (event="${event ?? 'none'}")`;
       this.logger.warn(`ingestWebhook: ${errMsg} — raw keys: ${Object.keys(payload ?? {}).join(', ')}`);
       const errorResp = { ok: false, error: errMsg };
@@ -1143,6 +1165,48 @@ export class SupportAgent implements IAgent, OnModuleInit {
       .replace(/&quot;/gi, '"')
       .replace(/\s+/g, ' ')
       .trim();
+  }
+
+  private extractTicketIdFromPayload(payload: any): number | null {
+    if (!payload) return null;
+    const candidates = [
+      payload?.ticket?.id,
+      payload?.data?.ticket_id,
+      payload?.data?.id,
+      payload?.ticket_id,
+      payload?.id,
+    ];
+    for (const c of candidates) {
+      const n = Number(c);
+      if (!isNaN(n) && n > 0) return n;
+    }
+    // Check any nested object keys for numeric ticket IDs
+    const dataObj = payload?.data;
+    if (dataObj && typeof dataObj === 'object') {
+      const firstVal = Object.values(dataObj)[0];
+      if (firstVal && typeof firstVal === 'object') {
+        const n = Number((firstVal as any).id);
+        if (!isNaN(n) && n > 0) return n;
+      }
+    }
+    return null;
+  }
+
+  private async fetchCrmTicketFull(id: number): Promise<any | null> {
+    try {
+      const baseUrl = await this.settings.getDecrypted('support_crm_base_url');
+      if (!baseUrl) return null;
+      const res = await fetch(`${baseUrl.replace(/\/$/, '')}/api/public-v1/support-ticket/${id}`, {
+        headers: await this.crmHeaders(),
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!res.ok) return null;
+      const data = await res.json() as any;
+      return data?.data ?? null;
+    } catch (err) {
+      this.logger.warn(`fetchCrmTicketFull(${id}) failed: ${err}`);
+      return null;
+    }
   }
 
   private async fetchCrmTicket(id: number): Promise<string> {

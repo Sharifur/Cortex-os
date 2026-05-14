@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.52.2',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'fix', scope: 'support', description: 'Webhook fallback: when normalizeCrmPayload cannot find a ticket (missing subject), the agent now scans the payload for any numeric ticket ID and fetches the full ticket from the CRM API before rejecting. This recovers webhooks where the CRM sends a minimal payload (ticket_id only, or nested resource without subject). Migration 0073 adds crm_uuid column — apply manually in production: ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS crm_uuid text.' },
+    ],
+  },
+  {
     version: 'v4.52.1',
     date: '2026-05-14',
     entries: [
