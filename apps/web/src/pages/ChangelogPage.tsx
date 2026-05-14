@@ -20,6 +20,7 @@ const CHANGELOG: VersionBlock[] = [
     date: '2026-05-14',
     entries: [
       { tag: 'feat', scope: 'support', description: 'Train Agent panel on ticket detail page: operators can submit a rule type (Spam Filter, Decision Rule, FAQ, Policy) and a plain-English instruction. The LLM reformulates it into a reusable KB fact, saves it as a kb_proposal, and sends a Telegram approval request before it goes live. Backend: new POST /support/tickets/:id/train route + trainFromTicket() method in SupportAgent. Frontend: inline collapsible panel with category selector, instruction textarea, and approval-confirmation state.' },
+      { tag: 'feat', scope: 'design-samples', description: 'Sample-based rendering: each render now picks one random DesignDNA from the training library (getRandomSampleDNA) and uses its exact primary_color, accent_color, and shape_elements as the base theme — replacing the blurry dominant-average approach. contentBg no longer defaults to #ffffff; it uses the sampled DNA primary color so all slides have vivid learned colors. PostVisualService receives the sampled DNA colors as explicit hex anchors and is required to return non-null bgColor. Word highlights added to SlideVisualSpec: the LLM picks 1-2 headline words to receive colored badge backgrounds (pill-style), rendered via a new renderHeadline() helper in layout-helpers. list.layout.ts now calls renderDecorations() so shape decorations appear on list slides.' },
     ],
   },
   {

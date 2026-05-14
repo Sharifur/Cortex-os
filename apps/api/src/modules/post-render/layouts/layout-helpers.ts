@@ -1,4 +1,4 @@
-import type { ThemeContract, FilledSlide, StyleRules, SlideVisualSpec } from '../types';
+import type { ThemeContract, FilledSlide, StyleRules, SlideVisualSpec, WordHighlight } from '../types';
 
 export function resolveAccent(contract: ThemeContract, visualSpec?: SlideVisualSpec): string {
   return (visualSpec?.accentColor) ?? contract.accentColor;
@@ -145,4 +145,74 @@ export function getListSlot(slide: FilledSlide, id: string): string[] {
   if (Array.isArray(val)) return val;
   if (typeof val === 'string') return val.split('\n').filter(Boolean);
   return [];
+}
+
+export function renderHeadline(
+  text: string,
+  contract: ThemeContract,
+  textColor: string,
+  fontSize?: number,
+  visualSpec?: SlideVisualSpec,
+): object {
+  const highlights = visualSpec?.wordHighlights ?? [];
+  const size = fontSize ?? contract.headingSize;
+
+  if (!highlights.length) {
+    return {
+      type: 'div',
+      props: {
+        style: { fontSize: size, fontWeight: 700, color: textColor, lineHeight: contract.lineHeight, fontFamily: contract.headingFont },
+        children: text,
+      },
+    };
+  }
+
+  const hlMap = new Map<string, WordHighlight>(highlights.map(h => [h.word.toLowerCase(), h]));
+  const tokens = text.split(/(\s+)/);
+  const wordSpans: object[] = tokens.map((token, i) => {
+    const trimmed = token.trim().replace(/[.,!?;:]$/, '');
+    const hl = hlMap.get(trimmed.toLowerCase());
+    if (!hl || !trimmed) {
+      return {
+        type: 'span',
+        props: { key: String(i), style: { color: textColor, whiteSpace: 'pre' }, children: token },
+      };
+    }
+    const radius = hl.borderRadius ?? 8;
+    return {
+      type: 'span',
+      props: {
+        key: String(i),
+        style: {
+          display: 'inline-flex',
+          alignItems: 'center',
+          backgroundColor: hl.bgColor,
+          color: hl.textColor ?? '#ffffff',
+          borderRadius: radius,
+          paddingLeft: 10,
+          paddingRight: 10,
+          marginLeft: 4,
+          marginRight: 4,
+        },
+        children: trimmed,
+      },
+    };
+  });
+
+  return {
+    type: 'div',
+    props: {
+      style: {
+        display: 'flex',
+        flexWrap: 'wrap',
+        alignItems: 'center',
+        gap: 2,
+        fontSize: size,
+        fontWeight: 700,
+        fontFamily: contract.headingFont,
+        lineHeight: contract.lineHeight,
+      },
+      children: wordSpans,
+    },
+  };
 }

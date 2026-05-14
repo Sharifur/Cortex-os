@@ -25,7 +25,7 @@ import { leftAlignedLayout } from './layouts/left-aligned.layout';
 import { splitPanelLayout } from './layouts/split-panel.layout';
 import { overlayLayout } from './layouts/overlay.layout';
 import { listLayout } from './layouts/list.layout';
-import type { RenderRequest, RenderResult, FilledSlide, ThemeContract, LayoutType, DominantDNA, SlideVisualSpec } from './types';
+import type { RenderRequest, RenderResult, FilledSlide, ThemeContract, LayoutType, DominantDNA, SlideVisualSpec, DesignDNA } from './types';
 
 const LAYOUT_MAP: Record<LayoutType, (props: import('./layouts/layout.types').LayoutProps) => object> = {
   'centered': centeredLayout,
@@ -99,10 +99,11 @@ export class PostRendererService {
       { event_type: 'post_render_start', format_id: format.id, brand: req.brand, topic: req.topic, slide_count: format.slides.length, render_id: renderId },
     ).catch(() => {});
 
-    // Resolve brand identity and dominant design DNA in parallel
-    const [brandRaw, dominantDNA, patternsBySlideType] = await Promise.all([
+    // Resolve brand identity, dominant DNA, and one random sample DNA in parallel
+    const [brandRaw, dominantDNA, sampledDNA, patternsBySlideType] = await Promise.all([
       this.brandSvc.resolve(req.brand),
       this.designPattern.getDominantDNA(req.brand).catch(() => null as DominantDNA | null),
+      this.designPattern.getRandomSampleDNA(req.brand).catch(() => null),
       req.patternConsistency
         ? this.designPattern.getPatternsBySlideType(req.brand).catch(() => ({} as Record<string, string[]>))
         : Promise.resolve(null as Record<string, string[]> | null),
@@ -121,8 +122,8 @@ export class PostRendererService {
       ).catch(() => {});
     }
 
-    // Derive ThemeContract (locked for all slides) — applies learned DNA
-    const contract = this.themeSvc.derive(brand, format, dominantDNA);
+    // Derive ThemeContract (locked for all slides) — applies learned DNA + sampled DNA colors
+    const contract = this.themeSvc.derive(brand, format, dominantDNA, sampledDNA);
 
     await this.logSvc.debug(runId ?? 'post-render',
       `Theme locked: ${contract.headingFont} accent:${contract.accentColor} bg:${contract.backgroundCover}`,
@@ -159,9 +160,9 @@ export class PostRendererService {
       { event_type: 'post_content_end', duration_ms: Date.now() - t0Content, slide_count: filledSlides.length },
     ).catch(() => {});
 
-    // Phase 2: Generate per-slide visual specs from pattern rules
-    const visualSpecs: SlideVisualSpec[] = dominantDNA?.pattern_rules?.length
-      ? await this.visualSvc.generateSpecs(filledSlides, dominantDNA.pattern_rules, contract, { runId })
+    // Phase 2: Generate per-slide visual specs from pattern rules + sampled DNA colors
+    const visualSpecs: SlideVisualSpec[] = (dominantDNA?.pattern_rules?.length || sampledDNA)
+      ? await this.visualSvc.generateSpecs(filledSlides, dominantDNA?.pattern_rules ?? [], contract, { runId, sampledDNA: sampledDNA ?? undefined })
         .catch(() => [] as SlideVisualSpec[])
       : [];
     const visualSpecMap = new Map(visualSpecs.map(s => [s.slideIndex, s]));

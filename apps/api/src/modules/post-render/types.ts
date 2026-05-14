@@ -424,11 +424,19 @@ export interface DesignDNA {
   pattern_notes: string;
 }
 
+export interface WordHighlight {
+  word: string;
+  bgColor: string;
+  textColor?: string;
+  borderRadius?: number;
+}
+
 export interface SlideVisualSpec {
   slideIndex: number;
   bgColor?: string;
   bgGradient?: string;
   accentColor?: string | null;
+  wordHighlights?: WordHighlight[];
   decorations?: Array<{
     shape_type: string;
     fill_type: 'solid' | 'linear-gradient' | 'radial-gradient' | 'none';

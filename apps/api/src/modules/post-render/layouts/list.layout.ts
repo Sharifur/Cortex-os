@@ -1,4 +1,4 @@
-import { resolveVisualBackground, resolveVisualBackgroundStyle, resolveAccent, resolveTextColor, slideIndicatorText, getSlot, getListSlot } from './layout-helpers';
+import { resolveVisualBackground, resolveVisualBackgroundStyle, resolveAccent, resolveTextColor, slideIndicatorText, getSlot, getListSlot, renderDecorations, renderHeadline } from './layout-helpers';
 import type { LayoutProps } from './layout.types';
 
 export function listLayout({ slide, contract, width, height, slideNumber, visualSpec }: LayoutProps): object {
@@ -59,13 +59,7 @@ export function listLayout({ slide, contract, width, height, slideNumber, visual
     });
   }
   if (headline) {
-    innerChildren.push({
-      type: 'div',
-      props: {
-        style: { fontSize: Math.round(contract.headingSize * 0.8), fontWeight: 700, color: textColor, marginBottom: 24, lineHeight: contract.lineHeight, fontFamily: contract.headingFont },
-        children: headline,
-      },
-    });
+    innerChildren.push(renderHeadline(headline, contract, textColor, Math.round(contract.headingSize * 0.8), visualSpec));
   }
   innerChildren.push(...listItemElements);
 
@@ -82,10 +76,13 @@ export function listLayout({ slide, contract, width, height, slideNumber, visual
     });
   }
 
+  const decorationDivs = renderDecorations(contract, width, height, visualSpec);
+
   return {
     type: 'div',
     props: {
       style: {
+        position: 'relative' as const,
         display: 'flex',
         flexDirection: 'column',
         width,
@@ -93,8 +90,10 @@ export function listLayout({ slide, contract, width, height, slideNumber, visual
         ...resolveVisualBackgroundStyle(slide.styleRules, contract, visualSpec),
         fontFamily: contract.bodyFont,
         padding: `${contract.paddingY}px ${contract.paddingX}px`,
+        overflow: 'hidden',
       },
       children: [
+        ...decorationDivs,
         {
           type: 'div',
           props: { style: { display: 'flex', flexDirection: 'row', flex: 1 }, children: topChildren },
