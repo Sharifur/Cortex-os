@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.65.8',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'fix', scope: 'taskip-internal', description: 'list_sent_emails tool now accepts a recipient parameter for filtering by email address. Agent system prompt updated to always query by recipient when a specific customer email is mentioned — fixes false "no emails sent" reports.' },
+    ],
+  },
+  {
     version: 'v4.65.7',
     date: '2026-05-14',
     entries: [
