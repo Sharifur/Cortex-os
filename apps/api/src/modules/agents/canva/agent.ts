@@ -92,7 +92,7 @@ export class CanvaAgent implements IAgent, OnModuleInit {
     if (payload?.source === 'chat' || (payload?.query && !taskMode)) {
       return {
         source: trigger,
-        snapshot: { mode: 'chat', query: payload.query ?? '', config },
+        snapshot: { mode: 'chat', query: payload.query ?? '', history: payload.history ?? '', config },
         followups: (run.context as AgentContext | null)?.followups ?? [],
       };
     }
@@ -120,7 +120,7 @@ export class CanvaAgent implements IAgent, OnModuleInit {
     const config: CanvaConfig = snap.config;
 
     if (snap.mode === 'chat') {
-      return this.decideChat(snap.query, config);
+      return this.decideChat(snap.query, config, snap.history);
     }
     if (snap.mode === 'design') {
       return this.decideDesign(snap.concept, config);
@@ -128,12 +128,12 @@ export class CanvaAgent implements IAgent, OnModuleInit {
     return this.decideCalendar(snap.month, config, snap.existingCount);
   }
 
-  private async decideChat(query: string, config: CanvaConfig): Promise<ProposedAction[]> {
+  private async decideChat(query: string, config: CanvaConfig, history?: string): Promise<ProposedAction[]> {
     if (!query?.trim()) {
       return [{ type: 'notify_result', summary: 'No query', payload: { message: 'What would you like help with?' }, riskLevel: 'low' }];
     }
 
-    // Detect post-render engine trigger: "Generate a <format-id> for brand <brand> about "..."
+    // Hard-coded render trigger: "generate a <format-id> for brand <brand> about "..."
     const renderMatch = query.match(
       /generate\s+an?\s+([\w-]+)\s+for\s+brand\s+(\w+)(?:\s+about\s+"([^"]+)")?(?:\s+intent\s+([\w\s]+))?/i,
     );
@@ -153,37 +153,112 @@ export class CanvaAgent implements IAgent, OnModuleInit {
       }
     }
 
+    // Classify intent: design-generate | questions-answered | general-chat
+    const classifyPrompt = `You are classifying a chat message sent to a social media design generation agent.
+
+Available brands: taskip (project management SaaS), xgenious (premium WordPress/CodeIgniter themes)
+Available formats: linkedin-tips-carousel, linkedin-howto-carousel, linkedin-list-carousel, linkedin-stat-single, linkedin-quote-single, instagram-carousel-edu, generic-infographic, generic-checklist
+
+Recent conversation (last 6 messages, may be empty):
+${history || '(no history)'}
+
+Current user message: "${query}"
+
+Classify the intent and return JSON only (no markdown):
+{
+  "intent": "design-generate" | "questions-answered" | "general-chat",
+  "topic": "extracted content topic if design-generate or questions-answered, else null",
+  "brand": "taskip" | "xgenious" | null,
+  "formatId": "best matching format ID from the list above, or null",
+  "visualTone": "bold-punchy" | "clean-minimal" | "elegant-premium" | "energetic-colorful" | null,
+  "audience": "extracted audience description or null"
+}
+
+Rules:
+- "design-generate": user wants to create an actual image/carousel/banner (even if phrased naturally like "make a post about X" or just giving a topic/idea with no prior clarification exchange)
+- "questions-answered": agent previously asked clarifying questions (visible in history) and user is now answering them (providing tone, brand, audience, format choice)
+- "general-chat": advice, explanation, brainstorm, feedback, anything not design generation`;
+
+    let classification: { intent: string; topic?: string; brand?: string; formatId?: string; visualTone?: string; audience?: string } = { intent: 'general-chat' };
+    try {
+      const classRes = await this.llm.complete({
+        messages: [{ role: 'user', content: classifyPrompt }],
+        agentKey: this.key,
+        maxTokens: 200,
+        temperature: 0.1,
+      });
+      const raw = classRes.content.replace(/```(?:json)?\s*/g, '').replace(/```/g, '').trim();
+      classification = JSON.parse(raw);
+    } catch { /* fall through to general-chat */ }
+
+    // BRANCH A: user wants to generate — ask clarifying questions
+    if (classification.intent === 'design-generate') {
+      const topic = classification.topic ?? query.trim();
+      const brands = (config.brands ?? ['taskip', 'xgenious']).join(' / ');
+      const formatChoices = 'tips list / step-by-step how-to / data-backed list / single stat / quote card';
+      const message = [
+        `I'll create a social media design on: "${topic}"`,
+        '',
+        'Quick questions before I start:',
+        '',
+        `1. Brand — ${brands}?`,
+        `2. Visual tone — bold & punchy / clean & minimal / elegant & premium / energetic & colorful?`,
+        `3. Content format — ${formatChoices}?`,
+        '',
+        'Reply with your choices (e.g. "taskip, bold, tips list") and I\'ll generate it.',
+      ].join('\n');
+      return [{ type: 'notify_result', summary: 'Clarifying questions', payload: { message, query }, riskLevel: 'low' }];
+    }
+
+    // BRANCH B: user answered the clarifying questions — extract context + fire render
+    if (classification.intent === 'questions-answered') {
+      const topic = classification.topic ?? '';
+      const brand = (classification.brand ?? config.brands[0] ?? 'taskip').toLowerCase();
+      const tone = classification.visualTone ?? 'bold-punchy';
+      const audience = classification.audience ?? '';
+
+      // Map format from classification or fall back to tips carousel
+      const validFormats = new Set(listFormats().map(f => f.id));
+      const formatId = (classification.formatId && validFormats.has(classification.formatId))
+        ? classification.formatId
+        : 'linkedin-tips-carousel';
+
+      const intentStr = [
+        tone === 'bold-punchy' ? 'Bold, punchy style. High-contrast colors. Short punchy text per slide.' : '',
+        tone === 'clean-minimal' ? 'Clean minimal style. Generous whitespace. Simple layouts.' : '',
+        tone === 'elegant-premium' ? 'Elegant premium feel. Sophisticated typography. Refined color palette.' : '',
+        tone === 'energetic-colorful' ? 'Energetic and colorful. Vibrant backgrounds. Dynamic layouts.' : '',
+        audience ? `Target audience: ${audience}.` : '',
+      ].filter(Boolean).join(' ');
+
+      return [{
+        type: 'post_render',
+        summary: `Render ${formatId} for ${brand}`,
+        payload: { formatId, brand, topic, intent: intentStr || undefined },
+        riskLevel: 'low',
+      }];
+    }
+
+    // BRANCH C: general chat — conversational response
     const systemPrompt = `You are a social media design assistant for Sharifur Rahman, founder of Taskip and Xgenious.
 You help with: design prompts, content ideas, carousel layouts, caption writing, platform-specific advice, and content strategy.
-When asked for design prompts, provide specific, detailed, actionable prompts that a designer could use directly in Canva.
-When asked for carousel layouts, describe each slide (number, headline, body, visual).
 Be concise and practical. No filler. No emojis.`;
 
     try {
       const result = await this.llm.complete({
         messages: [
           { role: 'system', content: systemPrompt },
+          ...(history ? [{ role: 'user' as const, content: `Conversation so far:\n${history}` }] : []),
           { role: 'user', content: query },
         ],
         ...agentLlmOpts(config),
         agentKey: this.key,
-        maxTokens: 1000,
+        maxTokens: 800,
         temperature: 0.4,
       });
-
-      return [{
-        type: 'notify_result',
-        summary: 'Chat response',
-        payload: { message: result.content.trim(), query },
-        riskLevel: 'low',
-      }];
+      return [{ type: 'notify_result', summary: 'Chat response', payload: { message: result.content.trim(), query }, riskLevel: 'low' }];
     } catch (err) {
-      return [{
-        type: 'notify_result',
-        summary: 'Chat response',
-        payload: { message: `Error: ${(err as Error).message}`, query },
-        riskLevel: 'low',
-      }];
+      return [{ type: 'notify_result', summary: 'Chat response', payload: { message: `Error: ${(err as Error).message}`, query }, riskLevel: 'low' }];
     }
   }
 

@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.49.0',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'Intent-aware chat with clarifying questions: the Canva agent now uses LLM-based intent classification to distinguish design generation requests from question answers and general chat. When a design intent is detected the agent asks clarifying questions (brand, visual tone, content format) before generating. When the user answers those questions the agent extracts the context and fires the render action. Conversation history (last 6 messages) is passed from the frontend so the classifier can resolve which branch is active.' },
+    ],
+  },
+  {
     version: 'v4.48.0',
     date: '2026-05-14',
     entries: [
