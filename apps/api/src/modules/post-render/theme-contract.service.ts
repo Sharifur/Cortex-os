@@ -168,7 +168,12 @@ export class ThemeContractService {
         x: s.x, y: s.y, w: s.w, h: s.h,
         border_radius: s.border_radius,
       })),
-      backgroundTexture: (['dots', 'grid', 'geometric-pattern'].includes(sampledDNA?.background_texture ?? '') ? 'dots' : 'none'),
+      backgroundTexture: (
+        ['dots', 'grid', 'geometric-pattern'].includes(sampledDNA?.background_texture ?? '') ||
+        sampledDNA?.decoration_elements?.includes('dots') ||
+        sampledDNA?.decoration_elements?.includes('dot-grid')
+          ? 'dots' : 'none'
+      ),
     };
 
     this.logger.log(

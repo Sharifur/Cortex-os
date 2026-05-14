@@ -6,6 +6,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getRealtimeSocket } from '@/lib/realtime';
 
 function useApprovalCount(token: string) {
+  // Seeded by WebSocket notifications:update in NotificationBell — no polling needed.
+  // One-time fetch on mount as initial value; WebSocket keeps it current.
   const { data } = useQuery<{ length: number }>({
     queryKey: ['approvals-count'],
     queryFn: async () => {
@@ -13,7 +15,8 @@ function useApprovalCount(token: string) {
       if (!res.ok) return [];
       return res.json();
     },
-    refetchInterval: 5 * 60_000,
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
     select: (data) => ({ length: Array.isArray(data) ? data.length : 0 }),
   });
   return data?.length ?? 0;
@@ -334,7 +337,7 @@ function Sidebar({
           <>
             <Bot className="w-5 h-5 text-primary shrink-0" />
             <span className="font-semibold text-sm">Cortex OS</span>
-            <span className="text-muted-foreground text-xs">v4.53.0</span>
+            <span className="text-muted-foreground text-xs">v4.53.1</span>
             {onToggleCollapse && (
               <button
                 onClick={onToggleCollapse}
@@ -536,7 +539,7 @@ export default function AppLayout() {
           <div className="flex items-center gap-2">
             <Bot className="w-5 h-5 text-primary" />
             <span className="font-semibold text-sm">Cortex OS</span>
-            <span className="text-muted-foreground text-xs">v4.53.0</span>
+            <span className="text-muted-foreground text-xs">v4.53.1</span>
           </div>
           <button
             onClick={() => setDrawerOpen(false)}

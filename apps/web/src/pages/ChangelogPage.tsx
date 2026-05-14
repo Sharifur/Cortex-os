@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.53.1',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'fix', scope: 'render', description: 'Training sample brand fallback: all design sample queries now include site_keys=default as a fallback when the requested brand (e.g. "taskip") has no samples of its own. Fixes the chat style picker showing 0 samples and going straight to render, and fixes perSlideDNA returning null causing all slides to render in brand-default purple instead of training sample colors.' },
+    ],
+  },
+  {
     version: 'v4.53.0',
     date: '2026-05-14',
     entries: [
