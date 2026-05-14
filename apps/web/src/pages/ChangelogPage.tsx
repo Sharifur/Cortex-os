@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.65.1',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'fix', scope: 'canva', description: 'Carousel uploads now always create distinct sets: each upload appends a short unique ID to the set name so uploading files with the same filename across sessions no longer merges them into one carousel group.' },
+      { tag: 'chore', scope: 'canva', description: 'Renamed "Design Samples" tab to "Templates" throughout the Canva agent page.' },
+    ],
+  },
+  {
     version: 'v4.65.0',
     date: '2026-05-14',
     entries: [

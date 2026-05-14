@@ -3746,7 +3746,7 @@ function CanvaAgentPage({ agent, token }: { agent: AgentDetail; token: string })
   const tabs: { key: CanvaTab; label: string }[] = [
     { key: 'renders', label: 'Post Renders' },
     { key: 'brands', label: 'Brands' },
-    { key: 'design-samples', label: 'Design Samples' },
+    { key: 'design-samples', label: 'Templates' },
     { key: 'settings', label: 'Settings' },
     { key: 'setup', label: 'Setup' },
   ];
@@ -4054,7 +4054,7 @@ function DnaTemplateCard({ template, onDelete, deleting, compact }: {
   );
 }
 
-// Design Samples Tab
+// Templates Tab
 function DesignSamplesTab({ token }: { token: string }) {
   const [jobs, setJobs] = useState<any[]>([]);
   const [templates, setTemplates] = useState<any[]>([]);
@@ -4125,7 +4125,9 @@ function DesignSamplesTab({ token }: { token: string }) {
   async function uploadCarousel(files: File[]) {
     if (files.length < 2) return;
     setUploading(true);
-    const setName = files[0].name.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' ');
+    const rawName = files[0].name.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' ').trim() || 'carousel';
+    const uid = Date.now().toString(36).slice(-5);
+    const setName = `${rawName}-${uid}`;
     try {
       const items = await Promise.all(files.map(async (f, i) => ({
         name: `${setName}/slide-${i + 1}`,
@@ -5186,9 +5188,9 @@ function CanvaSetupTab({ agent, token }: { agent: AgentDetail; token: string }) 
           </div>
 
           <div className="space-y-2 border-t border-border pt-3">
-            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Training with design samples</p>
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Training with design templates</p>
             <ol className="text-xs text-muted-foreground space-y-1.5 list-decimal list-inside">
-              <li>Go to the <strong className="text-foreground">Design Samples</strong> tab above and set your brand name</li>
+              <li>Go to the <strong className="text-foreground">Templates</strong> tab above and set your brand name</li>
               <li>Click <strong className="text-foreground">Upload samples</strong> — select 10–200 PNG/JPG design images</li>
               <li>Each image is analyzed by GPT-4V which extracts layout, colors, typography, and mood patterns</li>
               <li>After uploading 20+ samples, click <strong className="text-foreground">Learn patterns</strong> to cluster them into reusable style rules</li>
