@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import type { ResolvedBrand, ThemeContract, PostFormat, DominantDNA } from './types';
+import type { ResolvedBrand, ThemeContract, PostFormat, DominantDNA, DesignDNA } from './types';
 
 function luminance(hex: string): number {
   const c = hex.replace('#', '');
@@ -34,26 +34,31 @@ function darken(hex: string, amount = 0.15): string {
 export class ThemeContractService {
   private readonly logger = new Logger(ThemeContractService.name);
 
-  derive(brand: ResolvedBrand, format: PostFormat, dna?: DominantDNA | null): ThemeContract {
+  derive(brand: ResolvedBrand, format: PostFormat, dna?: DominantDNA | null, sampledDNA?: DesignDNA | null): ThemeContract {
     const MIN_SAMPLES_FOR_LEARNED_COLORS = 20;
     const useLearned = !!(dna && dna.sampleCount >= MIN_SAMPLES_FOR_LEARNED_COLORS);
 
-    // Background colors — prefer learned per-slide-type hex when enough samples exist
+    // Background colors — prefer sampled individual DNA (most vivid), then learned aggregates, then brand palette
+    const sampledPrimary = sampledDNA?.primary_color?.startsWith('#') ? sampledDNA.primary_color : null;
+    const sampledAccent = sampledDNA?.accent_color?.startsWith('#') ? sampledDNA.accent_color : null;
+
     const coverBg = useLearned
       ? (dna!.slide_type_colors?.['cover']?.bg || dna!.dominant_primary_color || brand.palette[0] || '#1e1b4b')
       : (brand.palette[0] ?? '#1e1b4b');
 
-    const contentBg = useLearned
-      ? (dna!.slide_type_colors?.['content']?.bg || '#ffffff')
-      : '#ffffff';
+    // contentBg: use sampled DNA primary color so content slides have vivid backgrounds, not plain white
+    const contentBg = sampledPrimary
+      || (useLearned ? (dna!.slide_type_colors?.['content']?.bg || dna!.dominant_primary_color || brand.palette[0]) : null)
+      || brand.palette[0]
+      || '#1e1b4b';
 
     const ctaBg = useLearned
       ? (dna!.slide_type_colors?.['cta']?.bg || dna!.dominant_primary_color || brand.palette[1] || darken(coverBg, 0.1))
       : (brand.palette[1] ?? darken(coverBg, 0.1));
 
-    const accent = useLearned
-      ? (dna!.dominant_accent_color || brand.palette[2] || brand.palette[1] || '#6366f1')
-      : (brand.palette[2] ?? brand.palette[1] ?? '#6366f1');
+    const accent = sampledAccent
+      || (useLearned ? (dna!.dominant_accent_color || brand.palette[2] || brand.palette[1]) : null)
+      || brand.palette[2] ?? brand.palette[1] ?? '#6366f1';
 
     const headlineColor = pickTextColor(contentBg);
     const bodyColor = headlineColor === '#ffffff' ? '#cccccc' : '#444444';
@@ -152,14 +157,14 @@ export class ThemeContractService {
       iconStyle: dna?.icon_style ?? 'none',
       illustrationStyle: dna?.illustration_style ?? 'none',
       photographyStyle: dna?.photography_style ?? 'none',
-      decorations: (dna?.representative_shapes ?? []).map(s => ({
+      decorations: (sampledDNA?.shape_elements?.length ? sampledDNA.shape_elements : (dna?.representative_shapes ?? [])).slice(0, 6).map(s => ({
         shape_type: s.shape_type,
         fill_type: s.fill_type,
         fill_colors: s.fill_colors,
         gradient_angle: s.gradient_angle,
         stroke_color: s.stroke_color,
         stroke_width: s.stroke_width,
-        opacity: Math.min(s.opacity, 0.18), // cap opacity so decorations don't overwhelm content
+        opacity: Math.min(s.opacity, 0.18),
         x: s.x, y: s.y, w: s.w, h: s.h,
         border_radius: s.border_radius,
       })),
@@ -168,7 +173,8 @@ export class ThemeContractService {
     this.logger.log(
       `Theme locked: ${brand.headingFont} accent:${accent} cover:${coverBg} content:${contentBg} cta:${ctaBg} ` +
       `radius:${borderRadius} cta-style:${ctaStyle} tone:${contract.contentTone}` +
-      (dna ? ` [${dna.sampleCount} samples${useLearned ? ' - learned colors' : ''}]` : ' [no samples]'),
+      (dna ? ` [${dna.sampleCount} samples${useLearned ? ' - learned' : ''}]` : ' [no samples]') +
+      (sampledDNA ? ` sampled:${sampledDNA.primary_color}/${sampledDNA.accent_color}` : ''),
     );
     return contract;
   }

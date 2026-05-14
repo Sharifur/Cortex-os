@@ -651,6 +651,28 @@ export class DesignPatternService {
     };
   }
 
+  async getRandomSampleDNA(brand: string): Promise<DesignDNA | null> {
+    const effectiveBrand = brand || 'default';
+    const samples = await this.db.db
+      .select({ content: knowledgeEntries.content })
+      .from(knowledgeEntries)
+      .where(and(
+        eq(knowledgeEntries.entryType, 'design_sample'),
+        eq(knowledgeEntries.agentKeys, 'canva'),
+        eq(knowledgeEntries.siteKeys, effectiveBrand),
+      ));
+    if (!samples.length) return null;
+    const dnaList: DesignDNA[] = [];
+    for (const s of samples) {
+      const match = s.content.match(/DNA JSON: (\{[\s\S]+\})\s*$/m);
+      if (match) {
+        try { dnaList.push(JSON.parse(match[1]) as DesignDNA); } catch { /* skip */ }
+      }
+    }
+    if (!dnaList.length) return null;
+    return dnaList[Math.floor(Math.random() * dnaList.length)];
+  }
+
   async getPatternsBySlideType(brand?: string): Promise<Record<string, string[]>> {
     const effectiveBrand = brand || 'default';
     const sampleRows = await this.db.db

@@ -1,8 +1,8 @@
-import { resolveTextColor, resolveAccent, getSlot } from './layout-helpers';
+import { resolveTextColor, resolveAccent, resolveVisualBackground, resolveVisualBackgroundStyle, getSlot } from './layout-helpers';
 import type { LayoutProps } from './layout.types';
 
 export function overlayLayout({ slide, contract, width, height, backgroundImageBase64, visualSpec }: LayoutProps): object {
-  const bg = backgroundImageBase64 ? 'transparent' : (visualSpec?.bgColor ?? '#111111');
+  const bg = backgroundImageBase64 ? 'transparent' : resolveVisualBackground(slide.styleRules, contract, visualSpec);
   const accent = resolveAccent(contract, visualSpec);
   const textColor = '#ffffff';
   const mutedColor = 'rgba(255,255,255,0.75)';
@@ -55,7 +55,7 @@ export function overlayLayout({ slide, contract, width, height, backgroundImageB
         height,
         ...(backgroundImageBase64
           ? { backgroundImage: `url(${backgroundImageBase64})`, backgroundSize: 'cover', backgroundPosition: 'center' }
-          : { backgroundColor: bg }),
+          : resolveVisualBackgroundStyle(slide.styleRules, contract, visualSpec)),
         fontFamily: contract.bodyFont,
       },
       children: [

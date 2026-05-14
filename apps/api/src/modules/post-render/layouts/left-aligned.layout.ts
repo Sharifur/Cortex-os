@@ -1,4 +1,4 @@
-import { resolveVisualBackground, resolveVisualBackgroundStyle, resolveAccent, resolveTextColor, slideIndicatorText, getSlot, renderDecorations, ctaStyle as buildCtaStyle } from './layout-helpers';
+import { resolveVisualBackground, resolveVisualBackgroundStyle, resolveAccent, resolveTextColor, slideIndicatorText, getSlot, renderDecorations, renderHeadline, ctaStyle as buildCtaStyle } from './layout-helpers';
 import type { LayoutProps } from './layout.types';
 
 export function leftAlignedLayout({ slide, contract, width, height, slideNumber, backgroundImageBase64, visualSpec }: LayoutProps): object {
@@ -30,13 +30,7 @@ export function leftAlignedLayout({ slide, contract, width, height, slideNumber,
     });
   }
   if (headline) {
-    textChildren.push({
-      type: 'div',
-      props: {
-        style: { fontSize: contract.headingSize, fontWeight: 700, color: textColor, lineHeight: contract.lineHeight, fontFamily: contract.headingFont },
-        children: headline,
-      },
-    });
+    textChildren.push(renderHeadline(headline, contract, textColor, contract.headingSize, visualSpec));
   }
   if (body) {
     textChildren.push({

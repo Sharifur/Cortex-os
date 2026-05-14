@@ -1,4 +1,4 @@
-import { resolveVisualBackground, resolveVisualBackgroundStyle, resolveAccent, resolveTextColor, slideIndicatorText, getSlot, renderDecorations, ctaStyle as buildCtaStyle } from './layout-helpers';
+import { resolveVisualBackground, resolveVisualBackgroundStyle, resolveAccent, resolveTextColor, slideIndicatorText, getSlot, renderDecorations, renderHeadline, ctaStyle as buildCtaStyle } from './layout-helpers';
 import type { LayoutProps } from './layout.types';
 
 export function centeredLayout({ slide, contract, width, height, slideNumber, backgroundImageBase64, visualSpec }: LayoutProps): object {
@@ -35,19 +35,8 @@ export function centeredLayout({ slide, contract, width, height, slideNumber, ba
   }
 
   if (displayText) {
-    contentChildren.push({
-      type: 'div',
-      props: {
-        style: {
-          fontSize: quote ? Math.min(contract.headingSize, 48) : contract.headingSize,
-          fontWeight: 700,
-          color: textColor,
-          lineHeight: contract.lineHeight,
-          fontFamily: contract.headingFont,
-        },
-        children: displayText,
-      },
-    });
+    const fontSize = quote ? Math.min(contract.headingSize, 48) : contract.headingSize;
+    contentChildren.push(renderHeadline(displayText, contract, textColor, fontSize, quote ? undefined : visualSpec));
   }
 
   if (attribution) {

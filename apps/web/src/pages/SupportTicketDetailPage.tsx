@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft, Hash, Mail, User, Phone, Clock, MessageSquare,
   Wand2, RefreshCw, AlertTriangle, CheckCircle2, XCircle,
-  ChevronDown, ChevronUp, Trash2, Loader2,
+  ChevronDown, ChevronUp, Trash2, Loader2, Brain, Settings2, StickyNote,
 } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -12,6 +12,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 interface SupportTicket {
   id: string;
   externalId: string | null;
+  crmUuid: string | null;
   ticketNo: string | null;
   subject: string;
   body: string | null;
@@ -73,6 +74,9 @@ const EVENT_TYPE_STYLES: Record<string, string> = {
   purchase_code_expired:     'bg-orange-500/15 text-orange-300',
   ticket_reopened:           'bg-sky-500/15 text-sky-300',
   decide_error:              'bg-red-500/15 text-red-300',
+  priority_updated:          'bg-indigo-500/15 text-indigo-300',
+  status_updated:            'bg-teal-500/15 text-teal-300',
+  note_added:                'bg-slate-500/15 text-slate-300',
 };
 
 function Badge({ label, styles }: { label: string; styles: string }) {
@@ -141,6 +145,74 @@ export default function SupportTicketDetailPage() {
   const [generating, setGenerating] = useState(false);
   const [draft, setDraft] = useState<string | null>(null);
   const [draftError, setDraftError] = useState<string | null>(null);
+
+  const [trainOpen, setTrainOpen] = useState(false);
+  const [trainCategory, setTrainCategory] = useState<'spam_filter' | 'decision_rule' | 'faq' | 'policy'>('decision_rule');
+  const [trainInstruction, setTrainInstruction] = useState('');
+  const [trainSuccess, setTrainSuccess] = useState(false);
+
+  const trainMutation = useMutation({
+    mutationFn: async ({ category, instruction }: { category: string; instruction: string }) => {
+      const res = await fetch(`/support/tickets/${id}/train`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ category, instruction }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.message ?? `HTTP ${res.status}`);
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      setTrainSuccess(true);
+      setTrainInstruction('');
+    },
+  });
+
+  const [crmPriority, setCrmPriority] = useState<string>('');
+  const [crmStatus, setCrmStatus] = useState<string>('');
+  const [crmNotes, setCrmNotes] = useState('');
+  const [noteText, setNoteText] = useState('');
+
+  const priorityMutation = useMutation({
+    mutationFn: async (priority: number) => {
+      const res = await fetch(`/support/tickets/${id}/priority`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ priority }),
+      });
+      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.message ?? `HTTP ${res.status}`); }
+      return res.json();
+    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['support-ticket', id] }); refetchEvents(); setCrmPriority(''); },
+  });
+
+  const statusMutation = useMutation({
+    mutationFn: async ({ status, notes }: { status: string; notes?: string }) => {
+      const res = await fetch(`/support/tickets/${id}/status`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status, notes }),
+      });
+      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.message ?? `HTTP ${res.status}`); }
+      return res.json();
+    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['support-ticket', id] }); refetchEvents(); setCrmStatus(''); setCrmNotes(''); },
+  });
+
+  const noteMutation = useMutation({
+    mutationFn: async (note: string) => {
+      const res = await fetch(`/support/tickets/${id}/note`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ note }),
+      });
+      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.message ?? `HTTP ${res.status}`); }
+      return res.json();
+    },
+    onSuccess: () => { refetchEvents(); setNoteText(''); },
+  });
 
   const deleteMutation = useMutation({
     mutationFn: async () => {
@@ -365,6 +437,185 @@ export default function SupportTicketDetailPage() {
             Generating a draft saves it to the ticket and queues an approval request on the next agent run.
           </p>
         )}
+      </div>
+
+      {/* Train Agent section */}
+      <div className="rounded-xl border border-border bg-card px-5 py-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Train Agent</p>
+          <button
+            onClick={() => { setTrainOpen(v => !v); setTrainSuccess(false); trainMutation.reset(); }}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border text-xs text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors"
+          >
+            <Brain className="w-3.5 h-3.5" />
+            {trainOpen ? 'Cancel' : 'Correct Agent'}
+          </button>
+        </div>
+
+        {trainOpen && (
+          <div className="space-y-3">
+            <p className="text-xs text-muted-foreground">
+              Teach the agent how to handle tickets like this. Your instruction will be reviewed via Telegram before being added to the knowledge base.
+            </p>
+
+            <div className="space-y-1.5">
+              <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Rule type</label>
+              <select
+                value={trainCategory}
+                onChange={(e) => setTrainCategory(e.target.value as typeof trainCategory)}
+                className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              >
+                <option value="spam_filter">Spam Filter — auto-close tickets matching this pattern</option>
+                <option value="decision_rule">Decision Rule — route/escalate/skip similar tickets</option>
+                <option value="faq">FAQ — teach the agent a correct answer for this topic</option>
+                <option value="policy">Policy — enforce a business rule for this ticket type</option>
+              </select>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Instruction</label>
+              <textarea
+                value={trainInstruction}
+                onChange={(e) => setTrainInstruction(e.target.value)}
+                placeholder={
+                  trainCategory === 'spam_filter'
+                    ? 'e.g. Tickets asking for free licenses or discount codes should be closed immediately with a brief polite decline.'
+                    : trainCategory === 'decision_rule'
+                    ? 'e.g. Tickets from users with an expired license should always be escalated to the owner, not auto-replied.'
+                    : trainCategory === 'faq'
+                    ? 'e.g. The correct answer is: refunds are available within 7 days via the Envato resolution center, not through us.'
+                    : 'e.g. We do not provide support for customization requests. Always reply with the customization policy link.'
+                }
+                rows={4}
+                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring resize-none"
+              />
+            </div>
+
+            {trainMutation.isError && (
+              <div className="flex items-center gap-2 text-sm text-red-400">
+                <XCircle className="w-4 h-4 shrink-0" />
+                {(trainMutation.error as Error).message}
+              </div>
+            )}
+
+            {trainSuccess && (
+              <div className="flex items-center gap-2 text-sm text-emerald-400">
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                Proposal sent for Telegram approval
+              </div>
+            )}
+
+            {!trainSuccess && (
+              <button
+                onClick={() => trainMutation.mutate({ category: trainCategory, instruction: trainInstruction })}
+                disabled={!trainInstruction.trim() || trainMutation.isPending}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {trainMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Brain className="w-3.5 h-3.5" />}
+                {trainMutation.isPending ? 'Submitting...' : 'Submit for Approval'}
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* CRM Actions */}
+      <div className="rounded-xl border border-border bg-card px-5 py-4 space-y-4">
+        <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+          <Settings2 className="w-3.5 h-3.5" /> CRM Actions
+        </p>
+
+        {/* Priority */}
+        <div className="space-y-2">
+          <p className="text-xs font-medium text-muted-foreground">Change Priority</p>
+          {!ticket.crmUuid && (
+            <p className="text-[11px] text-yellow-400">CRM UUID not stored — ticket was ingested before UUID support. Re-open or re-deliver the webhook to enable this.</p>
+          )}
+          <div className="flex items-center gap-2">
+            <select
+              value={crmPriority}
+              onChange={(e) => setCrmPriority(e.target.value)}
+              disabled={!ticket.crmUuid}
+              className="rounded-md border border-border bg-background px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
+            >
+              <option value="">Select priority...</option>
+              <option value="0">0 — Low</option>
+              <option value="1">1 — Normal</option>
+              <option value="2">2 — Medium</option>
+              <option value="3">3 — High</option>
+              <option value="4">4 — Urgent</option>
+            </select>
+            <button
+              onClick={() => priorityMutation.mutate(Number(crmPriority))}
+              disabled={!crmPriority || priorityMutation.isPending || !ticket.crmUuid}
+              className="px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {priorityMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Update'}
+            </button>
+          </div>
+          {priorityMutation.isError && <p className="text-xs text-red-400">{(priorityMutation.error as Error).message}</p>}
+          {priorityMutation.isSuccess && <p className="text-xs text-emerald-400 flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Priority updated</p>}
+        </div>
+
+        {/* Status */}
+        <div className="space-y-2">
+          <p className="text-xs font-medium text-muted-foreground">Update Status</p>
+          <div className="flex items-start gap-2 flex-wrap">
+            <select
+              value={crmStatus}
+              onChange={(e) => setCrmStatus(e.target.value)}
+              className="rounded-md border border-border bg-background px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+            >
+              <option value="">Select status...</option>
+              <option value="open">open</option>
+              <option value="in_progress">in_progress</option>
+              <option value="resolved">resolved</option>
+              <option value="closed">closed</option>
+            </select>
+            <input
+              value={crmNotes}
+              onChange={(e) => setCrmNotes(e.target.value)}
+              placeholder="Resolution notes (optional)"
+              className="flex-1 min-w-0 rounded-md border border-border bg-background px-3 py-1.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring"
+            />
+            <button
+              onClick={() => statusMutation.mutate({ status: crmStatus, notes: crmNotes || undefined })}
+              disabled={!crmStatus || statusMutation.isPending}
+              className="px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {statusMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Update'}
+            </button>
+          </div>
+          {statusMutation.isError && <p className="text-xs text-red-400">{(statusMutation.error as Error).message}</p>}
+          {statusMutation.isSuccess && <p className="text-xs text-emerald-400 flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Status updated</p>}
+        </div>
+
+        {/* Note */}
+        <div className="space-y-2">
+          <p className="text-xs font-medium text-muted-foreground flex items-center gap-1"><StickyNote className="w-3.5 h-3.5" /> Add Internal Note</p>
+          {!ticket.crmUuid && (
+            <p className="text-[11px] text-yellow-400">CRM UUID required for notes.</p>
+          )}
+          <div className="flex items-start gap-2">
+            <textarea
+              value={noteText}
+              onChange={(e) => setNoteText(e.target.value)}
+              placeholder="Internal note visible to agents only..."
+              rows={2}
+              disabled={!ticket.crmUuid}
+              className="flex-1 rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring resize-none disabled:opacity-50"
+            />
+            <button
+              onClick={() => noteMutation.mutate(noteText)}
+              disabled={!noteText.trim() || noteMutation.isPending || !ticket.crmUuid}
+              className="px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {noteMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Add'}
+            </button>
+          </div>
+          {noteMutation.isError && <p className="text-xs text-red-400">{(noteMutation.error as Error).message}</p>}
+          {noteMutation.isSuccess && <p className="text-xs text-emerald-400 flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Note added</p>}
+        </div>
       </div>
 
       {/* Events timeline */}

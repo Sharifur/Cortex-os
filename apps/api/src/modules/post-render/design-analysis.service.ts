@@ -430,6 +430,229 @@ export class DesignAnalysisService {
     return { dna, kbEntryId, storageUrl: storageResult.url };
   }
 
+  async analyzeAndStoreCarousel(
+    slides: Array<{ buffer: Buffer; filename: string }>,
+    opts: { brand: string },
+  ): Promise<{ dna: DesignDNA; kbEntryId: string; storageUrl: string; slideCount: number }> {
+    if (!slides.length) throw new Error('No slides provided');
+
+    const isConfigured = await this.storage.isConfigured();
+    const maxTokens = await this.getDnaMaxTokens();
+
+    // Upload all slide images to R2 in parallel
+    const uploadResults = await Promise.all(slides.map(async (slide) => {
+      if (isConfigured) {
+        const r = await this.storage.upload({
+          module: 'post-render/design-samples',
+          refKey: opts.brand,
+          body: slide.buffer,
+          declaredMime: 'image/png',
+          originalFilename: slide.filename,
+        });
+        return r.url;
+      } else {
+        const dir = path.join(LOCAL_SAMPLES_DIR, opts.brand);
+        await fs.mkdir(dir, { recursive: true });
+        const ext = path.extname(slide.filename) || '.png';
+        const localFile = path.join(dir, `${createId()}${ext}`);
+        await fs.writeFile(localFile, slide.buffer);
+        return `local://${localFile}`;
+      }
+    }));
+
+    // Analyze each slide individually using the vision LLM
+    const perSlideDNAs: DesignDNA[] = [];
+    for (const slide of slides) {
+      try {
+        const imageBase64 = slide.buffer.toString('base64');
+        const res = await this.llm.complete({
+          messages: [{ role: 'user', content: DNA_PROMPT }],
+          imageBase64,
+          imageMimeType: 'image/png',
+          maxTokens,
+          temperature: 0.1,
+          agentKey: 'canva',
+        });
+        const jsonMatch = res.content.match(/```(?:json)?\s*([\s\S]+?)\s*```/) ?? res.content.match(/(\{[\s\S]+\})/);
+        perSlideDNAs.push(JSON.parse(jsonMatch?.[1] ?? res.content) as DesignDNA);
+      } catch (e) {
+        this.logger.warn(`Carousel slide ${slide.filename} DNA extraction failed: ${(e as Error).message}`);
+      }
+    }
+
+    if (!perSlideDNAs.length) throw new Error('Could not extract DNA from any carousel slide');
+
+    // Synthesis pass — merge per-slide DNAs into one unified carousel design system
+    const synthesisPrompt = [
+      `You are a senior brand designer. Below are the extracted design DNAs from each slide of a ${slides.length}-slide LinkedIn carousel.`,
+      'Your task: synthesize ONE unified carousel design system DNA that represents the consistent design language across ALL slides.',
+      'Focus on:',
+      '- The SHARED color palette (which primary/accent colors repeat across slides)',
+      '- The consistent typography system (font weights, heading sizes, case styles)',
+      '- The recurring shape decorations and their typical positions',
+      '- The overall visual tone and mood keywords that describe the set',
+      '- The dominant layout pattern used most across slides',
+      '',
+      'Return ONLY valid JSON using the EXACT same field structure as the input DNAs.',
+      'For array fields (secondary_colors, shape_elements, mood_keywords, decoration_elements) — merge and deduplicate across all slides.',
+      'For enum fields (layout_type, background_style, etc.) — pick the most representative value.',
+      'Set slide_type to "cover" (representing the full carousel set).',
+      '',
+      ...perSlideDNAs.map((dna, i) => `--- Slide ${i + 1} DNA ---\n${JSON.stringify(dna, null, 2)}`),
+    ].join('\n');
+
+    let carouselDNA: DesignDNA;
+    try {
+      const synthRes = await this.llm.complete({
+        messages: [{ role: 'user', content: synthesisPrompt }],
+        maxTokens,
+        temperature: 0.1,
+        agentKey: 'canva',
+      });
+      const jsonMatch = synthRes.content.match(/```(?:json)?\s*([\s\S]+?)\s*```/) ?? synthRes.content.match(/(\{[\s\S]+\})/);
+      carouselDNA = JSON.parse(jsonMatch?.[1] ?? synthRes.content) as DesignDNA;
+    } catch {
+      // Fall back to first slide's DNA if synthesis fails
+      carouselDNA = perSlideDNAs[0];
+      this.logger.warn('Carousel synthesis LLM failed — using first slide DNA as fallback');
+    }
+
+    // Embed carousel metadata into the DNA
+    carouselDNA.carousel_slide_count = slides.length;
+    carouselDNA.carousel_slide_urls = uploadResults;
+
+    const content = this.buildKbContent(carouselDNA);
+    const kbRow = await this.kb.createEntry({
+      title: `LinkedIn Carousel — ${slides.length} slides — ${carouselDNA.mood_keywords?.slice(0, 2).join(', ') ?? ''} — ${Date.now()}`,
+      content,
+      entryType: 'design_sample',
+      agentKeys: 'canva',
+      siteKeys: opts.brand,
+      category: 'design',
+      sourceType: 'image_upload',
+      sourceUrl: uploadResults[0],
+    });
+
+    this.logger.log(`Carousel DNA synthesized: ${slides.length} slides → kb:${kbRow.id}`);
+    return { dna: carouselDNA, kbEntryId: kbRow.id, storageUrl: uploadResults[0], slideCount: slides.length };
+  }
+
+  async synthesizeFromEntryIds(
+    entryIds: string[],
+    brand: string,
+  ): Promise<{ dna: DesignDNA; kbEntryId: string; storageUrl: string; slideCount: number }> {
+    if (entryIds.length < 2) throw new Error('Need at least 2 entries to synthesize a carousel');
+
+    const rows = await this.db.db
+      .select({ id: knowledgeEntries.id, content: knowledgeEntries.content, sourceUrl: knowledgeEntries.sourceUrl })
+      .from(knowledgeEntries)
+      .where(and(
+        eq(knowledgeEntries.agentKeys, 'canva'),
+        eq(knowledgeEntries.siteKeys, brand || 'default'),
+      ));
+
+    const ordered = entryIds
+      .map(id => rows.find(r => r.id === id))
+      .filter((r): r is NonNullable<typeof r> => r != null);
+
+    if (ordered.length < 2) throw new Error('Could not find the uploaded entries');
+
+    const perSlideDNAs: DesignDNA[] = [];
+    const slideUrls: string[] = [];
+    for (const row of ordered) {
+      const match = row.content.match(/DNA JSON: (\{[\s\S]+\})\s*$/m);
+      if (match) {
+        try {
+          perSlideDNAs.push(JSON.parse(match[1]) as DesignDNA);
+          slideUrls.push(row.sourceUrl ?? '');
+        } catch { /* skip bad rows */ }
+      }
+    }
+
+    if (perSlideDNAs.length < 2) throw new Error('Could not extract DNA from entries');
+
+    const maxTokens = await this.getDnaMaxTokens();
+    const synthesisPrompt = [
+      `You are a senior brand designer. Below are the extracted design DNAs from each slide of a ${perSlideDNAs.length}-slide LinkedIn carousel.`,
+      'Synthesize ONE unified carousel design system DNA representing the consistent design language across ALL slides.',
+      'Focus on: shared color palette, consistent typography system, recurring shape decorations, overall visual tone.',
+      'Return ONLY valid JSON using the same field structure. For arrays — merge and deduplicate. For enums — pick the most representative value.',
+      'Set slide_type to "cover".',
+      '',
+      ...perSlideDNAs.map((dna, i) => `--- Slide ${i + 1} DNA ---\n${JSON.stringify(dna, null, 2)}`),
+    ].join('\n');
+
+    let carouselDNA: DesignDNA;
+    try {
+      const res = await this.llm.complete({
+        messages: [{ role: 'user', content: synthesisPrompt }],
+        maxTokens,
+        temperature: 0.1,
+        agentKey: 'canva',
+      });
+      const jsonMatch = res.content.match(/```(?:json)?\s*([\s\S]+?)\s*```/) ?? res.content.match(/(\{[\s\S]+\})/);
+      carouselDNA = JSON.parse(jsonMatch?.[1] ?? res.content) as DesignDNA;
+    } catch {
+      carouselDNA = perSlideDNAs[0];
+      this.logger.warn('Carousel synthesis LLM failed — using first slide DNA as fallback');
+    }
+
+    carouselDNA.carousel_slide_count = perSlideDNAs.length;
+    carouselDNA.carousel_slide_urls = slideUrls;
+
+    const content = this.buildKbContent(carouselDNA);
+    const kbRow = await this.kb.createEntry({
+      title: `LinkedIn Carousel — ${perSlideDNAs.length} slides — ${carouselDNA.mood_keywords?.slice(0, 2).join(', ') ?? ''} — ${Date.now()}`,
+      content,
+      entryType: 'design_sample',
+      agentKeys: 'canva',
+      siteKeys: brand || 'default',
+      category: 'design',
+      sourceType: 'image_upload',
+      sourceUrl: slideUrls[0] ?? null,
+    });
+
+    // Delete the individual slide entries (they've been merged into the carousel)
+    if (ordered.length > 0) {
+      for (const row of ordered) {
+        await this.db.db.delete(knowledgeEntries).where(eq(knowledgeEntries.id, row.id));
+      }
+    }
+
+    this.logger.log(`Carousel synthesized: ${perSlideDNAs.length} slides → kb:${kbRow.id}`);
+    return { dna: carouselDNA, kbEntryId: kbRow.id, storageUrl: slideUrls[0] ?? '', slideCount: perSlideDNAs.length };
+  }
+
+  async deleteAllSamples(brand: string): Promise<{ deleted: number }> {
+    const effectiveBrand = brand || 'default';
+    const rows = await this.db.db
+      .select({ id: knowledgeEntries.id, sourceUrl: knowledgeEntries.sourceUrl })
+      .from(knowledgeEntries)
+      .where(and(
+        eq(knowledgeEntries.entryType, 'design_sample'),
+        eq(knowledgeEntries.agentKeys, 'canva'),
+        eq(knowledgeEntries.siteKeys, effectiveBrand),
+      ));
+
+    for (const row of rows) {
+      if (row.sourceUrl && !row.sourceUrl.startsWith('local://')) {
+        const key = row.sourceUrl.replace(/^https?:\/\/[^/]+\//, '');
+        await this.storage.deleteByKey(key).catch(() => {});
+      }
+    }
+
+    await this.db.db
+      .delete(knowledgeEntries)
+      .where(and(
+        eq(knowledgeEntries.entryType, 'design_sample'),
+        eq(knowledgeEntries.agentKeys, 'canva'),
+        eq(knowledgeEntries.siteKeys, effectiveBrand),
+      ));
+
+    this.logger.log(`Deleted ${rows.length} design samples for brand: ${effectiveBrand}`);
+    return { deleted: rows.length };
+  }
+
   async listSamples(opts: { brand?: string; platform?: string; slideType?: string } = {}) {
     const conditions = [
       eq(knowledgeEntries.entryType, 'design_sample'),

@@ -16,6 +16,102 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.49.1',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'fix', scope: 'render', description: 'Blank slide: content service now falls back to position-based slide matching when the LLM returns slides with out-of-order or skipped slideIndex values, preventing empty slots on any slide.' },
+      { tag: 'fix', scope: 'render', description: 'Black CTA slide: overlay layout no longer hardcodes #111111 as the fallback background — it now uses resolveVisualBackground and resolveVisualBackgroundStyle so the ThemeContract and visual spec color chain applies correctly.' },
+      { tag: 'fix', scope: 'render', description: 'Layout pool: split-panel removed from content role pool (left stat panel was always empty on content slides) and overlay removed from CTA role pool (designed for image backgrounds, breaks on solid-color CTA slides).' },
+    ],
+  },
+  {
+    version: 'v4.49.0',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'Intent-aware chat with clarifying questions: the Canva agent now uses LLM-based intent classification to distinguish design generation requests from question answers and general chat. When a design intent is detected the agent asks clarifying questions (brand, visual tone, content format) before generating. When the user answers those questions the agent extracts the context and fires the render action. Conversation history (last 6 messages) is passed from the frontend so the classifier can resolve which branch is active.' },
+    ],
+  },
+  {
+    version: 'v4.48.0',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'support', description: 'CRM ticket management actions: operators can now change ticket priority (0–4), update ticket status (open / in_progress / resolved / closed with optional resolution notes), and add internal notes directly from the ticket detail page. All three actions call the CRM public API (priority via UUID, status via numeric ID, note via UUID) and write audit events to the activity timeline. The CRM UUID is now captured from the webhook payload and stored in the database. Existing tickets without a UUID show a yellow notice on the affected fields.' },
+      { tag: 'chore', scope: 'support', description: 'Migration 0073: adds crm_uuid column to support_tickets table to store the ticket UUID from CRM webhook payloads, required for the new priority and note CRM endpoints.' },
+    ],
+  },
+  {
+    version: 'v4.47.0',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'support', description: 'Feed KB from CRM Ticket: new POST /support/kb-import endpoint accepts a CRM ticket ID, fetches the full conversation (description + reply thread) via the CRM API, strips HTML, and calls the LLM to generate a clean Q&A reference entry saved directly to the knowledge base scoped to the support agent. A "Feed KB from CRM Ticket" section is added to the Support agent Setup tab with a ticket ID input and inline success/error feedback.' },
+    ],
+  },
+  {
+    version: 'v4.46.5',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'fix', scope: 'design-samples', description: 'Carousel upload is now non-blocking: clicking "Upload N-slide carousel" clears the staging area immediately so the next carousel can be staged and uploaded without waiting. Each in-flight carousel job shows as a progress card below the upload area with a label, per-slide phase text, and a progress bar that turns green on completion or red on failure. Multiple carousels can be uploading concurrently. Jobs auto-dismiss 3s after completion.' },
+    ],
+  },
+  {
+    version: 'v4.46.4',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'fix', scope: 'support', description: 'Reply event handling overhaul: agent reply webhooks now mark the ticket as replied in the DB and write an agent_reply_received event instead of silently skipping. Agent detection checks multiple payload fields (replied_by, user, reply.user). Customer reply events now reopen any existing ticket regardless of purchaseCodeStatus (not just when code was requested), and write a customer_reply_received event. In decide(), when a purchase code was already requested but the customer replied without providing it, the ticket no longer gets stuck — it falls through to the LLM with a pending-code context block so the agent can address the reply and remind the customer.' },
+    ],
+  },
+  {
+    version: 'v4.46.3',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'fix', scope: 'design-samples', description: 'Carousel upload now shows real-time per-slide progress. Each slide is uploaded and analyzed individually (reusing the existing upload endpoint), with a step label ("Analyzing slide 2 of 5") and a progress bar that advances after each slide completes. A final synthesis step merges all per-slide DNAs into one carousel entry and removes the individual entries. The upload button is disabled and the progress bar turns green when synthesis completes.' },
+    ],
+  },
+  {
+    version: 'v4.46.2',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'design-samples', description: 'LinkedIn carousel upload mode: a toggle on the upload area switches between "Individual images" (existing behavior) and "LinkedIn carousel set." In carousel mode, slides are staged in order with numbered thumbnails before upload. On submit, all slides are analyzed individually via vision LLM, then a synthesis LLM pass merges the per-slide DNAs into one unified carousel design system DNA (shared color palette, typography, shape elements, mood). Stored as a single knowledge_entries row; the grid shows a blue slide-count badge on carousel entries.' },
+    ],
+  },
+  {
+    version: 'v4.46.1',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'design-samples', description: 'Delete all design samples button on the Samples tab. Removes all knowledge_entries rows (entryType=design_sample) for the brand and attempts to delete each file from R2 storage. Useful for local testing: wipe all samples, then re-upload a clean set.' },
+    ],
+  },
+  {
+    version: 'v4.46.0',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'support', description: 'Server access detection gate: when a verified ticket body contains a 500/server error, license error, or 404 error keyword, the agent checks whether admin credentials have been provided (username+password pattern). If missing, it queues a request_server_access action — posts a reply listing exactly what is needed (URL, admin credentials, FTP/cPanel details) and sends a Telegram notification. Goes through the same Approve/Reject flow as other actions. New detectServerIssue() and detectCredentials() private helpers.' },
+      { tag: 'fix', scope: 'support', description: 'Already-verified tickets now pass a cached purchase status block to the LLM (Active/Expired/Invalid with instructions) instead of an empty block — preventing re-verification API calls and giving the LLM correct license context on every run after the first verification.' },
+    ],
+  },
+  {
+    version: 'v4.45.2',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'fix', scope: 'design-samples', description: 'Per-slide color variety: each slide now independently picks a different random training sample DNA so slides get distinct background colors instead of one repeated color. PostVisualService receives a per-slide color table with exact hex assignments and is instructed to use each slide\'s assigned color, not repeat them. Decoration opacity floor raised from 0.04 to 0.12 (max 0.35) so shapes are actually visible on slides. Fallback bgColor at parse time also uses per-slide DNA when available.' },
+    ],
+  },
+  {
+    version: 'v4.45.1',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'fix', scope: 'support', description: 'Purchase code detection now scans only the ticket body/description, not the subject. HTML is stripped at ingest time on both the CRM-fetch path and the webhook-description fallback path (previously only the fallback stripped HTML). A new stripHtml() helper removes <style>, <script>, all tags, and HTML entities before the text is stored — preventing UUID-pattern false positives from embedded CSS and HTML attributes.' },
+    ],
+  },
+  {
+    version: 'v4.45.0',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'support', description: 'Train Agent panel on ticket detail page: operators can submit a rule type (Spam Filter, Decision Rule, FAQ, Policy) and a plain-English instruction. The LLM reformulates it into a reusable KB fact, saves it as a kb_proposal, and sends a Telegram approval request before it goes live. Backend: new POST /support/tickets/:id/train route + trainFromTicket() method in SupportAgent. Frontend: inline collapsible panel with category selector, instruction textarea, and approval-confirmation state.' },
+      { tag: 'feat', scope: 'design-samples', description: 'Sample-based rendering: each render now picks one random DesignDNA from the training library (getRandomSampleDNA) and uses its exact primary_color, accent_color, and shape_elements as the base theme — replacing the blurry dominant-average approach. contentBg no longer defaults to #ffffff; it uses the sampled DNA primary color so all slides have vivid learned colors. PostVisualService receives the sampled DNA colors as explicit hex anchors and is required to return non-null bgColor. Word highlights added to SlideVisualSpec: the LLM picks 1-2 headline words to receive colored badge backgrounds (pill-style), rendered via a new renderHeadline() helper in layout-helpers. list.layout.ts now calls renderDecorations() so shape decorations appear on list slides.' },
+    ],
+  },
+  {
     version: 'v4.44.1',
     date: '2026-05-14',
     entries: [

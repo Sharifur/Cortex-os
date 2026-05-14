@@ -26,6 +26,7 @@ export const supportTicketEvents = pgTable('support_ticket_events', {
 export const supportTickets = pgTable('support_tickets', {
   id: text('id').primaryKey().$defaultFn(() => createId()),
   externalId: text('external_id').unique(),
+  crmUuid: text('crm_uuid'),
   ticketNo: text('ticket_no'),
   subject: text('subject').notNull(),
   body: text('body'),

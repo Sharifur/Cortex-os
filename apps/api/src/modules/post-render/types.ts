@@ -422,6 +422,17 @@ export interface DesignDNA {
 
   // Free-text observations
   pattern_notes: string;
+
+  // Set when this DNA represents a full multi-slide carousel rather than a single slide
+  carousel_slide_count?: number;
+  carousel_slide_urls?: string[];  // R2 URLs for each slide in order (index 0 = cover)
+}
+
+export interface WordHighlight {
+  word: string;
+  bgColor: string;
+  textColor?: string;
+  borderRadius?: number;
 }
 
 export interface SlideVisualSpec {
@@ -429,6 +440,7 @@ export interface SlideVisualSpec {
   bgColor?: string;
   bgGradient?: string;
   accentColor?: string | null;
+  wordHighlights?: WordHighlight[];
   decorations?: Array<{
     shape_type: string;
     fill_type: 'solid' | 'linear-gradient' | 'radial-gradient' | 'none';

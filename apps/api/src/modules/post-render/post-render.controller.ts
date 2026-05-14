@@ -365,6 +365,12 @@ export class PostRenderController {
     return this.designAnalysis.reanalyzeSingleById(id);
   }
 
+  @Delete('design-samples/all')
+  @HttpCode(HttpStatus.OK)
+  async deleteAllDesignSamples(@Query('brand') brand?: string) {
+    return this.designAnalysis.deleteAllSamples(brand ?? 'default');
+  }
+
   @Delete('design-samples/patterns/all')
   @HttpCode(HttpStatus.OK)
   async clearAllPatterns(@Query('brand') brand?: string) {

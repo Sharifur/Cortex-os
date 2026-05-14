@@ -1,8 +1,10 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { eq, desc, sql, and, ilike, or } from 'drizzle-orm';
 import { createId } from '@paralleldrive/cuid2';
 import { DbService } from '../../../db/db.service';
 import { agents } from '../../../db/schema';
+import { kbProposals } from '../../knowledge-base/schema';
 import { supportTickets, supportWebhookLogs, supportTicketEvents } from './schema';
 import { AgentRegistryService } from '../runtime/agent-registry.service';
 import { LlmRouterService } from '../../llm/llm-router.service';
@@ -52,6 +54,44 @@ const SYSTEM_PROMPT = `You are a support agent for Taskip/Xgenious. Given a supp
 Respond with valid JSON only:
 { "category": "...", "priority": "...", "reply": "..." }`;
 
+const TRAIN_PROPOSE_SYSTEM = `You are a knowledge base curator for a support ticket AI agent.
+An operator is training the agent by providing a ticket example and an instruction for how similar tickets should be handled in the future.
+
+Your job: formulate a clear, reusable rule from the instruction so the support agent consistently applies it.
+
+Category guidance:
+- spam_filter: Write a detection + action rule. Pattern: "SPAM FILTER: If ticket [matches pattern], [action — e.g. close with brief reply or skip entirely]."
+- decision_rule: Write a routing instruction. Pattern: "DECISION RULE: When ticket is about [topic], [action — escalate / skip / close / auto-reply with X]."
+- faq: Write a Q&A fact. Pattern: "FAQ: [Generalized question] → [Complete accurate answer]."
+- policy: Write a policy statement. Pattern: "POLICY: [Condition] → [Required action or response]."
+
+The rule must be general enough to apply to similar future tickets, not just this specific one.
+
+Return JSON only — no markdown:
+{
+  "title": "short descriptive title (max 8 words)",
+  "content": "the rule, clearly worded for the AI to follow",
+  "reasoning": "one sentence: what problem this solves"
+}`;
+
+const KB_IMPORT_SYSTEM = `You are a knowledge base curator for a software support team.
+Given a resolved support ticket conversation, create ONE clean, reusable Q&A entry that will help the AI agent handle similar tickets in the future.
+
+Rules:
+- The question must be a generalized version of the customer's problem (not word-for-word from the ticket)
+- The answer must be the complete, accurate resolution — synthesize it from the agent's replies, skip pleasantries
+- Only include actionable content ("thank you", "please let us know" should be removed)
+- If the ticket has multiple back-and-forth messages, distill the core Q&A from the full thread
+- Choose the most accurate category: "technical", "faq", "policy", or "product"
+
+Return JSON only — no markdown:
+{
+  "title": "short descriptive title (max 8 words)",
+  "category": "technical" | "faq" | "policy" | "product",
+  "content": "Q: [generalized question]\\nA: [complete resolution]",
+  "reasoning": "one sentence: what this entry teaches the agent"
+}`;
+
 @Injectable()
 export class SupportAgent implements IAgent, OnModuleInit {
   readonly key = 'support';
@@ -66,6 +106,7 @@ export class SupportAgent implements IAgent, OnModuleInit {
     private kb: KnowledgeBaseService,
     private purchaseVerify: PurchaseVerifyService,
     private settings: SettingsService,
+    private events: EventEmitter2,
   ) {}
 
   onModuleInit() {
@@ -123,7 +164,8 @@ export class SupportAgent implements IAgent, OnModuleInit {
     for (const ticket of tickets) {
       try {
         const ticketText = `${ticket.subject ?? ''} ${ticket.body ?? ''}`;
-        const purchaseCodes = PurchaseVerifyService.extractPurchaseCodes(ticketText);
+        const purchaseCodes = PurchaseVerifyService.extractPurchaseCodes(ticket.body ?? '');
+        let purchaseBlock = '';
 
         // --- Purchase code gate ---
         // Tickets that already have a final purchase status don't need a new code request
@@ -152,12 +194,23 @@ export class SupportAgent implements IAgent, OnModuleInit {
               },
               riskLevel: 'low',
             });
+            continue;
           }
-          continue;
+          // Code was already requested — customer replied without providing it.
+          // Fall through to LLM with a pending-code context block so it can address
+          // the customer's reply and gently remind them.
+          purchaseBlock = '\n\n--- Purchase Code Status ---\nPending — purchase code was requested but not yet provided by the customer. Address their reply normally, then politely remind them to share their purchase code before technical support can be provided.';
         }
 
         // --- Verify purchase code if we have one and haven't verified yet ---
-        let purchaseBlock = '';
+        if (alreadyGated && ticket.purchaseCode && !purchaseBlock) {
+          const statusLabel = ticket.purchaseCodeStatus === 'verified'
+            ? 'Active — support is enabled. Proceed to help the customer.'
+            : ticket.purchaseCodeStatus === 'expired'
+            ? 'Expired — support period has ended. Direct them to renew via Envato.'
+            : 'Invalid — code did not validate. Do not provide technical support.';
+          purchaseBlock = `\n\n--- Purchase Status (cached) ---\nCode: ${ticket.purchaseCode}\nStatus: ${statusLabel}`;
+        }
         if (purchaseCodes.length && !alreadyGated) {
           await this.writeTicketEvent({
             ticketId: ticket.id,
@@ -192,6 +245,42 @@ export class SupportAgent implements IAgent, OnModuleInit {
                 updatedAt: new Date(),
               })
               .where(eq(supportTickets.id, ticket.id));
+          }
+        }
+
+        // --- Server access gate ---
+        const serverIssue = this.detectServerIssue(ticketText);
+        if (serverIssue && ticket.purchaseCodeStatus === 'verified') {
+          const creds = this.detectCredentials(ticket.body ?? '');
+          if (!creds.hasAdmin) {
+            const missing: string[] = [];
+            if (!creds.hasUrl) missing.push('Website URL');
+            missing.push('Admin panel URL and login credentials (username + password)');
+            if (!creds.hasFtp) missing.push('FTP / cPanel access (host, username, password, port)');
+
+            const credDraft = `Thank you for the details. To investigate this ${serverIssue} issue directly on your server, I need the following:\n\n${missing.map((m, i) => `${i + 1}. ${m}`).join('\n')}\n\nPlease share these details so I can look into it promptly.`;
+
+            await this.writeTicketEvent({
+              ticketId: ticket.id,
+              externalId: ticket.externalId,
+              eventType: 'server_access_not_found',
+              summary: `${serverIssue} detected — missing credentials: ${missing.join(', ')}`,
+              payload: { serverIssue, creds },
+            });
+            actions.push({
+              type: 'request_server_access',
+              summary: `Request server access: ${ticket.subject} from ${ticket.userEmail}`,
+              payload: {
+                ticketId: ticket.id,
+                crmTicketId: ticket.externalId ? Number(ticket.externalId) : null,
+                subject: ticket.subject,
+                userEmail: ticket.userEmail,
+                serverIssue,
+                draft: credDraft,
+              },
+              riskLevel: 'low',
+            });
+            continue;
           }
         }
 
@@ -293,7 +382,7 @@ export class SupportAgent implements IAgent, OnModuleInit {
   }
 
   requiresApproval(action: ProposedAction): boolean {
-    return action.type === 'post_reply' || action.type === 'escalate_to_owner' || action.type === 'request_purchase_code';
+    return action.type === 'post_reply' || action.type === 'escalate_to_owner' || action.type === 'request_purchase_code' || action.type === 'request_server_access';
   }
 
   async execute(action: ProposedAction): Promise<ActionResult> {
@@ -319,6 +408,29 @@ export class SupportAgent implements IAgent, OnModuleInit {
       });
       await this.telegram.sendMessage(
         `Purchase code requested: ${p.subject}\nFrom: ${p.userEmail}\n\nSent:\n${p.draft}`,
+      );
+      return { success: true, data: { ticketId: p.ticketId } };
+    }
+
+    if (action.type === 'request_server_access') {
+      if (p.ticketId) {
+        await this.db.db
+          .update(supportTickets)
+          .set({ status: 'replied', repliedAt: new Date(), updatedAt: new Date() })
+          .where(eq(supportTickets.id, p.ticketId));
+      }
+      if (p.crmTicketId) {
+        await this.postCrmReply(p.crmTicketId, p.draft);
+      }
+      await this.writeTicketEvent({
+        ticketId: p.ticketId,
+        externalId: p.crmTicketId ? String(p.crmTicketId) : null,
+        eventType: 'server_access_requested',
+        summary: `Server access requested (${p.serverIssue}) for ticket: ${p.subject}`,
+        payload: { draft: p.draft, serverIssue: p.serverIssue },
+      });
+      await this.telegram.sendMessage(
+        `Server access requested: ${p.subject}\nFrom: ${p.userEmail}\nIssue: ${p.serverIssue}\n\nSent:\n${p.draft}`,
       );
       return { success: true, data: { ticketId: p.ticketId } };
     }
@@ -517,6 +629,80 @@ export class SupportAgent implements IAgent, OnModuleInit {
         requiresAuth: true,
         handler: async (params) => this.deleteTicket((params as any).id),
       },
+      {
+        method: 'POST',
+        path: '/support/kb-import',
+        requiresAuth: true,
+        handler: async (body) => {
+          const crmTicketId = Number((body as any)?.crmTicketId);
+          if (!crmTicketId || isNaN(crmTicketId)) throw new Error('crmTicketId is required');
+          return this.importTicketToKb(crmTicketId);
+        },
+      },
+      {
+        method: 'POST',
+        path: '/support/tickets/:id/train',
+        requiresAuth: true,
+        handler: async (params) => {
+          const { id, category, instruction } = params as any;
+          if (!instruction?.trim()) throw new Error('instruction is required');
+          const validCategories = ['spam_filter', 'decision_rule', 'faq', 'policy'];
+          if (!validCategories.includes(category)) throw new Error('invalid category');
+          return this.trainFromTicket(id, category, instruction.trim());
+        },
+      },
+      {
+        method: 'POST',
+        path: '/support/tickets/:id/priority',
+        requiresAuth: true,
+        handler: async (params) => {
+          const { id, priority } = params as any;
+          const p = Number(priority);
+          if (isNaN(p) || p < 0 || p > 4) throw new Error('priority must be 0–4 (0=Low,1=Normal,2=Medium,3=High,4=Urgent)');
+          const [ticket] = await this.db.db.select().from(supportTickets).where(eq(supportTickets.id, id));
+          if (!ticket) throw new Error('Ticket not found');
+          if (!ticket.crmUuid) throw new Error('Ticket has no CRM UUID — webhook may need to re-deliver it');
+          await this.updateCrmPriority(ticket.crmUuid, p);
+          const priorityLabel = ['low', 'normal', 'medium', 'high', 'urgent'][p];
+          await this.db.db.update(supportTickets).set({ priority: priorityLabel, updatedAt: new Date() }).where(eq(supportTickets.id, id));
+          await this.writeTicketEvent({ ticketId: id, externalId: ticket.externalId, eventType: 'priority_updated', summary: `Priority set to ${priorityLabel} (${p}) via CRM API` });
+          return { ok: true, priority: priorityLabel };
+        },
+      },
+      {
+        method: 'POST',
+        path: '/support/tickets/:id/status',
+        requiresAuth: true,
+        handler: async (params) => {
+          const { id, status, notes } = params as any;
+          const validStatuses = ['open', 'in_progress', 'resolved', 'closed'];
+          if (!validStatuses.includes(status)) throw new Error(`status must be one of: ${validStatuses.join(', ')}`);
+          const [ticket] = await this.db.db.select().from(supportTickets).where(eq(supportTickets.id, id));
+          if (!ticket) throw new Error('Ticket not found');
+          const crmId = ticket.externalId ? Number(ticket.externalId) : null;
+          if (!crmId) throw new Error('Ticket has no CRM ID');
+          await this.updateCrmStatus(crmId, status, notes?.trim() || undefined);
+          const localStatus = status === 'resolved' || status === 'closed' ? 'closed' : 'open';
+          await this.db.db.update(supportTickets).set({ status: localStatus, updatedAt: new Date() }).where(eq(supportTickets.id, id));
+          await this.writeTicketEvent({ ticketId: id, externalId: ticket.externalId, eventType: 'status_updated', summary: `Status set to ${status} via CRM API`, payload: notes ? { notes } : undefined });
+          return { ok: true, status };
+        },
+      },
+      {
+        method: 'POST',
+        path: '/support/tickets/:id/note',
+        requiresAuth: true,
+        handler: async (params) => {
+          const { id, note } = params as any;
+          if (!note?.trim()) throw new Error('note is required');
+          const [ticket] = await this.db.db.select().from(supportTickets).where(eq(supportTickets.id, id));
+          if (!ticket) throw new Error('Ticket not found');
+          if (!ticket.crmUuid) throw new Error('Ticket has no CRM UUID — webhook may need to re-deliver it');
+          await this.addCrmNote(ticket.crmUuid, note.trim());
+          await this.writeTicketEvent({ ticketId: id, externalId: ticket.externalId, eventType: 'note_added', summary: `Internal note added: ${note.trim().slice(0, 100)}`, payload: { note: note.trim() } });
+          return { ok: true };
+        },
+      },
     ];
   }
 
@@ -538,6 +724,71 @@ export class SupportAgent implements IAgent, OnModuleInit {
     await this.db.db.delete(supportTicketEvents).where(eq(supportTicketEvents.ticketId, id));
     await this.db.db.delete(supportTickets).where(eq(supportTickets.id, id));
     return { ok: true };
+  }
+
+  private async trainFromTicket(id: string, category: string, instruction: string): Promise<{ proposalId: string }> {
+    const [ticket] = await this.db.db.select().from(supportTickets).where(eq(supportTickets.id, id));
+    if (!ticket) throw new Error('Ticket not found');
+
+    const userContent = [
+      `Ticket subject: "${ticket.subject}"`,
+      ticket.body ? `Ticket body (excerpt): "${ticket.body.slice(0, 400)}"` : null,
+      `Training category: ${category}`,
+      `Operator instruction: "${instruction}"`,
+    ].filter(Boolean).join('\n\n');
+
+    const response = await this.llm.complete({
+      messages: [
+        { role: 'system', content: TRAIN_PROPOSE_SYSTEM },
+        { role: 'user', content: userContent },
+      ],
+      provider: 'auto',
+      model: 'gpt-4o-mini',
+      maxTokens: 400,
+      temperature: 0.2,
+    });
+
+    const raw = response.content.trim();
+    const match = raw.match(/\{[\s\S]*\}/);
+    const proposal: { title: string; content: string; reasoning: string } = JSON.parse(match?.[0] ?? raw);
+    if (!proposal.title || !proposal.content) throw new Error('LLM returned incomplete proposal');
+
+    const categoryMap: Record<string, string> = { spam_filter: 'spam_rule', decision_rule: 'decision_rule', faq: 'faq', policy: 'policy' };
+    const priorityMap: Record<string, number> = { spam_filter: 90, decision_rule: 85, policy: 75, faq: 70 };
+
+    const [row] = await this.db.db
+      .insert(kbProposals)
+      .values({
+        agentKey: this.key,
+        proposedEntryType: 'fact',
+        title: proposal.title,
+        content: proposal.content,
+        polarity: null,
+        reasoning: proposal.reasoning ?? '',
+        category: categoryMap[category] ?? 'general',
+        sourceType: 'training',
+      })
+      .returning();
+
+    const labelMap: Record<string, string> = { spam_filter: 'Spam Filter', decision_rule: 'Decision Rule', faq: 'FAQ', policy: 'Policy' };
+    const text = [
+      `*Agent Training Proposal*`,
+      `Agent: *${this.name}* (\`${this.key}\`)`,
+      ``,
+      `Type: *${labelMap[category] ?? category}*`,
+      `From ticket: _"${ticket.subject.slice(0, 100)}"_`,
+      ``,
+      `Rule: *${proposal.title}*`,
+      `_${proposal.content.slice(0, 300)}_`,
+      ``,
+      `Why: ${proposal.reasoning}`,
+      ``,
+      `Add this to the Knowledge Base?`,
+    ].join('\n');
+
+    this.events.emit('telegram.kb_proposal', { proposalId: row.id, text });
+    this.logger.log(`Training proposal created: ${row.id} agent=${this.key} category=${category}`);
+    return { proposalId: row.id };
   }
 
   private async writeTicketEvent(entry: {
@@ -641,11 +892,33 @@ export class SupportAgent implements IAgent, OnModuleInit {
       return errorResp;
     }
 
-    // For reply events triggered by our own agent, just log and skip — avoid feedback loops
-    if (event === 'support.ticket.replied' && payload?.data?.replied_by?.type === 'agent') {
-      this.logger.log(`ingestWebhook: skipping agent-replied event for ticket #${ticket.id}`);
-      const skippedResp = { ok: true, status: 'skipped', reason: 'agent_reply' };
-      await this.writeWebhookLog({ status: 'skipped_agent_reply', externalId: String(ticket.id), rawPayload, responseBody: JSON.stringify(skippedResp) });
+    // For reply events triggered by our own agent — update ticket to 'replied' and stop
+    const isAgentReply = event === 'support.ticket.replied' && (
+      payload?.data?.replied_by?.type === 'agent' ||
+      payload?.data?.user?.type === 'agent' ||
+      payload?.data?.reply?.user?.type === 'agent' ||
+      replyData?.user?.type === 'agent'
+    );
+    if (isAgentReply) {
+      this.logger.log(`ingestWebhook: agent reply event for ticket #${ticket.id} — marking replied`);
+      const [existing] = await this.db.db
+        .select({ id: supportTickets.id })
+        .from(supportTickets)
+        .where(eq(supportTickets.externalId, String(ticket.id)));
+      if (existing) {
+        await this.db.db
+          .update(supportTickets)
+          .set({ status: 'replied', repliedAt: new Date(), updatedAt: new Date() })
+          .where(eq(supportTickets.id, existing.id));
+        await this.writeTicketEvent({
+          ticketId: existing.id,
+          externalId: String(ticket.id),
+          eventType: 'agent_reply_received',
+          summary: 'Agent reply recorded — no further action taken',
+        });
+      }
+      const skippedResp = { ok: true, status: 'acknowledged', reason: 'agent_reply' };
+      await this.writeWebhookLog({ status: 'skipped_agent_reply', externalId: String(ticket.id), ticketId: existing?.id ?? null, rawPayload, responseBody: JSON.stringify(skippedResp) });
       return skippedResp;
     }
 
@@ -657,13 +930,13 @@ export class SupportAgent implements IAgent, OnModuleInit {
         ? ticket.priority
         : (PRIORITY_MAP[ticket.priority as number] ?? 'medium');
 
-    let body = await this.fetchCrmTicket(ticket.id);
+    let body = this.stripHtml(await this.fetchCrmTicket(ticket.id));
 
     if (body) {
       this.logger.log(`CRM fetch OK for ticket #${ticket.id} (${body.length} chars)`);
     } else {
       const rawDesc: string = ticket.description ?? ticket.message ?? '';
-      body = rawDesc.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+      body = this.stripHtml(rawDesc);
       if (body) {
         this.logger.log(`Using webhook description field for ticket #${ticket.id} (${body.length} chars)`);
       } else {
@@ -671,26 +944,27 @@ export class SupportAgent implements IAgent, OnModuleInit {
       }
     }
 
-    // Customer reply on a ticket that's awaiting a purchase code — re-open for re-processing
+    // Customer reply — re-open any existing ticket for re-processing (skip purchase code gate)
     if (event === 'support.ticket.replied') {
       const [existing] = await this.db.db
-        .select({ id: supportTickets.id, purchaseCodeStatus: supportTickets.purchaseCodeStatus })
+        .select({ id: supportTickets.id, status: supportTickets.status, purchaseCodeStatus: supportTickets.purchaseCodeStatus })
         .from(supportTickets)
         .where(eq(supportTickets.externalId, String(ticket.id)));
 
-      if (existing?.purchaseCodeStatus === 'requested') {
+      if (existing) {
         await this.db.db
           .update(supportTickets)
           .set({ status: 'open', body: body || undefined, updatedAt: new Date() })
           .where(eq(supportTickets.id, existing.id));
-        this.logger.log(`Ticket #${ticket.id} reopened after customer reply — will re-check for purchase code`);
+        this.logger.log(`Ticket #${ticket.id} reopened after customer reply (prev status: ${existing.status})`);
         const reopenedResp = { ok: true, status: 'reopened', ticketId: existing.id, externalId: String(ticket.id) };
         await this.writeWebhookLog({ status: 'reopened', externalId: String(ticket.id), ticketId: existing.id, rawPayload, responseBody: JSON.stringify(reopenedResp) });
         await this.writeTicketEvent({
           ticketId: existing.id,
           externalId: String(ticket.id),
-          eventType: 'ticket_reopened',
-          summary: 'Customer replied — ticket reopened for purchase code re-check',
+          eventType: 'customer_reply_received',
+          summary: `Customer replied — ticket reopened (purchaseCodeStatus was: ${existing.purchaseCodeStatus ?? 'none'})`,
+          payload: { prevStatus: existing.status, prevPurchaseCodeStatus: existing.purchaseCodeStatus },
         });
         return reopenedResp;
       }
@@ -700,6 +974,7 @@ export class SupportAgent implements IAgent, OnModuleInit {
       .insert(supportTickets)
       .values({
         externalId: String(ticket.id),
+        crmUuid: ticket.uuid ?? null,
         ticketNo: ticket.ticket_no ?? null,
         subject: ticket.subject,
         body: body || null,
@@ -745,6 +1020,129 @@ export class SupportAgent implements IAgent, OnModuleInit {
   private async crmHeaders(): Promise<Record<string, string>> {
     const key = await this.settings.getDecrypted('support_crm_api_key');
     return { 'X-Secret-Key': key ?? '', 'Content-Type': 'application/json', Accept: 'application/json' };
+  }
+
+  private async importTicketToKb(crmTicketId: number): Promise<{ ok: boolean; title?: string; entryId?: string; error?: string }> {
+    const baseUrl = await this.settings.getDecrypted('support_crm_base_url');
+    if (!baseUrl) return { ok: false, error: 'support_crm_base_url not configured' };
+    const headers = await this.crmHeaders();
+
+    const ticketRes = await fetch(`${baseUrl.replace(/\/$/, '')}/api/public-v1/support-ticket/${crmTicketId}`, {
+      headers,
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!ticketRes.ok) return { ok: false, error: `CRM ticket fetch failed: HTTP ${ticketRes.status}` };
+
+    const ticketData = (await ticketRes.json() as any)?.data;
+    if (!ticketData?.subject) return { ok: false, error: 'Ticket not found or missing subject' };
+
+    const subject = ticketData.subject as string;
+    const description = this.stripHtml(ticketData.description ?? ticketData.message ?? '');
+
+    // Try to fetch reply thread
+    let replies: { role: 'customer' | 'agent'; text: string }[] = [];
+    try {
+      const replyRes = await fetch(`${baseUrl.replace(/\/$/, '')}/api/public-v1/support-ticket/${crmTicketId}/replies`, {
+        headers,
+        signal: AbortSignal.timeout(8000),
+      });
+      if (replyRes.ok) {
+        const replyData = (await replyRes.json() as any)?.data ?? [];
+        const replyArray = Array.isArray(replyData) ? replyData : Object.values(replyData);
+        replies = replyArray.map((r: any) => ({
+          role: (r?.user?.type === 'agent' ? 'agent' : 'customer') as 'agent' | 'customer',
+          text: this.stripHtml(r?.message ?? r?.description ?? '').slice(0, 600),
+        })).filter(r => r.text.length > 10);
+      }
+    } catch {
+      // replies endpoint may not exist — continue with description only
+    }
+
+    if (!description && replies.length === 0) {
+      return { ok: false, error: 'No conversation content found for this ticket' };
+    }
+
+    const agentReplies = replies.filter(r => r.role === 'agent');
+    if (agentReplies.length === 0 && !description) {
+      return { ok: false, error: 'No agent replies found — ticket may not be resolved yet' };
+    }
+
+    const conversationLines = [
+      `Subject: ${subject}`,
+      description ? `Customer: ${description.slice(0, 800)}` : null,
+      ...replies.map(r => `${r.role === 'agent' ? 'Agent' : 'Customer'}: ${r.text}`),
+    ].filter(Boolean).join('\n\n');
+
+    const response = await this.llm.complete({
+      messages: [
+        { role: 'system', content: KB_IMPORT_SYSTEM },
+        { role: 'user', content: conversationLines },
+      ],
+      provider: 'auto',
+      model: 'gpt-4o-mini',
+      maxTokens: 600,
+      temperature: 0.2,
+    });
+
+    const raw = response.content.trim();
+    const match = raw.match(/\{[\s\S]*\}/);
+    const proposal: { title: string; category: string; content: string; reasoning: string } = JSON.parse(match?.[0] ?? raw);
+    if (!proposal.title || !proposal.content) return { ok: false, error: 'LLM returned incomplete entry' };
+
+    const entry = await this.kb.createEntry({
+      title: proposal.title,
+      content: proposal.content,
+      category: proposal.category ?? 'faq',
+      entryType: 'reference',
+      priority: 70,
+      agentKeys: this.key,
+      sourceType: 'crm_import',
+      sourceUrl: `${baseUrl.replace(/\/$/, '')}/support-ticket/${crmTicketId}`,
+    });
+
+    this.logger.log(`KB import from CRM ticket #${crmTicketId}: "${proposal.title}" (${entry.id})`);
+    return { ok: true, title: proposal.title, entryId: entry.id };
+  }
+
+  private detectServerIssue(text: string): string | null {
+    if (/\b(500|internal server error|white screen|wsod|fatal error|php error|parse error|database error|db error|connection refused|server down|blank page|blank screen)\b/i.test(text)) {
+      return '500/server error';
+    }
+    if (/\b(license\s*(error|invalid|expired|fail|not found)|activation\s*(fail|error|invalid)|invalid\s*(license|key)|license\s*key\s*(wrong|incorrect))\b/i.test(text)) {
+      return 'license error';
+    }
+    if (/\b(404|page not found|file not found|missing\s*file|resource not found)\b/i.test(text)) {
+      return '404 error';
+    }
+    return null;
+  }
+
+  private detectCredentials(text: string): { hasUrl: boolean; hasAdmin: boolean; hasFtp: boolean } {
+    const hasUrl = /https?:\/\/[^\s]+/i.test(text);
+    const hasAdmin = (
+      /\b(username|user|login)\s*[:=]\s*\S+/i.test(text) &&
+      /\b(password|pass|pwd)\s*[:=]\s*\S+/i.test(text)
+    );
+    const hasFtp = /\b(ftp|ssh|sftp|cpanel|plesk|whm)\b/i.test(text) && (
+      /\b(host|server|ip|address)\s*[:=]\s*\S+/i.test(text) ||
+      /\b(user|username|login)\s*[:=]\s*\S+/i.test(text)
+    );
+    return { hasUrl, hasAdmin, hasFtp };
+  }
+
+  private stripHtml(html: string): string {
+    if (!html?.trim()) return '';
+    return html
+      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/&amp;/gi, '&')
+      .replace(/&lt;/gi, '<')
+      .replace(/&gt;/gi, '>')
+      .replace(/&quot;/gi, '"')
+      .replace(/\s+/g, ' ')
+      .trim();
   }
 
   private async fetchCrmTicket(id: number): Promise<string> {
@@ -800,6 +1198,71 @@ export class SupportAgent implements IAgent, OnModuleInit {
       }
     } catch (err) {
       this.logger.warn(`postCrmReply(${crmTicketId}) error: ${err}`);
+    }
+  }
+
+  private async updateCrmPriority(crmUuid: string, priority: number): Promise<void> {
+    try {
+      const baseUrl = await this.settings.getDecrypted('support_crm_base_url');
+      if (!baseUrl) { this.logger.warn('support_crm_base_url not configured — skipping priority update'); return; }
+      const res = await fetch(`${baseUrl.replace(/\/$/, '')}/api/public-v1/support-ticket/${crmUuid}/priority`, {
+        method: 'POST',
+        headers: await this.crmHeaders(),
+        body: JSON.stringify({ priority }),
+        signal: AbortSignal.timeout(10000),
+      });
+      if (res.ok) {
+        this.logger.log(`CRM priority updated: uuid=${crmUuid} priority=${priority}`);
+      } else {
+        const body = await res.text().catch(() => '');
+        this.logger.warn(`updateCrmPriority(${crmUuid}) failed: HTTP ${res.status} — ${body}`);
+      }
+    } catch (err) {
+      this.logger.warn(`updateCrmPriority(${crmUuid}) error: ${err}`);
+    }
+  }
+
+  private async updateCrmStatus(crmTicketId: number, status: string, resolutionNotes?: string): Promise<void> {
+    try {
+      const baseUrl = await this.settings.getDecrypted('support_crm_base_url');
+      if (!baseUrl) { this.logger.warn('support_crm_base_url not configured — skipping status update'); return; }
+      const body: Record<string, unknown> = { status };
+      if (resolutionNotes) body.resolution_notes = resolutionNotes;
+      const res = await fetch(`${baseUrl.replace(/\/$/, '')}/api/public-v1/ticket/${crmTicketId}/status-update`, {
+        method: 'POST',
+        headers: await this.crmHeaders(),
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(10000),
+      });
+      if (res.ok) {
+        this.logger.log(`CRM status updated: id=${crmTicketId} status=${status}`);
+      } else {
+        const respBody = await res.text().catch(() => '');
+        this.logger.warn(`updateCrmStatus(${crmTicketId}) failed: HTTP ${res.status} — ${respBody}`);
+      }
+    } catch (err) {
+      this.logger.warn(`updateCrmStatus(${crmTicketId}) error: ${err}`);
+    }
+  }
+
+  private async addCrmNote(crmUuid: string, note: string): Promise<void> {
+    try {
+      const baseUrl = await this.settings.getDecrypted('support_crm_base_url');
+      if (!baseUrl) { this.logger.warn('support_crm_base_url not configured — skipping note'); return; }
+      const res = await fetch(`${baseUrl.replace(/\/$/, '')}/api/public-v1/support-ticket/${crmUuid}/note-store`, {
+        method: 'POST',
+        headers: await this.crmHeaders(),
+        body: JSON.stringify({ message: note }),
+        signal: AbortSignal.timeout(10000),
+      });
+      if (res.ok) {
+        this.logger.log(`CRM note added: uuid=${crmUuid}`);
+      } else {
+        const body = await res.text().catch(() => '');
+        this.logger.warn(`addCrmNote(${crmUuid}) failed: HTTP ${res.status} — ${body}`);
+      }
+    } catch (err) {
+      this.logger.warn(`addCrmNote(${crmUuid}) error: ${err}`);
     }
   }
 

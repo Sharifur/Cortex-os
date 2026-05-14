@@ -123,7 +123,7 @@ export class PostContentService {
     }
 
     const filledSlides: FilledSlide[] = format.slides.map((schema, i) => {
-      const aiSlide = parsed.slides.find(s => s.slideIndex === i) ?? { slideIndex: i, slots: {} };
+      const aiSlide = parsed.slides.find(s => s.slideIndex === i) ?? parsed.slides[i] ?? { slideIndex: i, slots: {} };
       return {
         slideIndex: i,
         role: schema.role,

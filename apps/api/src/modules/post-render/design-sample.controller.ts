@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Req, Res, Query, BadRequestException, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller, Post, Body, Get, Req, Res, Query, BadRequestException, HttpCode, HttpStatus } from '@nestjs/common';
 import type { FastifyReply } from 'fastify';
 import { DesignAnalysisService } from './design-analysis.service';
 
@@ -18,6 +18,45 @@ interface MultipartRequest {
 @Controller('posts/design-samples')
 export class DesignSampleController {
   constructor(private readonly analysis: DesignAnalysisService) {}
+
+  @Post('upload-carousel')
+  @HttpCode(HttpStatus.OK)
+  async uploadCarousel(
+    @Req() req: MultipartRequest,
+    @Res() reply: FastifyReply,
+    @Query('brand') brand = 'default',
+  ) {
+    if (!req.isMultipart || !req.isMultipart()) {
+      throw new BadRequestException('multipart/form-data required');
+    }
+
+    const slides: Array<{ buffer: Buffer; filename: string }> = [];
+
+    if (req.files) {
+      for await (const part of req.files()) {
+        if (!part.mimetype.startsWith('image/')) continue;
+        slides.push({ buffer: await part.toBuffer(), filename: part.filename });
+      }
+    }
+
+    if (slides.length < 2) {
+      throw new BadRequestException('A carousel requires at least 2 slide images');
+    }
+
+    const result = await this.analysis.analyzeAndStoreCarousel(slides, { brand });
+    reply.send({ uploaded: slides.length, ...result });
+  }
+
+  @Post('carousel-synthesize')
+  @HttpCode(HttpStatus.OK)
+  async carouselSynthesize(
+    @Body() body: { entryIds: string[]; brand?: string },
+  ) {
+    if (!Array.isArray(body.entryIds) || body.entryIds.length < 2) {
+      throw new BadRequestException('entryIds must contain at least 2 IDs');
+    }
+    return this.analysis.synthesizeFromEntryIds(body.entryIds, body.brand ?? 'default');
+  }
 
   @Post('upload')
   @HttpCode(HttpStatus.OK)

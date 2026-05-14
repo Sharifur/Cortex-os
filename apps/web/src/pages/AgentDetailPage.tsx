@@ -2934,6 +2934,67 @@ function LivechatSetupSubTab({ agent }: { agent: AgentDetail }) {
   );
 }
 
+function SupportKbImportSection({ token }: { token: string }) {
+  const [ticketId, setTicketId] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<{ ok: boolean; title?: string; entryId?: string; error?: string } | null>(null);
+
+  async function handleImport() {
+    if (!ticketId.trim()) return;
+    setLoading(true);
+    setResult(null);
+    try {
+      const res = await fetch('/support/kb-import', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ crmTicketId: Number(ticketId.trim()) }),
+      });
+      const data = await res.json();
+      setResult(data);
+      if (data.ok) setTicketId('');
+    } catch (err) {
+      setResult({ ok: false, error: (err as Error).message });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="rounded-xl border border-border bg-card px-5 py-4 space-y-3">
+      <div>
+        <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Feed KB from CRM Ticket</p>
+        <p className="text-xs text-muted-foreground mt-1">Enter a resolved CRM ticket ID. The agent will fetch the full conversation and generate a Q&A knowledge base entry from it.</p>
+      </div>
+      <div className="flex items-center gap-2">
+        <input
+          type="number"
+          value={ticketId}
+          onChange={e => setTicketId(e.target.value)}
+          placeholder="CRM ticket ID (e.g. 1445)"
+          className="flex-1 rounded-md border border-border bg-background px-3 py-1.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring"
+          onKeyDown={e => e.key === 'Enter' && handleImport()}
+        />
+        <button
+          onClick={handleImport}
+          disabled={loading || !ticketId.trim()}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
+        >
+          {loading ? 'Importing...' : 'Import to KB'}
+        </button>
+      </div>
+      {result && (
+        result.ok ? (
+          <div className="text-xs text-emerald-400">
+            Saved: <span className="font-medium">{result.title}</span>
+          </div>
+        ) : (
+          <div className="text-xs text-red-400">{result.error}</div>
+        )
+      )}
+    </div>
+  );
+}
+
 function SupportSetupSubTab({ agent, token }: { agent: AgentDetail; token: string }) {
   const qc = useQueryClient();
 
@@ -3038,6 +3099,8 @@ function SupportSetupSubTab({ agent, token }: { agent: AgentDetail; token: strin
       <SetupStep n={4} title="Enable and test" done={agent.enabled}>
         <p className="text-xs text-muted-foreground">Enable the agent. Send a test webhook from crm.xgenious.com or use curl. A Telegram message should arrive with the drafted reply and Approve / Reject buttons.</p>
       </SetupStep>
+
+      <SupportKbImportSection token={token} />
     </div>
   );
 }
@@ -3784,6 +3847,9 @@ function DesignSamplesTab({ token }: { token: string }) {
   const [bannerBrief, setBannerBrief] = useState('');
   const [progress, setProgress] = useState<{ done: number; total: number; errors: number } | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [uploadMode, setUploadMode] = useState<'individual' | 'carousel'>('individual');
+  const [carouselStaging, setCarouselStaging] = useState<File[]>([]);
+  const [carouselJobs, setCarouselJobs] = useState<{ id: string; label: string; phase: string; current: number; total: number; done: boolean; error?: boolean }[]>([]);
   const [dsSubTab, setDsSubTab] = useState<'samples' | 'patterns'>('samples');
   const [visibleCount, setVisibleCount] = useState(60);
   const SAMPLE_PAGE_SIZE = 60;
@@ -4044,6 +4110,7 @@ function DesignSamplesTab({ token }: { token: string }) {
     }
   }
 
+  const [deletingAll, setDeletingAll] = useState(false);
   const [retrying, setRetrying] = useState(false);
   const [showFailedLog, setShowFailedLog] = useState(false);
   async function retryFailed() {
@@ -4057,6 +4124,74 @@ function DesignSamplesTab({ token }: { token: string }) {
       setReanalysisProgress(null);
     } finally {
       setRetrying(false);
+    }
+  }
+
+  function uploadCarousel() {
+    if (carouselStaging.length < 2) return;
+    const files = [...carouselStaging];
+    const jobId = `carousel-${Date.now()}`;
+    const total = files.length; // slides + synthesis step = total + 1
+    const label = `${files.length}-slide carousel`;
+
+    // Clear staging immediately so the user can start the next one
+    setCarouselStaging([]);
+
+    const update = (phase: string, current: number, done = false, error = false) =>
+      setCarouselJobs(prev => prev.map(j => j.id === jobId ? { ...j, phase, current, done, error } : j));
+
+    setCarouselJobs(prev => [...prev, { id: jobId, label, phase: 'Starting...', current: 0, total: total + 1, done: false }]);
+
+    void (async () => {
+      const collectedIds: string[] = [];
+
+      for (let i = 0; i < files.length; i++) {
+        update(`Analyzing slide ${i + 1} of ${total}`, i);
+        try {
+          const fd = new FormData();
+          fd.append('files', files[i]);
+          const res = await fetch('/posts/design-samples/upload?brand=default', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token}` },
+            body: fd,
+          });
+          const data = await res.json();
+          const id: string | undefined = data?.results?.[0]?.kbEntryId;
+          if (id) collectedIds.push(id);
+        } catch { /* slide failed — continue */ }
+      }
+
+      if (collectedIds.length < 2) {
+        update('Failed — not enough slides analyzed', total + 1, true, true);
+        setTimeout(() => setCarouselJobs(prev => prev.filter(j => j.id !== jobId)), 4000);
+        return;
+      }
+
+      update('Synthesizing carousel design system...', total);
+      try {
+        await fetch('/posts/design-samples/carousel-synthesize', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ entryIds: collectedIds, brand: 'default' }),
+        });
+      } catch { /* ignore */ }
+
+      update(`Done — ${collectedIds.length} slides merged`, total + 1, true);
+      void loadData();
+      setTimeout(() => setCarouselJobs(prev => prev.filter(j => j.id !== jobId)), 3000);
+    })();
+  }
+
+  async function deleteAllSamples() {
+    if (!confirm(`Remove all ${samples.length} design samples? This also deletes their files from storage and cannot be undone.`)) return;
+    setDeletingAll(true);
+    try {
+      await apiFetch(token, '/posts/design-samples/all?brand=default', { method: 'DELETE' });
+      setSamples([]);
+      setPatterns([]);
+      setBannerBrief('');
+    } catch { /* ignore */ } finally {
+      setDeletingAll(false);
     }
   }
 
@@ -4089,6 +4224,14 @@ function DesignSamplesTab({ token }: { token: string }) {
               {cancelling ? 'Stopping...' : 'Cancel'}
             </button>
           )}
+          <button
+            onClick={deleteAllSamples}
+            disabled={deletingAll || samples.length === 0 || (reanalysisProgress?.running ?? false)}
+            className="px-3 py-1.5 border border-red-500/40 rounded-lg text-xs font-medium text-red-400 hover:bg-red-500/10 disabled:opacity-50 transition-colors"
+            title="Delete all design samples and their storage files"
+          >
+            {deletingAll ? 'Deleting...' : 'Delete all'}
+          </button>
           <button
             onClick={reanalyze}
             disabled={reanalyzing || (reanalysisProgress?.running ?? false) || samples.length === 0}
@@ -4228,18 +4371,106 @@ function DesignSamplesTab({ token }: { token: string }) {
         <>
           <div className="bg-card border border-border rounded-xl p-4 space-y-3">
             <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={handleFileInput} />
-            <div
-              onClick={() => fileRef.current?.click()}
-              onDragOver={handleDragOver}
-              onDragLeave={handleDragLeave}
-              onDrop={handleDrop}
-              className={`border-2 border-dashed rounded-xl p-8 text-center transition-colors cursor-pointer ${
-                isDragOver ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/50 hover:bg-muted/40'
-              }`}
-            >
-              <p className="text-sm font-medium">{isDragOver ? 'Drop images here' : 'Drop images or click to upload'}</p>
-              <p className="text-xs text-muted-foreground mt-1">PNG, JPG, WEBP — multiple files supported</p>
+
+            {/* Upload mode toggle */}
+            <div className="flex items-center gap-1 bg-muted rounded-lg p-1 w-fit">
+              {(['individual', 'carousel'] as const).map(mode => (
+                <button
+                  key={mode}
+                  onClick={() => { setUploadMode(mode); setCarouselStaging([]); }}
+                  className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
+                    uploadMode === mode ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  {mode === 'individual' ? 'Individual images' : 'LinkedIn carousel set'}
+                </button>
+              ))}
             </div>
+
+            {uploadMode === 'individual' ? (
+              <div
+                onClick={() => fileRef.current?.click()}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+                className={`border-2 border-dashed rounded-xl p-8 text-center transition-colors cursor-pointer ${
+                  isDragOver ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/50 hover:bg-muted/40'
+                }`}
+              >
+                <p className="text-sm font-medium">{isDragOver ? 'Drop images here' : 'Drop images or click to upload'}</p>
+                <p className="text-xs text-muted-foreground mt-1">Each image is analyzed as an independent design sample</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div
+                  onClick={() => {
+                    const input = document.createElement('input');
+                    input.type = 'file';
+                    input.accept = 'image/*';
+                    input.multiple = true;
+                    input.onchange = (e) => {
+                      const files = Array.from((e.target as HTMLInputElement).files ?? []).filter(f => f.type.startsWith('image/'));
+                      setCarouselStaging(prev => [...prev, ...files]);
+                    };
+                    input.click();
+                  }}
+                  onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
+                  onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setIsDragOver(false); }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setIsDragOver(false);
+                    const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
+                    setCarouselStaging(prev => [...prev, ...files]);
+                  }}
+                  className={`border-2 border-dashed rounded-xl p-6 text-center transition-colors cursor-pointer ${
+                    isDragOver ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/50 hover:bg-muted/40'
+                  }`}
+                >
+                  <p className="text-sm font-medium">Drop all carousel slides here</p>
+                  <p className="text-xs text-muted-foreground mt-1">All slides are analyzed together as one design system — add at least 2</p>
+                </div>
+
+                {carouselStaging.length > 0 && (
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap gap-2">
+                      {carouselStaging.map((file, i) => (
+                        <div key={i} className="relative group">
+                          <img
+                            src={URL.createObjectURL(file)}
+                            alt=""
+                            className="w-14 h-14 object-cover rounded-lg border border-border"
+                          />
+                          <span className="absolute top-0.5 left-0.5 bg-black/60 text-white text-[10px] font-bold rounded px-1 leading-tight">
+                            {i + 1}
+                          </span>
+                          <button
+                            onClick={() => setCarouselStaging(prev => prev.filter((_, j) => j !== i))}
+                            className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-destructive text-white text-[10px] hidden group-hover:flex items-center justify-center"
+                          >
+                            x
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={uploadCarousel}
+                        disabled={carouselStaging.length < 2}
+                        className="px-4 py-1.5 bg-primary text-primary-foreground rounded-lg text-sm font-medium disabled:opacity-50"
+                      >
+                        {`Upload ${carouselStaging.length}-slide carousel`}
+                      </button>
+                      <button
+                        onClick={() => setCarouselStaging([])}
+                        className="text-xs text-muted-foreground hover:text-foreground"
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
             {progress && (
               <div className="space-y-1.5">
@@ -4265,27 +4496,59 @@ function DesignSamplesTab({ token }: { token: string }) {
             <p className="text-xs text-muted-foreground">{samples.length} sample{samples.length !== 1 ? 's' : ''} total</p>
           </div>
 
+          {carouselJobs.length > 0 && (
+            <div className="space-y-2">
+              {carouselJobs.map(job => (
+                <div key={job.id} className="bg-card border border-border rounded-xl px-4 py-3 space-y-1.5">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-medium text-foreground">{job.label}</span>
+                    <span className={`tabular-nums ${job.error ? 'text-red-400' : 'text-muted-foreground'}`}>
+                      {job.phase}
+                    </span>
+                  </div>
+                  <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all duration-500 ${
+                        job.error ? 'bg-red-500' : job.done ? 'bg-green-500' : 'bg-primary'
+                      }`}
+                      style={{ width: `${Math.round((job.current / Math.max(job.total, 1)) * 100)}%` }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
           <div className="flex flex-wrap gap-3">
-            {samples.slice(0, visibleCount).map((s: any) => (
-              <div key={s.id} className="relative w-[60px] h-[60px] shrink-0">
-                <button
-                  onClick={() => openSampleDetail(s.id)}
-                  className="w-full h-full focus:outline-none"
-                  title="View patterns and DNA"
-                >
-                  {s.sourceUrl ? (
-                    <img src={s.sourceUrl} alt="" className="w-[60px] h-[60px] object-cover rounded-lg border border-border hover:border-primary transition-colors" />
-                  ) : (
-                    <div className="w-[60px] h-[60px] rounded-lg bg-muted border border-border" />
+            {samples.slice(0, visibleCount).map((s: any) => {
+              const carouselMatch = s.content?.match(/"carousel_slide_count"\s*:\s*(\d+)/);
+              const carouselCount = carouselMatch ? parseInt(carouselMatch[1]) : 0;
+              return (
+                <div key={s.id} className="relative w-[60px] h-[60px] shrink-0">
+                  <button
+                    onClick={() => openSampleDetail(s.id)}
+                    className="w-full h-full focus:outline-none"
+                    title={carouselCount > 0 ? `LinkedIn carousel — ${carouselCount} slides` : 'View patterns and DNA'}
+                  >
+                    {s.sourceUrl ? (
+                      <img src={s.sourceUrl} alt="" className="w-[60px] h-[60px] object-cover rounded-lg border border-border hover:border-primary transition-colors" />
+                    ) : (
+                      <div className="w-[60px] h-[60px] rounded-lg bg-muted border border-border" />
+                    )}
+                  </button>
+                  {carouselCount > 0 && (
+                    <span className="absolute top-0.5 left-0.5 bg-blue-600 text-white text-[9px] font-bold rounded px-1 leading-tight pointer-events-none">
+                      {carouselCount}
+                    </span>
                   )}
-                </button>
-                {s.content?.includes('-- Design Patterns --') && (
-                  <span className="absolute bottom-0.5 right-0.5 bg-green-600 rounded p-0.5 leading-none pointer-events-none">
-                    <BookOpen className="w-2.5 h-2.5 text-white" />
-                  </span>
-                )}
-              </div>
-            ))}
+                  {s.content?.includes('-- Design Patterns --') && (
+                    <span className="absolute bottom-0.5 right-0.5 bg-green-600 rounded p-0.5 leading-none pointer-events-none">
+                      <BookOpen className="w-2.5 h-2.5 text-white" />
+                    </span>
+                  )}
+                </div>
+              );
+            })}
           </div>
 
           {visibleCount < samples.length && (
