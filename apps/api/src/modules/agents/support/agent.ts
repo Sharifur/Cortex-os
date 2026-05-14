@@ -146,7 +146,7 @@ export class SupportAgent implements IAgent, OnModuleInit {
     for (const ticket of tickets) {
       try {
         const ticketText = `${ticket.subject ?? ''} ${ticket.body ?? ''}`;
-        const purchaseCodes = PurchaseVerifyService.extractPurchaseCodes(ticketText);
+        const purchaseCodes = PurchaseVerifyService.extractPurchaseCodes(ticket.body ?? '');
 
         // --- Purchase code gate ---
         // Tickets that already have a final purchase status don't need a new code request
@@ -757,13 +757,13 @@ export class SupportAgent implements IAgent, OnModuleInit {
         ? ticket.priority
         : (PRIORITY_MAP[ticket.priority as number] ?? 'medium');
 
-    let body = await this.fetchCrmTicket(ticket.id);
+    let body = this.stripHtml(await this.fetchCrmTicket(ticket.id));
 
     if (body) {
       this.logger.log(`CRM fetch OK for ticket #${ticket.id} (${body.length} chars)`);
     } else {
       const rawDesc: string = ticket.description ?? ticket.message ?? '';
-      body = rawDesc.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+      body = this.stripHtml(rawDesc);
       if (body) {
         this.logger.log(`Using webhook description field for ticket #${ticket.id} (${body.length} chars)`);
       } else {
@@ -845,6 +845,21 @@ export class SupportAgent implements IAgent, OnModuleInit {
   private async crmHeaders(): Promise<Record<string, string>> {
     const key = await this.settings.getDecrypted('support_crm_api_key');
     return { 'X-Secret-Key': key ?? '', 'Content-Type': 'application/json', Accept: 'application/json' };
+  }
+
+  private stripHtml(html: string): string {
+    if (!html?.trim()) return '';
+    return html
+      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/&amp;/gi, '&')
+      .replace(/&lt;/gi, '<')
+      .replace(/&gt;/gi, '>')
+      .replace(/&quot;/gi, '"')
+      .replace(/\s+/g, ' ')
+      .trim();
   }
 
   private async fetchCrmTicket(id: number): Promise<string> {

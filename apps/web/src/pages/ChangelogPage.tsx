@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.45.1',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'fix', scope: 'support', description: 'Purchase code detection now scans only the ticket body/description, not the subject. HTML is stripped at ingest time on both the CRM-fetch path and the webhook-description fallback path (previously only the fallback stripped HTML). A new stripHtml() helper removes <style>, <script>, all tags, and HTML entities before the text is stored — preventing UUID-pattern false positives from embedded CSS and HTML attributes.' },
+    ],
+  },
+  {
     version: 'v4.45.0',
     date: '2026-05-14',
     entries: [
