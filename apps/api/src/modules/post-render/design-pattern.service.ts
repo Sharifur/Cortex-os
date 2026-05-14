@@ -651,6 +651,19 @@ export class DesignPatternService {
     };
   }
 
+  async listSampleMeta(brand: string): Promise<Array<{ id: string; title: string }>> {
+    const effectiveBrand = brand || 'default';
+    return this.db.db
+      .select({ id: knowledgeEntries.id, title: knowledgeEntries.title })
+      .from(knowledgeEntries)
+      .where(and(
+        eq(knowledgeEntries.entryType, 'design_sample'),
+        eq(knowledgeEntries.agentKeys, 'canva'),
+        eq(knowledgeEntries.siteKeys, effectiveBrand),
+      ))
+      .orderBy(knowledgeEntries.createdAt) as Promise<Array<{ id: string; title: string }>>;
+  }
+
   async getDNAForEntry(entryId: string): Promise<DesignDNA | null> {
     const [row] = await this.db.db
       .select({ content: knowledgeEntries.content })

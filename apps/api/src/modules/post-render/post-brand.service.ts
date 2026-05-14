@@ -150,14 +150,16 @@ export class PostBrandService {
 
   async resolve(brandName: string): Promise<ResolvedBrand> {
     const [row] = await this.db.db.select().from(canvaBrands).where(eq(canvaBrands.name, brandName)).limit(1);
-    if (!row) throw new Error(`brand not found: ${brandName}`);
+    if (!row) {
+      this.logger.warn(`Brand "${brandName}" not found — using default profile`);
+    }
     const brand = {
-      name: row.name,
-      displayName: row.displayName,
-      voiceProfile: row.voiceProfile ?? '',
-      palette: (row.palette as string[] | null) ?? [],
-      fonts: (row.fonts as string[] | null) ?? [],
-      logoUrl: row.logoUrl ?? null,
+      name: row?.name ?? brandName,
+      displayName: row?.displayName ?? brandName,
+      voiceProfile: row?.voiceProfile ?? '',
+      palette: (row?.palette as string[] | null) ?? [],
+      fonts: (row?.fonts as string[] | null) ?? [],
+      logoUrl: row?.logoUrl ?? null,
     };
 
     const headingFont = brand.fonts?.[0] ?? 'Inter';

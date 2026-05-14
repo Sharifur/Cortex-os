@@ -15,6 +15,7 @@ import { CanvaMcpService } from './canva-mcp.service';
 import { CanvaBrandsService } from './canva-brands.service';
 import { CanvaDebugService } from './canva-debug.service';
 import { PostRendererService } from '../../post-render/post-renderer.service';
+import { DesignPatternService } from '../../post-render/design-pattern.service';
 import { listFormats } from '../../post-render/post-format.registry';
 import { agentLlmOpts } from '../runtime/llm-config.util';
 import type {
@@ -69,6 +70,7 @@ export class CanvaAgent implements IAgent, OnModuleInit {
     private readonly brands: CanvaBrandsService,
     private readonly debug: CanvaDebugService,
     private readonly renderer: PostRendererService,
+    private readonly designPattern: DesignPatternService,
   ) {}
 
   onModuleInit() {
@@ -153,7 +155,11 @@ export class CanvaAgent implements IAgent, OnModuleInit {
       }
     }
 
-    // Classify intent: design-generate | questions-answered | general-chat
+    // Load training samples once — used in Branch A and Branch B
+    const firstBrand = (config.brands?.[0] ?? 'taskip').toLowerCase();
+    const trainingSamples = await this.designPattern.listSampleMeta(firstBrand).catch(() => [] as Array<{ id: string; title: string }>);
+
+    // Classify intent
     const classifyPrompt = `You are classifying a chat message sent to a social media design generation agent.
 
 Available brands: taskip (project management SaaS), xgenious (premium WordPress/CodeIgniter themes)
@@ -166,20 +172,22 @@ Current user message: "${query}"
 
 Classify the intent and return JSON only (no markdown):
 {
-  "intent": "design-generate" | "questions-answered" | "general-chat",
-  "topic": "extracted content topic if design-generate or questions-answered, else null",
+  "intent": "design-generate" | "questions-answered" | "style-selected" | "general-chat",
+  "topic": "extracted content topic if available, else null",
   "brand": "taskip" | "xgenious" | null,
-  "formatId": "best matching format ID from the list above, or null",
+  "formatId": "best matching format ID, or null",
   "visualTone": "bold-punchy" | "clean-minimal" | "elegant-premium" | "energetic-colorful" | null,
-  "audience": "extracted audience description or null"
+  "audience": "extracted audience or null",
+  "styleNumber": "number if user picked a style reference (e.g. '2'), else null"
 }
 
 Rules:
-- "design-generate": user wants to create an actual image/carousel/banner (even if phrased naturally like "make a post about X" or just giving a topic/idea with no prior clarification exchange)
-- "questions-answered": agent previously asked clarifying questions (visible in history) and user is now answering them (providing tone, brand, audience, format choice)
-- "general-chat": advice, explanation, brainstorm, feedback, anything not design generation`;
+- "design-generate": user wants to create an image/carousel/banner (even phrased naturally like "make a post about X")
+- "questions-answered": agent previously asked clarifying questions AND user answered them (brand, tone, format) — but NOT yet picked a style number
+- "style-selected": agent previously showed a numbered style list AND user replied with a number (e.g. "1", "2", "0", "random", "first one")
+- "general-chat": advice, brainstorm, feedback, anything else`;
 
-    let classification: { intent: string; topic?: string; brand?: string; formatId?: string; visualTone?: string; audience?: string } = { intent: 'general-chat' };
+    let classification: { intent: string; topic?: string; brand?: string; formatId?: string; visualTone?: string; audience?: string; styleNumber?: string } = { intent: 'general-chat' };
     try {
       const classRes = await this.llm.complete({
         messages: [{ role: 'user', content: classifyPrompt }],
@@ -191,11 +199,21 @@ Rules:
       classification = JSON.parse(raw);
     } catch { /* fall through to general-chat */ }
 
-    // BRANCH A: user wants to generate — ask clarifying questions
+    // BRANCH A: user wants to generate — ask clarifying questions + show style list
     if (classification.intent === 'design-generate') {
       const topic = classification.topic ?? query.trim();
       const brands = (config.brands ?? ['taskip', 'xgenious']).join(' / ');
       const formatChoices = 'tips list / step-by-step how-to / data-backed list / single stat / quote card';
+
+      const styleLines = trainingSamples.length > 0
+        ? [
+          '',
+          `4. Style reference — pick one of your training samples (or 0 for random):`,
+          '   0. Random (mix from all training samples)',
+          ...trainingSamples.map((s, i) => `   ${i + 1}. ${s.title || `Sample ${i + 1}`}`),
+        ]
+        : [];
+
       const message = [
         `I'll create a social media design on: "${topic}"`,
         '',
@@ -204,25 +222,26 @@ Rules:
         `1. Brand — ${brands}?`,
         `2. Visual tone — bold & punchy / clean & minimal / elegant & premium / energetic & colorful?`,
         `3. Content format — ${formatChoices}?`,
+        ...styleLines,
         '',
-        'Reply with your choices (e.g. "taskip, bold, tips list") and I\'ll generate it.',
+        trainingSamples.length > 0
+          ? 'Reply with your choices (e.g. "taskip, bold, tips list, 2") and I\'ll generate it.'
+          : 'Reply with your choices (e.g. "taskip, bold, tips list") and I\'ll generate it.',
       ].join('\n');
+
       return [{ type: 'notify_result', summary: 'Clarifying questions', payload: { message, query }, riskLevel: 'low' }];
     }
 
-    // BRANCH B: user answered the clarifying questions — extract context + fire render
+    // BRANCH B: user answered the clarifying questions — extract context, then ask for style if not answered yet
     if (classification.intent === 'questions-answered') {
       const topic = classification.topic ?? '';
       const brand = (classification.brand ?? config.brands[0] ?? 'taskip').toLowerCase();
       const tone = classification.visualTone ?? 'bold-punchy';
       const audience = classification.audience ?? '';
-
-      // Map format from classification or fall back to tips carousel
       const validFormats = new Set(listFormats().map(f => f.id));
       const formatId = (classification.formatId && validFormats.has(classification.formatId))
         ? classification.formatId
         : 'linkedin-tips-carousel';
-
       const intentStr = [
         tone === 'bold-punchy' ? 'Bold, punchy style. High-contrast colors. Short punchy text per slide.' : '',
         tone === 'clean-minimal' ? 'Clean minimal style. Generous whitespace. Simple layouts.' : '',
@@ -231,10 +250,62 @@ Rules:
         audience ? `Target audience: ${audience}.` : '',
       ].filter(Boolean).join(' ');
 
+      // If there are training samples and no style was chosen, ask for style before rendering
+      if (trainingSamples.length > 0) {
+        const styleLines = [
+          `Content ready — "${topic}" as ${formatId} for ${brand}.`,
+          '',
+          'Choose a style reference for this render:',
+          '0. Random (pick from training samples automatically)',
+          ...trainingSamples.map((s, i) => `${i + 1}. ${s.title || `Sample ${i + 1}`}`),
+          '',
+          `[pending:${JSON.stringify({ formatId, brand, topic, intentStr })}]`,
+        ].join('\n');
+
+        return [{ type: 'notify_result', summary: 'Style selection', payload: { message: styleLines, query }, riskLevel: 'low' }];
+      }
+
+      // No training samples — fire render immediately
       return [{
         type: 'post_render',
         summary: `Render ${formatId} for ${brand}`,
         payload: { formatId, brand, topic, intent: intentStr || undefined, sampleId: sampleId || undefined },
+        riskLevel: 'low',
+      }];
+    }
+
+    // BRANCH B2: user picked a style number — extract pending render context from history and fire
+    if (classification.intent === 'style-selected') {
+      const styleNum = parseInt(classification.styleNumber ?? '0', 10);
+      const pickedSample = styleNum > 0 ? (trainingSamples[styleNum - 1] ?? null) : null;
+      const resolvedSampleId = pickedSample?.id ?? sampleId ?? undefined;
+
+      // Extract pending render params from history (encoded as [pending:{...}])
+      let pendingFormatId = 'linkedin-tips-carousel';
+      let pendingBrand = (config.brands?.[0] ?? 'taskip').toLowerCase();
+      let pendingTopic = '';
+      let pendingIntentStr = '';
+      const pendingMatch = (history ?? '').match(/\[pending:(\{.+?\})\]/s);
+      if (pendingMatch) {
+        try {
+          const p = JSON.parse(pendingMatch[1]) as { formatId?: string; brand?: string; topic?: string; intentStr?: string };
+          if (p.formatId) pendingFormatId = p.formatId;
+          if (p.brand) pendingBrand = p.brand;
+          if (p.topic) pendingTopic = p.topic;
+          if (p.intentStr) pendingIntentStr = p.intentStr;
+        } catch { /* ignore */ }
+      }
+
+      return [{
+        type: 'post_render',
+        summary: `Render ${pendingFormatId} for ${pendingBrand}${pickedSample ? ` (style: ${pickedSample.title})` : ''}`,
+        payload: {
+          formatId: pendingFormatId,
+          brand: pendingBrand,
+          topic: pendingTopic,
+          intent: pendingIntentStr || undefined,
+          sampleId: resolvedSampleId,
+        },
         riskLevel: 'low',
       }];
     }

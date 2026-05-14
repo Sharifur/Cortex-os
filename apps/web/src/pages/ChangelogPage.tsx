@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.51.0',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'Chat style reference picker: after the agent finalizes content (brand, format, topic resolved), it now presents a numbered list of all uploaded training samples before firing the render. The user picks a number (or 0 for random) and the agent pins that sample\'s exact DNA — colors, shapes, decorations — to every slide. The pending render params are embedded in the agent message so the next chat turn can extract and fire them without any extra state storage.' },
+      { tag: 'feat', scope: 'canva', description: 'Sample-pinned renders: RenderRequest now accepts an optional sampleId field. When set, all slides use that training sample\'s DesignDNA instead of picking random per-slide DNAs. The Quick Generate UI panel and the chat style picker both populate this field.' },
+    ],
+  },
+  {
     version: 'v4.50.0',
     date: '2026-05-14',
     entries: [
