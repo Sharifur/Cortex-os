@@ -519,6 +519,20 @@
       "when": 1747958400000,
       "tag": "0073_support_ticket_crm_uuid",
       "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "6",
+      "when": 1747958400001,
+      "tag": "0074_design_studio_templates",
+      "breakpoints": true
+    },
+    {
+      "idx": 75,
+      "version": "6",
+      "when": 1747958400002,
+      "tag": "0075_design_studio_jobs",
+      "breakpoints": true
     }
   ]
 }

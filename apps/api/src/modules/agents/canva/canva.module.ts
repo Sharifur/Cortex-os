@@ -5,6 +5,7 @@ import { TelegramModule } from '../../telegram/telegram.module';
 import { McpModule } from '../../mcp/mcp.module';
 import { SettingsModule } from '../../settings/settings.module';
 import { PostRenderModule } from '../../post-render/post-render.module';
+import { DesignStudioModule } from '../../design-studio/design-studio.module';
 import { CanvaAgent } from './agent';
 import { CanvaMcpService } from './canva-mcp.service';
 import { CanvaBrandsService } from './canva-brands.service';
@@ -22,7 +23,7 @@ import { LocalRenderAdapter } from './adapters/local-render.adapter';
 import { CanvaBrandsController } from './canva-brands.controller';
 
 @Module({
-  imports: [AgentsModule, LlmModule, TelegramModule, McpModule, SettingsModule, PostRenderModule],
+  imports: [AgentsModule, LlmModule, TelegramModule, McpModule, SettingsModule, PostRenderModule, DesignStudioModule],
   controllers: [CanvaBrandsController],
   providers: [
     CanvaAgent,

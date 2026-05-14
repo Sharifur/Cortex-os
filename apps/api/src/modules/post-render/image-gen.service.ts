@@ -20,7 +20,7 @@ function sanitizePrompt(p: string): string {
   return p
     .replace(/ignore previous instructions?/gi, '')
     .replace(/system prompt/gi, '')
-    .slice(0, 800);
+    .slice(0, 4000);
 }
 
 function snapDalleSize(w: number, h: number): '1024x1024' | '1024x1792' | '1792x1024' {
@@ -67,6 +67,7 @@ export class ImageGenService {
     if (preferred === 'gemini') return ['gemini', 'openai'];
     if (preferred === 'stability') return ['stability', 'openai'];
     if (preferred === 'dalle2') return ['dalle2', 'openai'];
+    if (preferred === 'openai-stability') return ['openai', 'stability'];
     return ['openai', 'stability', 'gemini', 'dalle2'];
   }
 

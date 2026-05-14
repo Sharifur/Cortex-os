@@ -68,6 +68,7 @@ export class AgentExecuteProcessor extends WorkerHost {
         .where(eq(agentRuns.id, runId));
 
       await this.logSvc.info(runId, `Executed: ${action.summary}`, { success: result.success });
+      await this.logSvc.info(runId, `Run completed`);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       await this.db.db

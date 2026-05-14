@@ -17,6 +17,7 @@ import { AgentFollowupProcessor } from './modules/agents/runtime/processors/agen
 import { ApprovalSweepProcessor } from './modules/agents/runtime/processors/approval-sweep.processor';
 import { TaskSweepProcessor } from './modules/tasks/task-sweep.processor';
 import { TaskipInternalEmailSweepProcessor } from './modules/agents/taskip-internal/taskip-internal-email-sweep.processor';
+import { DesignStudioProcessor } from './modules/design-studio/design-studio.processor';
 import { LivechatOriginCache } from './modules/agents/livechat/livechat-origin.cache';
 import multipart from '@fastify/multipart';
 
@@ -144,6 +145,7 @@ async function bootstrap() {
   app.get(ApprovalSweepProcessor).startWorker();
   app.get(TaskSweepProcessor).startWorker();
   app.get(TaskipInternalEmailSweepProcessor).startWorker();
+  app.get(DesignStudioProcessor).startWorker();
 }
 
 bootstrap();

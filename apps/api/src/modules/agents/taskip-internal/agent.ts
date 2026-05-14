@@ -323,7 +323,11 @@ State the inferred persona in one line. It determines word choice and what NOT t
 
 ### Step 3 — Prior Email Check
 
-Before picking an angle: check list_sent_emails for this workspace.
+Before picking an angle: check list_sent_emails.
+
+- If the user mentions a specific customer email address, call list_sent_emails(recipient=EMAIL) to find ALL prior outreach to that person, regardless of workspace.
+- Otherwise call list_sent_emails(workspaceUuid=UUID) to check workspace-level history.
+- Never assume "no emails sent" without calling the tool with the appropriate filter for the context.
 
 - If a gap-nudge was sent before → do NOT send another gap-nudge. Pick a different angle.
 - If an achievement email was sent before → follow up on what happened next, don't repeat the same praise.
@@ -1923,6 +1927,7 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
             limit: args.limit as number | undefined,
             purpose: args.purpose as TaskipEmailPurpose | undefined,
             workspaceUuid: args.workspaceUuid as string | undefined,
+            recipient: args.recipient as string | undefined,
           });
         case 'sync_email_replies':
           return await this.emails.syncReplies(args.emailId as string);
@@ -2220,13 +2225,14 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
       },
       {
         name: 'list_sent_emails',
-        description: 'List previously-sent emails tracked by this agent (newest first). Use to check whether a recipient already received outreach.',
+        description: 'List previously-sent emails tracked by this agent (newest first). Use to check whether a recipient already received outreach. Pass recipient to filter by email address.',
         parameters: {
           type: 'object',
           properties: {
             limit: { type: 'number', description: 'default 50, max 200' },
             purpose: { type: 'string', enum: ['marketing', 'followup', 'offer', 'other'] },
             workspaceUuid: { type: 'string' },
+            recipient: { type: 'string', description: 'Filter by recipient email address (partial match). Use this whenever the user mentions a specific customer email.' },
           },
         },
       },

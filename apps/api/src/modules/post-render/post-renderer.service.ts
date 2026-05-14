@@ -25,6 +25,9 @@ import { leftAlignedLayout } from './layouts/left-aligned.layout';
 import { splitPanelLayout } from './layouts/split-panel.layout';
 import { overlayLayout } from './layouts/overlay.layout';
 import { listLayout } from './layouts/list.layout';
+import { coverHeroLayout } from './layouts/cover-hero.layout';
+import { numberedListContentLayout } from './layouts/numbered-list-content.layout';
+import { buildStylePromptBase, buildSlideImagePrompt } from './slide-prompt-builder';
 import type { RenderRequest, RenderResult, FilledSlide, ThemeContract, LayoutType, DominantDNA, SlideVisualSpec, DesignDNA } from './types';
 
 const LAYOUT_MAP: Record<LayoutType, (props: import('./layouts/layout.types').LayoutProps) => object> = {
@@ -33,6 +36,8 @@ const LAYOUT_MAP: Record<LayoutType, (props: import('./layouts/layout.types').La
   'split-panel': splitPanelLayout,
   'overlay': overlayLayout,
   'list-layout': listLayout,
+  'cover-hero': coverHeroLayout,
+  'numbered-list-content': numberedListContentLayout,
 };
 
 // Compatible layout options per slide role — used for randomised layout selection
@@ -99,15 +104,19 @@ export class PostRendererService {
       { event_type: 'post_render_start', format_id: format.id, brand: req.brand, topic: req.topic, slide_count: format.slides.length, render_id: renderId },
     ).catch(() => {});
 
-    // Resolve brand identity, dominant DNA, and one random sample DNA in parallel
-    const [brandRaw, dominantDNA, sampledDNA, patternsBySlideType] = await Promise.all([
+    // Resolve brand identity, dominant DNA, and sample DNA in parallel
+    // When sampleId is provided the render is pinned to that specific training sample's style
+    const [brandRaw, dominantDNA, baseSampledDNA, patternsBySlideType] = await Promise.all([
       this.brandSvc.resolve(req.brand),
       this.designPattern.getDominantDNA(req.brand).catch(() => null as DominantDNA | null),
-      this.designPattern.getRandomSampleDNA(req.brand).catch(() => null),
+      req.sampleId
+        ? this.designPattern.getDNAForEntry(req.sampleId).catch(() => null)
+        : this.designPattern.getRandomSampleDNA(req.brand).catch(() => null),
       req.patternConsistency
         ? this.designPattern.getPatternsBySlideType(req.brand).catch(() => ({} as Record<string, string[]>))
         : Promise.resolve(null as Record<string, string[]> | null),
     ]);
+    const sampledDNA = baseSampledDNA;
 
     // Feature 3: apply learned font pairing when brand uses default Inter fonts
     const useLearned = !!(dominantDNA && dominantDNA.sampleCount >= 20);
@@ -155,15 +164,26 @@ export class PostRendererService {
       slide.layout = pickLayout(slide.role, dominant);
     }
 
+    // When a specific training sample is pinned, override layouts to structurally match that sample
+    if (req.sampleId && sampledDNA) {
+      for (const slide of filledSlides) {
+        if (slide.role === 'cover') {
+          slide.layout = 'cover-hero';
+        } else if (slide.role === 'list' || slide.role === 'content') {
+          slide.layout = 'numbered-list-content';
+        }
+      }
+    }
+
     await this.logSvc.info(runId ?? 'post-render',
       `Content ready: ${filledSlides.length} slides filled`,
       { event_type: 'post_content_end', duration_ms: Date.now() - t0Content, slide_count: filledSlides.length },
     ).catch(() => {});
 
-    // Phase 2: Pick one independent random training sample per slide for color variety
-    const perSlideDNAs = await Promise.all(
-      filledSlides.map(() => this.designPattern.getRandomSampleDNA(req.brand).catch(() => null)),
-    );
+    // Phase 2: Per-slide DNA — pinned to sampleId when specified, otherwise random per slide for variety
+    const perSlideDNAs: (DesignDNA | null)[] = req.sampleId && sampledDNA
+      ? filledSlides.map(() => sampledDNA)
+      : await Promise.all(filledSlides.map(() => this.designPattern.getRandomSampleDNA(req.brand).catch(() => null)));
 
     // Phase 2: Generate per-slide visual specs from pattern rules + per-slide sampled DNA colors
     const visualSpecs: SlideVisualSpec[] = (dominantDNA?.pattern_rules?.length || sampledDNA || perSlideDNAs.some(d => d !== null))
@@ -212,56 +232,24 @@ export class PostRendererService {
         { event_type: 'post_render_slide', slide_index: i, layout: slide.layout },
       ).catch(() => {});
 
-      let backgroundImageBase64: string | undefined;
-      if (schema.styleRules.backgroundType === 'ai-image') {
-        const imgPrompt = (slide.slots['image_prompt'] as string | undefined) ??
-          this._buildImagePrompt(req.topic, contract, dominantDNA);
-        const t0Img = Date.now();
+      let pngBuffer: Buffer;
 
-        // Try Unsplash first when the DNA suggests real photography
-        const needsRealPhoto = dominantDNA?.photography_style &&
-          dominantDNA.photography_style !== 'none' &&
-          dominantDNA.illustration_style === 'none';
-
-        let usedUnsplash = false;
-        if (needsRealPhoto) {
-          try {
-            const unsplashConfigured = await this.unsplash.isConfigured();
-            if (unsplashConfigured) {
-              await this.logSvc.info(runId ?? 'post-render',
-                `Unsplash photo: "${req.topic ?? 'business'}" style:${dominantDNA!.photography_style} — slide ${i + 1}`,
-                { event_type: 'post_image_gen_start', provider: 'unsplash', slide_index: i },
-              ).catch(() => {});
-              const query = this._buildUnsplashQuery(req.topic, dominantDNA);
-              const result = await this.unsplash.fetchAsBuffer(query, format.dimensions);
-              if (result) {
-                backgroundImageBase64 = `data:image/png;base64,${result.buffer.toString('base64')}`;
-                usedUnsplash = true;
-                await this.logSvc.info(runId ?? 'post-render',
-                  `Unsplash photo ready: ${result.photo.id} by ${result.photo.user.name} — ${Date.now() - t0Img}ms`,
-                  { event_type: 'post_image_gen_end', provider: 'unsplash', model: 'unsplash-photo', estimated_cost_usd: 0, duration_ms: Date.now() - t0Img, size_bytes: result.buffer.length },
-                ).catch(() => {});
-              }
-            }
-          } catch (err) {
-            this.logger.warn(`Unsplash failed for slide ${i}, falling back to AI: ${(err as Error).message}`);
-          }
-        }
-
-        // Fall back to AI image generation if Unsplash was not used
-        if (!usedUnsplash) {
-          try {
+      if (req.sampleId && sampledDNA) {
+        // AI full-slide generation path — bypasses Satori
+        const base = sampledDNA.prompt_base ?? buildStylePromptBase(sampledDNA);
+        const aiPrompt = buildSlideImagePrompt(base, slide, sampledDNA, i + 1, filledSlides.length);
+        const t0Ai = Date.now();
+        await this.logSvc.info(runId ?? 'post-render',
+          `AI slide gen: ${slide.role} slide ${i + 1}/${filledSlides.length}`,
+          { event_type: 'post_ai_slide_start', slide_index: i, slide_role: slide.role },
+        ).catch(() => {});
+        try {
+          const { buffer, provider, model, estimatedCostUsd } = await this.imageGen.generate(aiPrompt, format.dimensions, req.imageProvider ?? 'openai-stability');
+          if (buffer.length > 0) {
+            pngBuffer = buffer;
             await this.logSvc.info(runId ?? 'post-render',
-              `Image gen: ${req.imageProvider ?? 'auto'} — slide ${i + 1}`,
-              { event_type: 'post_image_gen_start', provider: req.imageProvider ?? 'auto', slide_index: i },
-            ).catch(() => {});
-            const { buffer, provider, model, estimatedCostUsd } = await this.imageGen.generate(imgPrompt, format.dimensions, req.imageProvider);
-            if (buffer.length > 0) {
-              backgroundImageBase64 = `data:image/png;base64,${buffer.toString('base64')}`;
-            }
-            await this.logSvc.info(runId ?? 'post-render',
-              `Image ready: ${model} ${Date.now() - t0Img}ms ~$${estimatedCostUsd.toFixed(4)}`,
-              { event_type: 'post_image_gen_end', provider, model, estimated_cost_usd: estimatedCostUsd, duration_ms: Date.now() - t0Img, size_bytes: buffer.length },
+              `AI slide ready: ${model} ${Date.now() - t0Ai}ms ~$${estimatedCostUsd.toFixed(4)}`,
+              { event_type: 'post_ai_slide_end', provider, model, estimated_cost_usd: estimatedCostUsd, slide_index: i },
             ).catch(() => {});
             if (estimatedCostUsd > 0) {
               void this.usageSvc.record({
@@ -269,17 +257,89 @@ export class PostRendererService {
                 inputTokens: 0, outputTokens: 0, costUsdOverride: estimatedCostUsd,
               }).catch(() => {});
             }
-          } catch (err) {
-            this.logger.warn(`image gen failed for slide ${i}: ${(err as Error).message}`);
+          } else {
             await this.logSvc.warn(runId ?? 'post-render',
-              `Image gen failed — using gradient background`,
-              { event_type: 'post_image_gen_fallback', slide_index: i, error: (err as Error).message },
+              `AI slide gen returned empty buffer for slide ${i + 1} — check OpenAI/Stability API key in Settings. Using Satori fallback.`,
+              { event_type: 'post_ai_slide_fallback', slide_index: i, reason: 'empty_buffer' },
             ).catch(() => {});
+            pngBuffer = await this.renderSlide(slide, contract, format.dimensions, i + 1, undefined, visualSpecMap.get(i));
+          }
+        } catch (err) {
+          await this.logSvc.warn(runId ?? 'post-render',
+            `AI slide gen failed for slide ${i + 1}: ${(err as Error).message} — Using Satori fallback.`,
+            { event_type: 'post_ai_slide_fallback', slide_index: i, reason: (err as Error).message },
+          ).catch(() => {});
+          pngBuffer = await this.renderSlide(slide, contract, format.dimensions, i + 1, undefined, visualSpecMap.get(i));
+        }
+      } else {
+        // Satori path (background image + code render)
+        let backgroundImageBase64: string | undefined;
+        if (schema.styleRules.backgroundType === 'ai-image') {
+          const imgPrompt = (slide.slots['image_prompt'] as string | undefined) ??
+            this._buildImagePrompt(req.topic, contract, dominantDNA);
+          const t0Img = Date.now();
+
+          const needsRealPhoto = dominantDNA?.photography_style &&
+            dominantDNA.photography_style !== 'none' &&
+            dominantDNA.illustration_style === 'none';
+
+          let usedUnsplash = false;
+          if (needsRealPhoto) {
+            try {
+              const unsplashConfigured = await this.unsplash.isConfigured();
+              if (unsplashConfigured) {
+                await this.logSvc.info(runId ?? 'post-render',
+                  `Unsplash photo: "${req.topic ?? 'business'}" style:${dominantDNA!.photography_style} — slide ${i + 1}`,
+                  { event_type: 'post_image_gen_start', provider: 'unsplash', slide_index: i },
+                ).catch(() => {});
+                const query = this._buildUnsplashQuery(req.topic, dominantDNA);
+                const result = await this.unsplash.fetchAsBuffer(query, format.dimensions);
+                if (result) {
+                  backgroundImageBase64 = `data:image/png;base64,${result.buffer.toString('base64')}`;
+                  usedUnsplash = true;
+                  await this.logSvc.info(runId ?? 'post-render',
+                    `Unsplash photo ready: ${result.photo.id} by ${result.photo.user.name} — ${Date.now() - t0Img}ms`,
+                    { event_type: 'post_image_gen_end', provider: 'unsplash', model: 'unsplash-photo', estimated_cost_usd: 0, duration_ms: Date.now() - t0Img, size_bytes: result.buffer.length },
+                  ).catch(() => {});
+                }
+              }
+            } catch (err) {
+              this.logger.warn(`Unsplash failed for slide ${i}, falling back to AI: ${(err as Error).message}`);
+            }
+          }
+
+          if (!usedUnsplash) {
+            try {
+              await this.logSvc.info(runId ?? 'post-render',
+                `Image gen: ${req.imageProvider ?? 'auto'} — slide ${i + 1}`,
+                { event_type: 'post_image_gen_start', provider: req.imageProvider ?? 'auto', slide_index: i },
+              ).catch(() => {});
+              const { buffer, provider, model, estimatedCostUsd } = await this.imageGen.generate(imgPrompt, format.dimensions, req.imageProvider);
+              if (buffer.length > 0) {
+                backgroundImageBase64 = `data:image/png;base64,${buffer.toString('base64')}`;
+              }
+              await this.logSvc.info(runId ?? 'post-render',
+                `Image ready: ${model} ${Date.now() - t0Img}ms ~$${estimatedCostUsd.toFixed(4)}`,
+                { event_type: 'post_image_gen_end', provider, model, estimated_cost_usd: estimatedCostUsd, duration_ms: Date.now() - t0Img, size_bytes: buffer.length },
+              ).catch(() => {});
+              if (estimatedCostUsd > 0) {
+                void this.usageSvc.record({
+                  runId: runId ?? null, agentKey: 'canva', provider, model,
+                  inputTokens: 0, outputTokens: 0, costUsdOverride: estimatedCostUsd,
+                }).catch(() => {});
+              }
+            } catch (err) {
+              this.logger.warn(`image gen failed for slide ${i}: ${(err as Error).message}`);
+              await this.logSvc.warn(runId ?? 'post-render',
+                `Image gen failed — using gradient background`,
+                { event_type: 'post_image_gen_fallback', slide_index: i, error: (err as Error).message },
+              ).catch(() => {});
+            }
           }
         }
-      }
 
-      const pngBuffer = await this.renderSlide(slide, contract, format.dimensions, i + 1, backgroundImageBase64, visualSpecMap.get(i));
+        pngBuffer = await this.renderSlide(slide, contract, format.dimensions, i + 1, backgroundImageBase64, visualSpecMap.get(i));
+      }
 
       await this.logSvc.debug(runId ?? 'post-render',
         `Slide ${i + 1} rendered: ${Math.round(pngBuffer.length / 1024)}KB PNG`,
@@ -474,5 +534,11 @@ export class PostRendererService {
 
   async updateStatus(id: string, status: string): Promise<void> {
     await this.db.db.update(postRenders).set({ status }).where(eq(postRenders.id, id));
+  }
+
+  async deleteRender(id: string): Promise<void> {
+    await this.db.db.delete(postRenders).where(eq(postRenders.id, id));
+    const dir = path.join(LOCAL_RENDERS_DIR, id);
+    await fs.rm(dir, { recursive: true, force: true });
   }
 }

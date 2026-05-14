@@ -7,7 +7,7 @@ import {
   AlertCircle, MessageSquare, ListTodo, RotateCcw, History, X,
   ThumbsUp, ThumbsDown, ImagePlus, Copy, Mail, Check, Wrench, Zap,
   Bold, Italic, List, Radio, ShieldAlert, ShieldCheck, Image, FileImage, Layers,
-  ChevronLeft, ChevronRight, Download, Reply,
+  ChevronLeft, ChevronRight, Download, Reply, Archive,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -965,9 +965,43 @@ function SlideThumb({ url, n, onClick }: { url: string; n: number; onClick?: () 
 function SlideGrid({ slideUrls, renderId }: { slideUrls: string[]; renderId?: string }) {
   void renderId;
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  const [downloading, setDownloading] = useState(false);
+
+  async function downloadZip() {
+    if (downloading) return;
+    setDownloading(true);
+    try {
+      const JSZip = (await import('jszip')).default;
+      const zip = new JSZip();
+      await Promise.all(slideUrls.map(async (url, i) => {
+        const res = await fetch(url);
+        const blob = await res.blob();
+        zip.file(`slide-${String(i + 1).padStart(2, '0')}.png`, blob);
+      }));
+      const content = await zip.generateAsync({ type: 'blob' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(content);
+      a.download = 'carousel-slides.zip';
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } finally {
+      setDownloading(false);
+    }
+  }
+
   return (
     <div className="space-y-2">
-      <p className="text-xs text-muted-foreground">{slideUrls.length} slides rendered</p>
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-muted-foreground">{slideUrls.length} slides rendered</p>
+        <button
+          onClick={downloadZip}
+          disabled={downloading}
+          className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors disabled:opacity-50"
+        >
+          {downloading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Archive className="w-3 h-3" />}
+          {downloading ? 'Zipping...' : 'Download all'}
+        </button>
+      </div>
       <div className="grid grid-cols-3 gap-2">
         {slideUrls.map((url, i) => (
           <SlideThumb key={i} url={url} n={i + 1} onClick={() => setLightboxIndex(i)} />
@@ -987,10 +1021,290 @@ function SlideGrid({ slideUrls, renderId }: { slideUrls: string[]; renderId?: st
   );
 }
 
+function SlideSkeletonBubble({ color, count = 6 }: { color: ReturnType<typeof agentColor>; count?: number }) {
+  return (
+    <div className="flex items-end gap-2">
+      <div className={`w-7 h-7 rounded-lg ${color.iconBg} flex items-center justify-center shrink-0`}>
+        <Bot className={`w-3.5 h-3.5 ${color.iconText}`} />
+      </div>
+      <div className={`rounded-2xl rounded-bl-sm px-4 py-3 ${color.bubble} max-w-sm`}>
+        <p className="text-xs text-muted-foreground mb-2.5">
+          Generating slides
+          <span className="inline-flex gap-0.5 ml-1">
+            {[0,1,2].map(i => (
+              <span key={i} className={`w-1 h-1 rounded-full ${color.dot} opacity-60`} style={{ animation: `bounce 1.2s ${i * 0.2}s infinite` }} />
+            ))}
+          </span>
+        </p>
+        <div className="grid grid-cols-3 gap-2">
+          {Array.from({ length: count }).map((_, i) => (
+            <div key={i} className="aspect-square rounded-lg bg-muted/50 animate-pulse flex items-center justify-center"
+              style={{ animationDelay: `${i * 0.1}s` }}>
+              <span className="text-[10px] text-muted-foreground/30">{i + 1}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Quick reply pill cards ───────────────────────────────────────────────────
+
+interface ParsedQuestion { label: string; options: string[] }
+
+function parseClarifyingQuestions(content: string): { intro: string; questions: ParsedQuestion[] } | null {
+  if (!content.includes('Quick questions before I start:')) return null;
+  const lines = content.split('\n');
+  const questions: ParsedQuestion[] = [];
+  for (const line of lines) {
+    const m = line.match(/^\d+\.\s+(.+?)\s+[—-]\s+(.+?)(\?)?$/);
+    if (m) {
+      const label = m[1].trim();
+      const options = m[2].trim().split(/\s*\/\s*/).map(o => o.replace(/\?$/, '').trim()).filter(Boolean);
+      if (options.length) questions.push({ label, options });
+    }
+  }
+  if (!questions.length) return null;
+  const firstNum = lines.findIndex(l => /^\d+\./.test(l.trim()));
+  const intro = lines.slice(0, firstNum).join('\n').trim();
+  return { intro, questions };
+}
+
+interface StyleSample { num: string; id: string; title: string; thumb: string | null; fields?: string; isSet?: boolean }
+
+function parseStylePicker(content: string): { header: string; samples: StyleSample[] } | null {
+  if (!content.includes('[styles:')) return null;
+  const stylesMatch = content.match(/\[styles:(\{[^\n]+\})\]/);
+  if (!stylesMatch) return null;
+  try {
+    const { samples } = JSON.parse(stylesMatch[1]) as { samples: StyleSample[] };
+    if (!samples?.length) return null;
+    const headerLines = content.split('\n').filter(l => l.trim() && !l.includes('[styles:') && !l.includes('[pending:') && !l.includes('[layout-pending:') && !l.includes('[content-confirm]'));
+    return { header: headerLines.join('\n').trim(), samples };
+  } catch { return null; }
+}
+
+function parseContentConfirm(content: string): { body: string; slideCount: number } | null {
+  if (!content.includes('[content-confirm]') || !content.includes('[pending:')) return null;
+  const body = content
+    .replace(/\[content-confirm\]\n?/g, '')
+    .replace(/\[pending:\{[^\n]*\}\]\n?/g, '')
+    .trim();
+  const countMatch = content.match(/(\d+)\s+slides?\./i);
+  const slideCount = countMatch ? parseInt(countMatch[1], 10) : 5;
+  return { body, slideCount };
+}
+
+function QuickReplyCard({
+  content,
+  onSubmit,
+  color,
+}: {
+  content: string;
+  onSubmit: (text: string) => void;
+  color: ReturnType<typeof agentColor>;
+}) {
+  const parsed = parseClarifyingQuestions(content);
+  const [selections, setSelections] = useState<Record<number, string>>({});
+  const [submitted, setSubmitted] = useState(false);
+  if (!parsed) return null;
+
+  function toggle(qi: number, opt: string) {
+    setSelections(prev => ({ ...prev, [qi]: prev[qi] === opt ? '' : opt }));
+  }
+
+  function submit() {
+    if (submitted) return;
+    const parts = parsed!.questions.map((_, i) => selections[i] ?? '').filter(Boolean);
+    setSubmitted(true);
+    onSubmit(parts.length ? parts.join(', ') : 'default, bold & punchy, tips list');
+  }
+
+  if (submitted) {
+    return (
+      <div className={`rounded-2xl px-4 py-2.5 text-sm ${color.bubble} text-foreground rounded-bl-sm opacity-50`}>
+        <p className="text-sm">{parsed.intro.split('\n')[0]}</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className={`rounded-2xl px-4 py-3 ${color.bubble} text-foreground rounded-bl-sm space-y-3`}>
+      {parsed.intro && parsed.intro.split('\n').filter(Boolean).map((line, i) => (
+        <p key={i} className={`text-sm leading-relaxed ${i === 0 ? '' : 'text-muted-foreground'}`}>{line}</p>
+      ))}
+      {parsed.questions.map((q, i) => (
+        <div key={i} className="space-y-1.5">
+          <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">{q.label}</p>
+          <div className="flex flex-wrap gap-1.5">
+            {q.options.map(opt => (
+              <button
+                key={opt}
+                onClick={() => toggle(i, opt)}
+                className={`px-3 py-1 rounded-full text-xs border transition-colors ${
+                  selections[i] === opt
+                    ? 'bg-primary text-primary-foreground border-primary'
+                    : 'border-border text-muted-foreground hover:border-foreground/40 hover:text-foreground'
+                }`}
+              >
+                {opt}
+              </button>
+            ))}
+          </div>
+        </div>
+      ))}
+      <button
+        onClick={submit}
+        className="mt-1 px-4 py-1.5 rounded-full bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition-colors"
+      >
+        Generate
+      </button>
+    </div>
+  );
+}
+
+function StylePickerCard({
+  content,
+  onSubmit,
+  color,
+}: {
+  content: string;
+  onSubmit: (text: string) => void;
+  color: ReturnType<typeof agentColor>;
+}) {
+  const parsed = parseStylePicker(content);
+  const [selected, setSelected] = useState<string | null>(null);
+
+  if (!parsed) return null;
+
+  function pick(num: string) {
+    if (selected) return;
+    setSelected(num);
+    onSubmit(num === '0' ? 'random' : num);
+  }
+
+  const headerLines = parsed.header.split('\n').filter(l => l.trim());
+  const W = 90, H = 118;
+
+  return (
+    <div className={`rounded-2xl px-4 py-3 ${color.bubble} text-foreground rounded-bl-sm space-y-3`}>
+      {headerLines.map((line, i) => (
+        <p key={i} className="text-sm leading-relaxed">{line}</p>
+      ))}
+      <div className="flex flex-wrap gap-4 pt-1">
+        {/* Random option */}
+        <button
+          onClick={() => pick('0')}
+          className={`flex flex-col items-center gap-1.5 group transition-all ${selected ? 'opacity-40 pointer-events-none' : ''} ${selected === '0' ? '!opacity-100' : ''}`}
+        >
+          <div style={{ width: W, height: H }} className={`rounded-xl border-2 flex items-center justify-center bg-muted/40 transition-colors ${
+            selected === '0' ? 'border-primary' : 'border-border group-hover:border-foreground/30'
+          }`}>
+            <span className="text-2xl opacity-40">?</span>
+          </div>
+          <span className="text-[10px] text-muted-foreground text-center leading-tight" style={{ maxWidth: W }}>Random</span>
+        </button>
+
+        {parsed.samples.map(s => (
+          <button
+            key={s.num}
+            onClick={() => pick(s.num)}
+            className={`flex flex-col items-center gap-1.5 group transition-all ${selected ? 'opacity-40 pointer-events-none' : ''} ${selected === s.num ? '!opacity-100' : ''}`}
+          >
+            {/* Stacked card visual for carousel sets */}
+            <div style={{ position: 'relative', width: W + 8, height: H + 8 }}>
+              {s.isSet && (
+                <>
+                  <div className="absolute rounded-xl bg-muted/20 border border-border/20"
+                    style={{ width: W - 6, height: H - 6, top: 10, left: 7 }} />
+                  <div className="absolute rounded-xl bg-muted/40 border border-border/30"
+                    style={{ width: W - 2, height: H - 2, top: 5, left: 4 }} />
+                </>
+              )}
+              <div
+                className={`absolute rounded-xl border-2 overflow-hidden transition-colors ${
+                  selected === s.num ? 'border-primary' : 'border-border group-hover:border-foreground/30'
+                }`}
+                style={{ width: W, height: H, top: 0, left: 0 }}
+              >
+                {s.thumb ? (
+                  <img src={s.thumb} alt={s.title} className="w-full h-full object-cover" />
+                ) : (
+                  <div className="w-full h-full bg-muted/60 flex items-center justify-center">
+                    <Image className="w-5 h-5 text-muted-foreground/40" />
+                  </div>
+                )}
+              </div>
+            </div>
+            <span className="text-[10px] text-muted-foreground text-center leading-tight line-clamp-2" style={{ maxWidth: W + 8 }}>
+              {s.title.split(' — ')[0]}
+            </span>
+            {s.fields && (
+              <span className="text-[9px] text-muted-foreground/50 text-center leading-tight line-clamp-1" style={{ maxWidth: W + 8 }}>
+                {s.fields}
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ContentConfirmCard({
+  content,
+  onSubmit,
+  color,
+}: {
+  content: string;
+  onSubmit: (text: string) => void;
+  color: ReturnType<typeof agentColor>;
+}) {
+  const parsed = parseContentConfirm(content);
+  const [submitted, setSubmitted] = useState(false);
+
+  if (!parsed) return null;
+
+  function confirm(text: string) {
+    if (submitted) return;
+    setSubmitted(true);
+    onSubmit(text);
+  }
+
+  if (submitted) {
+    return (
+      <div className={`rounded-2xl px-4 py-2.5 text-sm ${color.bubble} text-foreground rounded-bl-sm opacity-50`}>
+        <p className="text-sm">{parsed.body.split('\n')[0]}</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className={`rounded-2xl px-4 py-3 ${color.bubble} text-foreground rounded-bl-sm space-y-3`}>
+      <div dangerouslySetInnerHTML={{ __html: renderMarkdown(parsed.body) }} className="text-sm leading-relaxed" />
+      <div className="flex gap-2 pt-1">
+        <button
+          onClick={() => confirm('Looks good!')}
+          className="px-4 py-1.5 rounded-full bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition-colors"
+        >
+          Looks good
+        </button>
+        <button
+          onClick={() => confirm('Revise it')}
+          className="px-4 py-1.5 rounded-full border border-border text-muted-foreground text-xs hover:border-foreground/40 hover:text-foreground transition-colors"
+        >
+          Revise it
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ─── Message bubble ───────────────────────────────────────────────────────────
 
 function MessageBubble({
-  msg, color, agentName, onFeedback, onReply, onApprove, onReject, token, agentKey,
+  msg, color, agentName, onFeedback, onReply, onApprove, onReject, token, agentKey, onQuickReply, isLast, prevMsgContent,
 }: {
   msg: ConvMessage & { pending?: boolean; feedback?: 'up' | 'down' };
   color: ReturnType<typeof agentColor>;
@@ -1001,6 +1315,9 @@ function MessageBubble({
   onReject?: () => void;
   token: string;
   agentKey?: string;
+  onQuickReply?: (text: string) => void;
+  isLast?: boolean;
+  prevMsgContent?: string;
 }) {
   const isUser = msg.role === 'user';
 
@@ -1016,13 +1333,47 @@ function MessageBubble({
           // Slide render result
           if (!isUser && msg.content.startsWith(SLIDE_RENDER_PREFIX)) {
             try {
-              const { slideUrls, renderId } = JSON.parse(msg.content.slice(SLIDE_RENDER_PREFIX.length));
+              const { slideUrls, renderId, nextSlidePrompt } = JSON.parse(msg.content.slice(SLIDE_RENDER_PREFIX.length));
+              const displayPrompt = nextSlidePrompt
+                ? String(nextSlidePrompt).replace(/\[carousel-gather:[\s\S]*$/, '').trim()
+                : null;
               return (
-                <div className={`rounded-2xl rounded-bl-sm px-4 py-3 ${color.bubble}`}>
-                  <SlideGrid slideUrls={slideUrls} renderId={renderId} />
+                <div className="flex flex-col gap-2">
+                  <div className={`rounded-2xl rounded-bl-sm px-4 py-3 ${color.bubble}`}>
+                    <SlideGrid slideUrls={slideUrls} renderId={renderId} />
+                  </div>
+                  {displayPrompt && (
+                    <div className={`rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${color.bubble} text-foreground rounded-bl-sm`}>
+                      <div dangerouslySetInnerHTML={{ __html: renderMarkdown(displayPrompt) }} />
+                    </div>
+                  )}
                 </div>
               );
             } catch { /* fall through */ }
+          }
+          // Quick reply pill cards — only on the last agent message (unanswered)
+          if (!isUser && isLast && onQuickReply) {
+            if (parseContentConfirm(msg.content)) {
+              return <ContentConfirmCard content={msg.content} onSubmit={onQuickReply} color={color} />;
+            }
+            if (parseClarifyingQuestions(msg.content)) {
+              return <QuickReplyCard content={msg.content} onSubmit={onQuickReply} color={color} />;
+            }
+            if (parseStylePicker(msg.content)) {
+              return <StylePickerCard content={msg.content} onSubmit={onQuickReply} color={color} />;
+            }
+          }
+          // Content confirm (non-last — show as markdown without markers)
+          if (!isUser && msg.content.includes('[content-confirm]')) {
+            const body = msg.content
+              .replace(/\[content-confirm\]\n?/g, '')
+              .replace(/\[pending:\{[^\n]*\}\]\n?/g, '')
+              .trim();
+            return (
+              <div className={`rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${color.bubble} text-foreground rounded-bl-sm`}>
+                <div dangerouslySetInnerHTML={{ __html: renderMarkdown(body) }} />
+              </div>
+            );
           }
           // Structured email draft from proposedActions
           if (!isUser && msg.content.startsWith(EMAIL_DRAFT_PREFIX)) {
@@ -1052,6 +1403,45 @@ function MessageBubble({
               );
             }
           }
+          // Style picker selection: show thumbnail instead of raw number
+          if (isUser && prevMsgContent?.includes('[styles:')) {
+            const rawNum = msg.content.trim();
+            const isNumericOrRandom = /^\d+$/.test(rawNum) || /^random$/i.test(rawNum);
+            if (isNumericOrRandom) {
+              const parsedPrev = parseStylePicker(prevMsgContent);
+              if (parsedPrev) {
+                const numInt = parseInt(rawNum, 10);
+                const sample = numInt >= 1 && numInt <= parsedPrev.samples.length
+                  ? parsedPrev.samples[numInt - 1]
+                  : null;
+                const W = 72, H = 94;
+                return (
+                  <div className="flex flex-col items-end gap-1">
+                    <div style={{ position: 'relative', width: W + 8, height: H + 8 }}>
+                      {sample?.isSet && (
+                        <>
+                          <div className="absolute rounded-xl bg-primary/10 border border-primary/20"
+                            style={{ width: W - 6, height: H - 6, top: 10, left: 7 }} />
+                          <div className="absolute rounded-xl bg-primary/20 border border-primary/30"
+                            style={{ width: W - 2, height: H - 2, top: 5, left: 4 }} />
+                        </>
+                      )}
+                      <div className="absolute rounded-xl border-2 border-primary overflow-hidden bg-muted/60"
+                        style={{ width: W, height: H, top: 0, left: 0 }}>
+                        {sample?.thumb
+                          ? <img src={sample.thumb} alt={sample.title} className="w-full h-full object-cover" />
+                          : <div className="w-full h-full flex items-center justify-center text-xl opacity-40">?</div>
+                        }
+                      </div>
+                    </div>
+                    <span className="text-[10px] text-muted-foreground/60 pr-1">
+                      {sample ? sample.title.split(' — ')[0] : (rawNum === '0' || /^random$/i.test(rawNum) ? 'Random' : `Layout ${rawNum}`)}
+                    </span>
+                  </div>
+                );
+              }
+            }
+          }
           return (
             <div className={`rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
               isUser
@@ -1060,7 +1450,17 @@ function MessageBubble({
             }`}>
               {isUser
                 ? msg.content
-                : <div dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }} />
+                : <div dangerouslySetInnerHTML={{ __html: renderMarkdown(
+                    msg.content
+                      .replace(/\[styles:\{[^\n]*\}\]\n?/g, '')
+                      .replace(/\[pending:\{[^\n]*\}\]\n?/g, '')
+                      .replace(/\[layout-pending:\{[^\n]*\}\]\n?/g, '')
+                      .replace(/\[content-confirm\]\n?/g, '')
+                      .replace(/\[param-gather:\{[^\n]*\}\]\n?/g, '')
+                      .replace(/\[carousel-gather:\{[^\n]*\}\]\n?/g, '')
+                      .replace(/\[extra-params-gather:\{[\s\S]*?\}\]\n?/g, '')
+                      .trim()
+                  ) }} />
               }
             </div>
           );
@@ -1267,6 +1667,19 @@ function parseLogsToTimeline(logs: RunLog[], finished: boolean): ActivityEntry[]
       entries.push({ id: log.id, at, type: 'image_gen', label: log.message, status: 'failed' });
       continue;
     }
+    if (meta?.event_type === 'post_ai_slide_start') {
+      entries.push({ id: log.id, at, type: 'image_gen', label: log.message, status: 'running' });
+      continue;
+    }
+    if (meta?.event_type === 'post_ai_slide_end') {
+      const cost = meta.estimated_cost_usd ? ` ~$${Number(meta.estimated_cost_usd).toFixed(4)}` : '';
+      entries.push({ id: log.id, at, type: 'image_gen', label: `${log.message}${cost}`, status: 'success', durationMs: meta.duration_ms ? Number(meta.duration_ms) : undefined });
+      continue;
+    }
+    if (meta?.event_type === 'post_ai_slide_fallback') {
+      entries.push({ id: log.id, at, type: 'image_gen', label: log.message, status: 'failed' });
+      continue;
+    }
     if (meta?.event_type === 'post_render_slide') {
       entries.push({ id: log.id, at, type: 'render_slide', label: log.message, status: 'running' });
       continue;
@@ -1320,6 +1733,18 @@ function parseLogsToTimeline(logs: RunLog[], finished: boolean): ActivityEntry[]
     }
     if (log.message.startsWith('Auto-executing:')) {
       entries.push({ id: log.id, at, type: 'complete', label: log.message.slice(0, 60), status: 'success' });
+      continue;
+    }
+    if (log.message.startsWith('Executing:')) {
+      entries.push({ id: log.id, at, type: 'tool_call', label: log.message.slice(0, 60), status: 'running' });
+      continue;
+    }
+    if (log.message.startsWith('Executed:')) {
+      entries.push({ id: log.id, at, type: 'tool_result', label: log.message.slice(0, 60), status: 'success' });
+      continue;
+    }
+    if (log.message.startsWith('Execute failed:')) {
+      entries.push({ id: log.id, at, type: 'error', label: log.message.slice(0, 70), status: 'failed' });
       continue;
     }
     if (log.message.startsWith('Run completed')) {
@@ -1419,8 +1844,9 @@ function RunActivityPanel({
     queryFn: () => apiFetch(token, `/runs/${runId}/logs`),
     refetchInterval: (query) => {
       if (!runId) return false;
-      if (query.state.data?.finished) return false;
-      return 1500;
+      const data = query.state.data;
+      if (data?.finished && data.logs.length > 0) return false;
+      return 800;
     },
   });
 
@@ -1653,7 +2079,7 @@ function ChatTab({
     queryKey: ['run-logs', activeRunId],
     enabled: !!activeRunId,
     queryFn: () => apiFetch(token, `/runs/${activeRunId}/logs`),
-    refetchInterval: (query) => (!activeRunId || query.state.data?.finished) ? false : 1500,
+    refetchInterval: (query) => (!activeRunId || query.state.data?.finished) ? false : 800,
   });
 
   const renderProgress = useMemo(() => {
@@ -1672,6 +2098,20 @@ function ChatTab({
     if (!totalSlides) return null;
     return { totalSlides, renderId, doneCount };
   }, [activeRunLogs]);
+
+  const { isGeneratingSlides, generatingSlideCount } = useMemo(() => {
+    if (!isThinking || renderProgress) return { isGeneratingSlides: false, generatingSlideCount: 6 };
+    const agentMsgs = messages.filter(m => m.role === 'agent');
+    const last = agentMsgs[agentMsgs.length - 1];
+    if (!last) return { isGeneratingSlides: false, generatingSlideCount: 6 };
+    const generating = last.content.includes('[content-confirm]') || last.content.includes('[extra-params-gather:');
+    let count = 6;
+    if (generating) {
+      const m = last.content.match(/(\d+)\s+slides?\./i);
+      if (m) count = parseInt(m[1], 10);
+    }
+    return { isGeneratingSlides: generating, generatingSlideCount: count };
+  }, [isThinking, renderProgress, messages]);
 
   // Poll active run
   const { data: runData } = useQuery<RunDetail>({
@@ -1959,8 +2399,10 @@ function ChatTab({
           </div>
         )}
 
-        {messages.map((msg) => {
+        {messages.map((msg, idx) => {
           const approval = msg.runId ? approvalByRunId[msg.runId] : undefined;
+          const isLast = idx === messages.length - 1;
+          const prevMsgContent = idx > 0 ? messages[idx - 1].content : undefined;
           return (
             <MessageBubble
               key={msg.id}
@@ -1973,15 +2415,20 @@ function ChatTab({
               onReject={approval ? () => rejectChatMutation.mutate(approval.id) : undefined}
               token={token ?? ''}
               agentKey={agent.key}
+              isLast={isLast}
+              onQuickReply={isLast ? (text) => triggerMutation.mutate(text) : undefined}
+              prevMsgContent={prevMsgContent}
             />
           );
         })}
 
         {isThinking && (
-  renderProgress
-    ? <RenderProgressBubble color={color} progress={renderProgress} />
-    : <TypingBubble color={color} />
-)}
+          renderProgress
+            ? <RenderProgressBubble color={color} progress={renderProgress} />
+            : isGeneratingSlides
+              ? <SlideSkeletonBubble color={color} count={generatingSlideCount} />
+              : <TypingBubble color={color} />
+        )}
         <div ref={bottomRef} />
         </div>
       </div>

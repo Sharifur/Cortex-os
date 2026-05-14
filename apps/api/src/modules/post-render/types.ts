@@ -1,7 +1,7 @@
 export type PostPlatform = 'linkedin' | 'instagram' | 'twitter' | 'facebook';
 export type PostCategory = 'carousel' | 'single' | 'story';
 export type SlideRole = 'cover' | 'content' | 'stat' | 'quote' | 'list' | 'cta';
-export type LayoutType = 'centered' | 'left-aligned' | 'split-panel' | 'overlay' | 'list-layout';
+export type LayoutType = 'centered' | 'left-aligned' | 'split-panel' | 'overlay' | 'list-layout' | 'cover-hero' | 'numbered-list-content';
 export type BackgroundVariant = 'brand-primary' | 'brand-secondary' | 'white' | 'dark' | 'gradient';
 export type TextColorMode = 'auto' | 'white' | 'dark';
 export type AccentType = 'top-bar' | 'bottom-bar' | 'left-stripe' | 'none';
@@ -16,7 +16,7 @@ export type ContentSlotType =
   | 'attribution'
   | 'image_prompt';
 
-export type ImageProvider = 'auto' | 'openai' | 'gemini' | 'stability' | 'dalle2';
+export type ImageProvider = 'auto' | 'openai' | 'gemini' | 'stability' | 'dalle2' | 'openai-stability';
 export type RenderStatus = 'draft' | 'approved' | 'published' | 'rejected';
 
 export interface ContentSlot {
@@ -115,6 +115,9 @@ export interface ThemeContract {
   headlineMaxChars: number;
   bodyMaxChars: number;
   listItemsMax: number;
+
+  // Background texture overlay (from training sample DNA)
+  backgroundTexture?: 'dots' | 'none';
 
   // Session metadata
   totalSlides: number;
@@ -423,6 +426,9 @@ export interface DesignDNA {
   // Free-text observations
   pattern_notes: string;
 
+  // Cached DALL-E style prompt base — generated once at analysis time from DNA fields
+  prompt_base?: string;
+
   // Set when this DNA represents a full multi-slide carousel rather than a single slide
   carousel_slide_count?: number;
   carousel_slide_urls?: string[];  // R2 URLs for each slide in order (index 0 = cover)
@@ -441,6 +447,7 @@ export interface SlideVisualSpec {
   bgGradient?: string;
   accentColor?: string | null;
   wordHighlights?: WordHighlight[];
+  listItemBg?: string;  // background color for list item content boxes (Yellow Minimalist style)
   decorations?: Array<{
     shape_type: string;
     fill_type: 'solid' | 'linear-gradient' | 'radial-gradient' | 'none';
@@ -461,6 +468,7 @@ export interface RenderRequest {
   intent?: string;
   imageProvider?: ImageProvider;
   patternConsistency?: boolean;
+  sampleId?: string;  // KB entry ID of a specific training sample — pins that sample's DNA for all slides
 }
 
 export interface RenderResult {

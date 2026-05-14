@@ -90,28 +90,16 @@ export const AGENT_TASK_SUGGESTIONS: Record<string, string[]> = {
   ],
 
   canva: [
-    // Post Format Engine — LinkedIn carousels
-    'Generate a linkedin-tips-carousel for brand taskip about "5 ways to save time on client work"',
-    'Generate a linkedin-howto-carousel for brand taskip about "how to set up a client portal in 3 steps"',
-    'Generate a linkedin-list-carousel for brand taskip about "tools every freelancer needs in 2025"',
-    // Post Format Engine — LinkedIn single cards
-    'Generate a linkedin-stat-single for brand taskip about "87% of freelancers waste 4 hours a week on admin"',
-    'Generate a linkedin-quote-single for brand taskip with a quote about client management',
-    // Post Format Engine — Instagram
-    'Generate an instagram-carousel-edu for brand taskip about "why client portals beat email threads"',
-    'Generate an instagram-fact for brand taskip about Taskip customer growth',
-    'Generate an instagram-story-tip for brand taskip about "one habit that saves 2 hours a week"',
-    'Generate an instagram-story-announce for brand taskip — announce the new Insight analytics feature',
-    // Post Format Engine — other platforms
-    'Generate a twitter-announcement for brand taskip about a new feature launch',
-    'Generate a facebook-ad-banner for brand taskip targeting freelancers',
-    'Generate a generic-checklist for brand taskip about "before you launch: agency checklist"',
-    // Legacy Canva MCP designs
-    'Create a Facebook banner carousel for our product launch',
-    'Make a LinkedIn carousel: 5 business growth tips for SaaS founders',
-    'Design an announcement post: we just launched a new feature',
-    'Design a testimonial carousel with 3 customer quotes',
-    'Create a social proof post: we just hit 10,000 customers',
+    'Create a carousel about growing your personal brand on LinkedIn',
+    'Make a tips carousel about productivity habits for founders',
+    'Design a carousel about 5 mistakes new entrepreneurs make',
+    'Create a carousel about how to get your first 10 clients',
+    'Make a motivational carousel about building a business from scratch',
+    'Design a tips post about managing remote teams effectively',
+    'Create a carousel about tools every freelancer needs in 2025',
+    'Make a how-to carousel about setting up a client portal',
+    'Design a carousel about leadership lessons from fast-growing startups',
+    'Create an announcement carousel for a new product launch',
   ],
 };
 

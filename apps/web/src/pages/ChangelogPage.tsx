@@ -16,6 +16,343 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.66.6',
+    date: '2026-05-15',
+    entries: [
+      { tag: 'fix', scope: 'canva', description: 'Activity panel now shows per-slide AI generation progress in real-time. The canva agent injects AgentLogService and writes post_ai_slide_start/end events for each slide during design-studio DALL-E generation, so the panel updates as each slide completes.' },
+      { tag: 'fix', scope: 'canva', description: 'Activity panel polling interval reduced to 800ms (from 1500ms) for faster real-time feel.' },
+      { tag: 'fix', scope: 'canva', description: 'parseLogsToTimeline now handles post_ai_slide_start, post_ai_slide_end, and post_ai_slide_fallback events from both the canva agent and post-renderer.' },
+    ],
+  },
+  {
+    version: 'v4.66.5',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'Layout picker response now shows the selected template thumbnail in the user message bubble instead of a bare number. The correct template preview image (with stacked-card depth effect for carousel sets) is displayed based on the preceding style picker context.' },
+    ],
+  },
+  {
+    version: 'v4.66.4',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'fix', scope: 'support', description: 'Webhook trigger no longer scans all open tickets. buildContext() now uses normalizeCrmPayload() (same as ingestWebhook) to extract the CRM ticket ID from nested payload formats. Previously the flat-only payload?.ticket?.id lookup always returned null, causing fallthrough to the CRON batch path which processed every open ticket including unrelated ones. Now only the specific ticket from the webhook is processed, and if it is not open the run exits immediately.' },
+    ],
+  },
+  {
+    version: 'v4.66.3',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'fix', scope: 'canva', description: 'Activity panel now shows "Executing" and "Executed" log entries, plus a "Run completed" entry at the end of each run. Previously these messages were silently dropped and the panel appeared empty.' },
+      { tag: 'fix', scope: 'canva', description: 'Activity panel no longer freezes on an empty state when a fast run finishes before the first poll. Polling now continues until at least one log entry is received.' },
+      { tag: 'fix', scope: 'canva', description: 'Generated slides now leave a 50px safe-zone margin on all edges, preventing text from rendering flush against the image border.' },
+    ],
+  },
+  {
+    version: 'v4.66.2',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'fix', scope: 'canva', description: 'Slide generation no longer produces unrelated content from the training template. Root cause: gpt-image-1 was given style description first, causing it to regenerate the original training slide content. Fixed by restructuring the prompt — user headline/body leads as the primary directive, visual style is explicitly secondary. All 5 generateAndSave call sites benefit from the fix.' },
+    ],
+  },
+  {
+    version: 'v4.66.1',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'Template picker tiles are now portrait stacked-card UI (90×118px) with a depth-shadow effect for carousel sets, so users can visually compare layouts before selecting.' },
+      { tag: 'feat', scope: 'canva', description: 'Content plan confirmation now shows "Looks good" and "Revise it" buttons instead of plain text, with immediate skeleton grid feedback while slides generate.' },
+      { tag: 'feat', scope: 'canva', description: 'Slide render grid now includes a "Download all" button that packages all carousel slides into a ZIP file.' },
+      { tag: 'feat', scope: 'canva', description: 'While slides are generating, a skeleton grid with animated placeholders replaces the generic typing dots for better generation UX.' },
+    ],
+  },
+  {
+    version: 'v4.66.0',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'Layout-first carousel flow: agent now shows the template picker before generating content, so content is tailored to the exact slide count of the chosen template. Template tiles show field hints (e.g. headline, description, author_name) so the user knows what each layout expects.' },
+      { tag: 'feat', scope: 'canva', description: 'After confirming content from a layout-first flow, the agent skips the second template picker and auto-generates slides immediately (or asks for extra metadata params if the template requires them).' },
+    ],
+  },
+  {
+    version: 'v4.65.9',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'fix', scope: 'support', description: 'Agent no longer waits for Telegram approval before sending post_reply and request_purchase_code actions — both are now auto-executed.' },
+      { tag: 'fix', scope: 'support', description: 'Fixed webhook echo loop: when CRM fires support.ticket.replied after our own reply, the ticket is no longer incorrectly reopened. Detects agent-reply echoes via repliedAt timestamp (within 90s) to prevent re-triggering the purchase code gate.' },
+    ],
+  },
+  {
+    version: 'v4.65.8',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'fix', scope: 'taskip-internal', description: 'list_sent_emails tool now accepts a recipient parameter for filtering by email address. Agent system prompt updated to always query by recipient when a specific customer email is mentioned — fixes false "no emails sent" reports.' },
+    ],
+  },
+  {
+    version: 'v4.65.7',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'When content is already confirmed (via content plan), picking a carousel template now auto-generates all slides immediately — no more slide-by-slide questioning. If the template has extra metadata params (Twitter handle, author name, etc.) the agent asks for those first, then generates all slides.' },
+      { tag: 'fix', scope: 'canva', description: 'Added [extra-params-gather:] to the list of stripped chat markers so raw JSON state never appears in the chat bubble.' },
+    ],
+  },
+  {
+    version: 'v4.65.6',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'fix', scope: 'canva', description: 'Style picker now groups carousel slides by set — shows one representative tile per set (cover slide thumbnail, set name label) instead of every individual slide. 3 uploaded carousels now show 3 choices, not 19+.' },
+    ],
+  },
+  {
+    version: 'v4.65.5',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'Carousel set cards now have a delete button (shown on hover) that removes all slides in the set at once with a confirmation prompt.' },
+    ],
+  },
+  {
+    version: 'v4.65.4',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'fix', scope: 'canva', description: 'Carousel set cards: removed name label below stack, fixed stack depth rendering so back cards correctly appear behind the front card using absolute z-index layers.' },
+    ],
+  },
+  {
+    version: 'v4.65.3',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'fix', scope: 'canva', description: 'Hide [carousel-gather:] and [param-gather:] state markers from chat bubbles — raw JSON state blobs are now stripped before rendering, matching how [styles:] and [pending:] are already hidden.' },
+      { tag: 'fix', scope: 'canva', description: 'Carousel sets now correctly split into separate groups when multiple sets have the same filename prefix — sessions > 60s apart are treated as distinct sets using createdAt timestamps.' },
+      { tag: 'feat', scope: 'canva', description: 'Carousel set thumbnails are now compact 60x60 stacked cards with a slide-count badge. Clicking opens a full-screen gallery with dot indicators, prev/next navigation, thumbnail strip, and per-slide delete.' },
+    ],
+  },
+  {
+    version: 'v4.65.2',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'Carousel sets in Templates tab now display as a single stacked card (cover image with depth effect and slide count badge). Clicking opens a full-screen gallery with prev/next navigation, dot indicators, thumbnail strip at the bottom, and per-slide delete.' },
+    ],
+  },
+  {
+    version: 'v4.65.1',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'fix', scope: 'canva', description: 'Carousel uploads now always create distinct sets: each upload appends a short unique ID to the set name so uploading files with the same filename across sessions no longer merges them into one carousel group.' },
+      { tag: 'chore', scope: 'canva', description: 'Renamed "Design Samples" tab to "Templates" throughout the Canva agent page.' },
+    ],
+  },
+  {
+    version: 'v4.65.0',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'Delete button on Post Renders tab: each render card now has a Delete button that sends DELETE /posts/renders/:id, removes the DB row and local PNG files on disk, and removes the card from the list without a page reload.' },
+    ],
+  },
+  {
+    version: 'v4.64.0',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'support', description: 'Send Reply button on ticket detail page: when a draft is present and the ticket is not yet replied, a green "Send Reply" button appears next to "Regenerate Draft". Clicking it confirms with the user, then posts the draft directly to the CRM via the public API and marks the ticket as replied. A reply_sent event is recorded in the ticket history.' },
+    ],
+  },
+  {
+    version: 'v4.63.0',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'Carousel one-by-one: when a carousel-set template is selected in the style picker, the agent enters carousel-gather mode — it asks content questions for each slide individually, generates each slide via gpt-image-1 as answers arrive, shows the rendered image inline with the next slide question below it, and displays all slide images together when the set is complete.' },
+      { tag: 'feat', scope: 'canva', description: 'SlideGrid messages now support a nextSlidePrompt field: when present the prompt text is rendered below the image grid, allowing combined image+question responses in carousel mode.' },
+    ],
+  },
+  {
+    version: 'v4.62.0',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'Design Samples tab completely rewritten: uploads images to /design-studio/import-batch (DNA extraction via gpt-image-1), polls job status every 2.5s, and displays extracted templates as clickable cards in two sections — Individual Images and Carousel Sets (grouped by name prefix). Each card shows a preview thumbnail, parameter count badge, and a detail modal with all extracted parameters.' },
+      { tag: 'feat', scope: 'canva', description: 'Chat flow step 2 now shows DNA templates as the style picker instead of training samples. Templates load from DesignStudioService; thumbnails served from /design-studio/templates/:id/preview.' },
+      { tag: 'feat', scope: 'canva', description: 'New parameter gathering step (step 3): after picking a DNA template the agent asks for each template parameter one by one using [param-gather:] state marker. When all parameters are collected the agent calls dna_generate to produce the image.' },
+      { tag: 'feat', scope: 'canva', description: 'dna_generate action: calls DesignStudioService.generateAndSave() which runs gpt-image-1 with the extracted stylePrompt, saves the PNG to ~/Designs/AI-Agent/DnaRenders/, and returns the image via SlideGrid in the chat.' },
+      { tag: 'feat', scope: 'design-studio', description: 'Added GET /design-studio/templates/:id/preview endpoint serving the stored base64 previewData as an image with 24h cache header. Added GET /design-studio/renders/:id endpoint serving saved PNG renders.' },
+      { tag: 'chore', scope: 'design-studio', description: 'DesignStudioModule now exports DesignStudioService so CanvaModule can inject it. CanvaModule imports DesignStudioModule.' },
+    ],
+  },
+  {
+    version: 'v4.61.0',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'design-studio', description: 'Multi-image upload with background processing: drop multiple design images at once — each is queued as a BullMQ job, analyzed by Claude Vision in the background, and saved as a template. Progress is shown in real time via WebSocket and persists across page reloads (jobs stored in design_studio_jobs table, migration 0075).' },
+      { tag: 'feat', scope: 'design-studio', description: 'Analysis queue panel shows per-job status (Queued, Analyzing, Extracted, Failed) with thumbnail preview, live spinner, and color-coded border. WebSocket subscription to design-studio room pushes status updates instantly; 3-second polling fallback keeps UI in sync during reconnect gaps.' },
+      { tag: 'feat', scope: 'design-studio', description: 'Drag-and-drop upload zone now accepts multiple files simultaneously. File input also supports multiple selection.' },
+      { tag: 'fix', scope: 'design-studio', description: 'Import endpoint replaced with batch endpoint (POST /design-studio/import-batch); single legacy import endpoint removed. Templates list updates automatically when any job completes.' },
+    ],
+  },
+  {
+    version: 'v4.60.2',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'Slide thumbnail lightbox: clicking a slide in the Post Renders tab now opens a full-screen lightbox with prev/next navigation, copy-to-clipboard, and download. Keyboard shortcuts: Esc to close, arrow keys to navigate.' },
+    ],
+  },
+  {
+    version: 'v4.60.1',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'fix', scope: 'support', description: 'Agent reply webhooks no longer trigger actions, approvals, or Telegram messages. Added detection for CRM format where data.ticket.user (agent) differs from data.ticket.created_by (customer) — covers the actual webhook structure sent by the CRM alongside the existing replied_by.type checks.' },
+    ],
+  },
+  {
+    version: 'v4.60.0',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'design-studio', description: 'New experimental Design Studio page: upload any design image, AI (Claude Vision) extracts the layout as a structured spec with parameter schema, saved as a reusable template. Generate variations by typing a chat prompt — AI fills the parameter values and Satori renders the new image. Original vs generated shown side by side for comparison.' },
+      { tag: 'feat', scope: 'design-studio', description: 'New design-studio backend module with three endpoints: POST /design-studio/templates/import (image upload + AI extraction), POST /design-studio/templates/:id/generate (prompt → PNG), GET/DELETE /design-studio/templates. Design specs stored in new design_studio_templates table (migration 0074).' },
+    ],
+  },
+  {
+    version: 'v4.59.0',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'AI full-slide image generation: when a training sample is selected (sampleId set), each carousel slide is now generated as a complete image by OpenAI/Stability AI instead of the Satori code renderer. The style prompt (colors, typography, shapes, mood) is derived from the selected sample\'s DesignDNA and cached in the DNA JSON at analysis time — renders read the stored prompt_base rather than re-deriving it on every call.' },
+      { tag: 'feat', scope: 'canva', description: 'New slide-prompt-builder module: buildStylePromptBase(dna) converts DesignDNA fields into a natural-language DALL-E style description; buildSlideImagePrompt() combines it with slide content (headline, body, list items, CTA) at render time.' },
+      { tag: 'feat', scope: 'canva', description: 'New openai-stability image provider option: AI slide generation tries OpenAI first, then Stability AI as fallback. Satori is only used if both providers fail or no API keys are configured.' },
+      { tag: 'feat', scope: 'canva', description: 'Design sample analysis now stores prompt_base in DNA JSON at all 6 analysis/reanalysis sites — new uploads and re-analyzed samples automatically cache their DALL-E style prompt.' },
+      { tag: 'fix', scope: 'canva', description: 'Increased DALL-E prompt character limit from 800 to 4000 — detailed design prompts were being silently truncated, removing all color/shape/typography detail.' },
+    ],
+  },
+  {
+    version: 'v4.58.0',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'Forced 2-step state machine: step 1 (content confirmation) and step 2 (style selection) are now detected from the last agent message in history — not delegated to the LLM classifier. If the last agent message contains [styles:...], the next user message is always treated as a style pick. If it contains [pending:...] (no styles), it is always treated as content confirmation or revision. LLM misclassification can no longer bypass either step.' },
+      { tag: 'feat', scope: 'canva', description: 'Removed the 3-question clarifying step: when a design request is detected, the agent immediately generates a content draft (no brand/tone/format questions first). This eliminates the main source of "questions-answered" messages being misclassified as content confirmations.' },
+      { tag: 'feat', scope: 'canva', description: 'Style selection now reads the sample list directly from the [styles:...] payload in the last agent message — not from a fresh listSampleMeta call. The picked sample ID is resolved from the embedded samples array, guaranteeing the correct sample is always used.' },
+      { tag: 'fix', scope: 'canva', description: 'Simplified LLM classifier to 2 intents only (design-generate | general-chat). Removed questions-answered, content-confirmed, and style-selected from the classifier prompt — these are now handled by the history state machine.' },
+    ],
+  },
+  {
+    version: 'v4.57.2',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'fix', scope: 'render', description: 'bg.replace is not a function crash: the LLM could return a non-string value (array, object) for bgColor in the visual spec JSON. Added typeof string guards in resolveVisualBackground, resolveVisualBackgroundStyle, and resolveTextColor so malformed LLM output is safely discarded before .replace() is called.' },
+      { tag: 'fix', scope: 'render', description: 'Visual spec mapping now checks typeof bgColor and accentColor before using LLM values — prevents non-string bgColor from propagating into layout rendering.' },
+    ],
+  },
+  {
+    version: 'v4.57.1',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'fix', scope: 'canva', description: 'Style picker no longer shows raw }] artifacts — lazy regex (?:[\\s\\S]+?) was stopping at the first }] inside the samples JSON (end of first sample object + array close), leaving the tail unparsed. Changed to [^\\n]+ (greedy, no newlines) so the match correctly spans the full compact single-line JSON.' },
+      { tag: 'fix', scope: 'canva', description: 'Strip regex for [styles:...] and [pending:...] tags also changed from lazy [\\s\\S]*? to [^\\n]* so both tags are fully removed from the rendered message text, eliminating the }] ghost text in the chat bubble.' },
+    ],
+  },
+  {
+    version: 'v4.57.0',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'render', description: 'Structural layout replication: two new Satori layouts added — cover-hero (vivid full-bleed background, giant bold headline, thin separator line, body text, CTA pill footer) and numbered-list-content (accent underline below headline, numbered items with colored box backgrounds). These mirror the visual structure of the uploaded training samples.' },
+      { tag: 'feat', scope: 'render', description: 'Sample-pinned layout override: when a specific training sample is selected (sampleId), cover slides automatically use cover-hero layout and content/list slides use numbered-list-content layout — structurally matching the chosen sample instead of picking a generic layout.' },
+      { tag: 'feat', scope: 'render', description: 'Exact text color replication: ThemeContract now reads headline_text_hex and body_text_hex from the selected sample\'s color_usage field, so text renders in the same exact colors as the training sample instead of auto-computed contrast colors.' },
+      { tag: 'fix', scope: 'render', description: 'Visual spec color anchor: bgColor fallback now prefers color_usage.background_hex from per-slide DNA before primary_color, ensuring the LLM-generated background color is grounded in the most accurate sample data.' },
+    ],
+  },
+  {
+    version: 'v4.56.0',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'Strict 4-step carousel flow: (1) ask brand/tone/format questions, (2) generate a slide-by-slide content draft and ask user to confirm, (3) show training sample thumbnail picker, (4) render with exact selected layout plus confirmed content. Steps are now enforced in order — the LLM cannot skip to style picker before the user approves the content plan.' },
+      { tag: 'feat', scope: 'canva', description: 'Content draft generation: after answering clarifying questions, the agent calls the LLM to produce a per-slide content plan (headline + body for each slide) and displays it as a numbered list. User approves ("Looks good!") or requests revision before any render is triggered. Slide content is embedded in [pending:{...}] and passed as exact content instructions to the render pipeline.' },
+      { tag: 'feat', scope: 'canva', description: 'Exact content passthrough to render: approved slide headlines and bodies are prefixed to the render intent ("Use EXACTLY these slide headlines...") so the content-fill LLM does not invent new copy — it uses what the user confirmed.' },
+      { tag: 'fix', scope: 'canva', description: 'Pending JSON extraction now uses lastIndexOf to find the most recent [pending:{...}] tag in history, avoiding greedy regex cross-match between content draft pending and style picker pending when both are in the conversation history.' },
+      { tag: 'fix', scope: 'canva', description: 'QuickReplyCard intro now renders each line as a separate paragraph so multi-line content plans (slide 1, slide 2, ...) display with correct line breaks instead of collapsed into a single paragraph.' },
+    ],
+  },
+  {
+    version: 'v4.55.1',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'Improved chat pill questions: Visual style now offers 5 options (Bold & Punchy / Clean & Minimal / Warm & Professional / Dark & Dramatic / Bright & Colorful). Content type now shows human-readable format labels (Tips 5 slides / How-To Guide / Listicle / Stat Card / Quote Card) that map directly to format IDs.' },
+      { tag: 'feat', scope: 'canva', description: 'Richer visual tone instructions: each tone now injects specific design directives into the render intent — headline word count, contrast level, decoration density, background type, and shape style — giving the visual spec LLM much more precise guidance.' },
+      { tag: 'feat', scope: 'canva', description: 'Classification prompt updated: explicit format ID and visual tone mappings added so the LLM reliably extracts formatId and visualTone from both pill submissions and natural language prompts.' },
+    ],
+  },
+  {
+    version: 'v4.55.0',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'fix', scope: 'render', description: 'Satori inline-flex error: word highlight spans used display:inline-flex which satori does not support. Changed to display:flex — fixes all renders that include word highlights.' },
+      { tag: 'fix', scope: 'canva', description: 'Removed style reference (Q4) from Branch A clarifying questions — it caused the QuickReplyCard to submit garbage text (the instruction text as if it were an option) which looped Branch B indefinitely. Style picker is now a separate step after questions.' },
+      { tag: 'feat', scope: 'canva', description: 'Full-prompt shortcut: when the user provides format + topic in their initial message (e.g. "Generate a linkedin-tips-carousel about X"), Branch A now skips the 3-question step and goes directly to the style reference thumbnail picker.' },
+      { tag: 'fix', scope: 'canva', description: 'Strip [pending:{...}] and [styles:{...}] internal tags from all agent message fallback rendering — these never show as raw JSON text in the chat anymore.' },
+    ],
+  },
+  {
+    version: 'v4.54.1',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'Style picker thumbnails: the style reference picker now shows 72x72 cover image thumbnails for each training sample instead of text pills. Each sample\'s first slide is used as the thumbnail (from carousel_slide_urls in its DNA). Clicking a thumbnail immediately fires the render pinned to that sample\'s DNA — no submit button needed. A "Random" tile with a ? icon is always shown first.' },
+    ],
+  },
+  {
+    version: 'v4.54.0',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'Pill quick-reply UI in chat: when the Canva agent asks clarifying questions (brand, tone, format), the message now renders as interactive pill buttons instead of plain text. Each question gets its own row of selectable pills; clicking a pill toggles it. A Generate button assembles the selections and sends them. The style reference picker also renders as pills. Pills only appear on the last (unanswered) agent message — older messages show as plain text.' },
+      { tag: 'feat', scope: 'canva', description: 'Brand is now optional: when the user skips the brand question (or selects nothing), the render uses the "default" brand. Removed the fallback to config.brands[0] which was causing brand=taskip with no matching samples.' },
+    ],
+  },
+  {
+    version: 'v4.53.1',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'fix', scope: 'render', description: 'Training sample brand fallback: all design sample queries now include site_keys=default as a fallback when the requested brand (e.g. "taskip") has no samples of its own. Fixes the chat style picker showing 0 samples and going straight to render, and fixes perSlideDNA returning null causing all slides to render in brand-default purple instead of training sample colors.' },
+    ],
+  },
+  {
+    version: 'v4.53.0',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'realtime', description: 'Notification bell is now WebSocket-driven: backend pushes a full NotifSummary via notifications:update whenever approvals are created/removed or agent logs are written — no HTTP fetch on every event. Frontend subscribes to notifications:subscribe on connect and receives an immediate snapshot. Polling reduced from 15s to 5-minute fallback only. Sidebar approval badge is kept in sync by seeding the approvals-count React Query cache from the WebSocket payload — no extra HTTP call.' },
+    ],
+  },
+  {
+    version: 'v4.52.2',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'fix', scope: 'support', description: 'Webhook fallback: when normalizeCrmPayload cannot find a ticket (missing subject), the agent now scans the payload for any numeric ticket ID and fetches the full ticket from the CRM API before rejecting. This recovers webhooks where the CRM sends a minimal payload (ticket_id only, or nested resource without subject). Migration 0073 adds crm_uuid column — apply manually in production: ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS crm_uuid text.' },
+    ],
+  },
+  {
+    version: 'v4.52.1',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'fix', scope: 'render', description: 'Quick Generate 500 error: PostBrandService.resolve() no longer throws when a brand name is not in the canvaBrands table — it falls back to default fonts (Inter) and palette, logging a warning. PostRenderController.render() now wraps errors in a proper HttpException so the client receives the actual error message instead of a generic 500. apiFetch in AgentDetailPage now reads the JSON error body before throwing so "Request failed" shows the real cause.' },
+    ],
+  },
+  {
+    version: 'v4.52.0',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'render', description: 'Dot texture backgrounds: when a training sample has background_texture "dots", "grid", or "geometric-pattern" in its DNA, the rendered slides now overlay a white dot radial-gradient texture on the slide background color — matching the Yellow Minimalist carousel style. The texture is applied via CSS backgroundImage + backgroundColor layering.' },
+      { tag: 'feat', scope: 'render', description: 'Colored list item boxes: when the visual spec LLM returns a listItemBg color for a list-role slide, each list item is wrapped in a colored content box with borderRadius and padding, matching the Yellow Minimalist carousel style where each point has its own visual container.' },
+      { tag: 'fix', scope: 'render', description: 'ThemeContract decoration opacity: removed the hardcoded 0.18 opacity cap on decorations sourced from training sample DNA — shapes now use their actual extracted opacity values, allowing bold corner shapes to show at full 0.5-0.9 opacity as intended.' },
+    ],
+  },
+  {
+    version: 'v4.51.0',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'Chat style reference picker: after the agent finalizes content (brand, format, topic resolved), it now presents a numbered list of all uploaded training samples before firing the render. The user picks a number (or 0 for random) and the agent pins that sample\'s exact DNA — colors, shapes, decorations — to every slide. The pending render params are embedded in the agent message so the next chat turn can extract and fire them without any extra state storage.' },
+      { tag: 'feat', scope: 'canva', description: 'Sample-pinned renders: RenderRequest now accepts an optional sampleId field. When set, all slides use that training sample\'s DesignDNA instead of picking random per-slide DNAs. The Quick Generate UI panel and the chat style picker both populate this field.' },
+    ],
+  },
+  {
+    version: 'v4.50.0',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'render', description: 'Style reference picker: the Post Renders tab now shows a Quick Generate panel with a thumbnail strip of all training samples. Clicking a sample pins its exact DNA (colors, shapes, decorations) to every slide in the render. Without a selection, slides continue to use random per-slide training samples.' },
+      { tag: 'feat', scope: 'render', description: 'Quick Generate panel: directly generate a render from the Post Renders tab without going through the agent chat — pick format, brand, topic, and optional style reference, then hit Generate. The result appears at the top of the renders list immediately.' },
+      { tag: 'fix', scope: 'render', description: 'Bold decorations: decorations now use opacity 0.5-0.9 for corner/edge shapes and larger sizes (40-75% of canvas) as instructed in the visual spec prompt. The hardcoded 0.12-0.35 opacity clamp is removed — the LLM now controls decoration prominence, matching the bold visual language of uploaded training carousels.' },
+    ],
+  },
+  {
     version: 'v4.49.1',
     date: '2026-05-14',
     entries: [

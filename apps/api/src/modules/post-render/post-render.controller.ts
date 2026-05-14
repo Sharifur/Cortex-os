@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Body, Param, Query, Delete, Res, HttpCode, HttpStatus, Logger } from '@nestjs/common';
+import { Controller, Post, Get, Body, Param, Query, Delete, Res, HttpCode, HttpStatus, HttpException, Logger } from '@nestjs/common';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
@@ -24,7 +24,12 @@ export class PostRenderController {
   @Post('render')
   @HttpCode(HttpStatus.OK)
   async render(@Body() body: RenderRequest) {
-    return this.renderer.render(body);
+    try {
+      return await this.renderer.render(body);
+    } catch (err) {
+      const message = (err as Error).message ?? String(err);
+      throw new HttpException({ error: message }, HttpStatus.INTERNAL_SERVER_ERROR);
+    }
   }
 
   @Get('renders')
@@ -60,6 +65,17 @@ export class PostRenderController {
   async reject(@Param('id') id: string) {
     await this.renderer.updateStatus(id, 'rejected');
     return { ok: true };
+  }
+
+  @Delete('renders/:id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async deleteRender(@Param('id') id: string) {
+    try {
+      await this.renderer.deleteRender(id);
+    } catch (err) {
+      this.logger.error(`DELETE /posts/renders/${id} failed: ${(err as Error).message}`);
+      throw new HttpException({ error: (err as Error).message }, HttpStatus.INTERNAL_SERVER_ERROR);
+    }
   }
 
   // ─── Local slide PNG (no R2 configured) ──────────────────────────────────────

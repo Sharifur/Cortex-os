@@ -107,18 +107,26 @@ export class PostVisualService {
       'For each slide produce:',
       '- bgColor: hex background — USE THE EXACT COLOR ASSIGNED TO THAT SLIDE INDEX ABOVE. Must be non-null and different for each slide.',
       '- accentColor: hex accent — use the assigned accent or a complementary color. Must be non-null.',
-      '- decorations: 1-4 shapes per slide inspired by the training sample shapes.',
-      '  Positions are % of canvas (0-100). Negative values OK for partial-edge shapes.',
+      '- decorations: 3-5 shapes per slide. Reproduce the BOLD visual style of the training samples.',
+      '  Positions are % of canvas (0-100). Negative values OK for partial-off-canvas shapes.',
       '  Shape types: circle, rectangle, rounded-rect, ellipse',
-      '  Fill types: solid, linear-gradient, none',
-      '  Opacity: 0.06-0.20. Vary placement: top-right corner, bottom-left bleed, center-background, etc.',
-      '  Each slide should have a DIFFERENT shape arrangement.',
+      '  Fill types: solid, linear-gradient',
+      '  SIZE: Large shapes — corner/edge elements use w=40-75, h=40-75 (% of canvas).',
+      '  OPACITY — be bold, not subtle:',
+      '    Corner/edge anchors (x>60 or x<15, y<15 or y>70): opacity 0.5-0.9',
+      '    Mid-bleed shapes (partially off-canvas): opacity 0.3-0.6',
+      '    Soft center overlays only: opacity 0.05-0.15',
+      '  Every slide MUST have at least 1 large corner shape (opacity ≥ 0.5) and 1 smaller accent shape.',
+      '  Each slide should have a DIFFERENT shape arrangement (vary corners used, sizes, and fills).',
       '- wordHighlights: pick 1-2 words from the headline to receive a colored badge background.',
       '  Use the accent color or a contrasting color from the palette. Format: [{word, bgColor, textColor}].',
       '  Leave empty array [] if the headline is too short (under 4 words).',
+      '- listItemBg: for slides with role "list", provide a hex color for each list item\'s content box background.',
+      '  Use a light/contrasting color against the slide bgColor — e.g. white on a colored bg, or accent with low alpha.',
+      '  Omit (null) for non-list slides.',
       '',
       'Return ONLY valid JSON (no markdown):',
-      '{"slides":[{"slideIndex":0,"bgColor":"#hex","accentColor":"#hex","decorations":[{"shape_type":"circle","fill_type":"solid","fill_colors":["#hex"],"opacity":0.1,"x":70,"y":-10,"w":50,"h":50}],"wordHighlights":[{"word":"target","bgColor":"#hex","textColor":"#fff"}]}]}',
+      '{"slides":[{"slideIndex":0,"bgColor":"#hex","accentColor":"#hex","listItemBg":null,"decorations":[{"shape_type":"circle","fill_type":"solid","fill_colors":["#hex"],"opacity":0.1,"x":70,"y":-10,"w":50,"h":50}],"wordHighlights":[{"word":"target","bgColor":"#hex","textColor":"#fff"}]}]}',
     ].filter(Boolean).join('\n');
 
     let raw = '';
@@ -148,16 +156,19 @@ export class PostVisualService {
       const specs = (parsed.slides ?? []).map(s => {
         const slideIdx = s.slideIndex ?? 0;
         const perDNA = perSlideDNAs?.[slideIdx] ?? null;
-        const fallbackBg = perDNA?.primary_color || sampledDNA?.primary_color || contract.backgroundCover;
+        const fallbackBg = perDNA?.color_usage?.background_hex || perDNA?.primary_color || sampledDNA?.color_usage?.background_hex || sampledDNA?.primary_color || contract.backgroundCover;
         const fallbackAccent = perDNA?.accent_color || sampledDNA?.accent_color || contract.accentColor;
+        const rawBg = typeof s.bgColor === 'string' ? s.bgColor : null;
+        const rawAccent = typeof s.accentColor === 'string' ? s.accentColor : null;
         return {
           ...s,
-          // Enforce non-null colors — fall back to per-slide DNA colors, never white
-          bgColor: (s.bgColor && s.bgColor !== '#ffffff' && s.bgColor !== '#fff') ? s.bgColor : fallbackBg,
-          accentColor: s.accentColor || fallbackAccent,
-          decorations: (s.decorations ?? []).slice(0, 4).map(d => ({
+          // Enforce non-null hex strings — fall back to per-slide DNA colors, never white
+          bgColor: (rawBg && rawBg !== '#ffffff' && rawBg !== '#fff') ? rawBg : fallbackBg,
+          accentColor: rawAccent || fallbackAccent,
+          listItemBg: s.listItemBg || undefined,
+          decorations: (s.decorations ?? []).slice(0, 6).map(d => ({
             ...d,
-            opacity: Math.min(Math.max(d.opacity, 0.12), 0.35),
+            opacity: Math.max(d.opacity ?? 0, 0.04),
           })),
           wordHighlights: (s.wordHighlights ?? []).slice(0, 2),
         };

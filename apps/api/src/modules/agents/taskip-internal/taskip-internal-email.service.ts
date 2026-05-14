@@ -157,14 +157,12 @@ export class TaskipInternalEmailService {
     }
   }
 
-  async listSent(opts: { limit?: number; purpose?: TaskipEmailPurpose; workspaceUuid?: string } = {}) {
+  async listSent(opts: { limit?: number; purpose?: TaskipEmailPurpose; workspaceUuid?: string; recipient?: string } = {}) {
     const limit = Math.min(opts.limit ?? 50, 200);
-    const where = [];
-    if (opts.purpose) where.push(eq(taskipInternalEmails.purpose, opts.purpose));
-    if (opts.workspaceUuid) where.push(eq(taskipInternalEmails.workspaceUuid, opts.workspaceUuid));
 
     const purposeClause = opts.purpose ? sql`AND purpose = ${opts.purpose}` : sql``;
     const uuidClause = opts.workspaceUuid ? sql`AND workspace_uuid = ${opts.workspaceUuid}` : sql``;
+    const recipientClause = opts.recipient ? sql`AND LOWER(recipient) LIKE LOWER(${'%' + opts.recipient + '%'})` : sql``;
     const rows = await this.db.db.execute(sql`
       SELECT id, purpose, workspace_uuid AS "workspaceUuid", recipient, subject, body,
              gmail_message_id AS "gmailMessageId", gmail_thread_id AS "gmailThreadId",
@@ -174,7 +172,7 @@ export class TaskipInternalEmailService {
              first_open_at AS "firstOpenAt",
              last_open_at  AS "lastOpenAt"
       FROM taskip_internal_emails
-      WHERE TRUE ${purposeClause} ${uuidClause}
+      WHERE TRUE ${purposeClause} ${uuidClause} ${recipientClause}
       ORDER BY sent_at DESC
       LIMIT ${limit}
     `).catch(() =>
@@ -185,7 +183,7 @@ export class TaskipInternalEmailService {
                last_synced_at AS "lastSyncedAt", metadata, sent_at AS "sentAt",
                0 AS "openCount", NULL AS "firstOpenAt", NULL AS "lastOpenAt"
         FROM taskip_internal_emails
-        WHERE TRUE ${purposeClause} ${uuidClause}
+        WHERE TRUE ${purposeClause} ${uuidClause} ${recipientClause}
         ORDER BY sent_at DESC
         LIMIT ${limit}
       `)

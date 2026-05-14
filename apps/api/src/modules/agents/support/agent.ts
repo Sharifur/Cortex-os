@@ -125,16 +125,28 @@ export class SupportAgent implements IAgent, OnModuleInit {
 
     if (trigger.type === 'WEBHOOK') {
       const payload = trigger.payload as any;
-      const crmTicketId = payload?.ticket?.id;
+      // Use the same normalization as ingestWebhook — the CRM sends nested formats
+      // that payload?.ticket?.id misses, causing fallthrough to the full open-ticket scan.
+      const { ticket: normalizedTicket } = this.normalizeCrmPayload(payload);
+      const crmTicketId = normalizedTicket?.id ?? payload?.ticket?.id ?? null;
       if (crmTicketId != null) {
         const [row] = await this.db.db
           .select()
           .from(supportTickets)
-          .where(eq(supportTickets.externalId, String(crmTicketId)));
+          .where(and(
+            eq(supportTickets.externalId, String(crmTicketId)),
+            eq(supportTickets.status, 'open'),
+          ));
         if (row) {
           return { source: trigger, snapshot: { tickets: [row], config }, followups: [] };
         }
+        // Ticket exists but is not open (replied/closed) — nothing to do
+        this.logger.log(`buildContext: ticket #${crmTicketId} found via webhook but not open — skipping`);
+        return { source: trigger, snapshot: { tickets: [], config }, followups: [] };
       }
+      // Could not resolve ticket from webhook payload — log and skip rather than processing all open tickets
+      this.logger.warn(`buildContext: WEBHOOK trigger but could not resolve crmTicketId — payload keys: ${Object.keys(payload ?? {}).join(', ')}`);
+      return { source: trigger, snapshot: { tickets: [], config }, followups: [] };
     }
 
     const openTickets = await this.db.db
@@ -382,7 +394,7 @@ export class SupportAgent implements IAgent, OnModuleInit {
   }
 
   requiresApproval(action: ProposedAction): boolean {
-    return action.type === 'post_reply' || action.type === 'escalate_to_owner' || action.type === 'request_purchase_code' || action.type === 'request_server_access';
+    return action.type === 'escalate_to_owner' || action.type === 'request_server_access';
   }
 
   async execute(action: ProposedAction): Promise<ActionResult> {
@@ -703,6 +715,23 @@ export class SupportAgent implements IAgent, OnModuleInit {
           return { ok: true };
         },
       },
+      {
+        method: 'POST',
+        path: '/support/tickets/:id/send-reply',
+        requiresAuth: true,
+        handler: async (params) => {
+          const { id } = params as any;
+          const [ticket] = await this.db.db.select().from(supportTickets).where(eq(supportTickets.id, id));
+          if (!ticket) throw new Error('Ticket not found');
+          if (!ticket.lastDraft?.trim()) throw new Error('No draft to send — generate a draft first');
+          const crmId = ticket.externalId ? Number(ticket.externalId) : null;
+          if (!crmId || isNaN(crmId)) throw new Error('Ticket has no CRM ID — cannot post reply');
+          await this.postCrmReply(crmId, ticket.lastDraft);
+          await this.db.db.update(supportTickets).set({ status: 'replied', repliedAt: new Date(), updatedAt: new Date() }).where(eq(supportTickets.id, id));
+          await this.writeTicketEvent({ ticketId: id, externalId: ticket.externalId, eventType: 'reply_sent', summary: `Reply sent via dashboard: ${ticket.lastDraft.slice(0, 120)}`, payload: { draft: ticket.lastDraft } });
+          return { ok: true };
+        },
+      },
     ];
   }
 
@@ -879,12 +908,34 @@ export class SupportAgent implements IAgent, OnModuleInit {
     return { ticket: payload?.ticket ?? null, contact: payload?.contact ?? null, event, replyData: null };
   }
 
-  private async ingestWebhook(payload: any) {
+  private async ingestWebhook(payload: any): Promise<Record<string, unknown>> {
     this.logger.log(`ingestWebhook called — event: "${payload?.event ?? 'none'}" | payload keys: ${Object.keys(payload ?? {}).join(', ')}`);
     const rawPayload = JSON.stringify(payload).slice(0, 5000);
     const { ticket, contact, event, replyData } = this.normalizeCrmPayload(payload);
 
     if (!ticket?.id || !ticket?.subject) {
+      // Attempt to recover by extracting a ticket ID from the payload and fetching from CRM
+      const recoveredId = this.extractTicketIdFromPayload(payload);
+      if (recoveredId) {
+        this.logger.log(`ingestWebhook: normalization failed but found ticket id=${recoveredId} — fetching from CRM`);
+        try {
+          const recovered = await this.fetchCrmTicketFull(recoveredId);
+          if (recovered?.id && recovered?.subject) {
+            this.logger.log(`ingestWebhook: CRM fetch recovered ticket #${recovered.id} "${recovered.subject}"`);
+            // Re-enter ingest with the recovered ticket merged into the payload
+            return this.ingestWebhook({
+              ...payload,
+              ticket: recovered,
+              contact: {
+                email: recovered.created_by?.email ?? recovered.user?.email ?? '',
+                name: recovered.created_by?.full_name ?? recovered.created_by?.first_name ?? '',
+              },
+            });
+          }
+        } catch (err) {
+          this.logger.warn(`ingestWebhook: CRM fetch fallback failed for id=${recoveredId}: ${err}`);
+        }
+      }
       const errMsg = `Missing ticket.id or ticket.subject after normalization (event="${event ?? 'none'}")`;
       this.logger.warn(`ingestWebhook: ${errMsg} — raw keys: ${Object.keys(payload ?? {}).join(', ')}`);
       const errorResp = { ok: false, error: errMsg };
@@ -893,11 +944,17 @@ export class SupportAgent implements IAgent, OnModuleInit {
     }
 
     // For reply events triggered by our own agent — update ticket to 'replied' and stop
+    const ticketData = payload?.data?.ticket;
     const isAgentReply = event === 'support.ticket.replied' && (
+      payload?.replied_by?.type === 'agent' ||
       payload?.data?.replied_by?.type === 'agent' ||
       payload?.data?.user?.type === 'agent' ||
       payload?.data?.reply?.user?.type === 'agent' ||
-      replyData?.user?.type === 'agent'
+      replyData?.user?.type === 'agent' ||
+      // CRM format: data.ticket.user = replier, data.ticket.created_by = customer
+      // If they differ, the reply was posted by a support agent, not the customer
+      (ticketData?.user?.id != null && ticketData?.created_by?.id != null &&
+        ticketData.user.id !== ticketData.created_by.id)
     );
     if (isAgentReply) {
       this.logger.log(`ingestWebhook: agent reply event for ticket #${ticket.id} — marking replied`);
@@ -947,11 +1004,21 @@ export class SupportAgent implements IAgent, OnModuleInit {
     // Customer reply — re-open any existing ticket for re-processing (skip purchase code gate)
     if (event === 'support.ticket.replied') {
       const [existing] = await this.db.db
-        .select({ id: supportTickets.id, status: supportTickets.status, purchaseCodeStatus: supportTickets.purchaseCodeStatus })
+        .select({ id: supportTickets.id, status: supportTickets.status, purchaseCodeStatus: supportTickets.purchaseCodeStatus, repliedAt: supportTickets.repliedAt, updatedAt: supportTickets.updatedAt })
         .from(supportTickets)
         .where(eq(supportTickets.externalId, String(ticket.id)));
 
       if (existing) {
+        // If we just replied (status='replied' and repliedAt within 90s), this is the CRM
+        // echoing our own reply back — don't reopen, treat as agent reply
+        const ageMs = existing.repliedAt ? Date.now() - new Date(existing.repliedAt).getTime() : Infinity;
+        if (existing.status === 'replied' && ageMs < 90_000) {
+          this.logger.log(`ingestWebhook: skipping reopen for ticket #${ticket.id} — agent reply echo (${Math.round(ageMs / 1000)}s ago)`);
+          const echoResp = { ok: true, status: 'acknowledged', reason: 'agent_reply_echo' };
+          await this.writeWebhookLog({ status: 'skipped_agent_reply', externalId: String(ticket.id), ticketId: existing.id, rawPayload, responseBody: JSON.stringify(echoResp) });
+          return echoResp;
+        }
+
         await this.db.db
           .update(supportTickets)
           .set({ status: 'open', body: body || undefined, updatedAt: new Date() })
@@ -1143,6 +1210,48 @@ export class SupportAgent implements IAgent, OnModuleInit {
       .replace(/&quot;/gi, '"')
       .replace(/\s+/g, ' ')
       .trim();
+  }
+
+  private extractTicketIdFromPayload(payload: any): number | null {
+    if (!payload) return null;
+    const candidates = [
+      payload?.ticket?.id,
+      payload?.data?.ticket_id,
+      payload?.data?.id,
+      payload?.ticket_id,
+      payload?.id,
+    ];
+    for (const c of candidates) {
+      const n = Number(c);
+      if (!isNaN(n) && n > 0) return n;
+    }
+    // Check any nested object keys for numeric ticket IDs
+    const dataObj = payload?.data;
+    if (dataObj && typeof dataObj === 'object') {
+      const firstVal = Object.values(dataObj)[0];
+      if (firstVal && typeof firstVal === 'object') {
+        const n = Number((firstVal as any).id);
+        if (!isNaN(n) && n > 0) return n;
+      }
+    }
+    return null;
+  }
+
+  private async fetchCrmTicketFull(id: number): Promise<any | null> {
+    try {
+      const baseUrl = await this.settings.getDecrypted('support_crm_base_url');
+      if (!baseUrl) return null;
+      const res = await fetch(`${baseUrl.replace(/\/$/, '')}/api/public-v1/support-ticket/${id}`, {
+        headers: await this.crmHeaders(),
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!res.ok) return null;
+      const data = await res.json() as any;
+      return data?.data ?? null;
+    } catch (err) {
+      this.logger.warn(`fetchCrmTicketFull(${id}) failed: ${err}`);
+      return null;
+    }
   }
 
   private async fetchCrmTicket(id: number): Promise<string> {

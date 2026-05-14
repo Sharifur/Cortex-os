@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, or, sql } from 'drizzle-orm';
 import { LlmRouterService } from '../llm/llm-router.service';
 import { KnowledgeBaseService } from '../knowledge-base/knowledge-base.service';
 import { DbService } from '../../db/db.service';
@@ -434,6 +434,9 @@ export class DesignPatternService {
 
   async getDominantDNA(brand: string): Promise<DominantDNA | null> {
     const effectiveBrand = brand || 'default';
+    const brandFilter = effectiveBrand === 'default'
+      ? eq(knowledgeEntries.siteKeys, 'default')
+      : or(eq(knowledgeEntries.siteKeys, effectiveBrand), eq(knowledgeEntries.siteKeys, 'default'))!;
 
     const samples = await this.db.db
       .select({ content: knowledgeEntries.content })
@@ -441,7 +444,7 @@ export class DesignPatternService {
       .where(and(
         eq(knowledgeEntries.entryType, 'design_sample'),
         eq(knowledgeEntries.agentKeys, 'canva'),
-        eq(knowledgeEntries.siteKeys, effectiveBrand),
+        brandFilter,
       ));
 
     if (!samples.length) return null;
@@ -575,7 +578,7 @@ export class DesignPatternService {
       .where(and(
         eq(knowledgeEntries.entryType, 'design_sample'),
         eq(knowledgeEntries.agentKeys, 'canva'),
-        eq(knowledgeEntries.siteKeys, effectiveBrand),
+        brandFilter,
       ));
 
     let patternRules: string[];
@@ -651,15 +654,57 @@ export class DesignPatternService {
     };
   }
 
+  async listSampleMeta(brand: string): Promise<Array<{ id: string; title: string; thumbUrl?: string }>> {
+    const effectiveBrand = brand || 'default';
+    const brandFilter = effectiveBrand === 'default'
+      ? eq(knowledgeEntries.siteKeys, 'default')
+      : or(eq(knowledgeEntries.siteKeys, effectiveBrand), eq(knowledgeEntries.siteKeys, 'default'))!;
+    const rows = await this.db.db
+      .select({ id: knowledgeEntries.id, title: knowledgeEntries.title, content: knowledgeEntries.content })
+      .from(knowledgeEntries)
+      .where(and(
+        eq(knowledgeEntries.entryType, 'design_sample'),
+        eq(knowledgeEntries.agentKeys, 'canva'),
+        brandFilter,
+      ))
+      .orderBy(knowledgeEntries.createdAt);
+    return rows.map(row => {
+      let thumbUrl: string | undefined;
+      const match = row.content.match(/DNA JSON: (\{[\s\S]+\})\s*$/m);
+      if (match) {
+        try {
+          const dna = JSON.parse(match[1]) as { carousel_slide_urls?: string[] };
+          thumbUrl = dna.carousel_slide_urls?.[0];
+        } catch { /* skip */ }
+      }
+      return { id: row.id, title: row.title, thumbUrl };
+    });
+  }
+
+  async getDNAForEntry(entryId: string): Promise<DesignDNA | null> {
+    const [row] = await this.db.db
+      .select({ content: knowledgeEntries.content })
+      .from(knowledgeEntries)
+      .where(eq(knowledgeEntries.id, entryId))
+      .limit(1);
+    if (!row) return null;
+    const match = row.content.match(/DNA JSON: (\{[\s\S]+\})\s*$/m);
+    if (!match) return null;
+    try { return JSON.parse(match[1]) as DesignDNA; } catch { return null; }
+  }
+
   async getRandomSampleDNA(brand: string): Promise<DesignDNA | null> {
     const effectiveBrand = brand || 'default';
+    const brandFilter = effectiveBrand === 'default'
+      ? eq(knowledgeEntries.siteKeys, 'default')
+      : or(eq(knowledgeEntries.siteKeys, effectiveBrand), eq(knowledgeEntries.siteKeys, 'default'))!;
     const samples = await this.db.db
       .select({ content: knowledgeEntries.content })
       .from(knowledgeEntries)
       .where(and(
         eq(knowledgeEntries.entryType, 'design_sample'),
         eq(knowledgeEntries.agentKeys, 'canva'),
-        eq(knowledgeEntries.siteKeys, effectiveBrand),
+        brandFilter,
       ));
     if (!samples.length) return null;
     const dnaList: DesignDNA[] = [];
@@ -675,13 +720,16 @@ export class DesignPatternService {
 
   async getPatternsBySlideType(brand?: string): Promise<Record<string, string[]>> {
     const effectiveBrand = brand || 'default';
+    const brandFilter = effectiveBrand === 'default'
+      ? eq(knowledgeEntries.siteKeys, 'default')
+      : or(eq(knowledgeEntries.siteKeys, effectiveBrand), eq(knowledgeEntries.siteKeys, 'default'))!;
     const sampleRows = await this.db.db
       .select({ content: knowledgeEntries.content })
       .from(knowledgeEntries)
       .where(and(
         eq(knowledgeEntries.entryType, 'design_sample'),
         eq(knowledgeEntries.agentKeys, 'canva'),
-        eq(knowledgeEntries.siteKeys, effectiveBrand),
+        brandFilter,
       ));
 
     const byType: Record<string, Map<string, number>> = {};

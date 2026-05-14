@@ -5,14 +5,25 @@ export function resolveAccent(contract: ThemeContract, visualSpec?: SlideVisualS
 }
 
 export function resolveVisualBackground(styleRules: StyleRules, contract: ThemeContract, visualSpec?: SlideVisualSpec): string {
-  if (visualSpec?.bgColor) return visualSpec.bgColor;
+  const bgColor = typeof visualSpec?.bgColor === 'string' && visualSpec.bgColor ? visualSpec.bgColor : null;
+  if (bgColor) return bgColor;
   return resolveBackground(styleRules, contract);
 }
 
 export function resolveVisualBackgroundStyle(styleRules: StyleRules, contract: ThemeContract, visualSpec?: SlideVisualSpec): object {
-  if (visualSpec?.bgGradient) return { backgroundImage: visualSpec.bgGradient };
-  if (visualSpec?.bgColor) return { backgroundColor: visualSpec.bgColor };
-  return resolveBackgroundStyle(styleRules, contract);
+  const hasDotTexture = contract.backgroundTexture === 'dots';
+  if (visualSpec?.bgGradient && typeof visualSpec.bgGradient === 'string') return { backgroundImage: visualSpec.bgGradient };
+  const bgColor = typeof visualSpec?.bgColor === 'string' && visualSpec.bgColor ? visualSpec.bgColor : null;
+  if (bgColor) {
+    return hasDotTexture
+      ? { backgroundColor: bgColor, backgroundImage: 'radial-gradient(circle, rgba(255,255,255,0.28) 1.5px, transparent 1.5px)', backgroundSize: '22px 22px' }
+      : { backgroundColor: bgColor };
+  }
+  const base = resolveBackgroundStyle(styleRules, contract);
+  if (hasDotTexture && (base as Record<string, string>).backgroundColor) {
+    return { ...base, backgroundImage: 'radial-gradient(circle, rgba(255,255,255,0.28) 1.5px, transparent 1.5px)', backgroundSize: '22px 22px' };
+  }
+  return base;
 }
 
 export function renderDecorations(contract: ThemeContract, width: number, height: number, visualSpec?: SlideVisualSpec): object[] {
@@ -121,6 +132,7 @@ export function resolveBackgroundStyle(styleRules: StyleRules, contract: ThemeCo
 }
 
 export function resolveTextColor(bg: string, contract: ThemeContract): string {
+  if (typeof bg !== 'string' || !bg) return contract.headlineColor;
   const c = bg.replace('#', '');
   if (c.length < 6) return contract.headlineColor;
   const r = parseInt(c.slice(0, 2), 16);
@@ -184,7 +196,7 @@ export function renderHeadline(
       props: {
         key: String(i),
         style: {
-          display: 'inline-flex',
+          display: 'flex',
           alignItems: 'center',
           backgroundColor: hl.bgColor,
           color: hl.textColor ?? '#ffffff',

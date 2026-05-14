@@ -7,6 +7,7 @@ const API_PATHS = [
   '/settings', '/integrations', '/dashboard', '/mcp', '/knowledge-base', '/tasks',
   '/hr', '/livechat', '/llm-usage', '/push', '/posts', '/support', '/taskip-internal',
   '/canva', '/email-manager', '/linkedin', '/reddit', '/whatsapp',
+  '/design-studio', '/notifications',
 ];
 
 export default defineConfig({

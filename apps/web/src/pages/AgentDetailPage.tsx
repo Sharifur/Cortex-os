@@ -9,7 +9,7 @@ import {
   Bug, AlertTriangle, AlertCircle,
   Plus, Loader2, RefreshCw, Radio,
   CalendarClock, Zap, RotateCcw, ListTodo, ExternalLink,
-  ImageIcon, Upload,
+  ImageIcon, Upload, ChevronLeft, X, Copy, Check, Download,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -131,7 +131,10 @@ async function apiFetch(token: string, path: string, opts?: RequestInit) {
     ...opts,
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', ...opts?.headers },
   });
-  if (!res.ok) throw new Error('Request failed');
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data?.error ?? data?.message ?? `Request failed (${res.status})`);
+  }
   return res.json();
 }
 
@@ -3743,7 +3746,7 @@ function CanvaAgentPage({ agent, token }: { agent: AgentDetail; token: string })
   const tabs: { key: CanvaTab; label: string }[] = [
     { key: 'renders', label: 'Post Renders' },
     { key: 'brands', label: 'Brands' },
-    { key: 'design-samples', label: 'Design Samples' },
+    { key: 'design-samples', label: 'Templates' },
     { key: 'settings', label: 'Settings' },
     { key: 'setup', label: 'Setup' },
   ];
@@ -3791,23 +3794,118 @@ const STATIC_FORMATS = [
   { id: 'generic-checklist',         name: 'Checklist Card',               platform: 'any' },
 ];
 
+function SlideLightbox({
+  url, n, total, onClose, onPrev, onNext,
+}: {
+  url: string; n: number; total: number;
+  onClose: () => void; onPrev: () => void; onNext: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+      if (e.key === 'ArrowLeft') onPrev();
+      if (e.key === 'ArrowRight') onNext();
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [onClose, onPrev, onNext]);
+
+  async function copyImage() {
+    try {
+      const res = await fetch(url);
+      const blob = await res.blob();
+      const pngBlob = blob.type === 'image/png' ? blob : await new Promise<Blob>((resolve) => {
+        const img = new window.Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          canvas.width = img.naturalWidth; canvas.height = img.naturalHeight;
+          canvas.getContext('2d')!.drawImage(img, 0, 0);
+          canvas.toBlob((b) => resolve(b!), 'image/png');
+        };
+        img.src = URL.createObjectURL(blob);
+      });
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': pngBlob })]);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      window.open(url, '_blank');
+    }
+  }
+
+  function downloadImage() {
+    const a = document.createElement('a');
+    a.href = url; a.download = `slide-${n}.png`; a.click();
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/85 backdrop-blur-md" onClick={onClose}>
+      <div className="flex items-center justify-between w-full max-w-3xl px-4 pb-3" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-2">
+          {Array.from({ length: total }).map((_, i) => (
+            <div key={i} className={`rounded-full transition-all ${i + 1 === n ? 'w-4 h-2 bg-white' : 'w-2 h-2 bg-white/30'}`} />
+          ))}
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="text-white/40 text-xs mr-2">{n} / {total}</span>
+          <button onClick={copyImage} className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all ${copied ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-white/10 hover:bg-white/20 text-white border border-white/10'}`}>
+            {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+            <span>{copied ? 'Copied' : 'Copy'}</span>
+          </button>
+          <button onClick={downloadImage} className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium bg-white/10 hover:bg-white/20 text-white border border-white/10 transition-all">
+            <Download className="w-4 h-4" /><span>Download</span>
+          </button>
+          <button onClick={onClose} className="flex items-center justify-center w-9 h-9 rounded-lg bg-white/10 hover:bg-white/20 text-white/70 hover:text-white border border-white/10 transition-all ml-1">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+      <div className="flex items-center gap-3 w-full max-w-3xl px-2" onClick={(e) => e.stopPropagation()}>
+        <button onClick={onPrev} disabled={n === 1} className="flex-shrink-0 flex items-center justify-center w-11 h-11 rounded-full bg-white/10 hover:bg-white/25 disabled:opacity-20 disabled:cursor-not-allowed text-white border border-white/10 transition-all">
+          <ChevronLeft className="w-5 h-5" />
+        </button>
+        <div className="flex-1 min-w-0">
+          <img src={url} alt={`Slide ${n}`} className="w-full rounded-2xl shadow-2xl ring-1 ring-white/10" />
+        </div>
+        <button onClick={onNext} disabled={n === total} className="flex-shrink-0 flex items-center justify-center w-11 h-11 rounded-full bg-white/10 hover:bg-white/25 disabled:opacity-20 disabled:cursor-not-allowed text-white border border-white/10 transition-all">
+          <ChevronRight className="w-5 h-5" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // Post Renders Tab
 function PostRendersTab({ token }: { token: string }) {
   const [renders, setRenders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [lightbox, setLightbox] = useState<{ urls: string[]; index: number } | null>(null);
 
   useEffect(() => {
-    apiFetch(token, '/posts/renders?limit=30')
+    apiFetch(token, '/posts/renders?limit=50')
       .then(r => setRenders(Array.isArray(r) ? r : []))
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [token]);
 
+  async function handleDelete(id: string) {
+    if (!confirm('Delete this render? This cannot be undone.')) return;
+    setDeletingId(id);
+    try {
+      await fetch(`/posts/renders/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+      setRenders(prev => prev.filter(r => r.id !== id));
+    } catch { /* ignore */ } finally {
+      setDeletingId(null);
+    }
+  }
+
   if (loading) return <p className="text-sm text-muted-foreground">Loading...</p>;
 
   return (
     <div className="space-y-4">
-      <p className="text-xs text-muted-foreground">Generate renders by chatting with the agent — type: <code className="bg-muted px-1.5 py-0.5 rounded">Generate a linkedin-howto-carousel for brand taskip about "your topic"</code></p>
+      {/* Renders list */}
       <div className="space-y-3">
         {renders.length === 0 && <p className="text-sm text-muted-foreground">No renders yet.</p>}
         {renders.map((r: any) => (
@@ -3822,904 +3920,603 @@ function PostRendersTab({ token }: { token: string }) {
                 <a href={apiHref(`/posts/renders/${r.id}/pptx`)} className="text-xs text-primary underline">PPTX</a>
                 <a href={apiHref(`/posts/renders/${r.id}/canva-csv`)} className="text-xs text-primary underline">CSV</a>
                 <a href={apiHref(`/posts/renders/${r.id}/text-export`)} className="text-xs text-primary underline">Text</a>
+                <button
+                  onClick={() => handleDelete(r.id)}
+                  disabled={deletingId === r.id}
+                  className="text-xs text-red-500 hover:text-red-700 disabled:opacity-40 transition-colors"
+                >
+                  {deletingId === r.id ? 'Deleting...' : 'Delete'}
+                </button>
               </div>
             </div>
             {Array.isArray(r.slideUrls) && r.slideUrls.length > 0 && (
               <div className="flex gap-2 overflow-x-auto pb-1">
                 {r.slideUrls.map((url: string, i: number) => (
-                  <a key={i} href={url} target="_blank" rel="noreferrer">
-                    <img src={url} alt={`Slide ${i + 1}`} className="h-24 w-24 object-cover rounded-lg border border-border flex-shrink-0" />
-                  </a>
+                  <button
+                    key={i}
+                    onClick={() => setLightbox({ urls: r.slideUrls, index: i })}
+                    className="flex-shrink-0 group relative rounded-lg overflow-hidden border border-border"
+                  >
+                    <img src={url} alt={`Slide ${i + 1}`} className="h-24 w-24 object-cover" />
+                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors" />
+                  </button>
                 ))}
               </div>
             )}
           </div>
         ))}
       </div>
+
+      {lightbox !== null && (
+        <SlideLightbox
+          url={lightbox.urls[lightbox.index]}
+          n={lightbox.index + 1}
+          total={lightbox.urls.length}
+          onClose={() => setLightbox(null)}
+          onPrev={() => setLightbox(prev => prev ? { ...prev, index: Math.max(0, prev.index - 1) } : null)}
+          onNext={() => setLightbox(prev => prev ? { ...prev, index: Math.min(prev.urls.length - 1, prev.index + 1) } : null)}
+        />
+      )}
     </div>
   );
 }
 
-// Design Samples Tab
-function DesignSamplesTab({ token }: { token: string }) {
-  const [samples, setSamples] = useState<any[]>([]);
-  const [patterns, setPatterns] = useState<string[]>([]);
-  const [bannerBrief, setBannerBrief] = useState('');
-  const [progress, setProgress] = useState<{ done: number; total: number; errors: number } | null>(null);
-  const [isDragOver, setIsDragOver] = useState(false);
-  const [uploadMode, setUploadMode] = useState<'individual' | 'carousel'>('individual');
-  const [carouselStaging, setCarouselStaging] = useState<File[]>([]);
-  const [carouselJobs, setCarouselJobs] = useState<{ id: string; label: string; phase: string; current: number; total: number; done: boolean; error?: boolean }[]>([]);
-  const [dsSubTab, setDsSubTab] = useState<'samples' | 'patterns'>('samples');
-  const [visibleCount, setVisibleCount] = useState(60);
-  const SAMPLE_PAGE_SIZE = 60;
-  const fileRef = useRef<HTMLInputElement>(null);
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve((reader.result as string).split(',')[1]);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
 
-  const [selectedSample, setSelectedSample] = useState<{ id: string; sourceUrl: string | null; patterns: string[]; dnaSummary: Record<string, unknown> } | null>(null);
-  const [loadingDetail, setLoadingDetail] = useState(false);
-  const [reanalyzingId, setReanalyzingId] = useState<string | null>(null);
-  const [clearingPatterns, setClearingPatterns] = useState(false);
-  const [removingPattern, setRemovingPattern] = useState<string | null>(null);
+function CarouselSetCard({ setName, slides, onDeleteSlide, deletingId }: {
+  setName: string;
+  slides: any[];
+  onDeleteSlide: (id: string) => void;
+  deletingId: string | null;
+}) {
+  const [gallery, setGallery] = useState<number | null>(null);
+  const [deletingSet, setDeletingSet] = useState(false);
+  const total = slides.length;
 
-  async function openSampleDetail(id: string) {
-    setLoadingDetail(true);
-    setSelectedSample(null);
-    try {
-      const detail = await apiFetch(token, `/posts/design-samples/${id}`);
-      setSelectedSample(detail);
-    } catch { /* ignore */ } finally {
-      setLoadingDetail(false);
+  async function handleDeleteSet(e: React.MouseEvent) {
+    e.stopPropagation();
+    if (!confirm(`Delete all ${total} slides in this set?`)) return;
+    setDeletingSet(true);
+    for (const s of slides) {
+      await new Promise<void>(res => { onDeleteSlide(s.id); setTimeout(res, 50); });
     }
-  }
-
-  async function reanalyzeSingle(id: string) {
-    setReanalyzingId(id);
-    try {
-      await apiFetch(token, `/posts/design-samples/${id}/reanalyze`, { method: 'POST' });
-      const detail = await apiFetch(token, `/posts/design-samples/${id}`);
-      setSelectedSample(detail);
-      void loadData();
-    } catch { /* ignore */ } finally {
-      setReanalyzingId(null);
-    }
-  }
-
-  async function clearAllPatterns() {
-    if (!confirm('Remove all patterns from all design samples? This cannot be undone.')) return;
-    setClearingPatterns(true);
-    try {
-      await apiFetch(token, '/posts/design-samples/patterns/all?brand=default', { method: 'DELETE' });
-      await loadData();
-    } catch { /* ignore */ } finally {
-      setClearingPatterns(false);
-    }
-  }
-
-  async function removePattern(pattern: string) {
-    setRemovingPattern(pattern);
-    try {
-      await apiFetch(token, '/posts/design-samples/patterns/remove', { method: 'POST', body: JSON.stringify({ pattern, brand: 'default' }) });
-      setPatterns(prev => prev.filter(p => p !== pattern));
-    } catch { /* ignore */ } finally {
-      setRemovingPattern(null);
-    }
-  }
-
-  async function loadData() {
-    const [s, p, b] = await Promise.all([
-      apiFetch(token, '/posts/design-samples?brand=default').catch(() => []),
-      apiFetch(token, '/posts/design-samples/patterns?brand=default').catch(() => []),
-      apiFetch(token, '/posts/design-samples/banner-brief?brand=default').catch(() => ({ bannerBrief: '' })),
-    ]);
-    setSamples(Array.isArray(s) ? s : []);
-    setPatterns(Array.isArray(p) ? p : []);
-    setBannerBrief(typeof b?.bannerBrief === 'string' ? b.bannerBrief : '');
-  }
-
-  useEffect(() => { loadData(); }, [token]);
-
-  useEffect(() => {
-    if (progress && progress.done >= progress.total) {
-      const t = setTimeout(() => setProgress(null), 2500);
-      return () => clearTimeout(t);
-    }
-  }, [progress]);
-
-  async function uploadFiles(files: FileList | File[]) {
-    const list = Array.from(files).filter(f => f.type.startsWith('image/'));
-    if (!list.length) return;
-    if (fileRef.current) fileRef.current.value = '';
-
-    // Immediately add to progress total — drop zone stays active
-    setProgress(prev => ({
-      done: prev?.done ?? 0,
-      total: (prev?.total ?? 0) + list.length,
-      errors: prev?.errors ?? 0,
-    }));
-
-    // Upload one file at a time so progress increments smoothly
-    for (const file of list) {
-      try {
-        const fd = new FormData();
-        fd.append('files', file);
-        await fetch('/posts/design-samples/upload', {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${token}` },
-          body: fd,
-        });
-        setProgress(prev => prev ? { ...prev, done: prev.done + 1 } : null);
-        void loadData(); // refresh grid after each image
-      } catch {
-        setProgress(prev => prev ? { ...prev, done: prev.done + 1, errors: prev.errors + 1 } : null);
-      }
-    }
-  }
-
-  function handleFileInput(e: React.ChangeEvent<HTMLInputElement>) {
-    if (e.target.files?.length) uploadFiles(e.target.files);
-  }
-
-  function handleDragOver(e: React.DragEvent) {
-    e.preventDefault();
-    setIsDragOver(true);
-  }
-
-  function handleDragLeave(e: React.DragEvent) {
-    if (!e.currentTarget.contains(e.relatedTarget as Node)) setIsDragOver(false);
-  }
-
-  function handleDrop(e: React.DragEvent) {
-    e.preventDefault();
-    setIsDragOver(false);
-    if (e.dataTransfer.files?.length) uploadFiles(e.dataTransfer.files);
-  }
-
-  const [reanalyzing, setReanalyzing] = useState(false);
-  const [cancelling, setCancelling] = useState(false);
-  const [reanalysisProgress, setReanalysisProgress] = useState<{ done: number; total: number; errors: number; running: boolean; cancelled?: boolean; failedDetails?: { id: string; reason: string }[] } | null>(null);
-  const reanalysisPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  const [clusteringStatus, setClusteringStatus] = useState<{ phase: string; pass: number; totalPasses: number; sampleCount: number; patternsFound: number; running: boolean } | null>(null);
-  const clusterPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  function clusterPhaseLabel(s: { phase: string; pass: number; totalPasses: number } | null): string {
-    if (!s) return '';
-    if (s.phase === 'done') return 'Done';
-    if (s.phase === 'error') return 'Failed — patterns not updated';
-    if (s.pass > 0 && s.totalPasses > 0) return `Pass ${s.pass}/${s.totalPasses}: ${s.phase.replace(/^Pass \d+\/\d+:\s*/, '')}`;
-    return s.phase;
-  }
-
-  function clusterProgressPct(s: { phase: string; pass: number; totalPasses: number; running: boolean } | null): number {
-    if (!s || s.totalPasses === 0) return 5;
-    if (!s.running) return 100;
-    if (s.pass === 0) return 5;
-    return Math.round(((s.pass - 0.5) / s.totalPasses) * 100);
-  }
-
-  function stopReanalysisPoll() {
-    if (reanalysisPollRef.current) { clearInterval(reanalysisPollRef.current); reanalysisPollRef.current = null; }
-  }
-
-  function stopClusterPoll() {
-    if (clusterPollRef.current) { clearInterval(clusterPollRef.current); clusterPollRef.current = null; }
-  }
-
-  function startReanalysisPoll() {
-    stopReanalysisPoll();
-    reanalysisPollRef.current = setInterval(async () => {
-      try {
-        const status = await apiFetch(token, '/posts/design-samples/reanalyze/status?brand=default');
-        setReanalysisProgress(status);
-        if (!status.running) {
-          stopReanalysisPoll();
-          await loadData();
-          // Backend fires auto-cluster after reanalysis; start polling to catch it
-          startClusterPoll(true);
-        }
-      } catch {
-        stopReanalysisPoll();
-      }
-    }, 3000);
-  }
-
-  function startClusterPoll(afterReanalysis = false) {
-    stopClusterPoll();
-    let idlePolls = 0;
-    const MAX_IDLE_POLLS = afterReanalysis ? 15 : 0; // wait up to 30s for auto-cluster to start
-    clusterPollRef.current = setInterval(async () => {
-      try {
-        const status = await apiFetch(token, '/posts/design-samples/cluster/status?brand=default');
-        setClusteringStatus(status);
-        if (!status.running && status.phase === 'idle') {
-          idlePolls++;
-          if (idlePolls > MAX_IDLE_POLLS) {
-            stopClusterPoll();
-          }
-          return;
-        }
-        idlePolls = 0;
-        if (!status.running && status.phase !== 'idle') {
-          stopClusterPoll();
-          await loadData();
-        }
-      } catch {
-        stopClusterPoll();
-      }
-    }, 2000);
-  }
-
-  // On mount: check if reanalysis or clustering is already running (survives page reload)
-  useEffect(() => {
-    apiFetch(token, '/posts/design-samples/reanalyze/status?brand=default').then(status => {
-      if (status.running) {
-        setReanalysisProgress(status);
-        startReanalysisPoll();
-      } else if (status.done > 0 || status.errors > 0) {
-        setReanalysisProgress(status);
-      }
-    }).catch(() => {});
-    apiFetch(token, '/posts/design-samples/cluster/status?brand=default').then(status => {
-      if (status.running) {
-        setClusteringStatus(status);
-        startClusterPoll();
-      } else if (status.phase !== 'idle') {
-        // Cluster finished while page was not loaded — refresh patterns from DB
-        setClusteringStatus(status);
-        loadData();
-      }
-    }).catch(() => {});
-    return () => { stopReanalysisPoll(); stopClusterPoll(); };
-  }, []);
-
-  async function cluster() {
-    setClusteringStatus({ phase: 'loading', pass: 0, totalPasses: 0, sampleCount: 0, patternsFound: 0, running: true });
-    setDsSubTab('patterns');
-    try {
-      await apiFetch(token, '/posts/design-samples/cluster', { method: 'POST', body: JSON.stringify({ brand: 'default' }) });
-      startClusterPoll();
-    } catch {
-      setClusteringStatus(null);
-    }
-  }
-
-  async function reanalyze() {
-    setReanalyzing(true);
-    setReanalysisProgress(null);
-    try {
-      const data = await apiFetch(token, '/posts/design-samples/reanalyze', { method: 'POST', body: JSON.stringify({ brand: 'default', autoCluster: true }) });
-      setReanalysisProgress({ done: 0, total: data.queued, errors: 0, running: true });
-      startReanalysisPoll();
-    } catch {
-      setReanalysisProgress(null);
-    } finally {
-      setReanalyzing(false);
-    }
-  }
-
-  async function cancelReanalyze() {
-    setCancelling(true);
-    try {
-      await apiFetch(token, '/posts/design-samples/reanalyze/cancel', { method: 'POST', body: JSON.stringify({ brand: 'default' }) });
-      stopReanalysisPoll();
-      setReanalysisProgress(prev => prev ? { ...prev, running: false, cancelled: true } : null);
-    } catch {
-      // ignore
-    } finally {
-      setCancelling(false);
-    }
-  }
-
-  const [deletingAll, setDeletingAll] = useState(false);
-  const [retrying, setRetrying] = useState(false);
-  const [showFailedLog, setShowFailedLog] = useState(false);
-  async function retryFailed() {
-    setRetrying(true);
-    setReanalysisProgress(null);
-    try {
-      const data = await apiFetch(token, '/posts/design-samples/reanalyze/retry', { method: 'POST', body: JSON.stringify({ brand: 'default', autoCluster: true }) });
-      setReanalysisProgress({ done: 0, total: data.queued, errors: 0, running: true });
-      startReanalysisPoll();
-    } catch {
-      setReanalysisProgress(null);
-    } finally {
-      setRetrying(false);
-    }
-  }
-
-  function uploadCarousel() {
-    if (carouselStaging.length < 2) return;
-    const files = [...carouselStaging];
-    const jobId = `carousel-${Date.now()}`;
-    const total = files.length; // slides + synthesis step = total + 1
-    const label = `${files.length}-slide carousel`;
-
-    // Clear staging immediately so the user can start the next one
-    setCarouselStaging([]);
-
-    const update = (phase: string, current: number, done = false, error = false) =>
-      setCarouselJobs(prev => prev.map(j => j.id === jobId ? { ...j, phase, current, done, error } : j));
-
-    setCarouselJobs(prev => [...prev, { id: jobId, label, phase: 'Starting...', current: 0, total: total + 1, done: false }]);
-
-    void (async () => {
-      const collectedIds: string[] = [];
-
-      for (let i = 0; i < files.length; i++) {
-        update(`Analyzing slide ${i + 1} of ${total}`, i);
-        try {
-          const fd = new FormData();
-          fd.append('files', files[i]);
-          const res = await fetch('/posts/design-samples/upload?brand=default', {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${token}` },
-            body: fd,
-          });
-          const data = await res.json();
-          const id: string | undefined = data?.results?.[0]?.kbEntryId;
-          if (id) collectedIds.push(id);
-        } catch { /* slide failed — continue */ }
-      }
-
-      if (collectedIds.length < 2) {
-        update('Failed — not enough slides analyzed', total + 1, true, true);
-        setTimeout(() => setCarouselJobs(prev => prev.filter(j => j.id !== jobId)), 4000);
-        return;
-      }
-
-      update('Synthesizing carousel design system...', total);
-      try {
-        await fetch('/posts/design-samples/carousel-synthesize', {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ entryIds: collectedIds, brand: 'default' }),
-        });
-      } catch { /* ignore */ }
-
-      update(`Done — ${collectedIds.length} slides merged`, total + 1, true);
-      void loadData();
-      setTimeout(() => setCarouselJobs(prev => prev.filter(j => j.id !== jobId)), 3000);
-    })();
-  }
-
-  async function deleteAllSamples() {
-    if (!confirm(`Remove all ${samples.length} design samples? This also deletes their files from storage and cannot be undone.`)) return;
-    setDeletingAll(true);
-    try {
-      await apiFetch(token, '/posts/design-samples/all?brand=default', { method: 'DELETE' });
-      setSamples([]);
-      setPatterns([]);
-      setBannerBrief('');
-    } catch { /* ignore */ } finally {
-      setDeletingAll(false);
-    }
+    setDeletingSet(false);
   }
 
   return (
-    <div className="space-y-5">
-      {/* Sub-tab header */}
-      <div className="flex items-center gap-1 border-b border-border pb-0">
-        {(['samples', 'patterns'] as const).map(tab => (
-          <button
-            key={tab}
-            onClick={() => setDsSubTab(tab)}
-            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
-              dsSubTab === tab
-                ? 'border-primary text-foreground'
-                : 'border-transparent text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            {tab === 'samples'
-              ? `Samples (${samples.length})`
-              : `Patterns (${clusteringStatus?.running && clusteringStatus.patternsFound > 0 ? clusteringStatus.patternsFound : patterns.length})`}
-          </button>
-        ))}
-        <div className="ml-auto pb-1 flex items-center gap-2">
-          {reanalysisProgress?.running && (
-            <button
-              onClick={cancelReanalyze}
-              disabled={cancelling}
-              className="px-3 py-1.5 border border-red-500/40 rounded-lg text-xs font-medium text-red-400 hover:bg-red-500/10 disabled:opacity-50 transition-colors"
-            >
-              {cancelling ? 'Stopping...' : 'Cancel'}
-            </button>
+    <>
+      <div className="relative group/set" style={{ width: 68 }}>
+        <button
+          onClick={() => setGallery(0)}
+          className="relative group focus:outline-none"
+          style={{ width: 68, height: 68 }}
+        >
+          {/* Card 3 — furthest back */}
+          {total > 2 && (
+            <div
+              className="absolute rounded-lg bg-muted border border-border/50"
+              style={{ inset: 0, transform: 'rotate(-4deg) translate(-2px, 3px)', zIndex: 0 }}
+            />
           )}
-          <button
-            onClick={deleteAllSamples}
-            disabled={deletingAll || samples.length === 0 || (reanalysisProgress?.running ?? false)}
-            className="px-3 py-1.5 border border-red-500/40 rounded-lg text-xs font-medium text-red-400 hover:bg-red-500/10 disabled:opacity-50 transition-colors"
-            title="Delete all design samples and their storage files"
+          {/* Card 2 — middle */}
+          {total > 1 && (
+            <div
+              className="absolute rounded-lg overflow-hidden border border-border/70 bg-muted"
+              style={{ inset: 0, transform: 'rotate(2.5deg) translate(2px, 2px)', zIndex: 1 }}
+            >
+              {slides[1]?.previewData && (
+                <img src={slides[1].previewData} alt="" className="w-full h-full object-cover" />
+              )}
+            </div>
+          )}
+          {/* Card 1 — front */}
+          <div
+            className="absolute rounded-lg overflow-hidden border border-border bg-muted shadow-md"
+            style={{ inset: 0, zIndex: 2 }}
           >
-            {deletingAll ? 'Deleting...' : 'Delete all'}
-          </button>
-          <button
-            onClick={reanalyze}
-            disabled={reanalyzing || (reanalysisProgress?.running ?? false) || samples.length === 0}
-            className="px-3 py-1.5 border border-border rounded-lg text-xs font-medium disabled:opacity-50 text-muted-foreground"
-            title="Re-run vision LLM on all uploaded images to refresh DNA data"
+            {slides[0]?.previewData && (
+              <img src={slides[0].previewData} alt="" className="w-full h-full object-cover" />
+            )}
+          </div>
+          <div className="absolute inset-0 rounded-lg bg-black/0 group-hover:bg-black/20 transition-colors pointer-events-none" style={{ zIndex: 3 }} />
+          <span
+            className="absolute -bottom-1 -right-1 bg-primary text-primary-foreground text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center pointer-events-none"
+            style={{ zIndex: 4 }}
           >
-            {reanalyzing ? 'Starting...' : (reanalysisProgress?.running ? 'Running...' : 'Re-analyze all')}
-          </button>
-          <button
-            onClick={cluster}
-            disabled={(clusteringStatus?.running ?? false) || (reanalysisProgress?.running ?? false) || samples.length < 3}
-            className="px-4 py-1.5 border border-border rounded-lg text-sm font-medium disabled:opacity-50"
-            title={samples.length < 3 ? 'Need 3+ samples to cluster' : ''}
-          >
-            {clusteringStatus?.running ? 'Learning...' : 'Learn patterns'}
-          </button>
-        </div>
+            {total}
+          </span>
+        </button>
+        <button
+          onClick={handleDeleteSet}
+          disabled={deletingSet}
+          className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-destructive text-white text-[10px] hidden group-hover/set:flex items-center justify-center disabled:opacity-50 shadow-sm"
+          style={{ zIndex: 20 }}
+        >
+          {deletingSet ? '·' : <X className="w-3 h-3" />}
+        </button>
       </div>
 
-      {reanalysisProgress && (reanalysisProgress.running || reanalysisProgress.done > 0 || reanalysisProgress.errors > 0) && (
-        <div className="space-y-1">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>
-              {reanalysisProgress.running
-                ? `Re-analyzing: ${reanalysisProgress.done} / ${reanalysisProgress.total} images...`
-                : reanalysisProgress.cancelled
-                  ? `Cancelled at ${reanalysisProgress.done} / ${reanalysisProgress.total} — ${reanalysisProgress.done - reanalysisProgress.errors} updated`
-                  : `Re-analysis complete: ${reanalysisProgress.done - reanalysisProgress.errors} updated`}
-              {reanalysisProgress.errors > 0 && (
-                <span
-                  className="text-red-400 ml-2 cursor-help"
-                  title={reanalysisProgress.failedDetails?.map(f => `${f.id.slice(-8)}: ${f.reason}`).join('\n') ?? `${reanalysisProgress.errors} items failed`}
-                >
-                  {reanalysisProgress.errors} failed
-                </span>
-              )}
-            </span>
-            <span>{reanalysisProgress.total > 0 ? Math.round((reanalysisProgress.done / reanalysisProgress.total) * 100) : 0}%</span>
-          </div>
-          <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
-            <div
-              className={`h-full rounded-full transition-all duration-500 ${reanalysisProgress.running ? 'bg-primary' : reanalysisProgress.cancelled ? 'bg-yellow-500' : 'bg-green-500'}`}
-              style={{ width: `${reanalysisProgress.total > 0 ? (reanalysisProgress.done / reanalysisProgress.total) * 100 : 0}%` }}
-            />
-          </div>
-          {reanalysisProgress.errors > 0 && (
-            <div className="space-y-2">
-              {!reanalysisProgress.running && (
-                <div className="flex items-center gap-3">
-                  <p className="text-xs text-muted-foreground flex-1">
-                    {reanalysisProgress.cancelled ? 'Analysis stopped.' : 'Analysis complete.'} {reanalysisProgress.errors} image{reanalysisProgress.errors !== 1 ? 's' : ''} could not be processed.
-                  </p>
-                  <button
-                    onClick={retryFailed}
-                    disabled={retrying}
-                    className="px-3 py-1 rounded-lg border border-border text-xs font-medium hover:bg-muted disabled:opacity-50 transition-colors"
-                  >
-                    {retrying ? 'Retrying...' : `Retry failed (${reanalysisProgress.errors})`}
-                  </button>
-                </div>
-              )}
-              <div className="rounded-lg border border-red-500/20 bg-red-500/5 overflow-hidden">
+      {gallery !== null && (
+        <div
+          className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/85 backdrop-blur-md"
+          onClick={() => setGallery(null)}
+        >
+          <div className="flex items-center justify-between w-full max-w-2xl px-4 pb-3" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-1.5">
+              {slides.map((_, i) => (
                 <button
-                  onClick={() => setShowFailedLog(v => !v)}
-                  className="w-full flex items-center justify-between px-3 py-2 text-xs font-medium text-red-400 hover:bg-red-500/10 transition-colors"
-                >
-                  <span>{reanalysisProgress.running ? `Live failure log (${reanalysisProgress.errors} so far)` : `Failed items log (${reanalysisProgress.errors})`}</span>
-                  <span className="text-muted-foreground">{showFailedLog ? '▲ hide' : '▼ show'}</span>
-                </button>
-                {showFailedLog && (
-                  <div className="border-t border-red-500/20">
-                    <div className="flex items-center justify-between px-3 py-1.5 border-b border-red-500/10">
-                      <span className="text-[10px] text-muted-foreground uppercase tracking-wide">ID · Reason</span>
-                      <button
-                        onClick={() => {
-                          const text = (reanalysisProgress.failedDetails ?? [])
-                            .map(f => `${f.id}  ${f.reason}`)
-                            .join('\n');
-                          navigator.clipboard.writeText(text).catch(() => {});
-                        }}
-                        className="text-[10px] text-muted-foreground hover:text-foreground transition-colors"
-                      >
-                        Copy all
-                      </button>
-                    </div>
-                    <div className="max-h-48 overflow-y-auto divide-y divide-red-500/10 font-mono">
-                      {(reanalysisProgress.failedDetails ?? []).length === 0 ? (
-                        <p className="px-3 py-2 text-xs text-muted-foreground italic">No detail available — deploy latest version to see reasons.</p>
-                      ) : (
-                        (reanalysisProgress.failedDetails ?? []).map((f, i) => (
-                          <div key={i} className="px-3 py-1.5 flex gap-2 text-[11px]">
-                            <span className="text-muted-foreground shrink-0 select-all">{f.id}</span>
-                            <span className="text-red-400 break-all">{f.reason}</span>
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-          {!reanalysisProgress.running && reanalysisProgress.errors === 0 && (
-            <p className="text-xs text-muted-foreground">{reanalysisProgress.cancelled ? 'Analysis stopped. Run again to resume from scratch.' : 'Patterns will be re-learned automatically.'}</p>
-          )}
-        </div>
-      )}
-
-      {clusteringStatus && clusteringStatus.phase !== 'idle' && (
-        <div className="bg-card border border-border rounded-xl px-4 py-3 space-y-2">
-          <div className="flex items-center justify-between text-xs">
-            <span className="font-medium text-foreground">
-              {clusteringStatus.running
-                ? clusterPhaseLabel(clusteringStatus)
-                : clusteringStatus.phase === 'error'
-                  ? 'Clustering failed — check that all samples have been re-analysed'
-                  : `Done — ${clusteringStatus.patternsFound} patterns from ${clusteringStatus.sampleCount} samples (${(clusteringStatus as any).dnaCount ?? '?'} with valid DNA)`}
-            </span>
-            <span className="text-muted-foreground">
-              {clusteringStatus.running && clusteringStatus.patternsFound > 0
-                ? `${clusteringStatus.patternsFound} patterns so far`
-                : clusteringStatus.sampleCount > 0
-                  ? `${clusteringStatus.sampleCount} samples / ${(clusteringStatus as any).dnaCount ?? '?'} DNA`
-                  : ''}
-            </span>
-          </div>
-          <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
-            <div
-              className={`h-full rounded-full transition-all duration-700 ${clusteringStatus.running ? 'bg-primary' : 'bg-green-500'}`}
-              style={{ width: `${clusterProgressPct(clusteringStatus)}%` }}
-            />
-          </div>
-        </div>
-      )}
-
-      {dsSubTab === 'samples' && (
-        <>
-          <div className="bg-card border border-border rounded-xl p-4 space-y-3">
-            <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={handleFileInput} />
-
-            {/* Upload mode toggle */}
-            <div className="flex items-center gap-1 bg-muted rounded-lg p-1 w-fit">
-              {(['individual', 'carousel'] as const).map(mode => (
-                <button
-                  key={mode}
-                  onClick={() => { setUploadMode(mode); setCarouselStaging([]); }}
-                  className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
-                    uploadMode === mode ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
-                  }`}
-                >
-                  {mode === 'individual' ? 'Individual images' : 'LinkedIn carousel set'}
-                </button>
+                  key={i}
+                  onClick={() => setGallery(i)}
+                  className={`rounded-full transition-all ${i === gallery ? 'w-4 h-2 bg-white' : 'w-2 h-2 bg-white/30 hover:bg-white/60'}`}
+                />
               ))}
             </div>
-
-            {uploadMode === 'individual' ? (
-              <div
-                onClick={() => fileRef.current?.click()}
-                onDragOver={handleDragOver}
-                onDragLeave={handleDragLeave}
-                onDrop={handleDrop}
-                className={`border-2 border-dashed rounded-xl p-8 text-center transition-colors cursor-pointer ${
-                  isDragOver ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/50 hover:bg-muted/40'
-                }`}
+            <div className="flex items-center gap-1.5">
+              <span className="text-white/40 text-xs mr-2">{gallery + 1} / {total}</span>
+              <button
+                onClick={() => setGallery(null)}
+                className="flex items-center justify-center w-9 h-9 rounded-lg bg-white/10 hover:bg-white/20 text-white/70 hover:text-white border border-white/10 transition-all"
               >
-                <p className="text-sm font-medium">{isDragOver ? 'Drop images here' : 'Drop images or click to upload'}</p>
-                <p className="text-xs text-muted-foreground mt-1">Each image is analyzed as an independent design sample</p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                <div
-                  onClick={() => {
-                    const input = document.createElement('input');
-                    input.type = 'file';
-                    input.accept = 'image/*';
-                    input.multiple = true;
-                    input.onchange = (e) => {
-                      const files = Array.from((e.target as HTMLInputElement).files ?? []).filter(f => f.type.startsWith('image/'));
-                      setCarouselStaging(prev => [...prev, ...files]);
-                    };
-                    input.click();
-                  }}
-                  onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
-                  onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setIsDragOver(false); }}
-                  onDrop={(e) => {
-                    e.preventDefault();
-                    setIsDragOver(false);
-                    const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
-                    setCarouselStaging(prev => [...prev, ...files]);
-                  }}
-                  className={`border-2 border-dashed rounded-xl p-6 text-center transition-colors cursor-pointer ${
-                    isDragOver ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/50 hover:bg-muted/40'
-                  }`}
-                >
-                  <p className="text-sm font-medium">Drop all carousel slides here</p>
-                  <p className="text-xs text-muted-foreground mt-1">All slides are analyzed together as one design system — add at least 2</p>
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 w-full max-w-2xl px-2" onClick={e => e.stopPropagation()}>
+            <button
+              onClick={() => setGallery(g => Math.max(0, (g ?? 0) - 1))}
+              disabled={gallery === 0}
+              className="flex-shrink-0 flex items-center justify-center w-11 h-11 rounded-full bg-white/10 hover:bg-white/25 disabled:opacity-20 disabled:cursor-not-allowed text-white border border-white/10 transition-all"
+            >
+              <ChevronLeft className="w-5 h-5" />
+            </button>
+            <div className="flex-1 min-w-0 space-y-2">
+              {slides[gallery]?.previewData ? (
+                <img src={slides[gallery].previewData} alt={`Slide ${gallery + 1}`} className="w-full rounded-2xl shadow-2xl ring-1 ring-white/10" />
+              ) : (
+                <div className="w-full aspect-video bg-muted/20 rounded-2xl flex items-center justify-center">
+                  <span className="text-sm text-white/40">No preview</span>
                 </div>
+              )}
+            </div>
+            <button
+              onClick={() => setGallery(g => Math.min(total - 1, (g ?? 0) + 1))}
+              disabled={gallery === total - 1}
+              className="flex-shrink-0 flex items-center justify-center w-11 h-11 rounded-full bg-white/10 hover:bg-white/25 disabled:opacity-20 disabled:cursor-not-allowed text-white border border-white/10 transition-all"
+            >
+              <ChevronRight className="w-5 h-5" />
+            </button>
+          </div>
+          <div className="flex gap-2 mt-3 overflow-x-auto max-w-2xl px-4" onClick={e => e.stopPropagation()}>
+            {slides.map((s, i) => (
+              <button
+                key={i}
+                onClick={() => setGallery(i)}
+                className={`flex-shrink-0 w-12 h-12 rounded-lg overflow-hidden border-2 transition-all ${i === gallery ? 'border-white' : 'border-white/20 hover:border-white/60'}`}
+              >
+                {s.previewData ? (
+                  <img src={s.previewData} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  <div className="w-full h-full bg-white/10" />
+                )}
+              </button>
+            ))}
+          </div>
+          <div className="flex gap-2 mt-3" onClick={e => e.stopPropagation()}>
+            <button
+              onClick={() => onDeleteSlide(slides[gallery]?.id)}
+              disabled={deletingId === slides[gallery]?.id}
+              className="px-3 py-1.5 text-xs text-red-400 border border-red-400/30 rounded-lg hover:bg-red-400/10 transition-colors disabled:opacity-40"
+            >
+              {deletingId === slides[gallery]?.id ? 'Deleting...' : 'Delete this slide'}
+            </button>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
 
-                {carouselStaging.length > 0 && (
-                  <div className="space-y-2">
-                    <div className="flex flex-wrap gap-2">
-                      {carouselStaging.map((file, i) => (
-                        <div key={i} className="relative group">
-                          <img
-                            src={URL.createObjectURL(file)}
-                            alt=""
-                            className="w-14 h-14 object-cover rounded-lg border border-border"
-                          />
-                          <span className="absolute top-0.5 left-0.5 bg-black/60 text-white text-[10px] font-bold rounded px-1 leading-tight">
-                            {i + 1}
-                          </span>
-                          <button
-                            onClick={() => setCarouselStaging(prev => prev.filter((_, j) => j !== i))}
-                            className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-destructive text-white text-[10px] hidden group-hover:flex items-center justify-center"
-                          >
-                            x
-                          </button>
+function DnaTemplateCard({ template, onDelete, deleting, compact }: {
+  template: any;
+  onDelete: () => void;
+  deleting: boolean;
+  compact?: boolean;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const params: any[] = Array.isArray(template.parameters) ? template.parameters : [];
+  const slideName = template.name.includes('/') ? template.name.split('/').slice(1).join('/') : template.name;
+
+  return (
+    <>
+      <div className={`relative group ${compact ? 'w-[80px]' : ''}`}>
+        <button onClick={() => setExpanded(true)} className={`focus:outline-none ${compact ? 'w-[80px] h-[80px]' : 'w-full'}`}>
+          {template.previewData ? (
+            <img
+              src={template.previewData}
+              alt={slideName}
+              className={`object-cover rounded-lg border border-border group-hover:border-primary/60 transition-colors ${compact ? 'w-[80px] h-[80px]' : 'w-full aspect-square'}`}
+            />
+          ) : (
+            <div className={`rounded-lg bg-muted border border-border flex items-center justify-center ${compact ? 'w-[80px] h-[80px]' : 'w-full aspect-square'}`}>
+              <span className="text-[10px] text-muted-foreground">No preview</span>
+            </div>
+          )}
+          {!compact && (
+            <p className="text-xs text-muted-foreground mt-1 truncate text-left">{slideName}</p>
+          )}
+          {params.length > 0 && (
+            <span className="absolute bottom-5 right-0.5 bg-primary text-primary-foreground text-[9px] font-bold rounded px-1 leading-tight pointer-events-none">
+              {params.length}p
+            </span>
+          )}
+        </button>
+        <button
+          onClick={(e) => { e.stopPropagation(); onDelete(); }}
+          disabled={deleting}
+          className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-destructive text-white text-[10px] hidden group-hover:flex items-center justify-center disabled:opacity-50"
+        >
+          {deleting ? '.' : 'x'}
+        </button>
+      </div>
+
+      {expanded && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4" onClick={() => setExpanded(false)}>
+          <div className="bg-card border border-border rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-3 border-b border-border">
+              <p className="text-sm font-medium text-foreground truncate">{slideName}</p>
+              <button onClick={() => setExpanded(false)} className="text-muted-foreground hover:text-foreground px-2">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="flex">
+              {template.previewData && (
+                <div className="w-48 shrink-0 border-r border-border bg-muted/30 flex items-center justify-center p-3">
+                  <img src={template.previewData} alt="" className="max-w-full max-h-48 object-contain rounded-lg" />
+                </div>
+              )}
+              <div className="flex-1 p-4 space-y-3 overflow-y-auto max-h-64">
+                {params.length > 0 ? (
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Parameters ({params.length})</p>
+                    <div className="space-y-2">
+                      {params.map((p: any, i: number) => (
+                        <div key={i} className="space-y-0.5">
+                          <p className="text-xs font-medium text-foreground">{p.key}</p>
+                          <p className="text-xs text-muted-foreground">{p.description}</p>
+                          {p.example && <p className="text-[10px] text-primary/70 italic">e.g. {p.example}</p>}
                         </div>
                       ))}
                     </div>
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={uploadCarousel}
-                        disabled={carouselStaging.length < 2}
-                        className="px-4 py-1.5 bg-primary text-primary-foreground rounded-lg text-sm font-medium disabled:opacity-50"
-                      >
-                        {`Upload ${carouselStaging.length}-slide carousel`}
-                      </button>
-                      <button
-                        onClick={() => setCarouselStaging([])}
-                        className="text-xs text-muted-foreground hover:text-foreground"
-                      >
-                        Clear
-                      </button>
-                    </div>
                   </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground italic">No parameters extracted.</p>
                 )}
               </div>
-            )}
-
-            {progress && (
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="text-muted-foreground">
-                    {progress.done >= progress.total
-                      ? `Done — ${progress.total - progress.errors} analyzed${progress.errors > 0 ? `, ${progress.errors} failed` : ''}`
-                      : `Analyzing ${progress.done} / ${progress.total}...`}
-                  </span>
-                  {progress.errors > 0 && (
-                    <span className="text-red-400">{progress.errors} failed</span>
-                  )}
-                </div>
-                <div className="h-1.5 bg-muted rounded-full overflow-hidden">
-                  <div
-                    className={`h-full rounded-full transition-all duration-500 ${progress.done >= progress.total ? 'bg-green-500' : 'bg-primary'}`}
-                    style={{ width: `${Math.round((progress.done / Math.max(progress.total, 1)) * 100)}%` }}
-                  />
-                </div>
-              </div>
-            )}
-
-            <p className="text-xs text-muted-foreground">{samples.length} sample{samples.length !== 1 ? 's' : ''} total</p>
-          </div>
-
-          {carouselJobs.length > 0 && (
-            <div className="space-y-2">
-              {carouselJobs.map(job => (
-                <div key={job.id} className="bg-card border border-border rounded-xl px-4 py-3 space-y-1.5">
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="font-medium text-foreground">{job.label}</span>
-                    <span className={`tabular-nums ${job.error ? 'text-red-400' : 'text-muted-foreground'}`}>
-                      {job.phase}
-                    </span>
-                  </div>
-                  <div className="h-1.5 bg-muted rounded-full overflow-hidden">
-                    <div
-                      className={`h-full rounded-full transition-all duration-500 ${
-                        job.error ? 'bg-red-500' : job.done ? 'bg-green-500' : 'bg-primary'
-                      }`}
-                      style={{ width: `${Math.round((job.current / Math.max(job.total, 1)) * 100)}%` }}
-                    />
-                  </div>
-                </div>
-              ))}
             </div>
-          )}
-
-          <div className="flex flex-wrap gap-3">
-            {samples.slice(0, visibleCount).map((s: any) => {
-              const carouselMatch = s.content?.match(/"carousel_slide_count"\s*:\s*(\d+)/);
-              const carouselCount = carouselMatch ? parseInt(carouselMatch[1]) : 0;
-              return (
-                <div key={s.id} className="relative w-[60px] h-[60px] shrink-0">
-                  <button
-                    onClick={() => openSampleDetail(s.id)}
-                    className="w-full h-full focus:outline-none"
-                    title={carouselCount > 0 ? `LinkedIn carousel — ${carouselCount} slides` : 'View patterns and DNA'}
-                  >
-                    {s.sourceUrl ? (
-                      <img src={s.sourceUrl} alt="" className="w-[60px] h-[60px] object-cover rounded-lg border border-border hover:border-primary transition-colors" />
-                    ) : (
-                      <div className="w-[60px] h-[60px] rounded-lg bg-muted border border-border" />
-                    )}
-                  </button>
-                  {carouselCount > 0 && (
-                    <span className="absolute top-0.5 left-0.5 bg-blue-600 text-white text-[9px] font-bold rounded px-1 leading-tight pointer-events-none">
-                      {carouselCount}
-                    </span>
-                  )}
-                  {s.content?.includes('-- Design Patterns --') && (
-                    <span className="absolute bottom-0.5 right-0.5 bg-green-600 rounded p-0.5 leading-none pointer-events-none">
-                      <BookOpen className="w-2.5 h-2.5 text-white" />
-                    </span>
-                  )}
-                </div>
-              );
-            })}
           </div>
-
-          {visibleCount < samples.length && (
-            <div className="flex justify-center pt-1">
-              <button
-                onClick={() => setVisibleCount(c => c + SAMPLE_PAGE_SIZE)}
-                className="px-4 py-1.5 text-xs border border-border rounded-lg text-muted-foreground hover:text-foreground"
-              >
-                Load more ({samples.length - visibleCount} remaining)
-              </button>
-            </div>
-          )}
-        </>
+        </div>
       )}
+    </>
+  );
+}
 
-      {dsSubTab === 'patterns' && (
-        <div className="space-y-3">
-          {clusteringStatus?.running && (
-            <div className="bg-card border border-border rounded-xl p-4 space-y-1">
-              <p className="text-sm font-medium text-foreground">Learning patterns...</p>
-              <p className="text-xs text-muted-foreground">{clusterPhaseLabel(clusteringStatus)}</p>
-              {clusteringStatus.patternsFound > 0 && (
-                <p className="text-xs text-primary">{clusteringStatus.patternsFound} patterns found so far</p>
-              )}
+// Templates Tab
+function DesignSamplesTab({ token }: { token: string }) {
+  const [jobs, setJobs] = useState<any[]>([]);
+  const [templates, setTemplates] = useState<any[]>([]);
+  const [uploadMode, setUploadMode] = useState<'individual' | 'carousel'>('individual');
+  const [isDragOver, setIsDragOver] = useState(false);
+  const [carouselStaging, setCarouselStaging] = useState<File[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  async function loadAll() {
+    const [j, t] = await Promise.all([
+      apiFetch(token, '/design-studio/jobs').catch(() => []),
+      apiFetch(token, '/design-studio/templates').catch(() => []),
+    ]);
+    setJobs(Array.isArray(j) ? j : []);
+    setTemplates(Array.isArray(t) ? t : []);
+  }
+
+  function stopPolling() {
+    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+  }
+
+  function startPolling() {
+    stopPolling();
+    pollRef.current = setInterval(async () => {
+      try {
+        const j = await apiFetch(token, '/design-studio/jobs').catch(() => []);
+        const jobList = Array.isArray(j) ? j : [];
+        setJobs(jobList);
+        const hasPending = jobList.some((job: any) => job.status === 'pending' || job.status === 'processing');
+        if (!hasPending) {
+          stopPolling();
+          const t = await apiFetch(token, '/design-studio/templates').catch(() => []);
+          setTemplates(Array.isArray(t) ? t : []);
+        }
+      } catch {
+        stopPolling();
+      }
+    }, 2500);
+  }
+
+  useEffect(() => {
+    void loadAll();
+    return () => stopPolling();
+  }, [token]);
+
+  async function uploadIndividual(files: File[]) {
+    setUploading(true);
+    try {
+      const items = await Promise.all(files.map(async (f) => ({
+        name: f.name.replace(/\.[^.]+$/, ''),
+        imageBase64: await fileToBase64(f),
+        mimeType: f.type,
+      })));
+      await apiFetch(token, '/design-studio/import-batch', {
+        method: 'POST',
+        body: JSON.stringify({ items }),
+      });
+      await loadAll();
+      startPolling();
+    } catch { /* ignore */ } finally {
+      setUploading(false);
+    }
+  }
+
+  async function uploadCarousel(files: File[]) {
+    if (files.length < 2) return;
+    setUploading(true);
+    const rawName = files[0].name.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' ').trim() || 'carousel';
+    const uid = Date.now().toString(36).slice(-5);
+    const setName = `${rawName}-${uid}`;
+    try {
+      const items = await Promise.all(files.map(async (f, i) => ({
+        name: `${setName}/slide-${i + 1}`,
+        imageBase64: await fileToBase64(f),
+        mimeType: f.type,
+      })));
+      await apiFetch(token, '/design-studio/import-batch', {
+        method: 'POST',
+        body: JSON.stringify({ items }),
+      });
+      await loadAll();
+      startPolling();
+    } catch { /* ignore */ } finally {
+      setUploading(false);
+    }
+  }
+
+  async function deleteTemplate(id: string) {
+    setDeletingId(id);
+    try {
+      await fetch(`/design-studio/templates/${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setTemplates(prev => prev.filter((t: any) => t.id !== id));
+    } catch { /* ignore */ } finally {
+      setDeletingId(null);
+    }
+  }
+
+  function handleFiles(files: File[]) {
+    const images = files.filter(f => f.type.startsWith('image/'));
+    if (!images.length) return;
+    if (fileRef.current) fileRef.current.value = '';
+    if (uploadMode === 'individual') {
+      void uploadIndividual(images);
+    } else {
+      void uploadCarousel(images);
+    }
+  }
+
+  const individualTemplates = templates.filter((t: any) => !t.name.includes('/'));
+  const carouselTemplates = [...templates.filter((t: any) => t.name.includes('/'))]
+    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+
+  // Group by prefix, then split into sessions where gap > 60s between consecutive slides
+  const byPrefix: Record<string, any[]> = {};
+  for (const t of carouselTemplates) {
+    const prefix = t.name.split('/')[0];
+    (byPrefix[prefix] ??= []).push(t);
+  }
+  const carouselGroups: Record<string, any[]> = {};
+  for (const [prefix, slides] of Object.entries(byPrefix)) {
+    let sessionIdx = 0;
+    let lastTs = new Date(slides[0].createdAt).getTime();
+    for (const slide of slides) {
+      const ts = new Date(slide.createdAt).getTime();
+      if (ts - lastTs > 60000) sessionIdx++;
+      const key = `${prefix}__${sessionIdx}`;
+      (carouselGroups[key] ??= []).push(slide);
+      lastTs = ts;
+    }
+  }
+  const activeJobs = jobs.filter((j: any) => j.status === 'pending' || j.status === 'processing');
+  const failedJobs = jobs.filter((j: any) => j.status === 'failed');
+
+  return (
+    <div className="space-y-6">
+      <div className="bg-card border border-border rounded-xl p-4 space-y-3">
+        <div className="flex items-center gap-1 bg-muted rounded-lg p-1 w-fit">
+          {(['individual', 'carousel'] as const).map(mode => (
+            <button
+              key={mode}
+              onClick={() => { setUploadMode(mode); setCarouselStaging([]); }}
+              className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
+                uploadMode === mode ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              {mode === 'individual' ? 'Individual image' : 'Carousel set'}
+            </button>
+          ))}
+        </div>
+
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/*"
+          multiple={uploadMode === 'carousel'}
+          className="hidden"
+          onChange={(e) => {
+            const files = Array.from(e.target.files ?? []).filter(f => f.type.startsWith('image/'));
+            if (fileRef.current) fileRef.current.value = '';
+            if (uploadMode === 'individual') {
+              files.forEach(f => void uploadIndividual([f]));
+            } else {
+              setCarouselStaging(prev => [...prev, ...files]);
+            }
+          }}
+        />
+
+        {uploadMode === 'individual' ? (
+          <div
+            onClick={() => fileRef.current?.click()}
+            onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
+            onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setIsDragOver(false); }}
+            onDrop={(e) => {
+              e.preventDefault();
+              setIsDragOver(false);
+              const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
+              files.forEach(f => void uploadIndividual([f]));
+            }}
+            className={`border-2 border-dashed rounded-xl p-8 text-center transition-colors cursor-pointer ${
+              uploading ? 'opacity-50 pointer-events-none' : isDragOver ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/50 hover:bg-muted/40'
+            }`}
+          >
+            <p className="text-sm font-medium">{uploading ? 'Uploading...' : isDragOver ? 'Drop images here' : 'Drop images or click to upload'}</p>
+            <p className="text-xs text-muted-foreground mt-1">Each image is analyzed and stored as a separate design template</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <div
+              onClick={() => fileRef.current?.click()}
+              onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
+              onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setIsDragOver(false); }}
+              onDrop={(e) => {
+                e.preventDefault();
+                setIsDragOver(false);
+                const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
+                setCarouselStaging(prev => [...prev, ...files]);
+              }}
+              className={`border-2 border-dashed rounded-xl p-6 text-center transition-colors cursor-pointer ${
+                isDragOver ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/50 hover:bg-muted/40'
+              }`}
+            >
+              <p className="text-sm font-medium">Drop all carousel slides here</p>
+              <p className="text-xs text-muted-foreground mt-1">All slides are uploaded together as one named set — add at least 2</p>
             </div>
-          )}
-          {patterns.length === 0 && !clusteringStatus?.running ? (
-            <div className="bg-card border border-border rounded-xl p-4">
-              <p className="text-sm text-muted-foreground">No patterns yet. Upload samples and re-analyze them to extract per-image patterns automatically.</p>
-            </div>
-          ) : patterns.length > 0 ? (
-            <>
-              {bannerBrief && (
-                <div className="bg-primary/5 border border-primary/20 rounded-xl p-4">
-                  <p className="text-xs font-semibold text-primary mb-1.5 uppercase tracking-wide">Banner Brief</p>
-                  <p className="text-sm text-foreground leading-relaxed">{bannerBrief}</p>
+            {carouselStaging.length > 0 && (
+              <div className="space-y-2">
+                <div className="flex flex-wrap gap-2">
+                  {carouselStaging.map((file, i) => (
+                    <div key={i} className="relative group">
+                      <img src={URL.createObjectURL(file)} alt="" className="w-14 h-14 object-cover rounded-lg border border-border" />
+                      <span className="absolute top-0.5 left-0.5 bg-black/60 text-white text-[10px] font-bold rounded px-1 leading-tight">{i + 1}</span>
+                      <button
+                        onClick={() => setCarouselStaging(prev => prev.filter((_, j) => j !== i))}
+                        className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-destructive text-white text-[10px] hidden group-hover:flex items-center justify-center"
+                      >
+                        x
+                      </button>
+                    </div>
+                  ))}
                 </div>
-              )}
-              <div className="bg-card border border-border rounded-xl overflow-hidden">
-                <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-                  <p className="text-xs text-muted-foreground">{patterns.length} pattern{patterns.length !== 1 ? 's' : ''} from {samples.length} samples</p>
+                <div className="flex items-center gap-2">
                   <button
-                    onClick={clearAllPatterns}
-                    disabled={clearingPatterns}
-                    className="text-xs text-destructive hover:underline disabled:opacity-50"
+                    onClick={() => void uploadCarousel(carouselStaging).then(() => setCarouselStaging([]))}
+                    disabled={carouselStaging.length < 2 || uploading}
+                    className="px-4 py-1.5 bg-primary text-primary-foreground rounded-lg text-sm font-medium disabled:opacity-50"
                   >
-                    {clearingPatterns ? 'Clearing...' : 'Clear all patterns'}
+                    {uploading ? 'Uploading...' : `Upload ${carouselStaging.length}-slide set`}
+                  </button>
+                  <button onClick={() => setCarouselStaging([])} className="text-xs text-muted-foreground hover:text-foreground">
+                    Clear
                   </button>
                 </div>
-                {(() => {
-                  const TAG_ORDER = ['LAYOUT','COMPOSITION','GRID','SPACING','BACKGROUND','COLOR','TYPOGRAPHY','SHAPE','BRANDING','CTA','STYLE','SLIDE','TONE','MOOD'];
-                  const groups: Record<string, string[]> = {};
-                  for (const p of patterns) {
-                    const tag = p.match(/^\[([A-Z_]+)\]/)?.[1] ?? 'OTHER';
-                    (groups[tag] ??= []).push(p);
-                  }
-                  const sortedTags = [
-                    ...TAG_ORDER.filter(t => groups[t]),
-                    ...Object.keys(groups).filter(t => !TAG_ORDER.includes(t)).sort(),
-                  ];
-                  return sortedTags.map(tag => (
-                    <div key={tag} className="border-b border-border last:border-b-0">
-                      <div className="px-4 py-2 bg-muted/20 flex items-center gap-2">
-                        <span className="text-[10px] font-semibold uppercase tracking-wider text-primary">{tag}</span>
-                        <span className="text-[10px] text-muted-foreground">{groups[tag].length}</span>
-                      </div>
-                      <div className="px-4 py-2 space-y-1.5">
-                        {groups[tag].map((p, i) => (
-                          <div key={i} className="flex items-start gap-2 group">
-                            <p className="text-xs text-muted-foreground border-l-2 border-primary/40 pl-2 flex-1">
-                              {p.replace(/^\[[A-Z_]+\]\s*/, '')}
-                            </p>
-                            <button
-                              onClick={() => removePattern(p)}
-                              disabled={removingPattern === p}
-                              className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-opacity disabled:opacity-50 shrink-0 mt-0.5"
-                              title="Remove this pattern"
-                            >
-                              {removingPattern === p
-                                ? <Loader2 className="w-3 h-3 animate-spin" />
-                                : <span className="text-[10px] leading-none">✕</span>}
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ));
-                })()}
               </div>
-            </>
-          ) : null}
+            )}
+          </div>
+        )}
+      </div>
+
+      {activeJobs.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Analyzing</p>
+          {activeJobs.map((job: any) => (
+            <div key={job.id} className="bg-card border border-border rounded-xl px-4 py-3 flex items-center gap-3">
+              <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse shrink-0" />
+              <span className="text-sm text-foreground flex-1 truncate">{job.name}</span>
+              <span className="text-xs text-muted-foreground capitalize">{job.status}</span>
+            </div>
+          ))}
         </div>
       )}
 
-      {(selectedSample || loadingDetail) && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4"
-          onClick={() => setSelectedSample(null)}
-        >
-          <div
-            className="bg-card border border-border rounded-2xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-hidden flex flex-col"
-            onClick={e => e.stopPropagation()}
-          >
-            {loadingDetail && (
-              <div className="flex items-center justify-center p-12">
-                <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-              </div>
-            )}
-            {selectedSample && (
-              <>
-                <div className="flex items-center justify-between px-5 py-3 border-b border-border">
-                  <p className="text-sm font-medium text-foreground truncate">
-                    {String(selectedSample.dnaSummary.slide_type ?? 'sample')} — {String(selectedSample.dnaSummary.layout_type ?? '')}
-                  </p>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <button
-                      onClick={() => reanalyzeSingle(selectedSample.id)}
-                      disabled={reanalyzingId === selectedSample.id}
-                      className="px-3 py-1 text-xs border border-border rounded-lg hover:bg-muted disabled:opacity-50 flex items-center gap-1.5"
-                    >
-                      {reanalyzingId === selectedSample.id
-                        ? <><Loader2 className="w-3 h-3 animate-spin" /> Re-analyzing...</>
-                        : <><RotateCcw className="w-3 h-3" /> Re-analyze</>}
-                    </button>
-                    {selectedSample.sourceUrl && (
-                      <a href={selectedSample.sourceUrl} target="_blank" rel="noreferrer" className="px-3 py-1 text-xs border border-border rounded-lg hover:bg-muted flex items-center gap-1.5">
-                        <ExternalLink className="w-3 h-3" /> Full image
-                      </a>
-                    )}
-                    <button onClick={() => setSelectedSample(null)} className="text-muted-foreground hover:text-foreground px-2">✕</button>
-                  </div>
-                </div>
-                <div className="flex flex-1 overflow-hidden">
-                  {selectedSample.sourceUrl && (
-                    <div className="w-48 shrink-0 border-r border-border bg-muted/30 flex items-center justify-center p-3">
-                      <img src={selectedSample.sourceUrl} alt="" className="max-w-full max-h-full object-contain rounded-lg" />
-                    </div>
-                  )}
-                  <div className="flex-1 overflow-y-auto p-5 space-y-4">
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">DNA Summary</p>
-                      <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-                        {Object.entries(selectedSample.dnaSummary).filter(([, v]) => v !== undefined && v !== null && v !== '').map(([k, v]) => (
-                          <div key={k} className="flex items-start gap-1.5">
-                            <span className="text-[11px] text-muted-foreground shrink-0 w-28">{k.replace(/_/g, ' ')}</span>
-                            <span className="text-[11px] text-foreground break-words">
-                              {Array.isArray(v) ? v.join(', ') : String(v)}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
-                        Extracted patterns ({selectedSample.patterns.length})
-                      </p>
-                      {selectedSample.patterns.length === 0 ? (
-                        <p className="text-xs text-muted-foreground italic">No patterns yet — click Re-analyze to extract them.</p>
-                      ) : (
-                        <div className="space-y-1">
-                          {selectedSample.patterns.map((p, i) => (
-                            <p key={i} className="text-xs text-muted-foreground border-l-2 border-primary/60 pl-2">{p}</p>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </>
-            )}
+      {failedJobs.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Failed</p>
+          {failedJobs.map((job: any) => (
+            <div key={job.id} className="bg-card border border-destructive/30 rounded-xl px-4 py-3 flex items-center gap-3">
+              <span className="text-sm text-foreground flex-1 truncate">{job.name}</span>
+              <span className="text-xs text-destructive truncate max-w-xs">{job.error ?? 'Unknown error'}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {individualTemplates.length > 0 && (
+        <div className="space-y-3">
+          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+            Individual Images ({individualTemplates.length})
+          </p>
+          <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
+            {individualTemplates.map((t: any) => (
+              <DnaTemplateCard
+                key={t.id}
+                template={t}
+                onDelete={() => void deleteTemplate(t.id)}
+                deleting={deletingId === t.id}
+              />
+            ))}
           </div>
+        </div>
+      )}
+
+      {Object.keys(carouselGroups).length > 0 && (
+        <div className="space-y-4">
+          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+            Carousel Sets ({Object.keys(carouselGroups).length})
+          </p>
+          <div className="flex flex-wrap gap-4">
+            {Object.entries(carouselGroups).map(([setKey, slides]) => (
+              <CarouselSetCard
+                key={setKey}
+                setName={setKey}
+                slides={slides}
+                onDeleteSlide={(id) => void deleteTemplate(id)}
+                deletingId={deletingId}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {templates.length === 0 && activeJobs.length === 0 && (
+        <div className="bg-card border border-border rounded-xl p-6 text-center">
+          <p className="text-sm text-muted-foreground">No design templates yet. Upload images above to extract their visual DNA.</p>
         </div>
       )}
     </div>
@@ -5554,9 +5351,9 @@ function CanvaSetupTab({ agent, token }: { agent: AgentDetail; token: string }) 
           </div>
 
           <div className="space-y-2 border-t border-border pt-3">
-            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Training with design samples</p>
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Training with design templates</p>
             <ol className="text-xs text-muted-foreground space-y-1.5 list-decimal list-inside">
-              <li>Go to the <strong className="text-foreground">Design Samples</strong> tab above and set your brand name</li>
+              <li>Go to the <strong className="text-foreground">Templates</strong> tab above and set your brand name</li>
               <li>Click <strong className="text-foreground">Upload samples</strong> — select 10–200 PNG/JPG design images</li>
               <li>Each image is analyzed by GPT-4V which extracts layout, colors, typography, and mood patterns</li>
               <li>After uploading 20+ samples, click <strong className="text-foreground">Learn patterns</strong> to cluster them into reusable style rules</li>

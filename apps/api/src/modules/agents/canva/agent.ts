@@ -4,6 +4,7 @@ import { DbService } from '../../../db/db.service';
 import { agents } from '../../../db/schema';
 import { contentIdeas, canvaCandidates, canvaSessions, canvaDebugLog } from './schema';
 import { AgentRegistryService } from '../runtime/agent-registry.service';
+import { AgentLogService } from '../runtime/agent-log.service';
 import { LlmRouterService } from '../../llm/llm-router.service';
 import { TelegramService } from '../../telegram/telegram.service';
 import { ConceptParserService } from './concept-parser.service';
@@ -15,7 +16,9 @@ import { CanvaMcpService } from './canva-mcp.service';
 import { CanvaBrandsService } from './canva-brands.service';
 import { CanvaDebugService } from './canva-debug.service';
 import { PostRendererService } from '../../post-render/post-renderer.service';
+import { DesignPatternService } from '../../post-render/design-pattern.service';
 import { listFormats } from '../../post-render/post-format.registry';
+import { DesignStudioService } from '../../design-studio/design-studio.service';
 import { agentLlmOpts } from '../runtime/llm-config.util';
 import type {
   IAgent,
@@ -60,6 +63,7 @@ export class CanvaAgent implements IAgent, OnModuleInit {
     private readonly llm: LlmRouterService,
     private readonly telegram: TelegramService,
     private readonly registry: AgentRegistryService,
+    private readonly logSvc: AgentLogService,
     private readonly conceptParser: ConceptParserService,
     private readonly planner: PlannerService,
     private readonly skills: SkillLoaderService,
@@ -69,6 +73,8 @@ export class CanvaAgent implements IAgent, OnModuleInit {
     private readonly brands: CanvaBrandsService,
     private readonly debug: CanvaDebugService,
     private readonly renderer: PostRendererService,
+    private readonly designPattern: DesignPatternService,
+    private readonly designStudio: DesignStudioService,
   ) {}
 
   onModuleInit() {
@@ -92,7 +98,7 @@ export class CanvaAgent implements IAgent, OnModuleInit {
     if (payload?.source === 'chat' || (payload?.query && !taskMode)) {
       return {
         source: trigger,
-        snapshot: { mode: 'chat', query: payload.query ?? '', history: payload.history ?? '', config },
+        snapshot: { mode: 'chat', query: payload.query ?? '', history: payload.history ?? '', sampleId: payload.sampleId ?? null, config, runId: run.id },
         followups: (run.context as AgentContext | null)?.followups ?? [],
       };
     }
@@ -120,7 +126,7 @@ export class CanvaAgent implements IAgent, OnModuleInit {
     const config: CanvaConfig = snap.config;
 
     if (snap.mode === 'chat') {
-      return this.decideChat(snap.query, config, snap.history);
+      return this.decideChat(snap.query, config, snap.history, snap.sampleId ?? undefined, snap.runId ?? undefined);
     }
     if (snap.mode === 'design') {
       return this.decideDesign(snap.concept, config);
@@ -128,12 +134,12 @@ export class CanvaAgent implements IAgent, OnModuleInit {
     return this.decideCalendar(snap.month, config, snap.existingCount);
   }
 
-  private async decideChat(query: string, config: CanvaConfig, history?: string): Promise<ProposedAction[]> {
+  private async decideChat(query: string, config: CanvaConfig, history?: string, sampleId?: string, runId?: string): Promise<ProposedAction[]> {
     if (!query?.trim()) {
-      return [{ type: 'notify_result', summary: 'No query', payload: { message: 'What would you like help with?' }, riskLevel: 'low' }];
+      return [{ type: 'notify_result', summary: 'No query', payload: { message: 'What topic would you like to create a carousel about?' }, riskLevel: 'low' }];
     }
 
-    // Hard-coded render trigger: "generate a <format-id> for brand <brand> about "..."
+    // Debug-only hard-coded trigger: "generate a <format-id> for brand <brand> about "..."
     const renderMatch = query.match(
       /generate\s+an?\s+([\w-]+)\s+for\s+brand\s+(\w+)(?:\s+about\s+"([^"]+)")?(?:\s+intent\s+([\w\s]+))?/i,
     );
@@ -144,102 +150,702 @@ export class CanvaAgent implements IAgent, OnModuleInit {
       const intent = renderMatch[4]?.trim() || undefined;
       const validFormats = new Set(listFormats().map(f => f.id));
       if (validFormats.has(formatId)) {
-        return [{
-          type: 'post_render',
-          summary: `Render ${formatId} for ${brand}`,
-          payload: { formatId, brand, topic, intent },
-          riskLevel: 'low',
-        }];
+        return [{ type: 'post_render', summary: `Render ${formatId} for ${brand}`, payload: { formatId, brand, topic, intent }, riskLevel: 'low' }];
       }
     }
 
-    // Classify intent: design-generate | questions-answered | general-chat
-    const classifyPrompt = `You are classifying a chat message sent to a social media design generation agent.
+    const firstBrand = (config.brands?.[0] ?? 'taskip').toLowerCase();
+    const dnaTemplates = await this.designStudio.listTemplates().catch(() => [] as Array<{ id: string; name: string; parameters: unknown; createdAt: Date }>);
 
-Available brands: taskip (project management SaaS), xgenious (premium WordPress/CodeIgniter themes)
-Available formats: linkedin-tips-carousel, linkedin-howto-carousel, linkedin-list-carousel, linkedin-stat-single, linkedin-quote-single, instagram-carousel-edu, generic-infographic, generic-checklist
+    const toneInstructions: Record<string, string> = {
+      'bold-punchy':        'Bold punchy style — max 6 words per headline, heavy font weight, very high contrast backgrounds (dark or vivid), large corner decorations, 1-2 word highlights per slide.',
+      'clean-minimal':      'Clean minimal style — generous whitespace, soft muted backgrounds, no decorations except a single thin accent bar, body text is the hero.',
+      'warm-professional':  'Warm professional style — earthy or navy tones, rounded shapes, approachable body copy length (2-3 sentences), subtle circle decorations at corners.',
+      'dark-dramatic':      'Dark dramatic style — very dark backgrounds (#0f0f0f or deep navy), vivid accent colors (electric blue, neon green, bright orange), large bold shapes, high-contrast text.',
+      'energetic-colorful': 'Energetic colorful style — saturated backgrounds (yellow, coral, electric purple), white text, multiple overlapping shapes, bold decorations at every corner.',
+    };
 
-Recent conversation (last 6 messages, may be empty):
-${history || '(no history)'}
+    type DnaParam = { key: string; description: string; example?: string };
+    type StyleEntry = { num: string; id: string; title: string; thumb: string | null; fields?: string };
 
-Current user message: "${query}"
+    // Group carousel sets — one representative tile per set (alphabetically first slide)
+    // Includes a `fields` hint showing what content/param fields the template uses
+    const buildStyleSamples = (templates: Array<{ id: string; name: string; parameters?: unknown }>): StyleEntry[] => {
+      const individuals = templates.filter(t => !t.name.includes('/'));
+      const setMap = new Map<string, { id: string; name: string; parameters?: unknown }>();
+      const setParamsMap = new Map<string, string[]>();
+      for (const t of templates.filter(t => t.name.includes('/'))) {
+        const prefix = t.name.split('/')[0];
+        const cur = setMap.get(prefix);
+        if (!cur || t.name < cur.name) setMap.set(prefix, t);
+        const params: DnaParam[] = Array.isArray((t as any).parameters) ? (t as any).parameters as DnaParam[] : [];
+        const existing = setParamsMap.get(prefix) ?? [];
+        for (const p of params) {
+          if (!existing.includes(p.key)) existing.push(p.key);
+        }
+        setParamsMap.set(prefix, existing);
+      }
+      const all = [
+        ...individuals,
+        ...[...setMap.values()],
+      ];
+      return all.map((t, i) => {
+        const isSet = t.name.includes('/');
+        const title = isSet ? t.name.split('/')[0] : t.name;
+        let fields: string | undefined;
+        if (isSet) {
+          const keys = setParamsMap.get(title);
+          if (keys?.length) fields = keys.join(', ');
+        } else {
+          const params: DnaParam[] = Array.isArray((t as any).parameters) ? (t as any).parameters as DnaParam[] : [];
+          if (params.length) fields = params.map(p => p.key).join(', ');
+        }
+        return { num: String(i + 1), id: t.id, title, thumb: `/design-studio/templates/${t.id}/preview`, fields, isSet };
+      });
+    };
+    type CarouselGatherState = {
+      slides: Array<{ id: string; name: string; params: DnaParam[] }>;
+      slideIdx: number;
+      paramIdx: number;
+      gatheredForSlide: Record<string, string>;
+      results: string[];
+    };
 
-Classify the intent and return JSON only (no markdown):
-{
-  "intent": "design-generate" | "questions-answered" | "general-chat",
-  "topic": "extracted content topic if design-generate or questions-answered, else null",
-  "brand": "taskip" | "xgenious" | null,
-  "formatId": "best matching format ID from the list above, or null",
-  "visualTone": "bold-punchy" | "clean-minimal" | "elegant-premium" | "energetic-colorful" | null,
-  "audience": "extracted audience description or null"
-}
+    type ConfirmedSlide = { slideLabel?: string; headline: string; body?: string };
+
+    type ExtraParamsGatherState = {
+      confirmedSlides: ConfirmedSlide[];
+      templateSlides: Array<{ id: string; name: string }>;
+      extraParams: DnaParam[];
+      collected: Record<string, string>;
+      idx: number;
+    };
+
+    const CONTENT_PARAM_KEYS = new Set(['topic', 'subject', 'headline', 'title', 'body', 'content', 'description', 'text', 'message', 'copy']);
+    const isContentParam = (key: string) => CONTENT_PARAM_KEYS.has(key.toLowerCase().replace(/[^a-z]/g, ''));
+
+    const histStr = history ?? '';
+    const SLIDE_RENDER_STR = '__SLIDE_RENDER__:';
+
+    // ===== FORCED STATE MACHINE =====
+    const agentMarker = '\nAgent: ';
+    const lastAgentIdx = histStr.lastIndexOf(agentMarker);
+    const lastAgentText = lastAgentIdx >= 0
+      ? histStr.slice(lastAgentIdx + agentMarker.length)
+      : (histStr.startsWith('Agent: ') ? histStr.slice('Agent: '.length) : '');
+
+    // Unwrap carousel gather state from SLIDE_RENDER wrapper if needed
+    let cgSearchText = lastAgentText;
+    if (lastAgentText.startsWith(SLIDE_RENDER_STR)) {
+      try {
+        const d = JSON.parse(lastAgentText.slice(SLIDE_RENDER_STR.length)) as { nextSlidePrompt?: string };
+        if (d.nextSlidePrompt) cgSearchText = d.nextSlidePrompt;
+      } catch { /* ignore */ }
+    }
+
+    const inParamGatherStep = lastAgentText.includes('[param-gather:');
+    const inExtraParamsGatherStep = lastAgentText.includes('[extra-params-gather:') && !inParamGatherStep;
+    const inCarouselGatherStep = cgSearchText.includes('[carousel-gather:') && !inParamGatherStep && !inExtraParamsGatherStep;
+    const inLayoutPickerStep = lastAgentText.includes('[styles:') && lastAgentText.includes('[layout-pending:') && !inParamGatherStep && !inExtraParamsGatherStep && !inCarouselGatherStep;
+    const inStylePickerStep = lastAgentText.includes('[styles:') && !lastAgentText.includes('[layout-pending:') && !inParamGatherStep && !inExtraParamsGatherStep && !inCarouselGatherStep;
+    const inContentConfirmStep = lastAgentText.includes('[pending:') && !lastAgentText.includes('[styles:') && !inParamGatherStep && !inExtraParamsGatherStep && !inCarouselGatherStep;
+
+    // STEP 3b (FORCED): extra params gathering (author name, handle, etc.) before auto-generating confirmed slides
+    if (inExtraParamsGatherStep) {
+      const epMatch = lastAgentText.match(/\[extra-params-gather:(\{[\s\S]+?\})\]\s*$/);
+      if (epMatch) {
+        try {
+          const ep = JSON.parse(epMatch[1]) as ExtraParamsGatherState;
+          const collected = { ...ep.collected, [ep.extraParams[ep.idx].key]: query.trim() };
+          const nextIdx = ep.idx + 1;
+          if (nextIdx < ep.extraParams.length) {
+            const next = ep.extraParams[nextIdx];
+            const msg = [
+              `Got it. ${next.description}?`,
+              next.example ? `(e.g. ${next.example})` : '',
+              `[extra-params-gather:${JSON.stringify({ ...ep, collected, idx: nextIdx })}]`,
+            ].filter(Boolean).join('\n');
+            return [{ type: 'notify_result', summary: 'Extra param', payload: { message: msg }, riskLevel: 'low' }];
+          }
+          // All extra params collected — auto-generate all confirmed slides
+          const slideUrls: string[] = [];
+          const extraStr = Object.entries(collected).map(([k, v]) => `${k}: ${v}`).join(', ');
+          if (runId) {
+            await this.logSvc.info(runId, `Generating ${ep.confirmedSlides.length} slides`, { event_type: 'post_render_start', slide_count: ep.confirmedSlides.length, render_id: 'dna' }).catch(() => {});
+          }
+          for (let i = 0; i < ep.confirmedSlides.length; i++) {
+            const cs = ep.confirmedSlides[i];
+            const tplSlide = ep.templateSlides[i % ep.templateSlides.length];
+            const prompt = [cs.headline, cs.body, extraStr].filter(Boolean).join(' | ');
+            const t0 = Date.now();
+            if (runId) {
+              await this.logSvc.info(runId, `AI slide ${i + 1}/${ep.confirmedSlides.length}: "${cs.headline}"`, { event_type: 'post_ai_slide_start', slide_index: i }).catch(() => {});
+            }
+            try {
+              const { url } = await this.designStudio.generateAndSave(tplSlide.id, prompt);
+              slideUrls.push(url);
+              if (runId) {
+                await this.logSvc.info(runId, `Slide ${i + 1} ready (${Date.now() - t0}ms)`, { event_type: 'post_ai_slide_end', slide_index: i, duration_ms: Date.now() - t0, estimated_cost_usd: 0.19 }).catch(() => {});
+              }
+            } catch (e) {
+              this.logger.warn(`Auto-gen slide ${i + 1} failed: ${(e as Error).message}`);
+              if (runId) {
+                await this.logSvc.warn(runId, `Slide ${i + 1} failed: ${(e as Error).message}`, { event_type: 'post_ai_slide_fallback', slide_index: i }).catch(() => {});
+              }
+            }
+          }
+          if (runId) {
+            await this.logSvc.info(runId, `All ${slideUrls.length} slides generated`, { event_type: 'post_upload_done', slide_urls: slideUrls }).catch(() => {});
+          }
+          const msg = `${SLIDE_RENDER_STR}${JSON.stringify({ slideUrls })}`;
+          return [{ type: 'notify_result', summary: 'Carousel auto-generated', payload: { message: msg }, riskLevel: 'low' }];
+        } catch { /* fall through */ }
+      }
+    }
+
+    // LAYOUT PICKER (FORCED): user picked a layout — generate content tailored to that template's slide count + fields
+    if (inLayoutPickerStep) {
+      let samples: StyleEntry[] = [];
+      const stylesMatch = lastAgentText.match(/\[styles:(\{[^\n]+\})\]/);
+      if (stylesMatch) {
+        try {
+          const parsed = JSON.parse(stylesMatch[1]) as { samples: StyleEntry[] };
+          samples = parsed.samples ?? [];
+        } catch { /* fall through */ }
+      }
+      if (!samples.length) samples = buildStyleSamples(dnaTemplates);
+
+      let lpTopic = '';
+      let lpFormatId = 'linkedin-tips-carousel';
+      let lpBrand = firstBrand;
+      const lpMatch = lastAgentText.match(/\[layout-pending:(\{[^\n]+\})\]/);
+      if (lpMatch) {
+        try {
+          const lp = JSON.parse(lpMatch[1]) as { topic?: string; formatId?: string; brand?: string };
+          lpTopic = lp.topic ?? '';
+          lpFormatId = lp.formatId ?? lpFormatId;
+          lpBrand = lp.brand ?? lpBrand;
+        } catch { /* ignore */ }
+      }
+
+      const numMatch = query.trim().match(/^\d+$/);
+      const styleNum = numMatch ? parseInt(numMatch[0], 10) : 0;
+
+      let pickedId: string | undefined;
+      if (/^random$/i.test(query.trim()) || styleNum === 0) {
+        pickedId = samples[Math.floor(Math.random() * samples.length)]?.id;
+      } else if (styleNum >= 1 && styleNum <= samples.length) {
+        pickedId = samples[styleNum - 1]?.id;
+      } else {
+        const msg = [
+          `Choose a layout for "${lpTopic}":`,
+          '',
+          `[styles:${JSON.stringify({ samples })}]`,
+          `[layout-pending:${JSON.stringify({ topic: lpTopic, formatId: lpFormatId, brand: lpBrand })}]`,
+        ].join('\n');
+        return [{ type: 'notify_result', summary: 'Layout re-pick', payload: { message: msg }, riskLevel: 'low' }];
+      }
+
+      let slideCountOverride: number | undefined;
+      let templateId: string | undefined;
+      let templateSlides: Array<{ id: string; name: string }> = [];
+      let extraParams: DnaParam[] = [];
+
+      if (pickedId) {
+        try {
+          const tpl = await this.designStudio.getTemplate(pickedId);
+          const tplName = (tpl as any).name as string;
+          templateId = pickedId;
+
+          if (tplName.includes('/')) {
+            const setName = tplName.split('/')[0];
+            const allTpls = await this.designStudio.listTemplates() as Array<{ id: string; name: string; parameters: unknown }>;
+            const setSlides = allTpls
+              .filter(t => t.name.startsWith(setName + '/'))
+              .sort((a, b) => a.name.localeCompare(b.name));
+            if (setSlides.length > 0) {
+              templateSlides = setSlides.map(t => ({ id: t.id, name: t.name }));
+              slideCountOverride = setSlides.length;
+              const extraParamMap = new Map<string, DnaParam>();
+              for (const slide of setSlides) {
+                const params: DnaParam[] = Array.isArray(slide.parameters) ? slide.parameters as DnaParam[] : [];
+                for (const p of params) {
+                  if (!isContentParam(p.key) && !extraParamMap.has(p.key)) extraParamMap.set(p.key, p);
+                }
+              }
+              extraParams = [...extraParamMap.values()];
+            }
+          } else {
+            templateSlides = [{ id: pickedId, name: tplName }];
+            slideCountOverride = 1;
+            const params: DnaParam[] = Array.isArray((tpl as any).parameters) ? (tpl as any).parameters as DnaParam[] : [];
+            extraParams = params.filter(p => !isContentParam(p.key));
+          }
+        } catch { /* fall through */ }
+      }
+
+      return this.generateContentDraft(
+        lpTopic, lpFormatId, lpBrand, 'bold-punchy', toneInstructions, config,
+        { slideCountOverride, templateId, templateSlides, extraParams },
+      );
+    }
+
+    // STEP 3 (FORCED): parameter gathering — user answered a param question
+    if (inParamGatherStep) {
+      const pgMatch = lastAgentText.match(/\[param-gather:(\{.+?\})\]/s);
+      if (pgMatch) {
+        try {
+          const pg = JSON.parse(pgMatch[1]) as {
+            templateId: string;
+            params: DnaParam[];
+            gathered: Record<string, string>;
+            idx: number;
+            topic: string;
+          };
+          const updatedGathered = { ...pg.gathered, [pg.params[pg.idx].key]: query.trim() };
+          const nextIdx = pg.idx + 1;
+          if (nextIdx < pg.params.length) {
+            const next = pg.params[nextIdx];
+            const msg = [
+              `Got it. Now — ${next.description}?`,
+              next.example ? `(e.g. ${next.example})` : '',
+              `[param-gather:${JSON.stringify({ ...pg, gathered: updatedGathered, idx: nextIdx })}]`,
+            ].filter(Boolean).join('\n');
+            return [{ type: 'notify_result', summary: 'Param gathering', payload: { message: msg }, riskLevel: 'low' }];
+          }
+          // All params gathered — generate
+          const userPrompt = pg.params.map(p => `${p.key}: ${updatedGathered[p.key]}`).join(', ');
+          return [{ type: 'dna_generate', summary: `Generate DNA image`, payload: { templateId: pg.templateId, userPrompt }, riskLevel: 'low' }];
+        } catch { /* fall through */ }
+      }
+    }
+
+    // STEP 2.5 (FORCED): carousel parameter gathering — one slide at a time
+    if (inCarouselGatherStep) {
+      const cgMatch = cgSearchText.match(/\[carousel-gather:(\{.+?\})\]/s);
+      if (cgMatch) {
+        try {
+          const cg = JSON.parse(cgMatch[1]) as CarouselGatherState;
+          const currentSlide = cg.slides[cg.slideIdx];
+          if (!currentSlide) {
+            // Shouldn't happen, but guard
+            const msg = `${SLIDE_RENDER_STR}${JSON.stringify({ slideUrls: cg.results })}`;
+            return [{ type: 'notify_result', summary: 'Carousel complete', payload: { message: msg }, riskLevel: 'low' }];
+          }
+
+          const updatedGathered = { ...cg.gatheredForSlide };
+          const currentParam = currentSlide.params[cg.paramIdx];
+          if (currentParam) {
+            updatedGathered[currentParam.key] = query.trim();
+          }
+
+          const nextParamIdx = cg.paramIdx + 1;
+          if (nextParamIdx < currentSlide.params.length) {
+            const nextParam = currentSlide.params[nextParamIdx];
+            const nextState: CarouselGatherState = { ...cg, paramIdx: nextParamIdx, gatheredForSlide: updatedGathered };
+            const msg = [
+              `Got it. Now — ${nextParam.description}?`,
+              nextParam.example ? `(e.g. ${nextParam.example})` : '',
+              `[carousel-gather:${JSON.stringify(nextState)}]`,
+            ].filter(Boolean).join('\n');
+            return [{ type: 'notify_result', summary: 'Carousel param', payload: { message: msg }, riskLevel: 'low' }];
+          }
+
+          // All params for this slide gathered — build prompt and generate
+          const userPrompt = currentSlide.params.length > 0
+            ? currentSlide.params.map(p => `${p.key}: ${updatedGathered[p.key] ?? ''}`).join(', ')
+            : query.trim();
+
+          const slideLabelShort = currentSlide.name.split('/').pop() ?? currentSlide.name;
+          let slideUrl = '';
+          try {
+            const { url } = await this.designStudio.generateAndSave(currentSlide.id, userPrompt);
+            slideUrl = url;
+          } catch (genErr) {
+            const msg = `Slide ${cg.slideIdx + 1} generation failed: ${(genErr as Error).message}`;
+            return [{ type: 'notify_result', summary: 'Slide failed', payload: { message: msg }, riskLevel: 'low' }];
+          }
+
+          const newResults = [...cg.results, slideUrl];
+          const nextSlideIdx = cg.slideIdx + 1;
+
+          if (nextSlideIdx >= cg.slides.length) {
+            // All slides done — return combined render
+            const msg = `${SLIDE_RENDER_STR}${JSON.stringify({ slideUrls: newResults })}`;
+            return [{ type: 'notify_result', summary: 'Carousel complete', payload: { message: msg }, riskLevel: 'low' }];
+          }
+
+          // More slides — ask first param of next slide
+          const nextSlide = cg.slides[nextSlideIdx];
+          const nextSlideLabelShort = nextSlide.name.split('/').pop() ?? nextSlide.name;
+          const nextState: CarouselGatherState = {
+            slides: cg.slides,
+            slideIdx: nextSlideIdx,
+            paramIdx: 0,
+            gatheredForSlide: {},
+            results: newResults,
+          };
+
+          let nextAsk: string;
+          if (nextSlide.params.length === 0) {
+            nextAsk = [
+              `Slide ${cg.slideIdx + 1} ("${slideLabelShort}") done. For slide ${nextSlideIdx + 1} ("${nextSlideLabelShort}") — what content?`,
+              `[carousel-gather:${JSON.stringify(nextState)}]`,
+            ].join('\n');
+          } else {
+            const firstParam = nextSlide.params[0];
+            nextAsk = [
+              `Slide ${cg.slideIdx + 1} ("${slideLabelShort}") done. For slide ${nextSlideIdx + 1} ("${nextSlideLabelShort}") — ${firstParam.description}?`,
+              firstParam.example ? `(e.g. ${firstParam.example})` : '',
+              `[carousel-gather:${JSON.stringify(nextState)}]`,
+            ].filter(Boolean).join('\n');
+          }
+
+          const combinedMsg = `${SLIDE_RENDER_STR}${JSON.stringify({ slideUrls: [slideUrl], nextSlidePrompt: nextAsk })}`;
+          return [{ type: 'notify_result', summary: `Slide ${cg.slideIdx + 1} generated`, payload: { message: combinedMsg }, riskLevel: 'low' }];
+        } catch { /* fall through */ }
+      }
+    }
+
+    // STEP 2 (FORCED): style picker — user selected a template number
+    if (inStylePickerStep) {
+      let samples: StyleEntry[] = [];
+      const stylesMatch = lastAgentText.match(/\[styles:(\{[^\n]+\})\]/);
+      if (stylesMatch) {
+        try {
+          const parsed = JSON.parse(stylesMatch[1]) as { samples: StyleEntry[] };
+          samples = parsed.samples ?? [];
+        } catch { /* fall through */ }
+      }
+      if (!samples.length) {
+        samples = buildStyleSamples(dnaTemplates);
+      }
+
+      const numMatch = query.trim().match(/^\d+$/);
+      const styleNum = numMatch ? parseInt(numMatch[0], 10) : 0;
+
+      let pickedId: string | undefined;
+      if (/^random$/i.test(query.trim()) || styleNum === 0) {
+        pickedId = samples[Math.floor(Math.random() * samples.length)]?.id;
+      } else if (styleNum >= 1 && styleNum <= samples.length) {
+        pickedId = samples[styleNum - 1]?.id;
+      } else {
+        const pendingMatch = lastAgentText.match(/\[pending:(\{[^\n]+\})\]/);
+        const pendingTag = pendingMatch ? `\n[pending:${pendingMatch[1]}]` : '';
+        const msg = [
+          'Please pick one of the numbered templates (type a number or click a tile):',
+          '',
+          'Choose a style reference:',
+          `[styles:${JSON.stringify({ samples })}]${pendingTag}`,
+        ].join('\n');
+        return [{ type: 'notify_result', summary: 'Template re-pick', payload: { message: msg }, riskLevel: 'low' }];
+      }
+
+      // Extract pending context (confirmed content + topic)
+      let pendingTopic = '';
+      let confirmedSlides: ConfirmedSlide[] = [];
+      const lastPendingIdx2 = histStr.lastIndexOf('[pending:');
+      if (lastPendingIdx2 !== -1) {
+        const tail = histStr.slice(lastPendingIdx2);
+        const m = tail.match(/^\[pending:(\{.+\})\]/);
+        if (m) {
+          try {
+            const p = JSON.parse(m[1]) as { topic?: string; slides?: ConfirmedSlide[] };
+            pendingTopic = p.topic ?? '';
+            confirmedSlides = p.slides ?? [];
+          } catch { /* ignore */ }
+        }
+      }
+
+      // Load template — check if it's a carousel set member first
+      let templateParams: DnaParam[] = [];
+      if (pickedId) {
+        try {
+          const tpl = await this.designStudio.getTemplate(pickedId);
+          const tplName = (tpl as any).name as string;
+
+          if (tplName.includes('/')) {
+            // Carousel template — load all slides in the set
+            const setName = tplName.split('/')[0];
+            const allTpls = await this.designStudio.listTemplates() as Array<{ id: string; name: string; parameters: unknown }>;
+            const setSlides = allTpls
+              .filter(t => t.name.startsWith(setName + '/'))
+              .sort((a, b) => a.name.localeCompare(b.name));
+
+            if (setSlides.length > 0) {
+              if (confirmedSlides.length > 0) {
+                // Content already confirmed — find extra params (not content-type)
+                const extraParamMap = new Map<string, DnaParam>();
+                for (const slide of setSlides) {
+                  const params = Array.isArray(slide.parameters) ? slide.parameters as DnaParam[] : [];
+                  for (const p of params) {
+                    if (!isContentParam(p.key) && !extraParamMap.has(p.key)) {
+                      extraParamMap.set(p.key, p);
+                    }
+                  }
+                }
+                const extraParams = [...extraParamMap.values()];
+                const templateSlidesRef = setSlides.map(t => ({ id: t.id, name: t.name }));
+
+                if (extraParams.length === 0) {
+                  // No extra params — auto-generate all confirmed slides immediately
+                  const slideUrls: string[] = [];
+                  for (let i = 0; i < confirmedSlides.length; i++) {
+                    const cs = confirmedSlides[i];
+                    const tplSlide = setSlides[i % setSlides.length];
+                    const prompt = [cs.headline, cs.body].filter(Boolean).join(' | ');
+                    try {
+                      const { url } = await this.designStudio.generateAndSave(tplSlide.id, prompt);
+                      slideUrls.push(url);
+                    } catch (e) {
+                      this.logger.warn(`Auto-gen slide ${i + 1} failed: ${(e as Error).message}`);
+                    }
+                  }
+                  const msg = `${SLIDE_RENDER_STR}${JSON.stringify({ slideUrls })}`;
+                  return [{ type: 'notify_result', summary: 'Carousel auto-generated', payload: { message: msg }, riskLevel: 'low' }];
+                } else {
+                  // Ask extra params one by one, then auto-generate
+                  const first = extraParams[0];
+                  const epState: ExtraParamsGatherState = {
+                    confirmedSlides,
+                    templateSlides: templateSlidesRef,
+                    extraParams,
+                    collected: {},
+                    idx: 0,
+                  };
+                  const msg = [
+                    'Template selected. Just need a couple of details that will appear on every slide:',
+                    `${first.description}?`,
+                    first.example ? `(e.g. ${first.example})` : '',
+                    `[extra-params-gather:${JSON.stringify(epState)}]`,
+                  ].filter(Boolean).join('\n');
+                  return [{ type: 'notify_result', summary: 'Extra params needed', payload: { message: msg }, riskLevel: 'low' }];
+                }
+              }
+
+              // No confirmed slides — fall back to carousel-gather (original flow)
+              const firstSlide = setSlides[0];
+              const firstParams = Array.isArray(firstSlide.parameters) ? firstSlide.parameters as DnaParam[] : [];
+              const cgState: CarouselGatherState = {
+                slides: setSlides.map(t => ({
+                  id: t.id,
+                  name: t.name,
+                  params: Array.isArray(t.parameters) ? t.parameters as DnaParam[] : [],
+                })),
+                slideIdx: 0,
+                paramIdx: 0,
+                gatheredForSlide: {},
+                results: [],
+              };
+              const firstSlideName = firstSlide.name.split('/').pop() ?? firstSlide.name;
+              let firstMsg: string;
+              if (firstParams.length === 0) {
+                firstMsg = [
+                  `Carousel mode — ${setSlides.length} slides to generate. For slide 1 ("${firstSlideName}") — what content?`,
+                  `[carousel-gather:${JSON.stringify(cgState)}]`,
+                ].join('\n');
+              } else {
+                const fp = firstParams[0];
+                firstMsg = [
+                  `Carousel mode — ${setSlides.length} slides to generate. For slide 1 ("${firstSlideName}") — ${fp.description}?`,
+                  fp.example ? `(e.g. ${fp.example})` : '',
+                  `[carousel-gather:${JSON.stringify(cgState)}]`,
+                ].filter(Boolean).join('\n');
+              }
+              return [{ type: 'notify_result', summary: 'Start carousel', payload: { message: firstMsg }, riskLevel: 'low' }];
+            }
+          }
+
+          templateParams = Array.isArray((tpl as any).parameters) ? (tpl as any).parameters as DnaParam[] : [];
+        } catch { /* ignore */ }
+      }
+
+      if (templateParams.length > 0) {
+        const first = templateParams[0];
+        const pgState = JSON.stringify({ templateId: pickedId, params: templateParams, gathered: {}, idx: 0, topic: pendingTopic });
+        const msg = [
+          `Template selected. Let\'s fill in the content — ${first.description}?`,
+          first.example ? `(e.g. ${first.example})` : '',
+          `[param-gather:${pgState}]`,
+        ].filter(Boolean).join('\n');
+        return [{ type: 'notify_result', summary: 'Start param gathering', payload: { message: msg }, riskLevel: 'low' }];
+      }
+
+      // No params — generate directly using topic
+      return [{ type: 'dna_generate', summary: `Generate DNA image`, payload: { templateId: pickedId, userPrompt: pendingTopic }, riskLevel: 'low' }];
+    }
+
+    // STEP 1 (FORCED): content draft shown — any message = confirmed or revise
+    if (inContentConfirmStep) {
+      const isRevise = /\b(revise|change|update|no|different|fix|wrong|edit|modify|redo|again|rework)\b/i.test(query.toLowerCase());
+
+      if (isRevise) {
+        return [{
+          type: 'notify_result',
+          summary: 'Revision requested',
+          payload: { message: 'What would you like to change? Describe the revision and I\'ll prepare an updated content plan.' },
+          riskLevel: 'low',
+        }];
+      }
+
+      // Confirmed — extract pending context
+      let formatId = 'linkedin-tips-carousel';
+      let brand = firstBrand;
+      let topic = '';
+      let intentStr = '';
+      let slides: Array<{ slideLabel?: string; headline: string; body?: string }> = [];
+      let pendingTemplateId: string | undefined;
+      let pendingTemplateSlides: Array<{ id: string; name: string }> | undefined;
+      let pendingExtraParams: DnaParam[] = [];
+      const lastPendingIdx = histStr.lastIndexOf('[pending:');
+      if (lastPendingIdx !== -1) {
+        const tail = histStr.slice(lastPendingIdx);
+        const m = tail.match(/^\[pending:(\{.+\})\]/);
+        if (m) {
+          try {
+            const p = JSON.parse(m[1]) as {
+              formatId?: string; brand?: string; topic?: string; intentStr?: string;
+              slides?: Array<{ slideLabel?: string; headline: string; body?: string }>;
+              templateId?: string; templateSlides?: Array<{ id: string; name: string }>;
+              extraParams?: DnaParam[];
+            };
+            if (p.formatId) formatId = p.formatId;
+            if (p.brand) brand = p.brand;
+            if (p.topic) topic = p.topic;
+            if (p.intentStr) intentStr = p.intentStr;
+            if (p.slides?.length) slides = p.slides;
+            if (p.templateId) pendingTemplateId = p.templateId;
+            if (p.templateSlides?.length) pendingTemplateSlides = p.templateSlides;
+            if (p.extraParams?.length) pendingExtraParams = p.extraParams;
+          } catch { /* use defaults */ }
+        }
+      }
+
+      // Layout was already chosen — skip style picker, go straight to generation
+      if (pendingTemplateId && pendingTemplateSlides?.length) {
+        if (pendingExtraParams.length === 0) {
+          const slideUrls: string[] = [];
+          if (runId) {
+            await this.logSvc.info(runId, `Generating ${slides.length} slides`, { event_type: 'post_render_start', slide_count: slides.length, render_id: 'dna' }).catch(() => {});
+          }
+          for (let i = 0; i < slides.length; i++) {
+            const cs = slides[i];
+            const tplSlide = pendingTemplateSlides[i % pendingTemplateSlides.length];
+            const prompt = [cs.headline, cs.body].filter(Boolean).join(' | ');
+            const t0 = Date.now();
+            if (runId) {
+              await this.logSvc.info(runId, `AI slide ${i + 1}/${slides.length}: "${cs.headline}"`, { event_type: 'post_ai_slide_start', slide_index: i, slide_role: cs.slideLabel ?? 'content' }).catch(() => {});
+            }
+            try {
+              const { url } = await this.designStudio.generateAndSave(tplSlide.id, prompt);
+              slideUrls.push(url);
+              if (runId) {
+                await this.logSvc.info(runId, `Slide ${i + 1} ready (${Date.now() - t0}ms)`, { event_type: 'post_ai_slide_end', slide_index: i, duration_ms: Date.now() - t0, estimated_cost_usd: 0.19 }).catch(() => {});
+              }
+            } catch (e) {
+              this.logger.warn(`Auto-gen slide ${i + 1} failed: ${(e as Error).message}`);
+              if (runId) {
+                await this.logSvc.warn(runId, `Slide ${i + 1} failed: ${(e as Error).message}`, { event_type: 'post_ai_slide_fallback', slide_index: i }).catch(() => {});
+              }
+            }
+          }
+          if (runId) {
+            await this.logSvc.info(runId, `All ${slideUrls.length} slides generated`, { event_type: 'post_upload_done', slide_urls: slideUrls }).catch(() => {});
+          }
+          const msg = `${SLIDE_RENDER_STR}${JSON.stringify({ slideUrls })}`;
+          return [{ type: 'notify_result', summary: 'Carousel auto-generated', payload: { message: msg }, riskLevel: 'low' }];
+        } else {
+          const first = pendingExtraParams[0];
+          const epState: ExtraParamsGatherState = {
+            confirmedSlides: slides,
+            templateSlides: pendingTemplateSlides,
+            extraParams: pendingExtraParams,
+            collected: {},
+            idx: 0,
+          };
+          const msg = [
+            'Content confirmed. Just need a couple of details for the template:',
+            `${first.description}?`,
+            first.example ? `(e.g. ${first.example})` : '',
+            `[extra-params-gather:${JSON.stringify(epState)}]`,
+          ].filter(Boolean).join('\n');
+          return [{ type: 'notify_result', summary: 'Extra params needed', payload: { message: msg }, riskLevel: 'low' }];
+        }
+      }
+
+      if (dnaTemplates.length > 0) {
+        const stylesPayload = JSON.stringify({ samples: buildStyleSamples(dnaTemplates) });
+        const msg = [
+          `Content confirmed — now choose a design template for "${topic}":`,
+          '',
+          'Choose a style reference:',
+          `[styles:${stylesPayload}]`,
+          `[pending:${JSON.stringify({ formatId, brand, topic, intentStr, slides })}]`,
+        ].join('\n');
+        return [{ type: 'notify_result', summary: 'Template selection', payload: { message: msg }, riskLevel: 'low' }];
+      }
+
+      // No DNA templates — fall back to old Satori render
+      const exactContentIntent = slides.length
+        ? `Use EXACTLY these slide headlines and bodies:\n${slides.map((s, i) => `Slide ${i + 1}: headline="${s.headline}"${s.body ? `, body="${s.body}"` : ''}`).join('\n')}\n\n${intentStr}`
+        : intentStr;
+      return [{
+        type: 'post_render',
+        summary: `Render ${formatId} for ${brand}`,
+        payload: { formatId, brand, topic, intent: exactContentIntent || undefined },
+        riskLevel: 'low',
+      }];
+    }
+
+    // ===== LLM CLASSIFIER (only for new requests — two intents only) =====
+    const classifyPrompt = `Classify this message from a user of a social media carousel design tool.
+
+User message: "${query}"
+
+Return JSON only (no markdown):
+{"intent":"design-generate"|"general-chat","topic":"content topic or null","brand":"taskip"|"xgenious"|null,"formatId":"linkedin-tips-carousel"|"linkedin-howto-carousel"|"linkedin-list-carousel"|"linkedin-stat-single"|"linkedin-quote-single"|null}
 
 Rules:
-- "design-generate": user wants to create an actual image/carousel/banner (even if phrased naturally like "make a post about X" or just giving a topic/idea with no prior clarification exchange)
-- "questions-answered": agent previously asked clarifying questions (visible in history) and user is now answering them (providing tone, brand, audience, format choice)
-- "general-chat": advice, explanation, brainstorm, feedback, anything not design generation`;
+- "design-generate": user wants to create a carousel, banner, post, or any social media graphic
+- "general-chat": questions, advice, feedback, brainstorming, anything that is NOT creating a design right now`;
 
-    let classification: { intent: string; topic?: string; brand?: string; formatId?: string; visualTone?: string; audience?: string } = { intent: 'general-chat' };
+    let classification: { intent: string; topic?: string; brand?: string; formatId?: string } = { intent: 'general-chat' };
     try {
       const classRes = await this.llm.complete({
         messages: [{ role: 'user', content: classifyPrompt }],
         agentKey: this.key,
-        maxTokens: 200,
+        maxTokens: 150,
         temperature: 0.1,
       });
       const raw = classRes.content.replace(/```(?:json)?\s*/g, '').replace(/```/g, '').trim();
       classification = JSON.parse(raw);
     } catch { /* fall through to general-chat */ }
 
-    // BRANCH A: user wants to generate — ask clarifying questions
+    // BRANCH A: new design request — show layout picker first if templates exist
     if (classification.intent === 'design-generate') {
       const topic = classification.topic ?? query.trim();
-      const brands = (config.brands ?? ['taskip', 'xgenious']).join(' / ');
-      const formatChoices = 'tips list / step-by-step how-to / data-backed list / single stat / quote card';
-      const message = [
-        `I'll create a social media design on: "${topic}"`,
-        '',
-        'Quick questions before I start:',
-        '',
-        `1. Brand — ${brands}?`,
-        `2. Visual tone — bold & punchy / clean & minimal / elegant & premium / energetic & colorful?`,
-        `3. Content format — ${formatChoices}?`,
-        '',
-        'Reply with your choices (e.g. "taskip, bold, tips list") and I\'ll generate it.',
-      ].join('\n');
-      return [{ type: 'notify_result', summary: 'Clarifying questions', payload: { message, query }, riskLevel: 'low' }];
-    }
-
-    // BRANCH B: user answered the clarifying questions — extract context + fire render
-    if (classification.intent === 'questions-answered') {
-      const topic = classification.topic ?? '';
-      const brand = (classification.brand ?? config.brands[0] ?? 'taskip').toLowerCase();
-      const tone = classification.visualTone ?? 'bold-punchy';
-      const audience = classification.audience ?? '';
-
-      // Map format from classification or fall back to tips carousel
+      if (!topic) {
+        return [{ type: 'notify_result', summary: 'Ask for topic', payload: { message: 'What topic should I create a carousel about?', query }, riskLevel: 'low' }];
+      }
       const validFormats = new Set(listFormats().map(f => f.id));
       const formatId = (classification.formatId && validFormats.has(classification.formatId))
         ? classification.formatId
         : 'linkedin-tips-carousel';
-
-      const intentStr = [
-        tone === 'bold-punchy' ? 'Bold, punchy style. High-contrast colors. Short punchy text per slide.' : '',
-        tone === 'clean-minimal' ? 'Clean minimal style. Generous whitespace. Simple layouts.' : '',
-        tone === 'elegant-premium' ? 'Elegant premium feel. Sophisticated typography. Refined color palette.' : '',
-        tone === 'energetic-colorful' ? 'Energetic and colorful. Vibrant backgrounds. Dynamic layouts.' : '',
-        audience ? `Target audience: ${audience}.` : '',
-      ].filter(Boolean).join(' ');
-
-      return [{
-        type: 'post_render',
-        summary: `Render ${formatId} for ${brand}`,
-        payload: { formatId, brand, topic, intent: intentStr || undefined },
-        riskLevel: 'low',
-      }];
+      const brand = (classification.brand ?? firstBrand).toLowerCase();
+      if (dnaTemplates.length > 0) {
+        const stylesPayload = JSON.stringify({ samples: buildStyleSamples(dnaTemplates) });
+        const msg = [
+          `Choose a layout for "${topic}":`,
+          '',
+          `[styles:${stylesPayload}]`,
+          `[layout-pending:${JSON.stringify({ topic, formatId, brand })}]`,
+        ].join('\n');
+        return [{ type: 'notify_result', summary: 'Layout selection', payload: { message: msg }, riskLevel: 'low' }];
+      }
+      return this.generateContentDraft(topic, formatId, brand, 'bold-punchy', toneInstructions, config);
     }
 
-    // BRANCH C: general chat — conversational response
+    // BRANCH B: general chat
     const systemPrompt = `You are a social media design assistant for Sharifur Rahman, founder of Taskip and Xgenious.
 You help with: design prompts, content ideas, carousel layouts, caption writing, platform-specific advice, and content strategy.
 Be concise and practical. No filler. No emojis.`;
@@ -260,6 +866,113 @@ Be concise and practical. No filler. No emojis.`;
     } catch (err) {
       return [{ type: 'notify_result', summary: 'Chat response', payload: { message: `Error: ${(err as Error).message}`, query }, riskLevel: 'low' }];
     }
+  }
+
+  private async generateContentDraft(
+    topic: string,
+    formatId: string,
+    brand: string,
+    tone: string,
+    toneInstructions: Record<string, string>,
+    config: CanvaConfig,
+    templateInfo?: {
+      slideCountOverride?: number;
+      templateId?: string;
+      templateSlides?: Array<{ id: string; name: string }>;
+      extraParams?: Array<{ key: string; description: string; example?: string }>;
+    },
+  ): Promise<ProposedAction[]> {
+    const intentStr = toneInstructions[tone] ?? toneInstructions['bold-punchy'];
+    const brandDesc = brand === 'xgenious'
+      ? 'Xgenious (premium WordPress/CodeIgniter themes and scripts)'
+      : 'Taskip (project management SaaS for teams)';
+
+    const slideCountMap: Record<string, number> = {
+      'linkedin-tips-carousel': 5,
+      'linkedin-howto-carousel': 6,
+      'linkedin-list-carousel': 5,
+      'linkedin-stat-single': 2,
+      'linkedin-quote-single': 1,
+      'instagram-carousel-edu': 6,
+      'generic-infographic': 4,
+      'generic-checklist': 5,
+    };
+    const slideCount = templateInfo?.slideCountOverride ?? (slideCountMap[formatId] ?? 5);
+
+    const draftPrompt = `You are a social media copywriter for ${brandDesc}.
+
+Write a ${slideCount}-slide ${formatId} about: "${topic}"
+Visual tone: ${intentStr}
+
+Return ONLY valid JSON (no markdown):
+{
+  "slides": [
+    { "slideLabel": "Cover", "headline": "hook headline max 8 words", "body": "" },
+    { "slideLabel": "Point 1", "headline": "...", "body": "1-2 sentences" },
+    { "slideLabel": "CTA", "headline": "call-to-action max 8 words", "body": "" }
+  ]
+}
+
+Rules:
+- Exactly ${slideCount} slides
+- First slide: powerful hook headline, leave body empty
+- Middle slides: one concrete idea per slide, specific and actionable
+- Last slide: CTA pointing to ${brand}
+- No emojis
+- Headlines max 8 words`;
+
+    let slides: Array<{ slideLabel?: string; headline: string; body?: string }> = [];
+    try {
+      const res = await this.llm.complete({
+        messages: [{ role: 'user', content: draftPrompt }],
+        agentKey: this.key,
+        maxTokens: 1000,
+        temperature: 0.5,
+      });
+      const raw = res.content.replace(/```(?:json)?\s*/g, '').replace(/```/g, '').trim();
+      const parsed = JSON.parse(raw) as { slides?: Array<{ slideLabel?: string; headline: string; body?: string }> };
+      slides = parsed.slides ?? [];
+    } catch {
+      slides = Array.from({ length: slideCount }, (_, i) => ({
+        slideLabel: i === 0 ? 'Cover' : i === slideCount - 1 ? 'CTA' : `Point ${i}`,
+        headline: i === 0 ? topic : i === slideCount - 1 ? `Try ${brand} today` : `Key insight ${i}`,
+        body: '',
+      }));
+    }
+
+    const slideDisplay = slides.map((s, i) => {
+      const label = s.slideLabel ? ` (${s.slideLabel})` : '';
+      const lines = [`Slide ${i + 1}${label}: "${s.headline}"`];
+      if (s.body?.trim()) lines.push(`  ${s.body.trim()}`);
+      return lines.join('\n');
+    }).join('\n\n');
+
+    const pendingJson = JSON.stringify({
+      formatId, brand, topic, intentStr, slides,
+      ...(templateInfo?.templateId ? {
+        templateId: templateInfo.templateId,
+        templateSlides: templateInfo.templateSlides,
+        extraParams: templateInfo.extraParams ?? [],
+      } : {}),
+    });
+
+    const extraParamNote = templateInfo?.extraParams?.length
+      ? `\nAfter confirming, I will ask for: ${templateInfo.extraParams.map(p => p.description).join(', ')}.`
+      : '';
+
+    const msg = [
+      `Here is the content plan for your ${formatId}:`,
+      `Topic: "${topic}" | Brand: ${brand}`,
+      '',
+      slideDisplay,
+      '',
+      `Confirm to generate — ${slideCount} slides.${extraParamNote}`,
+      '',
+      '[content-confirm]',
+      `[pending:${pendingJson}]`,
+    ].join('\n');
+
+    return [{ type: 'notify_result', summary: 'Content draft', payload: { message: msg, query: topic }, riskLevel: 'low' }];
   }
 
   private async decideDesign(concept: string, config: CanvaConfig): Promise<ProposedAction[]> {
@@ -364,10 +1077,10 @@ Return ONLY a JSON array (no markdown):
     }
 
     if (action.type === 'post_render') {
-      const { formatId, brand, topic, intent, _runId } = action.payload as any;
+      const { formatId, brand, topic, intent, sampleId, _runId } = action.payload as any;
       try {
         const config = await this.getConfig();
-        const result = await this.renderer.render({ formatId, brand, topic, intent, patternConsistency: config.patternConsistency }, _runId as string | undefined);
+        const result = await this.renderer.render({ formatId, brand, topic, intent, sampleId: sampleId || undefined, patternConsistency: config.patternConsistency }, _runId as string | undefined);
         const slideList = result.slideUrls.map((u, i) => `Slide ${i + 1}: ${u}`).join('\n');
         const message = `Render complete — ${result.slideUrls.length} slides generated\n\n${slideList}\n\nExports:\nPPTX (Canva layers): /posts/renders/${result.id}/pptx\nCSV (Bulk Create): /posts/renders/${result.id}/canva-csv\nPlain text: /posts/renders/${result.id}/text-export`;
         return { success: true, data: { message, slideUrls: result.slideUrls, renderId: result.id } };
@@ -375,6 +1088,20 @@ Return ONLY a JSON array (no markdown):
         const e = err as Error;
         this.logger.error(`post_render failed: ${e.message}\n${e.stack ?? ''}`);
         return { success: true, data: { message: `Render failed: ${e.message}` } };
+      }
+    }
+
+    if (action.type === 'dna_generate') {
+      const { templateId, userPrompt } = action.payload as { templateId: string; userPrompt: string };
+      try {
+        const { renderId, url } = await this.designStudio.generateAndSave(templateId, userPrompt ?? '');
+        const SLIDE_RENDER_PREFIX = '__SLIDE_RENDER__';
+        const message = `${SLIDE_RENDER_PREFIX}${JSON.stringify({ slideUrls: [url], renderId })}`;
+        return { success: true, data: { message, slideUrls: [url], renderId } };
+      } catch (err) {
+        const e = err as Error;
+        this.logger.error(`dna_generate failed: ${e.message}`);
+        return { success: true, data: { message: `Image generation failed: ${e.message}` } };
       }
     }
 
