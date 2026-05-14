@@ -16,6 +16,16 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.55.0',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'fix', scope: 'render', description: 'Satori inline-flex error: word highlight spans used display:inline-flex which satori does not support. Changed to display:flex — fixes all renders that include word highlights.' },
+      { tag: 'fix', scope: 'canva', description: 'Removed style reference (Q4) from Branch A clarifying questions — it caused the QuickReplyCard to submit garbage text (the instruction text as if it were an option) which looped Branch B indefinitely. Style picker is now a separate step after questions.' },
+      { tag: 'feat', scope: 'canva', description: 'Full-prompt shortcut: when the user provides format + topic in their initial message (e.g. "Generate a linkedin-tips-carousel about X"), Branch A now skips the 3-question step and goes directly to the style reference thumbnail picker.' },
+      { tag: 'fix', scope: 'canva', description: 'Strip [pending:{...}] and [styles:{...}] internal tags from all agent message fallback rendering — these never show as raw JSON text in the chat anymore.' },
+    ],
+  },
+  {
     version: 'v4.54.1',
     date: '2026-05-14',
     entries: [

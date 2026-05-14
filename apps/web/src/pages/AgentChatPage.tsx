@@ -1239,7 +1239,9 @@ function MessageBubble({
             }`}>
               {isUser
                 ? msg.content
-                : <div dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }} />
+                : <div dangerouslySetInnerHTML={{ __html: renderMarkdown(
+                    msg.content.replace(/\[styles:\{[\s\S]*?\}\]/g, '').replace(/\[pending:\{[\s\S]*?\}\]/g, '').trim()
+                  ) }} />
               }
             </div>
           );

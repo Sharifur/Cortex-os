@@ -193,7 +193,7 @@ export function renderHeadline(
       props: {
         key: String(i),
         style: {
-          display: 'inline-flex',
+          display: 'flex',
           alignItems: 'center',
           backgroundColor: hl.bgColor,
           color: hl.textColor ?? '#ffffff',

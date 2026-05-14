@@ -199,20 +199,34 @@ Rules:
       classification = JSON.parse(raw);
     } catch { /* fall through to general-chat */ }
 
-    // BRANCH A: user wants to generate — ask clarifying questions + show style list
+    // BRANCH A: user wants to generate — if format+topic already specified go straight to style picker; else ask 3 questions
     if (classification.intent === 'design-generate') {
       const topic = classification.topic ?? query.trim();
+      const validFormats = new Set(listFormats().map(f => f.id));
+      const hasFormat = !!(classification.formatId && validFormats.has(classification.formatId));
+      const hasBrand = !!classification.brand;
+
+      // Full prompt (topic + format already given) → skip 3 questions, go to style picker directly
+      if (topic && hasFormat && trainingSamples.length > 0) {
+        const brand = (classification.brand ?? 'default').toLowerCase();
+        const formatId = classification.formatId!;
+        const intentStr = '';
+        const stylesPayload = JSON.stringify({
+          samples: trainingSamples.map((s, i) => ({ num: String(i + 1), id: s.id, title: s.title || `Sample ${i + 1}`, thumb: s.thumbUrl ?? null })),
+        });
+        const msg = [
+          `Got it — "${topic}" as ${formatId}${hasBrand ? ` for ${brand}` : ''}.`,
+          '',
+          'Choose a style reference for this render:',
+          `[styles:${stylesPayload}]`,
+          `[pending:${JSON.stringify({ formatId, brand, topic, intentStr })}]`,
+        ].join('\n');
+        return [{ type: 'notify_result', summary: 'Style selection', payload: { message: msg, query }, riskLevel: 'low' }];
+      }
+
+      // Partial prompt — ask 3 clarifying questions (no style reference in this message)
       const brands = (config.brands ?? ['taskip', 'xgenious']).join(' / ');
       const formatChoices = 'tips list / step-by-step how-to / data-backed list / single stat / quote card';
-
-      const styleLines = trainingSamples.length > 0
-        ? [
-          '',
-          `4. Style reference — pick one of your training samples (or 0 for random):`,
-          '   0. Random (mix from all training samples)',
-          ...trainingSamples.map((s, i) => `   ${i + 1}. ${s.title || `Sample ${i + 1}`}`),
-        ]
-        : [];
 
       const message = [
         `I'll create a social media design on: "${topic}"`,
@@ -222,7 +236,6 @@ Rules:
         `1. Brand — ${brands}?`,
         `2. Visual tone — bold & punchy / clean & minimal / elegant & premium / energetic & colorful?`,
         `3. Content format — ${formatChoices}?`,
-        ...styleLines,
         '',
         'Brand is optional — skip it to use the default brand.',
       ].join('\n');
