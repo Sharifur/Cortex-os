@@ -537,6 +537,92 @@ export class DesignAnalysisService {
     return { dna: carouselDNA, kbEntryId: kbRow.id, storageUrl: uploadResults[0], slideCount: slides.length };
   }
 
+  async synthesizeFromEntryIds(
+    entryIds: string[],
+    brand: string,
+  ): Promise<{ dna: DesignDNA; kbEntryId: string; storageUrl: string; slideCount: number }> {
+    if (entryIds.length < 2) throw new Error('Need at least 2 entries to synthesize a carousel');
+
+    const rows = await this.db.db
+      .select({ id: knowledgeEntries.id, content: knowledgeEntries.content, sourceUrl: knowledgeEntries.sourceUrl })
+      .from(knowledgeEntries)
+      .where(and(
+        eq(knowledgeEntries.agentKeys, 'canva'),
+        eq(knowledgeEntries.siteKeys, brand || 'default'),
+      ));
+
+    const ordered = entryIds
+      .map(id => rows.find(r => r.id === id))
+      .filter((r): r is NonNullable<typeof r> => r != null);
+
+    if (ordered.length < 2) throw new Error('Could not find the uploaded entries');
+
+    const perSlideDNAs: DesignDNA[] = [];
+    const slideUrls: string[] = [];
+    for (const row of ordered) {
+      const match = row.content.match(/DNA JSON: (\{[\s\S]+\})\s*$/m);
+      if (match) {
+        try {
+          perSlideDNAs.push(JSON.parse(match[1]) as DesignDNA);
+          slideUrls.push(row.sourceUrl ?? '');
+        } catch { /* skip bad rows */ }
+      }
+    }
+
+    if (perSlideDNAs.length < 2) throw new Error('Could not extract DNA from entries');
+
+    const maxTokens = await this.getDnaMaxTokens();
+    const synthesisPrompt = [
+      `You are a senior brand designer. Below are the extracted design DNAs from each slide of a ${perSlideDNAs.length}-slide LinkedIn carousel.`,
+      'Synthesize ONE unified carousel design system DNA representing the consistent design language across ALL slides.',
+      'Focus on: shared color palette, consistent typography system, recurring shape decorations, overall visual tone.',
+      'Return ONLY valid JSON using the same field structure. For arrays — merge and deduplicate. For enums — pick the most representative value.',
+      'Set slide_type to "cover".',
+      '',
+      ...perSlideDNAs.map((dna, i) => `--- Slide ${i + 1} DNA ---\n${JSON.stringify(dna, null, 2)}`),
+    ].join('\n');
+
+    let carouselDNA: DesignDNA;
+    try {
+      const res = await this.llm.complete({
+        messages: [{ role: 'user', content: synthesisPrompt }],
+        maxTokens,
+        temperature: 0.1,
+        agentKey: 'canva',
+      });
+      const jsonMatch = res.content.match(/```(?:json)?\s*([\s\S]+?)\s*```/) ?? res.content.match(/(\{[\s\S]+\})/);
+      carouselDNA = JSON.parse(jsonMatch?.[1] ?? res.content) as DesignDNA;
+    } catch {
+      carouselDNA = perSlideDNAs[0];
+      this.logger.warn('Carousel synthesis LLM failed — using first slide DNA as fallback');
+    }
+
+    carouselDNA.carousel_slide_count = perSlideDNAs.length;
+    carouselDNA.carousel_slide_urls = slideUrls;
+
+    const content = this.buildKbContent(carouselDNA);
+    const kbRow = await this.kb.createEntry({
+      title: `LinkedIn Carousel — ${perSlideDNAs.length} slides — ${carouselDNA.mood_keywords?.slice(0, 2).join(', ') ?? ''} — ${Date.now()}`,
+      content,
+      entryType: 'design_sample',
+      agentKeys: 'canva',
+      siteKeys: brand || 'default',
+      category: 'design',
+      sourceType: 'image_upload',
+      sourceUrl: slideUrls[0] ?? null,
+    });
+
+    // Delete the individual slide entries (they've been merged into the carousel)
+    if (ordered.length > 0) {
+      for (const row of ordered) {
+        await this.db.db.delete(knowledgeEntries).where(eq(knowledgeEntries.id, row.id));
+      }
+    }
+
+    this.logger.log(`Carousel synthesized: ${perSlideDNAs.length} slides → kb:${kbRow.id}`);
+    return { dna: carouselDNA, kbEntryId: kbRow.id, storageUrl: slideUrls[0] ?? '', slideCount: perSlideDNAs.length };
+  }
+
   async deleteAllSamples(brand: string): Promise<{ deleted: number }> {
     const effectiveBrand = brand || 'default';
     const rows = await this.db.db

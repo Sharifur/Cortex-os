@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Req, Res, Query, BadRequestException, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller, Post, Body, Get, Req, Res, Query, BadRequestException, HttpCode, HttpStatus } from '@nestjs/common';
 import type { FastifyReply } from 'fastify';
 import { DesignAnalysisService } from './design-analysis.service';
 
@@ -45,6 +45,17 @@ export class DesignSampleController {
 
     const result = await this.analysis.analyzeAndStoreCarousel(slides, { brand });
     reply.send({ uploaded: slides.length, ...result });
+  }
+
+  @Post('carousel-synthesize')
+  @HttpCode(HttpStatus.OK)
+  async carouselSynthesize(
+    @Body() body: { entryIds: string[]; brand?: string },
+  ) {
+    if (!Array.isArray(body.entryIds) || body.entryIds.length < 2) {
+      throw new BadRequestException('entryIds must contain at least 2 IDs');
+    }
+    return this.analysis.synthesizeFromEntryIds(body.entryIds, body.brand ?? 'default');
   }
 
   @Post('upload')

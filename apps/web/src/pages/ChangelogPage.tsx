@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.46.3',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'fix', scope: 'design-samples', description: 'Carousel upload now shows real-time per-slide progress. Each slide is uploaded and analyzed individually (reusing the existing upload endpoint), with a step label ("Analyzing slide 2 of 5") and a progress bar that advances after each slide completes. A final synthesis step merges all per-slide DNAs into one carousel entry and removes the individual entries. The upload button is disabled and the progress bar turns green when synthesis completes.' },
+    ],
+  },
+  {
     version: 'v4.46.2',
     date: '2026-05-14',
     entries: [
