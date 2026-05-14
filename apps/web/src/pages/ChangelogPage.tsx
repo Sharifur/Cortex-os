@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.47.0',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'support', description: 'Feed KB from CRM Ticket: new POST /support/kb-import endpoint accepts a CRM ticket ID, fetches the full conversation (description + reply thread) via the CRM API, strips HTML, and calls the LLM to generate a clean Q&A reference entry saved directly to the knowledge base scoped to the support agent. A "Feed KB from CRM Ticket" section is added to the Support agent Setup tab with a ticket ID input and inline success/error feedback.' },
+    ],
+  },
+  {
     version: 'v4.46.5',
     date: '2026-05-14',
     entries: [

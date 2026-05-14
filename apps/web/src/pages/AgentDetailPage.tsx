@@ -2934,6 +2934,67 @@ function LivechatSetupSubTab({ agent }: { agent: AgentDetail }) {
   );
 }
 
+function SupportKbImportSection({ token }: { token: string }) {
+  const [ticketId, setTicketId] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<{ ok: boolean; title?: string; entryId?: string; error?: string } | null>(null);
+
+  async function handleImport() {
+    if (!ticketId.trim()) return;
+    setLoading(true);
+    setResult(null);
+    try {
+      const res = await fetch('/support/kb-import', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ crmTicketId: Number(ticketId.trim()) }),
+      });
+      const data = await res.json();
+      setResult(data);
+      if (data.ok) setTicketId('');
+    } catch (err) {
+      setResult({ ok: false, error: (err as Error).message });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="rounded-xl border border-border bg-card px-5 py-4 space-y-3">
+      <div>
+        <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Feed KB from CRM Ticket</p>
+        <p className="text-xs text-muted-foreground mt-1">Enter a resolved CRM ticket ID. The agent will fetch the full conversation and generate a Q&A knowledge base entry from it.</p>
+      </div>
+      <div className="flex items-center gap-2">
+        <input
+          type="number"
+          value={ticketId}
+          onChange={e => setTicketId(e.target.value)}
+          placeholder="CRM ticket ID (e.g. 1445)"
+          className="flex-1 rounded-md border border-border bg-background px-3 py-1.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring"
+          onKeyDown={e => e.key === 'Enter' && handleImport()}
+        />
+        <button
+          onClick={handleImport}
+          disabled={loading || !ticketId.trim()}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
+        >
+          {loading ? 'Importing...' : 'Import to KB'}
+        </button>
+      </div>
+      {result && (
+        result.ok ? (
+          <div className="text-xs text-emerald-400">
+            Saved: <span className="font-medium">{result.title}</span>
+          </div>
+        ) : (
+          <div className="text-xs text-red-400">{result.error}</div>
+        )
+      )}
+    </div>
+  );
+}
+
 function SupportSetupSubTab({ agent, token }: { agent: AgentDetail; token: string }) {
   const qc = useQueryClient();
 
@@ -3038,6 +3099,8 @@ function SupportSetupSubTab({ agent, token }: { agent: AgentDetail; token: strin
       <SetupStep n={4} title="Enable and test" done={agent.enabled}>
         <p className="text-xs text-muted-foreground">Enable the agent. Send a test webhook from crm.xgenious.com or use curl. A Telegram message should arrive with the drafted reply and Approve / Reject buttons.</p>
       </SetupStep>
+
+      <SupportKbImportSection token={token} />
     </div>
   );
 }

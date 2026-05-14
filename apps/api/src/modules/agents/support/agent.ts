@@ -74,6 +74,24 @@ Return JSON only — no markdown:
   "reasoning": "one sentence: what problem this solves"
 }`;
 
+const KB_IMPORT_SYSTEM = `You are a knowledge base curator for a software support team.
+Given a resolved support ticket conversation, create ONE clean, reusable Q&A entry that will help the AI agent handle similar tickets in the future.
+
+Rules:
+- The question must be a generalized version of the customer's problem (not word-for-word from the ticket)
+- The answer must be the complete, accurate resolution — synthesize it from the agent's replies, skip pleasantries
+- Only include actionable content ("thank you", "please let us know" should be removed)
+- If the ticket has multiple back-and-forth messages, distill the core Q&A from the full thread
+- Choose the most accurate category: "technical", "faq", "policy", or "product"
+
+Return JSON only — no markdown:
+{
+  "title": "short descriptive title (max 8 words)",
+  "category": "technical" | "faq" | "policy" | "product",
+  "content": "Q: [generalized question]\\nA: [complete resolution]",
+  "reasoning": "one sentence: what this entry teaches the agent"
+}`;
+
 @Injectable()
 export class SupportAgent implements IAgent, OnModuleInit {
   readonly key = 'support';
@@ -613,6 +631,16 @@ export class SupportAgent implements IAgent, OnModuleInit {
       },
       {
         method: 'POST',
+        path: '/support/kb-import',
+        requiresAuth: true,
+        handler: async (body) => {
+          const crmTicketId = Number((body as any)?.crmTicketId);
+          if (!crmTicketId || isNaN(crmTicketId)) throw new Error('crmTicketId is required');
+          return this.importTicketToKb(crmTicketId);
+        },
+      },
+      {
+        method: 'POST',
         path: '/support/tickets/:id/train',
         requiresAuth: true,
         handler: async (params) => {
@@ -939,6 +967,88 @@ export class SupportAgent implements IAgent, OnModuleInit {
   private async crmHeaders(): Promise<Record<string, string>> {
     const key = await this.settings.getDecrypted('support_crm_api_key');
     return { 'X-Secret-Key': key ?? '', 'Content-Type': 'application/json', Accept: 'application/json' };
+  }
+
+  private async importTicketToKb(crmTicketId: number): Promise<{ ok: boolean; title?: string; entryId?: string; error?: string }> {
+    const baseUrl = await this.settings.getDecrypted('support_crm_base_url');
+    if (!baseUrl) return { ok: false, error: 'support_crm_base_url not configured' };
+    const headers = await this.crmHeaders();
+
+    const ticketRes = await fetch(`${baseUrl.replace(/\/$/, '')}/api/public-v1/support-ticket/${crmTicketId}`, {
+      headers,
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!ticketRes.ok) return { ok: false, error: `CRM ticket fetch failed: HTTP ${ticketRes.status}` };
+
+    const ticketData = (await ticketRes.json() as any)?.data;
+    if (!ticketData?.subject) return { ok: false, error: 'Ticket not found or missing subject' };
+
+    const subject = ticketData.subject as string;
+    const description = this.stripHtml(ticketData.description ?? ticketData.message ?? '');
+
+    // Try to fetch reply thread
+    let replies: { role: 'customer' | 'agent'; text: string }[] = [];
+    try {
+      const replyRes = await fetch(`${baseUrl.replace(/\/$/, '')}/api/public-v1/support-ticket/${crmTicketId}/replies`, {
+        headers,
+        signal: AbortSignal.timeout(8000),
+      });
+      if (replyRes.ok) {
+        const replyData = (await replyRes.json() as any)?.data ?? [];
+        const replyArray = Array.isArray(replyData) ? replyData : Object.values(replyData);
+        replies = replyArray.map((r: any) => ({
+          role: (r?.user?.type === 'agent' ? 'agent' : 'customer') as 'agent' | 'customer',
+          text: this.stripHtml(r?.message ?? r?.description ?? '').slice(0, 600),
+        })).filter(r => r.text.length > 10);
+      }
+    } catch {
+      // replies endpoint may not exist — continue with description only
+    }
+
+    if (!description && replies.length === 0) {
+      return { ok: false, error: 'No conversation content found for this ticket' };
+    }
+
+    const agentReplies = replies.filter(r => r.role === 'agent');
+    if (agentReplies.length === 0 && !description) {
+      return { ok: false, error: 'No agent replies found — ticket may not be resolved yet' };
+    }
+
+    const conversationLines = [
+      `Subject: ${subject}`,
+      description ? `Customer: ${description.slice(0, 800)}` : null,
+      ...replies.map(r => `${r.role === 'agent' ? 'Agent' : 'Customer'}: ${r.text}`),
+    ].filter(Boolean).join('\n\n');
+
+    const response = await this.llm.complete({
+      messages: [
+        { role: 'system', content: KB_IMPORT_SYSTEM },
+        { role: 'user', content: conversationLines },
+      ],
+      provider: 'auto',
+      model: 'gpt-4o-mini',
+      maxTokens: 600,
+      temperature: 0.2,
+    });
+
+    const raw = response.content.trim();
+    const match = raw.match(/\{[\s\S]*\}/);
+    const proposal: { title: string; category: string; content: string; reasoning: string } = JSON.parse(match?.[0] ?? raw);
+    if (!proposal.title || !proposal.content) return { ok: false, error: 'LLM returned incomplete entry' };
+
+    const entry = await this.kb.createEntry({
+      title: proposal.title,
+      content: proposal.content,
+      category: proposal.category ?? 'faq',
+      entryType: 'reference',
+      priority: 70,
+      agentKeys: this.key,
+      sourceType: 'crm_import',
+      sourceUrl: `${baseUrl.replace(/\/$/, '')}/support-ticket/${crmTicketId}`,
+    });
+
+    this.logger.log(`KB import from CRM ticket #${crmTicketId}: "${proposal.title}" (${entry.id})`);
+    return { ok: true, title: proposal.title, entryId: entry.id };
   }
 
   private detectServerIssue(text: string): string | null {
