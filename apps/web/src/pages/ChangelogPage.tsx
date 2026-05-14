@@ -16,6 +16,15 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.55.1',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'Improved chat pill questions: Visual style now offers 5 options (Bold & Punchy / Clean & Minimal / Warm & Professional / Dark & Dramatic / Bright & Colorful). Content type now shows human-readable format labels (Tips 5 slides / How-To Guide / Listicle / Stat Card / Quote Card) that map directly to format IDs.' },
+      { tag: 'feat', scope: 'canva', description: 'Richer visual tone instructions: each tone now injects specific design directives into the render intent — headline word count, contrast level, decoration density, background type, and shape style — giving the visual spec LLM much more precise guidance.' },
+      { tag: 'feat', scope: 'canva', description: 'Classification prompt updated: explicit format ID and visual tone mappings added so the LLM reliably extracts formatId and visualTone from both pill submissions and natural language prompts.' },
+    ],
+  },
+  {
     version: 'v4.55.0',
     date: '2026-05-14',
     entries: [

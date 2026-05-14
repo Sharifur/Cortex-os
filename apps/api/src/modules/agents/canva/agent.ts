@@ -160,31 +160,47 @@ export class CanvaAgent implements IAgent, OnModuleInit {
     const trainingSamples = await this.designPattern.listSampleMeta(firstBrand).catch(() => [] as Array<{ id: string; title: string; thumbUrl?: string }>);
 
     // Classify intent
-    const classifyPrompt = `You are classifying a chat message sent to a social media design generation agent.
+    const classifyPrompt = `You are classifying a chat message sent to a social media carousel design agent.
 
 Available brands: taskip (project management SaaS), xgenious (premium WordPress/CodeIgniter themes)
-Available formats: linkedin-tips-carousel, linkedin-howto-carousel, linkedin-list-carousel, linkedin-stat-single, linkedin-quote-single, instagram-carousel-edu, generic-infographic, generic-checklist
+
+Format ID mapping — match user's content type choice to the EXACT format ID:
+  "Tips carousel" | "Tips (5 slides)" | "tips list"  → linkedin-tips-carousel
+  "How-To guide" | "Step-by-step" | "how-to"         → linkedin-howto-carousel
+  "Listicle" | "Numbered list" | "list"               → linkedin-list-carousel
+  "Stat card" | "Single stat" | "data point"          → linkedin-stat-single
+  "Quote card" | "testimonial" | "quote"              → linkedin-quote-single
+  "Instagram" | "edu carousel"                        → instagram-carousel-edu
+  "Infographic"                                       → generic-infographic
+  "Checklist"                                         → generic-checklist
+
+Visual tone ID mapping:
+  "Bold & Punchy" | "bold" | "punchy"                → bold-punchy
+  "Clean & Minimal" | "minimal" | "clean"            → clean-minimal
+  "Warm & Professional" | "warm" | "professional"    → warm-professional
+  "Dark & Dramatic" | "dark" | "dramatic"            → dark-dramatic
+  "Bright & Colorful" | "colorful" | "vibrant"       → energetic-colorful
 
 Recent conversation (last 6 messages, may be empty):
 ${history || '(no history)'}
 
 Current user message: "${query}"
 
-Classify the intent and return JSON only (no markdown):
+Return JSON only (no markdown):
 {
   "intent": "design-generate" | "questions-answered" | "style-selected" | "general-chat",
-  "topic": "extracted content topic if available, else null",
+  "topic": "extracted content topic, else null",
   "brand": "taskip" | "xgenious" | null,
-  "formatId": "best matching format ID, or null",
-  "visualTone": "bold-punchy" | "clean-minimal" | "elegant-premium" | "energetic-colorful" | null,
-  "audience": "extracted audience or null",
-  "styleNumber": "number if user picked a style reference (e.g. '2'), else null"
+  "formatId": "exact format ID from the mapping above, or null",
+  "visualTone": "bold-punchy" | "clean-minimal" | "warm-professional" | "dark-dramatic" | "energetic-colorful" | null,
+  "audience": "target audience if mentioned, else null",
+  "styleNumber": "number string if user picked a style reference (e.g. '2'), else null"
 }
 
 Rules:
-- "design-generate": user wants to create an image/carousel/banner (even phrased naturally like "make a post about X")
-- "questions-answered": agent previously asked clarifying questions AND user answered them (brand, tone, format) — but NOT yet picked a style number
-- "style-selected": agent previously showed a numbered style list AND user replied with a number (e.g. "1", "2", "0", "random", "first one")
+- "design-generate": user wants to create a carousel/banner (even natural phrasing like "make a post about X")
+- "questions-answered": agent asked clarifying questions AND user answered brand/tone/format — NOT yet a style number pick
+- "style-selected": agent showed style thumbnails/numbered list AND user replied with a number or "random"
 - "general-chat": advice, brainstorm, feedback, anything else`;
 
     let classification: { intent: string; topic?: string; brand?: string; formatId?: string; visualTone?: string; audience?: string; styleNumber?: string } = { intent: 'general-chat' };
@@ -210,7 +226,14 @@ Rules:
       if (topic && hasFormat && trainingSamples.length > 0) {
         const brand = (classification.brand ?? 'default').toLowerCase();
         const formatId = classification.formatId!;
-        const intentStr = '';
+        const toneInstructions: Record<string, string> = {
+          'bold-punchy':       'Bold punchy style — max 6 words per headline, heavy font weight, very high contrast backgrounds, large corner decorations, 1-2 word highlights per slide.',
+          'clean-minimal':     'Clean minimal style — generous whitespace, soft muted backgrounds, no decorations except a single thin accent bar.',
+          'warm-professional': 'Warm professional style — earthy or navy tones, rounded shapes, approachable body copy, subtle circle decorations.',
+          'dark-dramatic':     'Dark dramatic style — very dark backgrounds, vivid accent colors, large bold shapes, high-contrast text.',
+          'energetic-colorful':'Energetic colorful style — saturated backgrounds, white text, multiple overlapping shapes, bold decorations.',
+        };
+        const intentStr = toneInstructions[classification.visualTone ?? ''] ?? '';
         const stylesPayload = JSON.stringify({
           samples: trainingSamples.map((s, i) => ({ num: String(i + 1), id: s.id, title: s.title || `Sample ${i + 1}`, thumb: s.thumbUrl ?? null })),
         });
@@ -226,7 +249,6 @@ Rules:
 
       // Partial prompt — ask 3 clarifying questions (no style reference in this message)
       const brands = (config.brands ?? ['taskip', 'xgenious']).join(' / ');
-      const formatChoices = 'tips list / step-by-step how-to / data-backed list / single stat / quote card';
 
       const message = [
         `I'll create a social media design on: "${topic}"`,
@@ -234,8 +256,8 @@ Rules:
         'Quick questions before I start:',
         '',
         `1. Brand — ${brands}?`,
-        `2. Visual tone — bold & punchy / clean & minimal / elegant & premium / energetic & colorful?`,
-        `3. Content format — ${formatChoices}?`,
+        `2. Visual style — Bold & Punchy / Clean & Minimal / Warm & Professional / Dark & Dramatic / Bright & Colorful?`,
+        `3. Content type — Tips (5 slides) / How-To Guide / Listicle / Stat Card / Quote Card?`,
         '',
         'Brand is optional — skip it to use the default brand.',
       ].join('\n');
@@ -253,11 +275,15 @@ Rules:
       const formatId = (classification.formatId && validFormats.has(classification.formatId))
         ? classification.formatId
         : 'linkedin-tips-carousel';
+      const toneInstructions: Record<string, string> = {
+        'bold-punchy':       'Bold punchy style — max 6 words per headline, heavy font weight, very high contrast backgrounds (dark or vivid), large corner decorations, 1-2 word highlights per slide.',
+        'clean-minimal':     'Clean minimal style — generous whitespace, soft muted backgrounds, no decorations except a single thin accent bar, body text is the hero.',
+        'warm-professional': 'Warm professional style — earthy or navy tones, rounded shapes, approachable body copy length (2-3 sentences), subtle circle decorations at corners.',
+        'dark-dramatic':     'Dark dramatic style — very dark backgrounds (#0f0f0f or deep navy), vivid accent colors (electric blue, neon green, bright orange), large bold shapes, high-contrast text.',
+        'energetic-colorful':'Energetic colorful style — saturated backgrounds (yellow, coral, electric purple), white text, multiple overlapping shapes, bold decorations at every corner.',
+      };
       const intentStr = [
-        tone === 'bold-punchy' ? 'Bold, punchy style. High-contrast colors. Short punchy text per slide.' : '',
-        tone === 'clean-minimal' ? 'Clean minimal style. Generous whitespace. Simple layouts.' : '',
-        tone === 'elegant-premium' ? 'Elegant premium feel. Sophisticated typography. Refined color palette.' : '',
-        tone === 'energetic-colorful' ? 'Energetic and colorful. Vibrant backgrounds. Dynamic layouts.' : '',
+        toneInstructions[tone] ?? '',
         audience ? `Target audience: ${audience}.` : '',
       ].filter(Boolean).join(' ');
 
