@@ -422,6 +422,10 @@ export interface DesignDNA {
 
   // Free-text observations
   pattern_notes: string;
+
+  // Set when this DNA represents a full multi-slide carousel rather than a single slide
+  carousel_slide_count?: number;
+  carousel_slide_urls?: string[];  // R2 URLs for each slide in order (index 0 = cover)
 }
 
 export interface WordHighlight {

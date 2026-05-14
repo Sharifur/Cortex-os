@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.46.2',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'design-samples', description: 'LinkedIn carousel upload mode: a toggle on the upload area switches between "Individual images" (existing behavior) and "LinkedIn carousel set." In carousel mode, slides are staged in order with numbered thumbnails before upload. On submit, all slides are analyzed individually via vision LLM, then a synthesis LLM pass merges the per-slide DNAs into one unified carousel design system DNA (shared color palette, typography, shape elements, mood). Stored as a single knowledge_entries row; the grid shows a blue slide-count badge on carousel entries.' },
+    ],
+  },
+  {
     version: 'v4.46.1',
     date: '2026-05-14',
     entries: [

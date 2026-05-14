@@ -19,6 +19,34 @@ interface MultipartRequest {
 export class DesignSampleController {
   constructor(private readonly analysis: DesignAnalysisService) {}
 
+  @Post('upload-carousel')
+  @HttpCode(HttpStatus.OK)
+  async uploadCarousel(
+    @Req() req: MultipartRequest,
+    @Res() reply: FastifyReply,
+    @Query('brand') brand = 'default',
+  ) {
+    if (!req.isMultipart || !req.isMultipart()) {
+      throw new BadRequestException('multipart/form-data required');
+    }
+
+    const slides: Array<{ buffer: Buffer; filename: string }> = [];
+
+    if (req.files) {
+      for await (const part of req.files()) {
+        if (!part.mimetype.startsWith('image/')) continue;
+        slides.push({ buffer: await part.toBuffer(), filename: part.filename });
+      }
+    }
+
+    if (slides.length < 2) {
+      throw new BadRequestException('A carousel requires at least 2 slide images');
+    }
+
+    const result = await this.analysis.analyzeAndStoreCarousel(slides, { brand });
+    reply.send({ uploaded: slides.length, ...result });
+  }
+
   @Post('upload')
   @HttpCode(HttpStatus.OK)
   async upload(

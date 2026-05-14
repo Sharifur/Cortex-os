@@ -3784,6 +3784,9 @@ function DesignSamplesTab({ token }: { token: string }) {
   const [bannerBrief, setBannerBrief] = useState('');
   const [progress, setProgress] = useState<{ done: number; total: number; errors: number } | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [uploadMode, setUploadMode] = useState<'individual' | 'carousel'>('individual');
+  const [carouselStaging, setCarouselStaging] = useState<File[]>([]);
+  const [carouselUploading, setCarouselUploading] = useState(false);
   const [dsSubTab, setDsSubTab] = useState<'samples' | 'patterns'>('samples');
   const [visibleCount, setVisibleCount] = useState(60);
   const SAMPLE_PAGE_SIZE = 60;
@@ -4061,6 +4064,25 @@ function DesignSamplesTab({ token }: { token: string }) {
     }
   }
 
+  async function uploadCarousel() {
+    if (carouselStaging.length < 2) return;
+    setCarouselUploading(true);
+    try {
+      const fd = new FormData();
+      for (const file of carouselStaging) fd.append('files', file);
+      await fetch('/posts/design-samples/upload-carousel?brand=default', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: fd,
+      });
+      setCarouselStaging([]);
+      setUploadMode('individual');
+      void loadData();
+    } catch { /* ignore */ } finally {
+      setCarouselUploading(false);
+    }
+  }
+
   async function deleteAllSamples() {
     if (!confirm(`Remove all ${samples.length} design samples? This also deletes their files from storage and cannot be undone.`)) return;
     setDeletingAll(true);
@@ -4250,18 +4272,106 @@ function DesignSamplesTab({ token }: { token: string }) {
         <>
           <div className="bg-card border border-border rounded-xl p-4 space-y-3">
             <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={handleFileInput} />
-            <div
-              onClick={() => fileRef.current?.click()}
-              onDragOver={handleDragOver}
-              onDragLeave={handleDragLeave}
-              onDrop={handleDrop}
-              className={`border-2 border-dashed rounded-xl p-8 text-center transition-colors cursor-pointer ${
-                isDragOver ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/50 hover:bg-muted/40'
-              }`}
-            >
-              <p className="text-sm font-medium">{isDragOver ? 'Drop images here' : 'Drop images or click to upload'}</p>
-              <p className="text-xs text-muted-foreground mt-1">PNG, JPG, WEBP — multiple files supported</p>
+
+            {/* Upload mode toggle */}
+            <div className="flex items-center gap-1 bg-muted rounded-lg p-1 w-fit">
+              {(['individual', 'carousel'] as const).map(mode => (
+                <button
+                  key={mode}
+                  onClick={() => { setUploadMode(mode); setCarouselStaging([]); }}
+                  className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
+                    uploadMode === mode ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  {mode === 'individual' ? 'Individual images' : 'LinkedIn carousel set'}
+                </button>
+              ))}
             </div>
+
+            {uploadMode === 'individual' ? (
+              <div
+                onClick={() => fileRef.current?.click()}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+                className={`border-2 border-dashed rounded-xl p-8 text-center transition-colors cursor-pointer ${
+                  isDragOver ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/50 hover:bg-muted/40'
+                }`}
+              >
+                <p className="text-sm font-medium">{isDragOver ? 'Drop images here' : 'Drop images or click to upload'}</p>
+                <p className="text-xs text-muted-foreground mt-1">Each image is analyzed as an independent design sample</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div
+                  onClick={() => {
+                    const input = document.createElement('input');
+                    input.type = 'file';
+                    input.accept = 'image/*';
+                    input.multiple = true;
+                    input.onchange = (e) => {
+                      const files = Array.from((e.target as HTMLInputElement).files ?? []).filter(f => f.type.startsWith('image/'));
+                      setCarouselStaging(prev => [...prev, ...files]);
+                    };
+                    input.click();
+                  }}
+                  onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
+                  onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setIsDragOver(false); }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setIsDragOver(false);
+                    const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
+                    setCarouselStaging(prev => [...prev, ...files]);
+                  }}
+                  className={`border-2 border-dashed rounded-xl p-6 text-center transition-colors cursor-pointer ${
+                    isDragOver ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/50 hover:bg-muted/40'
+                  }`}
+                >
+                  <p className="text-sm font-medium">Drop all carousel slides here</p>
+                  <p className="text-xs text-muted-foreground mt-1">All slides are analyzed together as one design system — add at least 2</p>
+                </div>
+
+                {carouselStaging.length > 0 && (
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap gap-2">
+                      {carouselStaging.map((file, i) => (
+                        <div key={i} className="relative group">
+                          <img
+                            src={URL.createObjectURL(file)}
+                            alt=""
+                            className="w-14 h-14 object-cover rounded-lg border border-border"
+                          />
+                          <span className="absolute top-0.5 left-0.5 bg-black/60 text-white text-[10px] font-bold rounded px-1 leading-tight">
+                            {i + 1}
+                          </span>
+                          <button
+                            onClick={() => setCarouselStaging(prev => prev.filter((_, j) => j !== i))}
+                            className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-destructive text-white text-[10px] hidden group-hover:flex items-center justify-center"
+                          >
+                            x
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={uploadCarousel}
+                        disabled={carouselUploading || carouselStaging.length < 2}
+                        className="px-4 py-1.5 bg-primary text-primary-foreground rounded-lg text-sm font-medium disabled:opacity-50"
+                      >
+                        {carouselUploading ? 'Analyzing carousel...' : `Upload ${carouselStaging.length}-slide carousel`}
+                      </button>
+                      <button
+                        onClick={() => setCarouselStaging([])}
+                        className="text-xs text-muted-foreground hover:text-foreground"
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
             {progress && (
               <div className="space-y-1.5">
@@ -4288,26 +4398,35 @@ function DesignSamplesTab({ token }: { token: string }) {
           </div>
 
           <div className="flex flex-wrap gap-3">
-            {samples.slice(0, visibleCount).map((s: any) => (
-              <div key={s.id} className="relative w-[60px] h-[60px] shrink-0">
-                <button
-                  onClick={() => openSampleDetail(s.id)}
-                  className="w-full h-full focus:outline-none"
-                  title="View patterns and DNA"
-                >
-                  {s.sourceUrl ? (
-                    <img src={s.sourceUrl} alt="" className="w-[60px] h-[60px] object-cover rounded-lg border border-border hover:border-primary transition-colors" />
-                  ) : (
-                    <div className="w-[60px] h-[60px] rounded-lg bg-muted border border-border" />
+            {samples.slice(0, visibleCount).map((s: any) => {
+              const carouselMatch = s.content?.match(/"carousel_slide_count"\s*:\s*(\d+)/);
+              const carouselCount = carouselMatch ? parseInt(carouselMatch[1]) : 0;
+              return (
+                <div key={s.id} className="relative w-[60px] h-[60px] shrink-0">
+                  <button
+                    onClick={() => openSampleDetail(s.id)}
+                    className="w-full h-full focus:outline-none"
+                    title={carouselCount > 0 ? `LinkedIn carousel — ${carouselCount} slides` : 'View patterns and DNA'}
+                  >
+                    {s.sourceUrl ? (
+                      <img src={s.sourceUrl} alt="" className="w-[60px] h-[60px] object-cover rounded-lg border border-border hover:border-primary transition-colors" />
+                    ) : (
+                      <div className="w-[60px] h-[60px] rounded-lg bg-muted border border-border" />
+                    )}
+                  </button>
+                  {carouselCount > 0 && (
+                    <span className="absolute top-0.5 left-0.5 bg-blue-600 text-white text-[9px] font-bold rounded px-1 leading-tight pointer-events-none">
+                      {carouselCount}
+                    </span>
                   )}
-                </button>
-                {s.content?.includes('-- Design Patterns --') && (
-                  <span className="absolute bottom-0.5 right-0.5 bg-green-600 rounded p-0.5 leading-none pointer-events-none">
-                    <BookOpen className="w-2.5 h-2.5 text-white" />
-                  </span>
-                )}
-              </div>
-            ))}
+                  {s.content?.includes('-- Design Patterns --') && (
+                    <span className="absolute bottom-0.5 right-0.5 bg-green-600 rounded p-0.5 leading-none pointer-events-none">
+                      <BookOpen className="w-2.5 h-2.5 text-white" />
+                    </span>
+                  )}
+                </div>
+              );
+            })}
           </div>
 
           {visibleCount < samples.length && (
