@@ -147,6 +147,7 @@ export class SupportAgent implements IAgent, OnModuleInit {
       try {
         const ticketText = `${ticket.subject ?? ''} ${ticket.body ?? ''}`;
         const purchaseCodes = PurchaseVerifyService.extractPurchaseCodes(ticket.body ?? '');
+        let purchaseBlock = '';
 
         // --- Purchase code gate ---
         // Tickets that already have a final purchase status don't need a new code request
@@ -175,13 +176,16 @@ export class SupportAgent implements IAgent, OnModuleInit {
               },
               riskLevel: 'low',
             });
+            continue;
           }
-          continue;
+          // Code was already requested — customer replied without providing it.
+          // Fall through to LLM with a pending-code context block so it can address
+          // the customer's reply and gently remind them.
+          purchaseBlock = '\n\n--- Purchase Code Status ---\nPending — purchase code was requested but not yet provided by the customer. Address their reply normally, then politely remind them to share their purchase code before technical support can be provided.';
         }
 
         // --- Verify purchase code if we have one and haven't verified yet ---
-        let purchaseBlock = '';
-        if (alreadyGated && ticket.purchaseCode) {
+        if (alreadyGated && ticket.purchaseCode && !purchaseBlock) {
           const statusLabel = ticket.purchaseCodeStatus === 'verified'
             ? 'Active — support is enabled. Proceed to help the customer.'
             : ticket.purchaseCodeStatus === 'expired'
@@ -808,11 +812,33 @@ export class SupportAgent implements IAgent, OnModuleInit {
       return errorResp;
     }
 
-    // For reply events triggered by our own agent, just log and skip — avoid feedback loops
-    if (event === 'support.ticket.replied' && payload?.data?.replied_by?.type === 'agent') {
-      this.logger.log(`ingestWebhook: skipping agent-replied event for ticket #${ticket.id}`);
-      const skippedResp = { ok: true, status: 'skipped', reason: 'agent_reply' };
-      await this.writeWebhookLog({ status: 'skipped_agent_reply', externalId: String(ticket.id), rawPayload, responseBody: JSON.stringify(skippedResp) });
+    // For reply events triggered by our own agent — update ticket to 'replied' and stop
+    const isAgentReply = event === 'support.ticket.replied' && (
+      payload?.data?.replied_by?.type === 'agent' ||
+      payload?.data?.user?.type === 'agent' ||
+      payload?.data?.reply?.user?.type === 'agent' ||
+      replyData?.user?.type === 'agent'
+    );
+    if (isAgentReply) {
+      this.logger.log(`ingestWebhook: agent reply event for ticket #${ticket.id} — marking replied`);
+      const [existing] = await this.db.db
+        .select({ id: supportTickets.id })
+        .from(supportTickets)
+        .where(eq(supportTickets.externalId, String(ticket.id)));
+      if (existing) {
+        await this.db.db
+          .update(supportTickets)
+          .set({ status: 'replied', repliedAt: new Date(), updatedAt: new Date() })
+          .where(eq(supportTickets.id, existing.id));
+        await this.writeTicketEvent({
+          ticketId: existing.id,
+          externalId: String(ticket.id),
+          eventType: 'agent_reply_received',
+          summary: 'Agent reply recorded — no further action taken',
+        });
+      }
+      const skippedResp = { ok: true, status: 'acknowledged', reason: 'agent_reply' };
+      await this.writeWebhookLog({ status: 'skipped_agent_reply', externalId: String(ticket.id), ticketId: existing?.id ?? null, rawPayload, responseBody: JSON.stringify(skippedResp) });
       return skippedResp;
     }
 
@@ -838,26 +864,27 @@ export class SupportAgent implements IAgent, OnModuleInit {
       }
     }
 
-    // Customer reply on a ticket that's awaiting a purchase code — re-open for re-processing
+    // Customer reply — re-open any existing ticket for re-processing (skip purchase code gate)
     if (event === 'support.ticket.replied') {
       const [existing] = await this.db.db
-        .select({ id: supportTickets.id, purchaseCodeStatus: supportTickets.purchaseCodeStatus })
+        .select({ id: supportTickets.id, status: supportTickets.status, purchaseCodeStatus: supportTickets.purchaseCodeStatus })
         .from(supportTickets)
         .where(eq(supportTickets.externalId, String(ticket.id)));
 
-      if (existing?.purchaseCodeStatus === 'requested') {
+      if (existing) {
         await this.db.db
           .update(supportTickets)
           .set({ status: 'open', body: body || undefined, updatedAt: new Date() })
           .where(eq(supportTickets.id, existing.id));
-        this.logger.log(`Ticket #${ticket.id} reopened after customer reply — will re-check for purchase code`);
+        this.logger.log(`Ticket #${ticket.id} reopened after customer reply (prev status: ${existing.status})`);
         const reopenedResp = { ok: true, status: 'reopened', ticketId: existing.id, externalId: String(ticket.id) };
         await this.writeWebhookLog({ status: 'reopened', externalId: String(ticket.id), ticketId: existing.id, rawPayload, responseBody: JSON.stringify(reopenedResp) });
         await this.writeTicketEvent({
           ticketId: existing.id,
           externalId: String(ticket.id),
-          eventType: 'ticket_reopened',
-          summary: 'Customer replied — ticket reopened for purchase code re-check',
+          eventType: 'customer_reply_received',
+          summary: `Customer replied — ticket reopened (purchaseCodeStatus was: ${existing.purchaseCodeStatus ?? 'none'})`,
+          payload: { prevStatus: existing.status, prevPurchaseCodeStatus: existing.purchaseCodeStatus },
         });
         return reopenedResp;
       }

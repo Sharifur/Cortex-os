@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.46.4',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'fix', scope: 'support', description: 'Reply event handling overhaul: agent reply webhooks now mark the ticket as replied in the DB and write an agent_reply_received event instead of silently skipping. Agent detection checks multiple payload fields (replied_by, user, reply.user). Customer reply events now reopen any existing ticket regardless of purchaseCodeStatus (not just when code was requested), and write a customer_reply_received event. In decide(), when a purchase code was already requested but the customer replied without providing it, the ticket no longer gets stuck — it falls through to the LLM with a pending-code context block so the agent can address the reply and remind the customer.' },
+    ],
+  },
+  {
     version: 'v4.46.3',
     date: '2026-05-14',
     entries: [
