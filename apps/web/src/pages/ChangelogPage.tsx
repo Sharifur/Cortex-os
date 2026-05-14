@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.54.1',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'Style picker thumbnails: the style reference picker now shows 72x72 cover image thumbnails for each training sample instead of text pills. Each sample\'s first slide is used as the thumbnail (from carousel_slide_urls in its DNA). Clicking a thumbnail immediately fires the render pinned to that sample\'s DNA — no submit button needed. A "Random" tile with a ? icon is always shown first.' },
+    ],
+  },
+  {
     version: 'v4.54.0',
     date: '2026-05-14',
     entries: [

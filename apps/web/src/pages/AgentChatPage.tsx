@@ -1009,17 +1009,18 @@ function parseClarifyingQuestions(content: string): { intro: string; questions: 
   return { intro, questions };
 }
 
-function parseStylePicker(content: string): { header: string; options: { num: string; label: string }[] } | null {
+interface StyleSample { num: string; id: string; title: string; thumb: string | null }
+
+function parseStylePicker(content: string): { header: string; samples: StyleSample[] } | null {
   if (!content.includes('Choose a style reference for this render:')) return null;
-  const lines = content.split('\n');
-  const options: { num: string; label: string }[] = [];
-  for (const line of lines) {
-    const m = line.match(/^(\d+)\.\s+(.+)$/);
-    if (m && !m[2].includes('[pending:')) options.push({ num: m[1], label: m[2].trim() });
-  }
-  if (!options.length) return null;
-  const headerLines = lines.filter(l => l.trim() && !/^\d+\./.test(l.trim()) && !l.includes('[pending:'));
-  return { header: headerLines.join('\n').trim(), options };
+  const stylesMatch = content.match(/\[styles:(\{[\s\S]+?\})\]/);
+  if (!stylesMatch) return null;
+  try {
+    const { samples } = JSON.parse(stylesMatch[1]) as { samples: StyleSample[] };
+    if (!samples?.length) return null;
+    const headerLines = content.split('\n').filter(l => l.trim() && !l.includes('[styles:') && !l.includes('[pending:'));
+    return { header: headerLines.join('\n').trim(), samples };
+  } catch { return null; }
 }
 
 function QuickReplyCard({
@@ -1102,7 +1103,7 @@ function StylePickerCard({
 
   if (!parsed) return null;
 
-  function pick(num: string, label: string) {
+  function pick(num: string) {
     if (selected) return;
     setSelected(num);
     onSubmit(num === '0' ? 'random' : num);
@@ -1111,22 +1112,42 @@ function StylePickerCard({
   const headerLines = parsed.header.split('\n').filter(l => l.trim());
 
   return (
-    <div className={`rounded-2xl px-4 py-3 ${color.bubble} text-foreground rounded-bl-sm space-y-2`}>
+    <div className={`rounded-2xl px-4 py-3 ${color.bubble} text-foreground rounded-bl-sm space-y-3`}>
       {headerLines.map((line, i) => (
         <p key={i} className="text-sm leading-relaxed">{line}</p>
       ))}
-      <div className="flex flex-wrap gap-1.5 pt-1">
-        {parsed.options.map(opt => (
+      <div className="flex flex-wrap gap-2 pt-1">
+        {/* Random option */}
+        <button
+          onClick={() => pick('0')}
+          className={`flex flex-col items-center gap-1 group transition-all ${selected ? 'opacity-40 pointer-events-none' : ''} ${selected === '0' ? '!opacity-100' : ''}`}
+        >
+          <div className={`w-[72px] h-[72px] rounded-xl border-2 flex items-center justify-center bg-muted/40 transition-colors ${
+            selected === '0' ? 'border-primary' : 'border-border group-hover:border-foreground/30'
+          }`}>
+            <span className="text-xl">?</span>
+          </div>
+          <span className="text-[10px] text-muted-foreground w-[72px] text-center leading-tight line-clamp-2">Random</span>
+        </button>
+
+        {parsed.samples.map(s => (
           <button
-            key={opt.num}
-            onClick={() => pick(opt.num, opt.label)}
-            className={`px-3 py-1 rounded-full text-xs border transition-colors ${
-              selected === opt.num
-                ? 'bg-primary text-primary-foreground border-primary'
-                : 'border-border text-muted-foreground hover:border-foreground/40 hover:text-foreground'
-            }`}
+            key={s.num}
+            onClick={() => pick(s.num)}
+            className={`flex flex-col items-center gap-1 group transition-all ${selected ? 'opacity-40 pointer-events-none' : ''} ${selected === s.num ? '!opacity-100' : ''}`}
           >
-            {opt.label}
+            <div className={`w-[72px] h-[72px] rounded-xl border-2 overflow-hidden transition-colors ${
+              selected === s.num ? 'border-primary' : 'border-border group-hover:border-foreground/30'
+            }`}>
+              {s.thumb ? (
+                <img src={s.thumb} alt={s.title} className="w-full h-full object-cover" />
+              ) : (
+                <div className="w-full h-full bg-muted/60 flex items-center justify-center">
+                  <Image className="w-5 h-5 text-muted-foreground/40" />
+                </div>
+              )}
+            </div>
+            <span className="text-[10px] text-muted-foreground w-[72px] text-center leading-tight line-clamp-2">{s.title.split(' — ').slice(0, 2).join(' ')}</span>
           </button>
         ))}
       </div>

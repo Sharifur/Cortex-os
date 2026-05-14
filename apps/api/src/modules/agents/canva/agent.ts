@@ -157,7 +157,7 @@ export class CanvaAgent implements IAgent, OnModuleInit {
 
     // Load training samples once — used in Branch A and Branch B
     const firstBrand = (config.brands?.[0] ?? 'taskip').toLowerCase();
-    const trainingSamples = await this.designPattern.listSampleMeta(firstBrand).catch(() => [] as Array<{ id: string; title: string }>);
+    const trainingSamples = await this.designPattern.listSampleMeta(firstBrand).catch(() => [] as Array<{ id: string; title: string; thumbUrl?: string }>);
 
     // Classify intent
     const classifyPrompt = `You are classifying a chat message sent to a social media design generation agent.
@@ -250,13 +250,14 @@ Rules:
 
       // If there are training samples and no style was chosen, ask for style before rendering
       if (trainingSamples.length > 0) {
+        const stylesPayload = JSON.stringify({
+          samples: trainingSamples.map((s, i) => ({ num: String(i + 1), id: s.id, title: s.title || `Sample ${i + 1}`, thumb: s.thumbUrl ?? null })),
+        });
         const styleLines = [
           `Content ready — "${topic}" as ${formatId} for ${brand}.`,
           '',
           'Choose a style reference for this render:',
-          '0. Random (pick from training samples automatically)',
-          ...trainingSamples.map((s, i) => `${i + 1}. ${s.title || `Sample ${i + 1}`}`),
-          '',
+          `[styles:${stylesPayload}]`,
           `[pending:${JSON.stringify({ formatId, brand, topic, intentStr })}]`,
         ].join('\n');
 

@@ -654,20 +654,31 @@ export class DesignPatternService {
     };
   }
 
-  async listSampleMeta(brand: string): Promise<Array<{ id: string; title: string }>> {
+  async listSampleMeta(brand: string): Promise<Array<{ id: string; title: string; thumbUrl?: string }>> {
     const effectiveBrand = brand || 'default';
     const brandFilter = effectiveBrand === 'default'
       ? eq(knowledgeEntries.siteKeys, 'default')
       : or(eq(knowledgeEntries.siteKeys, effectiveBrand), eq(knowledgeEntries.siteKeys, 'default'))!;
-    return this.db.db
-      .select({ id: knowledgeEntries.id, title: knowledgeEntries.title })
+    const rows = await this.db.db
+      .select({ id: knowledgeEntries.id, title: knowledgeEntries.title, content: knowledgeEntries.content })
       .from(knowledgeEntries)
       .where(and(
         eq(knowledgeEntries.entryType, 'design_sample'),
         eq(knowledgeEntries.agentKeys, 'canva'),
         brandFilter,
       ))
-      .orderBy(knowledgeEntries.createdAt) as Promise<Array<{ id: string; title: string }>>;
+      .orderBy(knowledgeEntries.createdAt);
+    return rows.map(row => {
+      let thumbUrl: string | undefined;
+      const match = row.content.match(/DNA JSON: (\{[\s\S]+\})\s*$/m);
+      if (match) {
+        try {
+          const dna = JSON.parse(match[1]) as { carousel_slide_urls?: string[] };
+          thumbUrl = dna.carousel_slide_urls?.[0];
+        } catch { /* skip */ }
+      }
+      return { id: row.id, title: row.title, thumbUrl };
+    });
   }
 
   async getDNAForEntry(entryId: string): Promise<DesignDNA | null> {
