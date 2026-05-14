@@ -3982,38 +3982,46 @@ function CarouselSetCard({ setName, slides, onDeleteSlide, deletingId }: {
 
   return (
     <>
-      <div className="flex flex-col items-center gap-1.5">
-        <button
-          onClick={() => setGallery(0)}
-          className="relative group focus:outline-none"
-          style={{ width: 60, height: 60 }}
+      <button
+        onClick={() => setGallery(0)}
+        className="relative group focus:outline-none"
+        style={{ width: 68, height: 68 }}
+      >
+        {/* Card 3 — furthest back */}
+        {total > 2 && (
+          <div
+            className="absolute rounded-lg bg-muted border border-border/50"
+            style={{ inset: 0, transform: 'rotate(-4deg) translate(-2px, 3px)', zIndex: 0 }}
+          />
+        )}
+        {/* Card 2 — middle */}
+        {total > 1 && (
+          <div
+            className="absolute rounded-lg overflow-hidden border border-border/70 bg-muted"
+            style={{ inset: 0, transform: 'rotate(2.5deg) translate(2px, 2px)', zIndex: 1 }}
+          >
+            {slides[1]?.previewData && (
+              <img src={slides[1].previewData} alt="" className="w-full h-full object-cover" />
+            )}
+          </div>
+        )}
+        {/* Card 1 — front */}
+        <div
+          className="absolute rounded-lg overflow-hidden border border-border bg-muted shadow-md"
+          style={{ inset: 0, zIndex: 2 }}
         >
-          {[Math.min(2, total - 1), Math.min(1, total - 1), 0]
-            .filter((v, i, arr) => arr.indexOf(v) === i)
-            .reverse()
-            .map((offset, layer) => {
-              const s = slides[offset];
-              const rot = layer === 0 ? '-2deg' : layer === 1 ? '1.5deg' : '0deg';
-              const z = layer;
-              return (
-                <div
-                  key={offset}
-                  className="absolute inset-0 rounded-lg overflow-hidden border border-border/60 bg-muted shadow-sm"
-                  style={{ transform: `rotate(${rot})`, zIndex: z }}
-                >
-                  {s?.previewData && (
-                    <img src={s.previewData} alt="" className="w-full h-full object-cover" />
-                  )}
-                </div>
-              );
-            })}
-          <div className="absolute inset-0 rounded-lg bg-black/0 group-hover:bg-black/20 transition-colors pointer-events-none" style={{ zIndex: 10 }} />
-          <span className="absolute -bottom-1 -right-1 bg-primary text-primary-foreground text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center pointer-events-none" style={{ zIndex: 11 }}>
-            {total}
-          </span>
-        </button>
-        <p className="text-[10px] text-muted-foreground text-center max-w-[70px] truncate leading-tight">{displayName}</p>
-      </div>
+          {slides[0]?.previewData && (
+            <img src={slides[0].previewData} alt="" className="w-full h-full object-cover" />
+          )}
+        </div>
+        <div className="absolute inset-0 rounded-lg bg-black/0 group-hover:bg-black/20 transition-colors pointer-events-none" style={{ zIndex: 3 }} />
+        <span
+          className="absolute -bottom-1 -right-1 bg-primary text-primary-foreground text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center pointer-events-none"
+          style={{ zIndex: 4 }}
+        >
+          {total}
+        </span>
+      </button>
 
       {gallery !== null && (
         <div

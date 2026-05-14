@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.65.4',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'fix', scope: 'canva', description: 'Carousel set cards: removed name label below stack, fixed stack depth rendering so back cards correctly appear behind the front card using absolute z-index layers.' },
+    ],
+  },
+  {
     version: 'v4.65.3',
     date: '2026-05-14',
     entries: [
