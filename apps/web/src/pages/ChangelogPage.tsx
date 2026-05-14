@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.66.0',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'Layout-first carousel flow: agent now shows the template picker before generating content, so content is tailored to the exact slide count of the chosen template. Template tiles show field hints (e.g. headline, description, author_name) so the user knows what each layout expects.' },
+      { tag: 'feat', scope: 'canva', description: 'After confirming content from a layout-first flow, the agent skips the second template picker and auto-generates slides immediately (or asks for extra metadata params if the template requires them).' },
+    ],
+  },
+  {
     version: 'v4.65.9',
     date: '2026-05-14',
     entries: [

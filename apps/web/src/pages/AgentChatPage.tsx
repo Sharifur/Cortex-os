@@ -1009,16 +1009,16 @@ function parseClarifyingQuestions(content: string): { intro: string; questions: 
   return { intro, questions };
 }
 
-interface StyleSample { num: string; id: string; title: string; thumb: string | null }
+interface StyleSample { num: string; id: string; title: string; thumb: string | null; fields?: string }
 
 function parseStylePicker(content: string): { header: string; samples: StyleSample[] } | null {
-  if (!content.includes('Choose a style reference')) return null;
+  if (!content.includes('[styles:')) return null;
   const stylesMatch = content.match(/\[styles:(\{[^\n]+\})\]/);
   if (!stylesMatch) return null;
   try {
     const { samples } = JSON.parse(stylesMatch[1]) as { samples: StyleSample[] };
     if (!samples?.length) return null;
-    const headerLines = content.split('\n').filter(l => l.trim() && !l.includes('[styles:') && !l.includes('[pending:'));
+    const headerLines = content.split('\n').filter(l => l.trim() && !l.includes('[styles:') && !l.includes('[pending:') && !l.includes('[layout-pending:'));
     return { header: headerLines.join('\n').trim(), samples };
   } catch { return null; }
 }
@@ -1150,6 +1150,9 @@ function StylePickerCard({
               )}
             </div>
             <span className="text-[10px] text-muted-foreground w-[72px] text-center leading-tight line-clamp-2">{s.title.split(' — ').slice(0, 2).join(' ')}</span>
+            {s.fields && (
+              <span className="text-[9px] text-muted-foreground/60 w-[72px] text-center leading-tight line-clamp-1">{s.fields}</span>
+            )}
           </button>
         ))}
       </div>
@@ -1255,6 +1258,7 @@ function MessageBubble({
                     msg.content
                       .replace(/\[styles:\{[^\n]*\}\]\n?/g, '')
                       .replace(/\[pending:\{[^\n]*\}\]\n?/g, '')
+                      .replace(/\[layout-pending:\{[^\n]*\}\]\n?/g, '')
                       .replace(/\[param-gather:\{[^\n]*\}\]\n?/g, '')
                       .replace(/\[carousel-gather:\{[^\n]*\}\]\n?/g, '')
                       .replace(/\[extra-params-gather:\{[\s\S]*?\}\]\n?/g, '')
