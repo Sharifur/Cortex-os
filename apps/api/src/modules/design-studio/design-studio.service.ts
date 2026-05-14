@@ -101,10 +101,25 @@ export class DesignStudioService {
       throw new Error('This template was created with the old Satori renderer. Delete it and re-upload the image to extract a DesignDNA.');
     }
 
+    // Content must lead the prompt so gpt-image-1 treats it as the primary directive.
+    // Style description is secondary — if style leads, the model regenerates the original
+    // training slide's content and ignores the user's headline entirely.
+    const parts = userPrompt.split(' | ');
+    const headline = (parts[0] ?? '').trim();
+    const bodyText = parts.slice(1).join(' | ').trim();
+
     const dallePrompt = [
+      'Create a single social media carousel slide image.',
+      '',
+      'REQUIRED CONTENT — render this text exactly as written, no substitutions:',
+      `Headline: ${headline}`,
+      bodyText ? `Body: ${bodyText}` : '',
+      '',
+      'VISUAL STYLE — apply this design treatment to the content above (do not copy text from this description):',
       dna.stylePrompt,
-      `Use ONLY this content — do not use any text from the reference style: "${userPrompt}".`,
-    ].join(' ');
+      '',
+      `Critical: the slide must show only the headline${bodyText ? ' and body' : ''} specified above. Do not add, invent, or replace any text.`,
+    ].filter(Boolean).join('\n');
 
     const apiKey = await this.settings.getDecrypted('openai_api_key');
     if (!apiKey) throw new Error('openai_api_key not configured in Settings');

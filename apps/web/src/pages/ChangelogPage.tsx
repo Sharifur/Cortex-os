@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.66.2',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'fix', scope: 'canva', description: 'Slide generation no longer produces unrelated content from the training template. Root cause: gpt-image-1 was given style description first, causing it to regenerate the original training slide content. Fixed by restructuring the prompt — user headline/body leads as the primary directive, visual style is explicitly secondary. All 5 generateAndSave call sites benefit from the fix.' },
+    ],
+  },
+  {
     version: 'v4.66.1',
     date: '2026-05-14',
     entries: [
