@@ -16,6 +16,15 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.49.1',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'fix', scope: 'render', description: 'Blank slide: content service now falls back to position-based slide matching when the LLM returns slides with out-of-order or skipped slideIndex values, preventing empty slots on any slide.' },
+      { tag: 'fix', scope: 'render', description: 'Black CTA slide: overlay layout no longer hardcodes #111111 as the fallback background — it now uses resolveVisualBackground and resolveVisualBackgroundStyle so the ThemeContract and visual spec color chain applies correctly.' },
+      { tag: 'fix', scope: 'render', description: 'Layout pool: split-panel removed from content role pool (left stat panel was always empty on content slides) and overlay removed from CTA role pool (designed for image backgrounds, breaks on solid-color CTA slides).' },
+    ],
+  },
+  {
     version: 'v4.49.0',
     date: '2026-05-14',
     entries: [

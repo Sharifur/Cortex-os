@@ -38,10 +38,10 @@ const LAYOUT_MAP: Record<LayoutType, (props: import('./layouts/layout.types').La
 // Compatible layout options per slide role — used for randomised layout selection
 const ROLE_LAYOUT_POOL: Record<string, LayoutType[]> = {
   cover:   ['centered', 'left-aligned', 'overlay'],
-  content: ['centered', 'left-aligned', 'split-panel'],
+  content: ['centered', 'left-aligned'],
   stat:    ['split-panel', 'centered', 'left-aligned'],
   list:    ['list-layout', 'left-aligned'],
-  cta:     ['centered', 'left-aligned', 'overlay'],
+  cta:     ['centered', 'left-aligned'],
   quote:   ['centered', 'left-aligned'],
 };
 
