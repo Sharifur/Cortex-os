@@ -651,6 +651,58 @@ export class SupportAgent implements IAgent, OnModuleInit {
           return this.trainFromTicket(id, category, instruction.trim());
         },
       },
+      {
+        method: 'POST',
+        path: '/support/tickets/:id/priority',
+        requiresAuth: true,
+        handler: async (params) => {
+          const { id, priority } = params as any;
+          const p = Number(priority);
+          if (isNaN(p) || p < 0 || p > 4) throw new Error('priority must be 0–4 (0=Low,1=Normal,2=Medium,3=High,4=Urgent)');
+          const [ticket] = await this.db.db.select().from(supportTickets).where(eq(supportTickets.id, id));
+          if (!ticket) throw new Error('Ticket not found');
+          if (!ticket.crmUuid) throw new Error('Ticket has no CRM UUID — webhook may need to re-deliver it');
+          await this.updateCrmPriority(ticket.crmUuid, p);
+          const priorityLabel = ['low', 'normal', 'medium', 'high', 'urgent'][p];
+          await this.db.db.update(supportTickets).set({ priority: priorityLabel, updatedAt: new Date() }).where(eq(supportTickets.id, id));
+          await this.writeTicketEvent({ ticketId: id, externalId: ticket.externalId, eventType: 'priority_updated', summary: `Priority set to ${priorityLabel} (${p}) via CRM API` });
+          return { ok: true, priority: priorityLabel };
+        },
+      },
+      {
+        method: 'POST',
+        path: '/support/tickets/:id/status',
+        requiresAuth: true,
+        handler: async (params) => {
+          const { id, status, notes } = params as any;
+          const validStatuses = ['open', 'in_progress', 'resolved', 'closed'];
+          if (!validStatuses.includes(status)) throw new Error(`status must be one of: ${validStatuses.join(', ')}`);
+          const [ticket] = await this.db.db.select().from(supportTickets).where(eq(supportTickets.id, id));
+          if (!ticket) throw new Error('Ticket not found');
+          const crmId = ticket.externalId ? Number(ticket.externalId) : null;
+          if (!crmId) throw new Error('Ticket has no CRM ID');
+          await this.updateCrmStatus(crmId, status, notes?.trim() || undefined);
+          const localStatus = status === 'resolved' || status === 'closed' ? 'closed' : 'open';
+          await this.db.db.update(supportTickets).set({ status: localStatus, updatedAt: new Date() }).where(eq(supportTickets.id, id));
+          await this.writeTicketEvent({ ticketId: id, externalId: ticket.externalId, eventType: 'status_updated', summary: `Status set to ${status} via CRM API`, payload: notes ? { notes } : undefined });
+          return { ok: true, status };
+        },
+      },
+      {
+        method: 'POST',
+        path: '/support/tickets/:id/note',
+        requiresAuth: true,
+        handler: async (params) => {
+          const { id, note } = params as any;
+          if (!note?.trim()) throw new Error('note is required');
+          const [ticket] = await this.db.db.select().from(supportTickets).where(eq(supportTickets.id, id));
+          if (!ticket) throw new Error('Ticket not found');
+          if (!ticket.crmUuid) throw new Error('Ticket has no CRM UUID — webhook may need to re-deliver it');
+          await this.addCrmNote(ticket.crmUuid, note.trim());
+          await this.writeTicketEvent({ ticketId: id, externalId: ticket.externalId, eventType: 'note_added', summary: `Internal note added: ${note.trim().slice(0, 100)}`, payload: { note: note.trim() } });
+          return { ok: true };
+        },
+      },
     ];
   }
 
@@ -922,6 +974,7 @@ export class SupportAgent implements IAgent, OnModuleInit {
       .insert(supportTickets)
       .values({
         externalId: String(ticket.id),
+        crmUuid: ticket.uuid ?? null,
         ticketNo: ticket.ticket_no ?? null,
         subject: ticket.subject,
         body: body || null,
@@ -1145,6 +1198,71 @@ export class SupportAgent implements IAgent, OnModuleInit {
       }
     } catch (err) {
       this.logger.warn(`postCrmReply(${crmTicketId}) error: ${err}`);
+    }
+  }
+
+  private async updateCrmPriority(crmUuid: string, priority: number): Promise<void> {
+    try {
+      const baseUrl = await this.settings.getDecrypted('support_crm_base_url');
+      if (!baseUrl) { this.logger.warn('support_crm_base_url not configured — skipping priority update'); return; }
+      const res = await fetch(`${baseUrl.replace(/\/$/, '')}/api/public-v1/support-ticket/${crmUuid}/priority`, {
+        method: 'POST',
+        headers: await this.crmHeaders(),
+        body: JSON.stringify({ priority }),
+        signal: AbortSignal.timeout(10000),
+      });
+      if (res.ok) {
+        this.logger.log(`CRM priority updated: uuid=${crmUuid} priority=${priority}`);
+      } else {
+        const body = await res.text().catch(() => '');
+        this.logger.warn(`updateCrmPriority(${crmUuid}) failed: HTTP ${res.status} — ${body}`);
+      }
+    } catch (err) {
+      this.logger.warn(`updateCrmPriority(${crmUuid}) error: ${err}`);
+    }
+  }
+
+  private async updateCrmStatus(crmTicketId: number, status: string, resolutionNotes?: string): Promise<void> {
+    try {
+      const baseUrl = await this.settings.getDecrypted('support_crm_base_url');
+      if (!baseUrl) { this.logger.warn('support_crm_base_url not configured — skipping status update'); return; }
+      const body: Record<string, unknown> = { status };
+      if (resolutionNotes) body.resolution_notes = resolutionNotes;
+      const res = await fetch(`${baseUrl.replace(/\/$/, '')}/api/public-v1/ticket/${crmTicketId}/status-update`, {
+        method: 'POST',
+        headers: await this.crmHeaders(),
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(10000),
+      });
+      if (res.ok) {
+        this.logger.log(`CRM status updated: id=${crmTicketId} status=${status}`);
+      } else {
+        const respBody = await res.text().catch(() => '');
+        this.logger.warn(`updateCrmStatus(${crmTicketId}) failed: HTTP ${res.status} — ${respBody}`);
+      }
+    } catch (err) {
+      this.logger.warn(`updateCrmStatus(${crmTicketId}) error: ${err}`);
+    }
+  }
+
+  private async addCrmNote(crmUuid: string, note: string): Promise<void> {
+    try {
+      const baseUrl = await this.settings.getDecrypted('support_crm_base_url');
+      if (!baseUrl) { this.logger.warn('support_crm_base_url not configured — skipping note'); return; }
+      const res = await fetch(`${baseUrl.replace(/\/$/, '')}/api/public-v1/support-ticket/${crmUuid}/note-store`, {
+        method: 'POST',
+        headers: await this.crmHeaders(),
+        body: JSON.stringify({ message: note }),
+        signal: AbortSignal.timeout(10000),
+      });
+      if (res.ok) {
+        this.logger.log(`CRM note added: uuid=${crmUuid}`);
+      } else {
+        const body = await res.text().catch(() => '');
+        this.logger.warn(`addCrmNote(${crmUuid}) failed: HTTP ${res.status} — ${body}`);
+      }
+    } catch (err) {
+      this.logger.warn(`addCrmNote(${crmUuid}) error: ${err}`);
     }
   }
 

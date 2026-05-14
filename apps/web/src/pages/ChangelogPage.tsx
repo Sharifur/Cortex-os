@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.48.0',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'support', description: 'CRM ticket management actions: operators can now change ticket priority (0–4), update ticket status (open / in_progress / resolved / closed with optional resolution notes), and add internal notes directly from the ticket detail page. All three actions call the CRM public API (priority via UUID, status via numeric ID, note via UUID) and write audit events to the activity timeline. The CRM UUID is now captured from the webhook payload and stored in the database. Existing tickets without a UUID show a yellow notice on the affected fields.' },
+      { tag: 'chore', scope: 'support', description: 'Migration 0073: adds crm_uuid column to support_tickets table to store the ticket UUID from CRM webhook payloads, required for the new priority and note CRM endpoints.' },
+    ],
+  },
+  {
     version: 'v4.47.0',
     date: '2026-05-14',
     entries: [
