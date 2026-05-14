@@ -5,17 +5,19 @@ export function resolveAccent(contract: ThemeContract, visualSpec?: SlideVisualS
 }
 
 export function resolveVisualBackground(styleRules: StyleRules, contract: ThemeContract, visualSpec?: SlideVisualSpec): string {
-  if (visualSpec?.bgColor) return visualSpec.bgColor;
+  const bgColor = typeof visualSpec?.bgColor === 'string' && visualSpec.bgColor ? visualSpec.bgColor : null;
+  if (bgColor) return bgColor;
   return resolveBackground(styleRules, contract);
 }
 
 export function resolveVisualBackgroundStyle(styleRules: StyleRules, contract: ThemeContract, visualSpec?: SlideVisualSpec): object {
   const hasDotTexture = contract.backgroundTexture === 'dots';
-  if (visualSpec?.bgGradient) return { backgroundImage: visualSpec.bgGradient };
-  if (visualSpec?.bgColor) {
+  if (visualSpec?.bgGradient && typeof visualSpec.bgGradient === 'string') return { backgroundImage: visualSpec.bgGradient };
+  const bgColor = typeof visualSpec?.bgColor === 'string' && visualSpec.bgColor ? visualSpec.bgColor : null;
+  if (bgColor) {
     return hasDotTexture
-      ? { backgroundColor: visualSpec.bgColor, backgroundImage: 'radial-gradient(circle, rgba(255,255,255,0.28) 1.5px, transparent 1.5px)', backgroundSize: '22px 22px' }
-      : { backgroundColor: visualSpec.bgColor };
+      ? { backgroundColor: bgColor, backgroundImage: 'radial-gradient(circle, rgba(255,255,255,0.28) 1.5px, transparent 1.5px)', backgroundSize: '22px 22px' }
+      : { backgroundColor: bgColor };
   }
   const base = resolveBackgroundStyle(styleRules, contract);
   if (hasDotTexture && (base as Record<string, string>).backgroundColor) {
@@ -130,6 +132,7 @@ export function resolveBackgroundStyle(styleRules: StyleRules, contract: ThemeCo
 }
 
 export function resolveTextColor(bg: string, contract: ThemeContract): string {
+  if (typeof bg !== 'string' || !bg) return contract.headlineColor;
   const c = bg.replace('#', '');
   if (c.length < 6) return contract.headlineColor;
   const r = parseInt(c.slice(0, 2), 16);

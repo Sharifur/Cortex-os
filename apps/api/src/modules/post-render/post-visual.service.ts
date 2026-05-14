@@ -158,11 +158,13 @@ export class PostVisualService {
         const perDNA = perSlideDNAs?.[slideIdx] ?? null;
         const fallbackBg = perDNA?.color_usage?.background_hex || perDNA?.primary_color || sampledDNA?.color_usage?.background_hex || sampledDNA?.primary_color || contract.backgroundCover;
         const fallbackAccent = perDNA?.accent_color || sampledDNA?.accent_color || contract.accentColor;
+        const rawBg = typeof s.bgColor === 'string' ? s.bgColor : null;
+        const rawAccent = typeof s.accentColor === 'string' ? s.accentColor : null;
         return {
           ...s,
-          // Enforce non-null colors — fall back to per-slide DNA colors, never white
-          bgColor: (s.bgColor && s.bgColor !== '#ffffff' && s.bgColor !== '#fff') ? s.bgColor : fallbackBg,
-          accentColor: s.accentColor || fallbackAccent,
+          // Enforce non-null hex strings — fall back to per-slide DNA colors, never white
+          bgColor: (rawBg && rawBg !== '#ffffff' && rawBg !== '#fff') ? rawBg : fallbackBg,
+          accentColor: rawAccent || fallbackAccent,
           listItemBg: s.listItemBg || undefined,
           decorations: (s.decorations ?? []).slice(0, 6).map(d => ({
             ...d,

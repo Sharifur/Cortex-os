@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.57.2',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'fix', scope: 'render', description: 'bg.replace is not a function crash: the LLM could return a non-string value (array, object) for bgColor in the visual spec JSON. Added typeof string guards in resolveVisualBackground, resolveVisualBackgroundStyle, and resolveTextColor so malformed LLM output is safely discarded before .replace() is called.' },
+      { tag: 'fix', scope: 'render', description: 'Visual spec mapping now checks typeof bgColor and accentColor before using LLM values — prevents non-string bgColor from propagating into layout rendering.' },
+    ],
+  },
+  {
     version: 'v4.57.1',
     date: '2026-05-14',
     entries: [
