@@ -20,6 +20,8 @@ const CHANGELOG: VersionBlock[] = [
     date: '2026-05-14',
     entries: [
       { tag: 'fix', scope: 'canva', description: 'Hide [carousel-gather:] and [param-gather:] state markers from chat bubbles — raw JSON state blobs are now stripped before rendering, matching how [styles:] and [pending:] are already hidden.' },
+      { tag: 'fix', scope: 'canva', description: 'Carousel sets now correctly split into separate groups when multiple sets have the same filename prefix — sessions > 60s apart are treated as distinct sets using createdAt timestamps.' },
+      { tag: 'feat', scope: 'canva', description: 'Carousel set thumbnails are now compact 60x60 stacked cards with a slide-count badge. Clicking opens a full-screen gallery with dot indicators, prev/next navigation, thumbnail strip, and per-slide delete.' },
     ],
   },
   {

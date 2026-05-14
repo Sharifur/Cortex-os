@@ -3977,48 +3977,42 @@ function CarouselSetCard({ setName, slides, onDeleteSlide, deletingId }: {
   deletingId: string | null;
 }) {
   const [gallery, setGallery] = useState<number | null>(null);
-  const cover = slides[0];
   const total = slides.length;
+  const displayName = setName.replace(/__\d+$/, '');
 
   return (
     <>
-      <div className="bg-card border border-border rounded-xl p-4 space-y-3">
-        <div className="flex items-center justify-between">
-          <p className="text-sm font-medium text-foreground truncate">{setName}</p>
-          <span className="text-xs text-muted-foreground">{total} slides</span>
-        </div>
+      <div className="flex flex-col items-center gap-1.5">
         <button
           onClick={() => setGallery(0)}
-          className="relative w-full group focus:outline-none"
+          className="relative group focus:outline-none"
+          style={{ width: 60, height: 60 }}
         >
-          {[2, 1, 0].map((offset) => {
-            const s = slides[offset];
-            if (!s) return null;
-            const rotate = offset === 2 ? '-rotate-3' : offset === 1 ? 'rotate-1' : 'rotate-0';
-            const translate = offset === 2 ? '-translate-y-1' : offset === 1 ? '-translate-y-0.5' : '';
-            return (
-              <div
-                key={offset}
-                className={`absolute inset-0 rounded-xl overflow-hidden border border-border/60 ${rotate} ${translate} ${offset === 0 ? 'relative shadow-md' : ''}`}
-              >
-                {s.previewData ? (
-                  <img src={s.previewData} alt="" className="w-full aspect-video object-cover" />
-                ) : (
-                  <div className="w-full aspect-video bg-muted flex items-center justify-center">
-                    <span className="text-xs text-muted-foreground">No preview</span>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-          <div className="absolute inset-0 rounded-xl bg-black/0 group-hover:bg-black/15 transition-colors pointer-events-none" />
-          <span className="absolute bottom-2 right-2 bg-black/60 text-white text-xs font-semibold px-2 py-0.5 rounded-full pointer-events-none">
-            {total} slides
+          {[Math.min(2, total - 1), Math.min(1, total - 1), 0]
+            .filter((v, i, arr) => arr.indexOf(v) === i)
+            .reverse()
+            .map((offset, layer) => {
+              const s = slides[offset];
+              const rot = layer === 0 ? '-2deg' : layer === 1 ? '1.5deg' : '0deg';
+              const z = layer;
+              return (
+                <div
+                  key={offset}
+                  className="absolute inset-0 rounded-lg overflow-hidden border border-border/60 bg-muted shadow-sm"
+                  style={{ transform: `rotate(${rot})`, zIndex: z }}
+                >
+                  {s?.previewData && (
+                    <img src={s.previewData} alt="" className="w-full h-full object-cover" />
+                  )}
+                </div>
+              );
+            })}
+          <div className="absolute inset-0 rounded-lg bg-black/0 group-hover:bg-black/20 transition-colors pointer-events-none" style={{ zIndex: 10 }} />
+          <span className="absolute -bottom-1 -right-1 bg-primary text-primary-foreground text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center pointer-events-none" style={{ zIndex: 11 }}>
+            {total}
           </span>
         </button>
-        {cover && (
-          <p className="text-xs text-muted-foreground truncate">{cover.name.split('/')[0]}</p>
-        )}
+        <p className="text-[10px] text-muted-foreground text-center max-w-[70px] truncate leading-tight">{displayName}</p>
       </div>
 
       {gallery !== null && (
@@ -4027,7 +4021,7 @@ function CarouselSetCard({ setName, slides, onDeleteSlide, deletingId }: {
           onClick={() => setGallery(null)}
         >
           <div className="flex items-center justify-between w-full max-w-2xl px-4 pb-3" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
               {slides.map((_, i) => (
                 <button
                   key={i}
@@ -4062,7 +4056,6 @@ function CarouselSetCard({ setName, slides, onDeleteSlide, deletingId }: {
                   <span className="text-sm text-white/40">No preview</span>
                 </div>
               )}
-              <p className="text-center text-xs text-white/40">{slides[gallery]?.name?.split('/').slice(1).join('/') ?? ''}</p>
             </div>
             <button
               onClick={() => setGallery(g => Math.min(total - 1, (g ?? 0) + 1))}
@@ -4302,11 +4295,26 @@ function DesignSamplesTab({ token }: { token: string }) {
   }
 
   const individualTemplates = templates.filter((t: any) => !t.name.includes('/'));
-  const carouselTemplates = templates.filter((t: any) => t.name.includes('/'));
-  const carouselGroups: Record<string, any[]> = {};
+  const carouselTemplates = [...templates.filter((t: any) => t.name.includes('/'))]
+    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+
+  // Group by prefix, then split into sessions where gap > 60s between consecutive slides
+  const byPrefix: Record<string, any[]> = {};
   for (const t of carouselTemplates) {
     const prefix = t.name.split('/')[0];
-    (carouselGroups[prefix] ??= []).push(t);
+    (byPrefix[prefix] ??= []).push(t);
+  }
+  const carouselGroups: Record<string, any[]> = {};
+  for (const [prefix, slides] of Object.entries(byPrefix)) {
+    let sessionIdx = 0;
+    let lastTs = new Date(slides[0].createdAt).getTime();
+    for (const slide of slides) {
+      const ts = new Date(slide.createdAt).getTime();
+      if (ts - lastTs > 60000) sessionIdx++;
+      const key = `${prefix}__${sessionIdx}`;
+      (carouselGroups[key] ??= []).push(slide);
+      lastTs = ts;
+    }
   }
   const activeJobs = jobs.filter((j: any) => j.status === 'pending' || j.status === 'processing');
   const failedJobs = jobs.filter((j: any) => j.status === 'failed');
@@ -4464,11 +4472,11 @@ function DesignSamplesTab({ token }: { token: string }) {
           <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
             Carousel Sets ({Object.keys(carouselGroups).length})
           </p>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-            {Object.entries(carouselGroups).map(([setName, slides]) => (
+          <div className="flex flex-wrap gap-4">
+            {Object.entries(carouselGroups).map(([setKey, slides]) => (
               <CarouselSetCard
-                key={setName}
-                setName={setName}
+                key={setKey}
+                setName={setKey}
                 slides={slides}
                 onDeleteSlide={(id) => void deleteTemplate(id)}
                 deletingId={deletingId}
