@@ -430,6 +430,36 @@ export class DesignAnalysisService {
     return { dna, kbEntryId, storageUrl: storageResult.url };
   }
 
+  async deleteAllSamples(brand: string): Promise<{ deleted: number }> {
+    const effectiveBrand = brand || 'default';
+    const rows = await this.db.db
+      .select({ id: knowledgeEntries.id, sourceUrl: knowledgeEntries.sourceUrl })
+      .from(knowledgeEntries)
+      .where(and(
+        eq(knowledgeEntries.entryType, 'design_sample'),
+        eq(knowledgeEntries.agentKeys, 'canva'),
+        eq(knowledgeEntries.siteKeys, effectiveBrand),
+      ));
+
+    for (const row of rows) {
+      if (row.sourceUrl && !row.sourceUrl.startsWith('local://')) {
+        const key = row.sourceUrl.replace(/^https?:\/\/[^/]+\//, '');
+        await this.storage.deleteByKey(key).catch(() => {});
+      }
+    }
+
+    await this.db.db
+      .delete(knowledgeEntries)
+      .where(and(
+        eq(knowledgeEntries.entryType, 'design_sample'),
+        eq(knowledgeEntries.agentKeys, 'canva'),
+        eq(knowledgeEntries.siteKeys, effectiveBrand),
+      ));
+
+    this.logger.log(`Deleted ${rows.length} design samples for brand: ${effectiveBrand}`);
+    return { deleted: rows.length };
+  }
+
   async listSamples(opts: { brand?: string; platform?: string; slideType?: string } = {}) {
     const conditions = [
       eq(knowledgeEntries.entryType, 'design_sample'),

@@ -4044,6 +4044,7 @@ function DesignSamplesTab({ token }: { token: string }) {
     }
   }
 
+  const [deletingAll, setDeletingAll] = useState(false);
   const [retrying, setRetrying] = useState(false);
   const [showFailedLog, setShowFailedLog] = useState(false);
   async function retryFailed() {
@@ -4057,6 +4058,19 @@ function DesignSamplesTab({ token }: { token: string }) {
       setReanalysisProgress(null);
     } finally {
       setRetrying(false);
+    }
+  }
+
+  async function deleteAllSamples() {
+    if (!confirm(`Remove all ${samples.length} design samples? This also deletes their files from storage and cannot be undone.`)) return;
+    setDeletingAll(true);
+    try {
+      await apiFetch(token, '/posts/design-samples/all?brand=default', { method: 'DELETE' });
+      setSamples([]);
+      setPatterns([]);
+      setBannerBrief('');
+    } catch { /* ignore */ } finally {
+      setDeletingAll(false);
     }
   }
 
@@ -4089,6 +4103,14 @@ function DesignSamplesTab({ token }: { token: string }) {
               {cancelling ? 'Stopping...' : 'Cancel'}
             </button>
           )}
+          <button
+            onClick={deleteAllSamples}
+            disabled={deletingAll || samples.length === 0 || (reanalysisProgress?.running ?? false)}
+            className="px-3 py-1.5 border border-red-500/40 rounded-lg text-xs font-medium text-red-400 hover:bg-red-500/10 disabled:opacity-50 transition-colors"
+            title="Delete all design samples and their storage files"
+          >
+            {deletingAll ? 'Deleting...' : 'Delete all'}
+          </button>
           <button
             onClick={reanalyze}
             disabled={reanalyzing || (reanalysisProgress?.running ?? false) || samples.length === 0}

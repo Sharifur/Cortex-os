@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.46.1',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'design-samples', description: 'Delete all design samples button on the Samples tab. Removes all knowledge_entries rows (entryType=design_sample) for the brand and attempts to delete each file from R2 storage. Useful for local testing: wipe all samples, then re-upload a clean set.' },
+    ],
+  },
+  {
     version: 'v4.46.0',
     date: '2026-05-14',
     entries: [
