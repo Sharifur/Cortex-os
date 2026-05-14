@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.65.5',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'Carousel set cards now have a delete button (shown on hover) that removes all slides in the set at once with a confirmation prompt.' },
+    ],
+  },
+  {
     version: 'v4.65.4',
     date: '2026-05-14',
     entries: [

@@ -3977,51 +3977,71 @@ function CarouselSetCard({ setName, slides, onDeleteSlide, deletingId }: {
   deletingId: string | null;
 }) {
   const [gallery, setGallery] = useState<number | null>(null);
+  const [deletingSet, setDeletingSet] = useState(false);
   const total = slides.length;
-  const displayName = setName.replace(/__\d+$/, '');
+
+  async function handleDeleteSet(e: React.MouseEvent) {
+    e.stopPropagation();
+    if (!confirm(`Delete all ${total} slides in this set?`)) return;
+    setDeletingSet(true);
+    for (const s of slides) {
+      await new Promise<void>(res => { onDeleteSlide(s.id); setTimeout(res, 50); });
+    }
+    setDeletingSet(false);
+  }
 
   return (
     <>
-      <button
-        onClick={() => setGallery(0)}
-        className="relative group focus:outline-none"
-        style={{ width: 68, height: 68 }}
-      >
-        {/* Card 3 — furthest back */}
-        {total > 2 && (
+      <div className="relative group/set" style={{ width: 68 }}>
+        <button
+          onClick={() => setGallery(0)}
+          className="relative group focus:outline-none"
+          style={{ width: 68, height: 68 }}
+        >
+          {/* Card 3 — furthest back */}
+          {total > 2 && (
+            <div
+              className="absolute rounded-lg bg-muted border border-border/50"
+              style={{ inset: 0, transform: 'rotate(-4deg) translate(-2px, 3px)', zIndex: 0 }}
+            />
+          )}
+          {/* Card 2 — middle */}
+          {total > 1 && (
+            <div
+              className="absolute rounded-lg overflow-hidden border border-border/70 bg-muted"
+              style={{ inset: 0, transform: 'rotate(2.5deg) translate(2px, 2px)', zIndex: 1 }}
+            >
+              {slides[1]?.previewData && (
+                <img src={slides[1].previewData} alt="" className="w-full h-full object-cover" />
+              )}
+            </div>
+          )}
+          {/* Card 1 — front */}
           <div
-            className="absolute rounded-lg bg-muted border border-border/50"
-            style={{ inset: 0, transform: 'rotate(-4deg) translate(-2px, 3px)', zIndex: 0 }}
-          />
-        )}
-        {/* Card 2 — middle */}
-        {total > 1 && (
-          <div
-            className="absolute rounded-lg overflow-hidden border border-border/70 bg-muted"
-            style={{ inset: 0, transform: 'rotate(2.5deg) translate(2px, 2px)', zIndex: 1 }}
+            className="absolute rounded-lg overflow-hidden border border-border bg-muted shadow-md"
+            style={{ inset: 0, zIndex: 2 }}
           >
-            {slides[1]?.previewData && (
-              <img src={slides[1].previewData} alt="" className="w-full h-full object-cover" />
+            {slides[0]?.previewData && (
+              <img src={slides[0].previewData} alt="" className="w-full h-full object-cover" />
             )}
           </div>
-        )}
-        {/* Card 1 — front */}
-        <div
-          className="absolute rounded-lg overflow-hidden border border-border bg-muted shadow-md"
-          style={{ inset: 0, zIndex: 2 }}
+          <div className="absolute inset-0 rounded-lg bg-black/0 group-hover:bg-black/20 transition-colors pointer-events-none" style={{ zIndex: 3 }} />
+          <span
+            className="absolute -bottom-1 -right-1 bg-primary text-primary-foreground text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center pointer-events-none"
+            style={{ zIndex: 4 }}
+          >
+            {total}
+          </span>
+        </button>
+        <button
+          onClick={handleDeleteSet}
+          disabled={deletingSet}
+          className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-destructive text-white text-[10px] hidden group-hover/set:flex items-center justify-center disabled:opacity-50 shadow-sm"
+          style={{ zIndex: 20 }}
         >
-          {slides[0]?.previewData && (
-            <img src={slides[0].previewData} alt="" className="w-full h-full object-cover" />
-          )}
-        </div>
-        <div className="absolute inset-0 rounded-lg bg-black/0 group-hover:bg-black/20 transition-colors pointer-events-none" style={{ zIndex: 3 }} />
-        <span
-          className="absolute -bottom-1 -right-1 bg-primary text-primary-foreground text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center pointer-events-none"
-          style={{ zIndex: 4 }}
-        >
-          {total}
-        </span>
-      </button>
+          {deletingSet ? '·' : <X className="w-3 h-3" />}
+        </button>
+      </div>
 
       {gallery !== null && (
         <div
