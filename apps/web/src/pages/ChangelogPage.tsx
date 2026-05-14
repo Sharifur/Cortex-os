@@ -16,6 +16,17 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.56.0',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'Strict 4-step carousel flow: (1) ask brand/tone/format questions, (2) generate a slide-by-slide content draft and ask user to confirm, (3) show training sample thumbnail picker, (4) render with exact selected layout plus confirmed content. Steps are now enforced in order — the LLM cannot skip to style picker before the user approves the content plan.' },
+      { tag: 'feat', scope: 'canva', description: 'Content draft generation: after answering clarifying questions, the agent calls the LLM to produce a per-slide content plan (headline + body for each slide) and displays it as a numbered list. User approves ("Looks good!") or requests revision before any render is triggered. Slide content is embedded in [pending:{...}] and passed as exact content instructions to the render pipeline.' },
+      { tag: 'feat', scope: 'canva', description: 'Exact content passthrough to render: approved slide headlines and bodies are prefixed to the render intent ("Use EXACTLY these slide headlines...") so the content-fill LLM does not invent new copy — it uses what the user confirmed.' },
+      { tag: 'fix', scope: 'canva', description: 'Pending JSON extraction now uses lastIndexOf to find the most recent [pending:{...}] tag in history, avoiding greedy regex cross-match between content draft pending and style picker pending when both are in the conversation history.' },
+      { tag: 'fix', scope: 'canva', description: 'QuickReplyCard intro now renders each line as a separate paragraph so multi-line content plans (slide 1, slide 2, ...) display with correct line breaks instead of collapsed into a single paragraph.' },
+    ],
+  },
+  {
     version: 'v4.55.1',
     date: '2026-05-14',
     entries: [

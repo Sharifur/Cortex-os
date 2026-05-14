@@ -1012,7 +1012,7 @@ function parseClarifyingQuestions(content: string): { intro: string; questions: 
 interface StyleSample { num: string; id: string; title: string; thumb: string | null }
 
 function parseStylePicker(content: string): { header: string; samples: StyleSample[] } | null {
-  if (!content.includes('Choose a style reference for this render:')) return null;
+  if (!content.includes('Choose a style reference')) return null;
   const stylesMatch = content.match(/\[styles:(\{[\s\S]+?\})\]/);
   if (!stylesMatch) return null;
   try {
@@ -1051,14 +1051,16 @@ function QuickReplyCard({
   if (submitted) {
     return (
       <div className={`rounded-2xl px-4 py-2.5 text-sm ${color.bubble} text-foreground rounded-bl-sm opacity-50`}>
-        <p className="text-sm">{parsed.intro}</p>
+        <p className="text-sm">{parsed.intro.split('\n')[0]}</p>
       </div>
     );
   }
 
   return (
     <div className={`rounded-2xl px-4 py-3 ${color.bubble} text-foreground rounded-bl-sm space-y-3`}>
-      {parsed.intro && <p className="text-sm leading-relaxed">{parsed.intro}</p>}
+      {parsed.intro && parsed.intro.split('\n').filter(Boolean).map((line, i) => (
+        <p key={i} className={`text-sm leading-relaxed ${i === 0 ? '' : 'text-muted-foreground'}`}>{line}</p>
+      ))}
       {parsed.questions.map((q, i) => (
         <div key={i} className="space-y-1.5">
           <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">{q.label}</p>

@@ -155,11 +155,17 @@ export class CanvaAgent implements IAgent, OnModuleInit {
       }
     }
 
-    // Load training samples once — used in Branch A and Branch B
     const firstBrand = (config.brands?.[0] ?? 'taskip').toLowerCase();
     const trainingSamples = await this.designPattern.listSampleMeta(firstBrand).catch(() => [] as Array<{ id: string; title: string; thumbUrl?: string }>);
 
-    // Classify intent
+    const toneInstructions: Record<string, string> = {
+      'bold-punchy':        'Bold punchy style — max 6 words per headline, heavy font weight, very high contrast backgrounds (dark or vivid), large corner decorations, 1-2 word highlights per slide.',
+      'clean-minimal':      'Clean minimal style — generous whitespace, soft muted backgrounds, no decorations except a single thin accent bar, body text is the hero.',
+      'warm-professional':  'Warm professional style — earthy or navy tones, rounded shapes, approachable body copy length (2-3 sentences), subtle circle decorations at corners.',
+      'dark-dramatic':      'Dark dramatic style — very dark backgrounds (#0f0f0f or deep navy), vivid accent colors (electric blue, neon green, bright orange), large bold shapes, high-contrast text.',
+      'energetic-colorful': 'Energetic colorful style — saturated backgrounds (yellow, coral, electric purple), white text, multiple overlapping shapes, bold decorations at every corner.',
+    };
+
     const classifyPrompt = `You are classifying a chat message sent to a social media carousel design agent.
 
 Available brands: taskip (project management SaaS), xgenious (premium WordPress/CodeIgniter themes)
@@ -188,7 +194,7 @@ Current user message: "${query}"
 
 Return JSON only (no markdown):
 {
-  "intent": "design-generate" | "questions-answered" | "style-selected" | "general-chat",
+  "intent": "design-generate" | "questions-answered" | "content-confirmed" | "style-selected" | "general-chat",
   "topic": "extracted content topic, else null",
   "brand": "taskip" | "xgenious" | null,
   "formatId": "exact format ID from the mapping above, or null",
@@ -199,7 +205,8 @@ Return JSON only (no markdown):
 
 Rules:
 - "design-generate": user wants to create a carousel/banner (even natural phrasing like "make a post about X")
-- "questions-answered": agent asked clarifying questions AND user answered brand/tone/format — NOT yet a style number pick
+- "questions-answered": agent asked clarifying questions about brand/tone/format AND user answered all three — NOT approving a content plan
+- "content-confirmed": agent just showed a numbered slide content plan AND user approved it ("yes", "looks good", "ok", "proceed", "Looks good!", "confirm", "go ahead", "good")
 - "style-selected": agent showed style thumbnails/numbered list AND user replied with a number or "random"
 - "general-chat": advice, brainstorm, feedback, anything else`;
 
@@ -215,41 +222,28 @@ Rules:
       classification = JSON.parse(raw);
     } catch { /* fall through to general-chat */ }
 
-    // BRANCH A: user wants to generate — if format+topic already specified go straight to style picker; else ask 3 questions
+    // BRANCH A: user wants to generate
     if (classification.intent === 'design-generate') {
       const topic = classification.topic ?? query.trim();
       const validFormats = new Set(listFormats().map(f => f.id));
       const hasFormat = !!(classification.formatId && validFormats.has(classification.formatId));
       const hasBrand = !!classification.brand;
 
-      // Full prompt (topic + format already given) → skip 3 questions, go to style picker directly
-      if (topic && hasFormat && trainingSamples.length > 0) {
-        const brand = (classification.brand ?? 'default').toLowerCase();
-        const formatId = classification.formatId!;
-        const toneInstructions: Record<string, string> = {
-          'bold-punchy':       'Bold punchy style — max 6 words per headline, heavy font weight, very high contrast backgrounds, large corner decorations, 1-2 word highlights per slide.',
-          'clean-minimal':     'Clean minimal style — generous whitespace, soft muted backgrounds, no decorations except a single thin accent bar.',
-          'warm-professional': 'Warm professional style — earthy or navy tones, rounded shapes, approachable body copy, subtle circle decorations.',
-          'dark-dramatic':     'Dark dramatic style — very dark backgrounds, vivid accent colors, large bold shapes, high-contrast text.',
-          'energetic-colorful':'Energetic colorful style — saturated backgrounds, white text, multiple overlapping shapes, bold decorations.',
-        };
-        const intentStr = toneInstructions[classification.visualTone ?? ''] ?? '';
-        const stylesPayload = JSON.stringify({
-          samples: trainingSamples.map((s, i) => ({ num: String(i + 1), id: s.id, title: s.title || `Sample ${i + 1}`, thumb: s.thumbUrl ?? null })),
-        });
-        const msg = [
-          `Got it — "${topic}" as ${formatId}${hasBrand ? ` for ${brand}` : ''}.`,
-          '',
-          'Choose a style reference for this render:',
-          `[styles:${stylesPayload}]`,
-          `[pending:${JSON.stringify({ formatId, brand, topic, intentStr })}]`,
-        ].join('\n');
-        return [{ type: 'notify_result', summary: 'Style selection', payload: { message: msg, query }, riskLevel: 'low' }];
+      // Full prompt (topic + format + brand given) → generate content draft first
+      if (topic && hasFormat && hasBrand) {
+        return this.generateContentDraft(
+          topic,
+          classification.formatId!,
+          classification.brand!.toLowerCase(),
+          classification.visualTone ?? 'bold-punchy',
+          toneInstructions,
+          config,
+          trainingSamples,
+        );
       }
 
-      // Partial prompt — ask 3 clarifying questions (no style reference in this message)
+      // Partial prompt — ask 3 clarifying questions
       const brands = (config.brands ?? ['taskip', 'xgenious']).join(' / ');
-
       const message = [
         `I'll create a social media design on: "${topic}"`,
         '',
@@ -265,74 +259,101 @@ Rules:
       return [{ type: 'notify_result', summary: 'Clarifying questions', payload: { message, query }, riskLevel: 'low' }];
     }
 
-    // BRANCH B: user answered the clarifying questions — extract context, then ask for style if not answered yet
+    // BRANCH B: user answered clarifying questions → generate content draft for confirmation
     if (classification.intent === 'questions-answered') {
       const topic = classification.topic ?? '';
-      const brand = (classification.brand ?? 'default').toLowerCase();
+      const brand = (classification.brand ?? firstBrand).toLowerCase();
       const tone = classification.visualTone ?? 'bold-punchy';
-      const audience = classification.audience ?? '';
       const validFormats = new Set(listFormats().map(f => f.id));
       const formatId = (classification.formatId && validFormats.has(classification.formatId))
         ? classification.formatId
         : 'linkedin-tips-carousel';
-      const toneInstructions: Record<string, string> = {
-        'bold-punchy':       'Bold punchy style — max 6 words per headline, heavy font weight, very high contrast backgrounds (dark or vivid), large corner decorations, 1-2 word highlights per slide.',
-        'clean-minimal':     'Clean minimal style — generous whitespace, soft muted backgrounds, no decorations except a single thin accent bar, body text is the hero.',
-        'warm-professional': 'Warm professional style — earthy or navy tones, rounded shapes, approachable body copy length (2-3 sentences), subtle circle decorations at corners.',
-        'dark-dramatic':     'Dark dramatic style — very dark backgrounds (#0f0f0f or deep navy), vivid accent colors (electric blue, neon green, bright orange), large bold shapes, high-contrast text.',
-        'energetic-colorful':'Energetic colorful style — saturated backgrounds (yellow, coral, electric purple), white text, multiple overlapping shapes, bold decorations at every corner.',
-      };
-      const intentStr = [
-        toneInstructions[tone] ?? '',
-        audience ? `Target audience: ${audience}.` : '',
-      ].filter(Boolean).join(' ');
 
-      // If there are training samples and no style was chosen, ask for style before rendering
+      return this.generateContentDraft(topic, formatId, brand, tone, toneInstructions, config, trainingSamples);
+    }
+
+    // BRANCH B1: user confirmed content → show style picker
+    if (classification.intent === 'content-confirmed') {
+      let formatId = 'linkedin-tips-carousel';
+      let brand = firstBrand;
+      let topic = '';
+      let intentStr = '';
+      let slides: Array<{ slideLabel?: string; headline: string; body?: string }> = [];
+
+      const lastPendingIdx = (history ?? '').lastIndexOf('[pending:');
+      if (lastPendingIdx !== -1) {
+        const tail = (history ?? '').slice(lastPendingIdx);
+        const m = tail.match(/^\[pending:(\{.+\})\]/);
+        if (m) {
+          try {
+            const p = JSON.parse(m[1]) as { formatId?: string; brand?: string; topic?: string; intentStr?: string; slides?: Array<{ slideLabel?: string; headline: string; body?: string }> };
+            if (p.formatId) formatId = p.formatId;
+            if (p.brand) brand = p.brand;
+            if (p.topic) topic = p.topic;
+            if (p.intentStr) intentStr = p.intentStr;
+            if (p.slides?.length) slides = p.slides;
+          } catch { /* ignore */ }
+        }
+      }
+
       if (trainingSamples.length > 0) {
         const stylesPayload = JSON.stringify({
           samples: trainingSamples.map((s, i) => ({ num: String(i + 1), id: s.id, title: s.title || `Sample ${i + 1}`, thumb: s.thumbUrl ?? null })),
         });
-        const styleLines = [
-          `Content ready — "${topic}" as ${formatId} for ${brand}.`,
+        const msg = [
+          `Content confirmed — now choose a layout style for "${topic || formatId}":`,
           '',
-          'Choose a style reference for this render:',
+          'Choose a style reference:',
           `[styles:${stylesPayload}]`,
-          `[pending:${JSON.stringify({ formatId, brand, topic, intentStr })}]`,
+          `[pending:${JSON.stringify({ formatId, brand, topic, intentStr, slides })}]`,
         ].join('\n');
-
-        return [{ type: 'notify_result', summary: 'Style selection', payload: { message: styleLines, query }, riskLevel: 'low' }];
+        return [{ type: 'notify_result', summary: 'Style selection', payload: { message: msg, query }, riskLevel: 'low' }];
       }
 
-      // No training samples — fire render immediately
+      // No training samples — render directly with the confirmed content
+      const exactContentIntent = slides.length
+        ? `Use EXACTLY these slide headlines and bodies:\n${slides.map((s, i) => `Slide ${i + 1}: headline="${s.headline}"${s.body ? `, body="${s.body}"` : ''}`).join('\n')}\n\n${intentStr}`
+        : intentStr;
       return [{
         type: 'post_render',
         summary: `Render ${formatId} for ${brand}`,
-        payload: { formatId, brand, topic, intent: intentStr || undefined, sampleId: sampleId || undefined },
+        payload: { formatId, brand, topic, intent: exactContentIntent || undefined, sampleId: sampleId || undefined },
         riskLevel: 'low',
       }];
     }
 
-    // BRANCH B2: user picked a style number — extract pending render context from history and fire
+    // BRANCH B2: user picked a style → extract confirmed content from history and fire render
     if (classification.intent === 'style-selected') {
       const styleNum = parseInt(classification.styleNumber ?? '0', 10);
       const pickedSample = styleNum > 0 ? (trainingSamples[styleNum - 1] ?? null) : null;
       const resolvedSampleId = pickedSample?.id ?? sampleId ?? undefined;
 
-      // Extract pending render params from history (encoded as [pending:{...}])
       let pendingFormatId = 'linkedin-tips-carousel';
-      let pendingBrand = (config.brands?.[0] ?? 'taskip').toLowerCase();
+      let pendingBrand = firstBrand;
       let pendingTopic = '';
       let pendingIntentStr = '';
-      const pendingMatch = (history ?? '').match(/\[pending:(\{.+?\})\]/s);
-      if (pendingMatch) {
-        try {
-          const p = JSON.parse(pendingMatch[1]) as { formatId?: string; brand?: string; topic?: string; intentStr?: string };
-          if (p.formatId) pendingFormatId = p.formatId;
-          if (p.brand) pendingBrand = p.brand;
-          if (p.topic) pendingTopic = p.topic;
-          if (p.intentStr) pendingIntentStr = p.intentStr;
-        } catch { /* ignore */ }
+      let pendingSlides: Array<{ slideLabel?: string; headline: string; body?: string }> = [];
+
+      const lastPendingIdx = (history ?? '').lastIndexOf('[pending:');
+      if (lastPendingIdx !== -1) {
+        const tail = (history ?? '').slice(lastPendingIdx);
+        const m = tail.match(/^\[pending:(\{.+\})\]/);
+        if (m) {
+          try {
+            const p = JSON.parse(m[1]) as { formatId?: string; brand?: string; topic?: string; intentStr?: string; slides?: Array<{ slideLabel?: string; headline: string; body?: string }> };
+            if (p.formatId) pendingFormatId = p.formatId;
+            if (p.brand) pendingBrand = p.brand;
+            if (p.topic) pendingTopic = p.topic;
+            if (p.intentStr) pendingIntentStr = p.intentStr;
+            if (p.slides?.length) pendingSlides = p.slides;
+          } catch { /* ignore */ }
+        }
       }
+
+      const exactContentPrefix = pendingSlides.length
+        ? `Use EXACTLY these slide headlines and bodies (do not change them):\n${pendingSlides.map((s, i) => `Slide ${i + 1}: headline="${s.headline}"${s.body ? `, body="${s.body}"` : ''}`).join('\n')}\n\n`
+        : '';
+      const fullIntent = exactContentPrefix + pendingIntentStr;
 
       return [{
         type: 'post_render',
@@ -341,7 +362,7 @@ Rules:
           formatId: pendingFormatId,
           brand: pendingBrand,
           topic: pendingTopic,
-          intent: pendingIntentStr || undefined,
+          intent: fullIntent || undefined,
           sampleId: resolvedSampleId,
         },
         riskLevel: 'low',
@@ -369,6 +390,98 @@ Be concise and practical. No filler. No emojis.`;
     } catch (err) {
       return [{ type: 'notify_result', summary: 'Chat response', payload: { message: `Error: ${(err as Error).message}`, query }, riskLevel: 'low' }];
     }
+  }
+
+  private async generateContentDraft(
+    topic: string,
+    formatId: string,
+    brand: string,
+    tone: string,
+    toneInstructions: Record<string, string>,
+    config: CanvaConfig,
+    trainingSamples: Array<{ id: string; title: string; thumbUrl?: string }>,
+  ): Promise<ProposedAction[]> {
+    const intentStr = toneInstructions[tone] ?? toneInstructions['bold-punchy'];
+    const brandDesc = brand === 'xgenious'
+      ? 'Xgenious (premium WordPress/CodeIgniter themes and scripts)'
+      : 'Taskip (project management SaaS for teams)';
+
+    const slideCountMap: Record<string, number> = {
+      'linkedin-tips-carousel': 5,
+      'linkedin-howto-carousel': 6,
+      'linkedin-list-carousel': 5,
+      'linkedin-stat-single': 2,
+      'linkedin-quote-single': 1,
+      'instagram-carousel-edu': 6,
+      'generic-infographic': 4,
+      'generic-checklist': 5,
+    };
+    const slideCount = slideCountMap[formatId] ?? 5;
+
+    const draftPrompt = `You are a social media copywriter for ${brandDesc}.
+
+Write a ${slideCount}-slide ${formatId} about: "${topic}"
+Visual tone: ${intentStr}
+
+Return ONLY valid JSON (no markdown):
+{
+  "slides": [
+    { "slideLabel": "Cover", "headline": "hook headline max 8 words", "body": "" },
+    { "slideLabel": "Point 1", "headline": "...", "body": "1-2 sentences" },
+    { "slideLabel": "CTA", "headline": "call-to-action max 8 words", "body": "" }
+  ]
+}
+
+Rules:
+- Exactly ${slideCount} slides
+- First slide: powerful hook headline, leave body empty
+- Middle slides: one concrete idea per slide, specific and actionable
+- Last slide: CTA pointing to ${brand}
+- No emojis
+- Headlines max 8 words`;
+
+    let slides: Array<{ slideLabel?: string; headline: string; body?: string }> = [];
+    try {
+      const res = await this.llm.complete({
+        messages: [{ role: 'user', content: draftPrompt }],
+        agentKey: this.key,
+        maxTokens: 1000,
+        temperature: 0.5,
+      });
+      const raw = res.content.replace(/```(?:json)?\s*/g, '').replace(/```/g, '').trim();
+      const parsed = JSON.parse(raw) as { slides?: Array<{ slideLabel?: string; headline: string; body?: string }> };
+      slides = parsed.slides ?? [];
+    } catch {
+      slides = Array.from({ length: slideCount }, (_, i) => ({
+        slideLabel: i === 0 ? 'Cover' : i === slideCount - 1 ? 'CTA' : `Point ${i}`,
+        headline: i === 0 ? topic : i === slideCount - 1 ? `Try ${brand} today` : `Key insight ${i}`,
+        body: '',
+      }));
+    }
+
+    const slideDisplay = slides.map((s, i) => {
+      const label = s.slideLabel ? ` (${s.slideLabel})` : '';
+      const lines = [`Slide ${i + 1}${label}: "${s.headline}"`];
+      if (s.body?.trim()) lines.push(`  ${s.body.trim()}`);
+      return lines.join('\n');
+    }).join('\n\n');
+
+    const pendingJson = JSON.stringify({ formatId, brand, topic, intentStr, slides });
+
+    const msg = [
+      `Here is the content plan for your ${formatId}:`,
+      `Topic: "${topic}" | Brand: ${brand}`,
+      '',
+      slideDisplay,
+      '',
+      'Quick questions before I start:',
+      '',
+      '1. Content — Looks good! / Revise it?',
+      '',
+      `[pending:${pendingJson}]`,
+    ].join('\n');
+
+    return [{ type: 'notify_result', summary: 'Content draft', payload: { message: msg, query: topic }, riskLevel: 'low' }];
   }
 
   private async decideDesign(concept: string, config: CanvaConfig): Promise<ProposedAction[]> {
