@@ -1304,7 +1304,7 @@ function ContentConfirmCard({
 // ─── Message bubble ───────────────────────────────────────────────────────────
 
 function MessageBubble({
-  msg, color, agentName, onFeedback, onReply, onApprove, onReject, token, agentKey, onQuickReply, isLast,
+  msg, color, agentName, onFeedback, onReply, onApprove, onReject, token, agentKey, onQuickReply, isLast, prevMsgContent,
 }: {
   msg: ConvMessage & { pending?: boolean; feedback?: 'up' | 'down' };
   color: ReturnType<typeof agentColor>;
@@ -1317,6 +1317,7 @@ function MessageBubble({
   agentKey?: string;
   onQuickReply?: (text: string) => void;
   isLast?: boolean;
+  prevMsgContent?: string;
 }) {
   const isUser = msg.role === 'user';
 
@@ -1400,6 +1401,45 @@ function MessageBubble({
                   )}
                 </div>
               );
+            }
+          }
+          // Style picker selection: show thumbnail instead of raw number
+          if (isUser && prevMsgContent?.includes('[styles:')) {
+            const rawNum = msg.content.trim();
+            const isNumericOrRandom = /^\d+$/.test(rawNum) || /^random$/i.test(rawNum);
+            if (isNumericOrRandom) {
+              const parsedPrev = parseStylePicker(prevMsgContent);
+              if (parsedPrev) {
+                const numInt = parseInt(rawNum, 10);
+                const sample = numInt >= 1 && numInt <= parsedPrev.samples.length
+                  ? parsedPrev.samples[numInt - 1]
+                  : null;
+                const W = 72, H = 94;
+                return (
+                  <div className="flex flex-col items-end gap-1">
+                    <div style={{ position: 'relative', width: W + 8, height: H + 8 }}>
+                      {sample?.isSet && (
+                        <>
+                          <div className="absolute rounded-xl bg-primary/10 border border-primary/20"
+                            style={{ width: W - 6, height: H - 6, top: 10, left: 7 }} />
+                          <div className="absolute rounded-xl bg-primary/20 border border-primary/30"
+                            style={{ width: W - 2, height: H - 2, top: 5, left: 4 }} />
+                        </>
+                      )}
+                      <div className="absolute rounded-xl border-2 border-primary overflow-hidden bg-muted/60"
+                        style={{ width: W, height: H, top: 0, left: 0 }}>
+                        {sample?.thumb
+                          ? <img src={sample.thumb} alt={sample.title} className="w-full h-full object-cover" />
+                          : <div className="w-full h-full flex items-center justify-center text-xl opacity-40">?</div>
+                        }
+                      </div>
+                    </div>
+                    <span className="text-[10px] text-muted-foreground/60 pr-1">
+                      {sample ? sample.title.split(' — ')[0] : (rawNum === '0' || /^random$/i.test(rawNum) ? 'Random' : `Layout ${rawNum}`)}
+                    </span>
+                  </div>
+                );
+              }
             }
           }
           return (
@@ -2349,6 +2389,7 @@ function ChatTab({
         {messages.map((msg, idx) => {
           const approval = msg.runId ? approvalByRunId[msg.runId] : undefined;
           const isLast = idx === messages.length - 1;
+          const prevMsgContent = idx > 0 ? messages[idx - 1].content : undefined;
           return (
             <MessageBubble
               key={msg.id}
@@ -2363,6 +2404,7 @@ function ChatTab({
               agentKey={agent.key}
               isLast={isLast}
               onQuickReply={isLast ? (text) => triggerMutation.mutate(text) : undefined}
+              prevMsgContent={prevMsgContent}
             />
           );
         })}

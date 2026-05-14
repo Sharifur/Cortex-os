@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.66.5',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'Layout picker response now shows the selected template thumbnail in the user message bubble instead of a bare number. The correct template preview image (with stacked-card depth effect for carousel sets) is displayed based on the preceding style picker context.' },
+    ],
+  },
+  {
     version: 'v4.66.4',
     date: '2026-05-14',
     entries: [
