@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.57.1',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'fix', scope: 'canva', description: 'Style picker no longer shows raw }] artifacts — lazy regex (?:[\\s\\S]+?) was stopping at the first }] inside the samples JSON (end of first sample object + array close), leaving the tail unparsed. Changed to [^\\n]+ (greedy, no newlines) so the match correctly spans the full compact single-line JSON.' },
+      { tag: 'fix', scope: 'canva', description: 'Strip regex for [styles:...] and [pending:...] tags also changed from lazy [\\s\\S]*? to [^\\n]* so both tags are fully removed from the rendered message text, eliminating the }] ghost text in the chat bubble.' },
+    ],
+  },
+  {
     version: 'v4.57.0',
     date: '2026-05-14',
     entries: [

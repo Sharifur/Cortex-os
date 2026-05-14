@@ -1013,7 +1013,7 @@ interface StyleSample { num: string; id: string; title: string; thumb: string | 
 
 function parseStylePicker(content: string): { header: string; samples: StyleSample[] } | null {
   if (!content.includes('Choose a style reference')) return null;
-  const stylesMatch = content.match(/\[styles:(\{[\s\S]+?\})\]/);
+  const stylesMatch = content.match(/\[styles:(\{[^\n]+\})\]/);
   if (!stylesMatch) return null;
   try {
     const { samples } = JSON.parse(stylesMatch[1]) as { samples: StyleSample[] };
@@ -1242,7 +1242,7 @@ function MessageBubble({
               {isUser
                 ? msg.content
                 : <div dangerouslySetInnerHTML={{ __html: renderMarkdown(
-                    msg.content.replace(/\[styles:\{[\s\S]*?\}\]/g, '').replace(/\[pending:\{[\s\S]*?\}\]/g, '').trim()
+                    msg.content.replace(/\[styles:\{[^\n]*\}\]\n?/g, '').replace(/\[pending:\{[^\n]*\}\]\n?/g, '').trim()
                   ) }} />
               }
             </div>
