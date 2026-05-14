@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.65.9',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'fix', scope: 'support', description: 'Agent no longer waits for Telegram approval before sending post_reply and request_purchase_code actions — both are now auto-executed.' },
+      { tag: 'fix', scope: 'support', description: 'Fixed webhook echo loop: when CRM fires support.ticket.replied after our own reply, the ticket is no longer incorrectly reopened. Detects agent-reply echoes via repliedAt timestamp (within 90s) to prevent re-triggering the purchase code gate.' },
+    ],
+  },
+  {
     version: 'v4.65.8',
     date: '2026-05-14',
     entries: [

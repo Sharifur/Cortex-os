@@ -382,7 +382,7 @@ export class SupportAgent implements IAgent, OnModuleInit {
   }
 
   requiresApproval(action: ProposedAction): boolean {
-    return action.type === 'post_reply' || action.type === 'escalate_to_owner' || action.type === 'request_purchase_code' || action.type === 'request_server_access';
+    return action.type === 'escalate_to_owner' || action.type === 'request_server_access';
   }
 
   async execute(action: ProposedAction): Promise<ActionResult> {
@@ -715,7 +715,7 @@ export class SupportAgent implements IAgent, OnModuleInit {
           const crmId = ticket.externalId ? Number(ticket.externalId) : null;
           if (!crmId || isNaN(crmId)) throw new Error('Ticket has no CRM ID — cannot post reply');
           await this.postCrmReply(crmId, ticket.lastDraft);
-          await this.db.db.update(supportTickets).set({ status: 'replied', updatedAt: new Date() }).where(eq(supportTickets.id, id));
+          await this.db.db.update(supportTickets).set({ status: 'replied', repliedAt: new Date(), updatedAt: new Date() }).where(eq(supportTickets.id, id));
           await this.writeTicketEvent({ ticketId: id, externalId: ticket.externalId, eventType: 'reply_sent', summary: `Reply sent via dashboard: ${ticket.lastDraft.slice(0, 120)}`, payload: { draft: ticket.lastDraft } });
           return { ok: true };
         },
@@ -992,11 +992,21 @@ export class SupportAgent implements IAgent, OnModuleInit {
     // Customer reply — re-open any existing ticket for re-processing (skip purchase code gate)
     if (event === 'support.ticket.replied') {
       const [existing] = await this.db.db
-        .select({ id: supportTickets.id, status: supportTickets.status, purchaseCodeStatus: supportTickets.purchaseCodeStatus })
+        .select({ id: supportTickets.id, status: supportTickets.status, purchaseCodeStatus: supportTickets.purchaseCodeStatus, repliedAt: supportTickets.repliedAt, updatedAt: supportTickets.updatedAt })
         .from(supportTickets)
         .where(eq(supportTickets.externalId, String(ticket.id)));
 
       if (existing) {
+        // If we just replied (status='replied' and repliedAt within 90s), this is the CRM
+        // echoing our own reply back — don't reopen, treat as agent reply
+        const ageMs = existing.repliedAt ? Date.now() - new Date(existing.repliedAt).getTime() : Infinity;
+        if (existing.status === 'replied' && ageMs < 90_000) {
+          this.logger.log(`ingestWebhook: skipping reopen for ticket #${ticket.id} — agent reply echo (${Math.round(ageMs / 1000)}s ago)`);
+          const echoResp = { ok: true, status: 'acknowledged', reason: 'agent_reply_echo' };
+          await this.writeWebhookLog({ status: 'skipped_agent_reply', externalId: String(ticket.id), ticketId: existing.id, rawPayload, responseBody: JSON.stringify(echoResp) });
+          return echoResp;
+        }
+
         await this.db.db
           .update(supportTickets)
           .set({ status: 'open', body: body || undefined, updatedAt: new Date() })
