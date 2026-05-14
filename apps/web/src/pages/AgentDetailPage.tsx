@@ -3796,18 +3796,130 @@ function PostRendersTab({ token }: { token: string }) {
   const [renders, setRenders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // Quick Generate panel state
+  const [styleSamples, setStyleSamples] = useState<any[]>([]);
+  const [selectedSampleId, setSelectedSampleId] = useState<string | null>(null);
+  const [genFormat, setGenFormat] = useState('linkedin-tips-carousel');
+  const [genBrand, setGenBrand] = useState('taskip');
+  const [genTopic, setGenTopic] = useState('');
+  const [generating, setGenerating] = useState(false);
+  const [genError, setGenError] = useState('');
+
   useEffect(() => {
     apiFetch(token, '/posts/renders?limit=30')
       .then(r => setRenders(Array.isArray(r) ? r : []))
       .catch(() => {})
       .finally(() => setLoading(false));
+    apiFetch(token, '/posts/design-samples?brand=default')
+      .then(r => setStyleSamples(Array.isArray(r) ? r : []))
+      .catch(() => {});
   }, [token]);
+
+  async function handleGenerate() {
+    if (!genTopic.trim() || generating) return;
+    setGenerating(true);
+    setGenError('');
+    try {
+      const body: Record<string, unknown> = { formatId: genFormat, brand: genBrand, topic: genTopic.trim() };
+      if (selectedSampleId) body.sampleId = selectedSampleId;
+      const result = await apiFetch(token, '/posts/render', { method: 'POST', body: JSON.stringify(body) });
+      if (result?.id) setRenders(prev => [result, ...prev]);
+    } catch (err) {
+      setGenError((err as Error).message ?? 'Render failed');
+    } finally {
+      setGenerating(false);
+    }
+  }
 
   if (loading) return <p className="text-sm text-muted-foreground">Loading...</p>;
 
   return (
-    <div className="space-y-4">
-      <p className="text-xs text-muted-foreground">Generate renders by chatting with the agent — type: <code className="bg-muted px-1.5 py-0.5 rounded">Generate a linkedin-howto-carousel for brand taskip about "your topic"</code></p>
+    <div className="space-y-6">
+      {/* Quick Generate panel */}
+      <div className="bg-card border border-border rounded-xl p-4 space-y-4">
+        <p className="text-sm font-medium">Quick Generate</p>
+
+        {/* Style reference picker */}
+        {styleSamples.length > 0 && (
+          <div className="space-y-2">
+            <p className="text-xs text-muted-foreground">Style reference — pick a training sample to match its design language</p>
+            <div className="flex gap-2 overflow-x-auto pb-1">
+              <button
+                onClick={() => setSelectedSampleId(null)}
+                className={`flex-shrink-0 w-14 h-14 rounded-lg border-2 text-xs flex items-center justify-center transition-colors ${!selectedSampleId ? 'border-primary bg-primary/10 text-primary font-medium' : 'border-border text-muted-foreground hover:border-primary/50'}`}
+              >
+                Random
+              </button>
+              {styleSamples.map((s: any) => (
+                <button
+                  key={s.id}
+                  onClick={() => setSelectedSampleId(prev => prev === s.id ? null : s.id)}
+                  className={`flex-shrink-0 w-14 h-14 rounded-lg border-2 overflow-hidden transition-all ${selectedSampleId === s.id ? 'border-primary ring-2 ring-primary ring-offset-1' : 'border-border hover:border-primary/50'}`}
+                  title={s.title ?? s.id}
+                >
+                  {s.sourceUrl ? (
+                    <img src={s.sourceUrl} alt={s.title ?? ''} className="w-full h-full object-cover" />
+                  ) : (
+                    <span className="text-[10px] text-muted-foreground px-1 text-center leading-tight">{(s.title ?? 'Sample').slice(0, 10)}</span>
+                  )}
+                </button>
+              ))}
+            </div>
+            {selectedSampleId && (
+              <p className="text-xs text-primary">Style pinned — all slides will use this sample's colors and shapes</p>
+            )}
+          </div>
+        )}
+
+        {/* Format + Brand row */}
+        <div className="flex gap-3">
+          <div className="flex-1 space-y-1">
+            <label className="text-xs text-muted-foreground">Format</label>
+            <select
+              value={genFormat}
+              onChange={e => setGenFormat(e.target.value)}
+              className="w-full text-sm border border-border rounded-md px-2 py-1.5 bg-background"
+            >
+              {STATIC_FORMATS.map(f => (
+                <option key={f.id} value={f.id}>{f.name}</option>
+              ))}
+            </select>
+          </div>
+          <div className="w-32 space-y-1">
+            <label className="text-xs text-muted-foreground">Brand</label>
+            <input
+              value={genBrand}
+              onChange={e => setGenBrand(e.target.value)}
+              className="w-full text-sm border border-border rounded-md px-2 py-1.5 bg-background"
+              placeholder="taskip"
+            />
+          </div>
+        </div>
+
+        {/* Topic input */}
+        <div className="space-y-1">
+          <label className="text-xs text-muted-foreground">Topic / content idea</label>
+          <input
+            value={genTopic}
+            onChange={e => setGenTopic(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') handleGenerate(); }}
+            className="w-full text-sm border border-border rounded-md px-2 py-1.5 bg-background"
+            placeholder="e.g. 5 tips to boost team productivity"
+          />
+        </div>
+
+        {genError && <p className="text-xs text-destructive">{genError}</p>}
+
+        <button
+          onClick={handleGenerate}
+          disabled={generating || !genTopic.trim()}
+          className="w-full py-2 text-sm font-medium bg-primary text-primary-foreground rounded-md disabled:opacity-50"
+        >
+          {generating ? 'Generating...' : 'Generate'}
+        </button>
+      </div>
+
+      {/* Renders list */}
       <div className="space-y-3">
         {renders.length === 0 && <p className="text-sm text-muted-foreground">No renders yet.</p>}
         {renders.map((r: any) => (

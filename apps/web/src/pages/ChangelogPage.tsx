@@ -16,6 +16,15 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.50.0',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'render', description: 'Style reference picker: the Post Renders tab now shows a Quick Generate panel with a thumbnail strip of all training samples. Clicking a sample pins its exact DNA (colors, shapes, decorations) to every slide in the render. Without a selection, slides continue to use random per-slide training samples.' },
+      { tag: 'feat', scope: 'render', description: 'Quick Generate panel: directly generate a render from the Post Renders tab without going through the agent chat — pick format, brand, topic, and optional style reference, then hit Generate. The result appears at the top of the renders list immediately.' },
+      { tag: 'fix', scope: 'render', description: 'Bold decorations: decorations now use opacity 0.5-0.9 for corner/edge shapes and larger sizes (40-75% of canvas) as instructed in the visual spec prompt. The hardcoded 0.12-0.35 opacity clamp is removed — the LLM now controls decoration prominence, matching the bold visual language of uploaded training carousels.' },
+    ],
+  },
+  {
     version: 'v4.49.1',
     date: '2026-05-14',
     entries: [

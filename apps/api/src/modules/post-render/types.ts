@@ -461,6 +461,7 @@ export interface RenderRequest {
   intent?: string;
   imageProvider?: ImageProvider;
   patternConsistency?: boolean;
+  sampleId?: string;  // KB entry ID of a specific training sample — pins that sample's DNA for all slides
 }
 
 export interface RenderResult {

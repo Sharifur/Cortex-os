@@ -92,7 +92,7 @@ export class CanvaAgent implements IAgent, OnModuleInit {
     if (payload?.source === 'chat' || (payload?.query && !taskMode)) {
       return {
         source: trigger,
-        snapshot: { mode: 'chat', query: payload.query ?? '', history: payload.history ?? '', config },
+        snapshot: { mode: 'chat', query: payload.query ?? '', history: payload.history ?? '', sampleId: payload.sampleId ?? null, config },
         followups: (run.context as AgentContext | null)?.followups ?? [],
       };
     }
@@ -120,7 +120,7 @@ export class CanvaAgent implements IAgent, OnModuleInit {
     const config: CanvaConfig = snap.config;
 
     if (snap.mode === 'chat') {
-      return this.decideChat(snap.query, config, snap.history);
+      return this.decideChat(snap.query, config, snap.history, snap.sampleId ?? undefined);
     }
     if (snap.mode === 'design') {
       return this.decideDesign(snap.concept, config);
@@ -128,7 +128,7 @@ export class CanvaAgent implements IAgent, OnModuleInit {
     return this.decideCalendar(snap.month, config, snap.existingCount);
   }
 
-  private async decideChat(query: string, config: CanvaConfig, history?: string): Promise<ProposedAction[]> {
+  private async decideChat(query: string, config: CanvaConfig, history?: string, sampleId?: string): Promise<ProposedAction[]> {
     if (!query?.trim()) {
       return [{ type: 'notify_result', summary: 'No query', payload: { message: 'What would you like help with?' }, riskLevel: 'low' }];
     }
@@ -234,7 +234,7 @@ Rules:
       return [{
         type: 'post_render',
         summary: `Render ${formatId} for ${brand}`,
-        payload: { formatId, brand, topic, intent: intentStr || undefined },
+        payload: { formatId, brand, topic, intent: intentStr || undefined, sampleId: sampleId || undefined },
         riskLevel: 'low',
       }];
     }
@@ -364,10 +364,10 @@ Return ONLY a JSON array (no markdown):
     }
 
     if (action.type === 'post_render') {
-      const { formatId, brand, topic, intent, _runId } = action.payload as any;
+      const { formatId, brand, topic, intent, sampleId, _runId } = action.payload as any;
       try {
         const config = await this.getConfig();
-        const result = await this.renderer.render({ formatId, brand, topic, intent, patternConsistency: config.patternConsistency }, _runId as string | undefined);
+        const result = await this.renderer.render({ formatId, brand, topic, intent, sampleId: sampleId || undefined, patternConsistency: config.patternConsistency }, _runId as string | undefined);
         const slideList = result.slideUrls.map((u, i) => `Slide ${i + 1}: ${u}`).join('\n');
         const message = `Render complete — ${result.slideUrls.length} slides generated\n\n${slideList}\n\nExports:\nPPTX (Canva layers): /posts/renders/${result.id}/pptx\nCSV (Bulk Create): /posts/renders/${result.id}/canva-csv\nPlain text: /posts/renders/${result.id}/text-export`;
         return { success: true, data: { message, slideUrls: result.slideUrls, renderId: result.id } };

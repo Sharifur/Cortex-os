@@ -99,15 +99,19 @@ export class PostRendererService {
       { event_type: 'post_render_start', format_id: format.id, brand: req.brand, topic: req.topic, slide_count: format.slides.length, render_id: renderId },
     ).catch(() => {});
 
-    // Resolve brand identity, dominant DNA, and one random sample DNA in parallel
-    const [brandRaw, dominantDNA, sampledDNA, patternsBySlideType] = await Promise.all([
+    // Resolve brand identity, dominant DNA, and sample DNA in parallel
+    // When sampleId is provided the render is pinned to that specific training sample's style
+    const [brandRaw, dominantDNA, baseSampledDNA, patternsBySlideType] = await Promise.all([
       this.brandSvc.resolve(req.brand),
       this.designPattern.getDominantDNA(req.brand).catch(() => null as DominantDNA | null),
-      this.designPattern.getRandomSampleDNA(req.brand).catch(() => null),
+      req.sampleId
+        ? this.designPattern.getDNAForEntry(req.sampleId).catch(() => null)
+        : this.designPattern.getRandomSampleDNA(req.brand).catch(() => null),
       req.patternConsistency
         ? this.designPattern.getPatternsBySlideType(req.brand).catch(() => ({} as Record<string, string[]>))
         : Promise.resolve(null as Record<string, string[]> | null),
     ]);
+    const sampledDNA = baseSampledDNA;
 
     // Feature 3: apply learned font pairing when brand uses default Inter fonts
     const useLearned = !!(dominantDNA && dominantDNA.sampleCount >= 20);
@@ -160,10 +164,10 @@ export class PostRendererService {
       { event_type: 'post_content_end', duration_ms: Date.now() - t0Content, slide_count: filledSlides.length },
     ).catch(() => {});
 
-    // Phase 2: Pick one independent random training sample per slide for color variety
-    const perSlideDNAs = await Promise.all(
-      filledSlides.map(() => this.designPattern.getRandomSampleDNA(req.brand).catch(() => null)),
-    );
+    // Phase 2: Per-slide DNA — pinned to sampleId when specified, otherwise random per slide for variety
+    const perSlideDNAs: (DesignDNA | null)[] = req.sampleId && sampledDNA
+      ? filledSlides.map(() => sampledDNA)
+      : await Promise.all(filledSlides.map(() => this.designPattern.getRandomSampleDNA(req.brand).catch(() => null)));
 
     // Phase 2: Generate per-slide visual specs from pattern rules + per-slide sampled DNA colors
     const visualSpecs: SlideVisualSpec[] = (dominantDNA?.pattern_rules?.length || sampledDNA || perSlideDNAs.some(d => d !== null))

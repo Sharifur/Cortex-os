@@ -651,6 +651,18 @@ export class DesignPatternService {
     };
   }
 
+  async getDNAForEntry(entryId: string): Promise<DesignDNA | null> {
+    const [row] = await this.db.db
+      .select({ content: knowledgeEntries.content })
+      .from(knowledgeEntries)
+      .where(eq(knowledgeEntries.id, entryId))
+      .limit(1);
+    if (!row) return null;
+    const match = row.content.match(/DNA JSON: (\{[\s\S]+\})\s*$/m);
+    if (!match) return null;
+    try { return JSON.parse(match[1]) as DesignDNA; } catch { return null; }
+  }
+
   async getRandomSampleDNA(brand: string): Promise<DesignDNA | null> {
     const effectiveBrand = brand || 'default';
     const samples = await this.db.db
