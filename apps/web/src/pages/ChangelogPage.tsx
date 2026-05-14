@@ -16,6 +16,15 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.52.0',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'render', description: 'Dot texture backgrounds: when a training sample has background_texture "dots", "grid", or "geometric-pattern" in its DNA, the rendered slides now overlay a white dot radial-gradient texture on the slide background color — matching the Yellow Minimalist carousel style. The texture is applied via CSS backgroundImage + backgroundColor layering.' },
+      { tag: 'feat', scope: 'render', description: 'Colored list item boxes: when the visual spec LLM returns a listItemBg color for a list-role slide, each list item is wrapped in a colored content box with borderRadius and padding, matching the Yellow Minimalist carousel style where each point has its own visual container.' },
+      { tag: 'fix', scope: 'render', description: 'ThemeContract decoration opacity: removed the hardcoded 0.18 opacity cap on decorations sourced from training sample DNA — shapes now use their actual extracted opacity values, allowing bold corner shapes to show at full 0.5-0.9 opacity as intended.' },
+    ],
+  },
+  {
     version: 'v4.51.0',
     date: '2026-05-14',
     entries: [

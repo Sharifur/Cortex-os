@@ -116,6 +116,9 @@ export interface ThemeContract {
   bodyMaxChars: number;
   listItemsMax: number;
 
+  // Background texture overlay (from training sample DNA)
+  backgroundTexture?: 'dots' | 'none';
+
   // Session metadata
   totalSlides: number;
   brand: string;
@@ -441,6 +444,7 @@ export interface SlideVisualSpec {
   bgGradient?: string;
   accentColor?: string | null;
   wordHighlights?: WordHighlight[];
+  listItemBg?: string;  // background color for list item content boxes (Yellow Minimalist style)
   decorations?: Array<{
     shape_type: string;
     fill_type: 'solid' | 'linear-gradient' | 'radial-gradient' | 'none';

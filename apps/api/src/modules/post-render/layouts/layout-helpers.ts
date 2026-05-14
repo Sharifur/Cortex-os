@@ -10,9 +10,18 @@ export function resolveVisualBackground(styleRules: StyleRules, contract: ThemeC
 }
 
 export function resolveVisualBackgroundStyle(styleRules: StyleRules, contract: ThemeContract, visualSpec?: SlideVisualSpec): object {
+  const hasDotTexture = contract.backgroundTexture === 'dots';
   if (visualSpec?.bgGradient) return { backgroundImage: visualSpec.bgGradient };
-  if (visualSpec?.bgColor) return { backgroundColor: visualSpec.bgColor };
-  return resolveBackgroundStyle(styleRules, contract);
+  if (visualSpec?.bgColor) {
+    return hasDotTexture
+      ? { backgroundColor: visualSpec.bgColor, backgroundImage: 'radial-gradient(circle, rgba(255,255,255,0.28) 1.5px, transparent 1.5px)', backgroundSize: '22px 22px' }
+      : { backgroundColor: visualSpec.bgColor };
+  }
+  const base = resolveBackgroundStyle(styleRules, contract);
+  if (hasDotTexture && (base as Record<string, string>).backgroundColor) {
+    return { ...base, backgroundImage: 'radial-gradient(circle, rgba(255,255,255,0.28) 1.5px, transparent 1.5px)', backgroundSize: '22px 22px' };
+  }
+  return base;
 }
 
 export function renderDecorations(contract: ThemeContract, width: number, height: number, visualSpec?: SlideVisualSpec): object[] {

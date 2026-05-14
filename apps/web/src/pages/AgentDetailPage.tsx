@@ -3798,9 +3798,10 @@ function PostRendersTab({ token }: { token: string }) {
 
   // Quick Generate panel state
   const [styleSamples, setStyleSamples] = useState<any[]>([]);
+  const [availableBrands, setAvailableBrands] = useState<string[]>([]);
   const [selectedSampleId, setSelectedSampleId] = useState<string | null>(null);
   const [genFormat, setGenFormat] = useState('linkedin-tips-carousel');
-  const [genBrand, setGenBrand] = useState('taskip');
+  const [genBrand, setGenBrand] = useState('');
   const [genTopic, setGenTopic] = useState('');
   const [generating, setGenerating] = useState(false);
   const [genError, setGenError] = useState('');
@@ -3812,6 +3813,13 @@ function PostRendersTab({ token }: { token: string }) {
       .finally(() => setLoading(false));
     apiFetch(token, '/posts/design-samples?brand=default')
       .then(r => setStyleSamples(Array.isArray(r) ? r : []))
+      .catch(() => {});
+    apiFetch(token, '/canva/brands')
+      .then((r: any) => {
+        const names: string[] = Array.isArray(r) ? r.map((b: any) => b.name).filter(Boolean) : [];
+        setAvailableBrands(names);
+        if (names.length > 0) setGenBrand(names[0]);
+      })
       .catch(() => {});
   }, [token]);
 
@@ -3887,12 +3895,22 @@ function PostRendersTab({ token }: { token: string }) {
           </div>
           <div className="w-32 space-y-1">
             <label className="text-xs text-muted-foreground">Brand</label>
-            <input
-              value={genBrand}
-              onChange={e => setGenBrand(e.target.value)}
-              className="w-full text-sm border border-border rounded-md px-2 py-1.5 bg-background"
-              placeholder="taskip"
-            />
+            {availableBrands.length > 0 ? (
+              <select
+                value={genBrand}
+                onChange={e => setGenBrand(e.target.value)}
+                className="w-full text-sm border border-border rounded-md px-2 py-1.5 bg-background"
+              >
+                {availableBrands.map(b => <option key={b} value={b}>{b}</option>)}
+              </select>
+            ) : (
+              <input
+                value={genBrand}
+                onChange={e => setGenBrand(e.target.value)}
+                className="w-full text-sm border border-border rounded-md px-2 py-1.5 bg-background"
+                placeholder="brand name"
+              />
+            )}
           </div>
         </div>
 

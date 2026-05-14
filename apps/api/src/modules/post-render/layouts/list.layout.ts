@@ -9,39 +9,63 @@ export function listLayout({ slide, contract, width, height, slideNumber, visual
   const headline = getSlot(slide, 'headline');
   const items = getListSlot(slide, 'list_items');
 
-  const listItemElements: object[] = items.map((item, i) => ({
-    type: 'div',
-    props: {
-      style: { display: 'flex', flexDirection: 'row', alignItems: 'flex-start', marginBottom: 14 },
-      children: [
-        {
-          type: 'div',
-          props: {
-            style: {
-              width: 24,
-              height: 24,
-              borderRadius: 12,
-              backgroundColor: accent,
-              color: '#ffffff',
-              fontSize: 12,
-              fontWeight: 700,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              marginRight: 14,
-              flexShrink: 0,
-              marginTop: 2,
-            },
-            children: String(i + 1),
+  const itemBoxBg = visualSpec?.listItemBg ?? null;
+  const itemBoxTextColor = itemBoxBg ? resolveTextColor(itemBoxBg, contract) : textColor;
+
+  const listItemElements: object[] = items.map((item, i) => {
+    const numberBadge = {
+      type: 'div',
+      props: {
+        style: {
+          width: 26,
+          height: 26,
+          borderRadius: 13,
+          backgroundColor: itemBoxBg ? itemBoxTextColor : accent,
+          color: itemBoxBg ? itemBoxBg : '#ffffff',
+          fontSize: 12,
+          fontWeight: 700,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          marginRight: 14,
+          flexShrink: 0,
+          marginTop: itemBoxBg ? 0 : 2,
+        },
+        children: String(i + 1),
+      },
+    };
+
+    const itemText = {
+      type: 'div',
+      props: { style: { fontSize: contract.bodySize, color: itemBoxBg ? itemBoxTextColor : textColor, lineHeight: 1.5, fontFamily: contract.bodyFont, flex: 1 }, children: item },
+    };
+
+    if (itemBoxBg) {
+      return {
+        type: 'div',
+        props: {
+          style: {
+            display: 'flex',
+            flexDirection: 'row',
+            alignItems: 'center',
+            marginBottom: 12,
+            backgroundColor: itemBoxBg,
+            borderRadius: contract.borderRadius || 8,
+            padding: '10px 16px',
           },
+          children: [numberBadge, itemText],
         },
-        {
-          type: 'div',
-          props: { style: { fontSize: contract.bodySize, color: textColor, lineHeight: 1.5, fontFamily: contract.bodyFont }, children: item },
-        },
-      ],
-    },
-  }));
+      };
+    }
+
+    return {
+      type: 'div',
+      props: {
+        style: { display: 'flex', flexDirection: 'row', alignItems: 'flex-start', marginBottom: 14 },
+        children: [numberBadge, itemText],
+      },
+    };
+  });
 
   const topChildren: object[] = [];
   if (slide.styleRules.accentType === 'left-stripe') {

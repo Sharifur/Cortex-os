@@ -164,10 +164,11 @@ export class ThemeContractService {
         gradient_angle: s.gradient_angle,
         stroke_color: s.stroke_color,
         stroke_width: s.stroke_width,
-        opacity: Math.min(s.opacity, 0.18),
+        opacity: s.opacity,
         x: s.x, y: s.y, w: s.w, h: s.h,
         border_radius: s.border_radius,
       })),
+      backgroundTexture: (['dots', 'grid', 'geometric-pattern'].includes(sampledDNA?.background_texture ?? '') ? 'dots' : 'none'),
     };
 
     this.logger.log(

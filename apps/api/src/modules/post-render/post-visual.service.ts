@@ -121,9 +121,12 @@ export class PostVisualService {
       '- wordHighlights: pick 1-2 words from the headline to receive a colored badge background.',
       '  Use the accent color or a contrasting color from the palette. Format: [{word, bgColor, textColor}].',
       '  Leave empty array [] if the headline is too short (under 4 words).',
+      '- listItemBg: for slides with role "list", provide a hex color for each list item\'s content box background.',
+      '  Use a light/contrasting color against the slide bgColor — e.g. white on a colored bg, or accent with low alpha.',
+      '  Omit (null) for non-list slides.',
       '',
       'Return ONLY valid JSON (no markdown):',
-      '{"slides":[{"slideIndex":0,"bgColor":"#hex","accentColor":"#hex","decorations":[{"shape_type":"circle","fill_type":"solid","fill_colors":["#hex"],"opacity":0.1,"x":70,"y":-10,"w":50,"h":50}],"wordHighlights":[{"word":"target","bgColor":"#hex","textColor":"#fff"}]}]}',
+      '{"slides":[{"slideIndex":0,"bgColor":"#hex","accentColor":"#hex","listItemBg":null,"decorations":[{"shape_type":"circle","fill_type":"solid","fill_colors":["#hex"],"opacity":0.1,"x":70,"y":-10,"w":50,"h":50}],"wordHighlights":[{"word":"target","bgColor":"#hex","textColor":"#fff"}]}]}',
     ].filter(Boolean).join('\n');
 
     let raw = '';
@@ -160,6 +163,7 @@ export class PostVisualService {
           // Enforce non-null colors — fall back to per-slide DNA colors, never white
           bgColor: (s.bgColor && s.bgColor !== '#ffffff' && s.bgColor !== '#fff') ? s.bgColor : fallbackBg,
           accentColor: s.accentColor || fallbackAccent,
+          listItemBg: s.listItemBg || undefined,
           decorations: (s.decorations ?? []).slice(0, 6).map(d => ({
             ...d,
             opacity: Math.max(d.opacity ?? 0, 0.04),
