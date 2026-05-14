@@ -16,7 +16,7 @@ export type ContentSlotType =
   | 'attribution'
   | 'image_prompt';
 
-export type ImageProvider = 'auto' | 'openai' | 'gemini' | 'stability' | 'dalle2';
+export type ImageProvider = 'auto' | 'openai' | 'gemini' | 'stability' | 'dalle2' | 'openai-stability';
 export type RenderStatus = 'draft' | 'approved' | 'published' | 'rejected';
 
 export interface ContentSlot {
@@ -425,6 +425,9 @@ export interface DesignDNA {
 
   // Free-text observations
   pattern_notes: string;
+
+  // Cached DALL-E style prompt base — generated once at analysis time from DNA fields
+  prompt_base?: string;
 
   // Set when this DNA represents a full multi-slide carousel rather than a single slide
   carousel_slide_count?: number;

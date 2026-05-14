@@ -16,6 +16,17 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.59.0',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'AI full-slide image generation: when a training sample is selected (sampleId set), each carousel slide is now generated as a complete image by OpenAI/Stability AI instead of the Satori code renderer. The style prompt (colors, typography, shapes, mood) is derived from the selected sample\'s DesignDNA and cached in the DNA JSON at analysis time — renders read the stored prompt_base rather than re-deriving it on every call.' },
+      { tag: 'feat', scope: 'canva', description: 'New slide-prompt-builder module: buildStylePromptBase(dna) converts DesignDNA fields into a natural-language DALL-E style description; buildSlideImagePrompt() combines it with slide content (headline, body, list items, CTA) at render time.' },
+      { tag: 'feat', scope: 'canva', description: 'New openai-stability image provider option: AI slide generation tries OpenAI first, then Stability AI as fallback. Satori is only used if both providers fail or no API keys are configured.' },
+      { tag: 'feat', scope: 'canva', description: 'Design sample analysis now stores prompt_base in DNA JSON at all 6 analysis/reanalysis sites — new uploads and re-analyzed samples automatically cache their DALL-E style prompt.' },
+      { tag: 'fix', scope: 'canva', description: 'Increased DALL-E prompt character limit from 800 to 4000 — detailed design prompts were being silently truncated, removing all color/shape/typography detail.' },
+    ],
+  },
+  {
     version: 'v4.58.0',
     date: '2026-05-14',
     entries: [

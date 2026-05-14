@@ -27,6 +27,7 @@ import { overlayLayout } from './layouts/overlay.layout';
 import { listLayout } from './layouts/list.layout';
 import { coverHeroLayout } from './layouts/cover-hero.layout';
 import { numberedListContentLayout } from './layouts/numbered-list-content.layout';
+import { buildStylePromptBase, buildSlideImagePrompt } from './slide-prompt-builder';
 import type { RenderRequest, RenderResult, FilledSlide, ThemeContract, LayoutType, DominantDNA, SlideVisualSpec, DesignDNA } from './types';
 
 const LAYOUT_MAP: Record<LayoutType, (props: import('./layouts/layout.types').LayoutProps) => object> = {
@@ -231,56 +232,24 @@ export class PostRendererService {
         { event_type: 'post_render_slide', slide_index: i, layout: slide.layout },
       ).catch(() => {});
 
-      let backgroundImageBase64: string | undefined;
-      if (schema.styleRules.backgroundType === 'ai-image') {
-        const imgPrompt = (slide.slots['image_prompt'] as string | undefined) ??
-          this._buildImagePrompt(req.topic, contract, dominantDNA);
-        const t0Img = Date.now();
+      let pngBuffer: Buffer;
 
-        // Try Unsplash first when the DNA suggests real photography
-        const needsRealPhoto = dominantDNA?.photography_style &&
-          dominantDNA.photography_style !== 'none' &&
-          dominantDNA.illustration_style === 'none';
-
-        let usedUnsplash = false;
-        if (needsRealPhoto) {
-          try {
-            const unsplashConfigured = await this.unsplash.isConfigured();
-            if (unsplashConfigured) {
-              await this.logSvc.info(runId ?? 'post-render',
-                `Unsplash photo: "${req.topic ?? 'business'}" style:${dominantDNA!.photography_style} — slide ${i + 1}`,
-                { event_type: 'post_image_gen_start', provider: 'unsplash', slide_index: i },
-              ).catch(() => {});
-              const query = this._buildUnsplashQuery(req.topic, dominantDNA);
-              const result = await this.unsplash.fetchAsBuffer(query, format.dimensions);
-              if (result) {
-                backgroundImageBase64 = `data:image/png;base64,${result.buffer.toString('base64')}`;
-                usedUnsplash = true;
-                await this.logSvc.info(runId ?? 'post-render',
-                  `Unsplash photo ready: ${result.photo.id} by ${result.photo.user.name} — ${Date.now() - t0Img}ms`,
-                  { event_type: 'post_image_gen_end', provider: 'unsplash', model: 'unsplash-photo', estimated_cost_usd: 0, duration_ms: Date.now() - t0Img, size_bytes: result.buffer.length },
-                ).catch(() => {});
-              }
-            }
-          } catch (err) {
-            this.logger.warn(`Unsplash failed for slide ${i}, falling back to AI: ${(err as Error).message}`);
-          }
-        }
-
-        // Fall back to AI image generation if Unsplash was not used
-        if (!usedUnsplash) {
-          try {
+      if (req.sampleId && sampledDNA) {
+        // AI full-slide generation path — bypasses Satori
+        const base = sampledDNA.prompt_base ?? buildStylePromptBase(sampledDNA);
+        const aiPrompt = buildSlideImagePrompt(base, slide, sampledDNA, i + 1, filledSlides.length);
+        const t0Ai = Date.now();
+        await this.logSvc.info(runId ?? 'post-render',
+          `AI slide gen: ${slide.role} slide ${i + 1}/${filledSlides.length}`,
+          { event_type: 'post_ai_slide_start', slide_index: i, slide_role: slide.role },
+        ).catch(() => {});
+        try {
+          const { buffer, provider, model, estimatedCostUsd } = await this.imageGen.generate(aiPrompt, format.dimensions, req.imageProvider ?? 'openai-stability');
+          if (buffer.length > 0) {
+            pngBuffer = buffer;
             await this.logSvc.info(runId ?? 'post-render',
-              `Image gen: ${req.imageProvider ?? 'auto'} — slide ${i + 1}`,
-              { event_type: 'post_image_gen_start', provider: req.imageProvider ?? 'auto', slide_index: i },
-            ).catch(() => {});
-            const { buffer, provider, model, estimatedCostUsd } = await this.imageGen.generate(imgPrompt, format.dimensions, req.imageProvider);
-            if (buffer.length > 0) {
-              backgroundImageBase64 = `data:image/png;base64,${buffer.toString('base64')}`;
-            }
-            await this.logSvc.info(runId ?? 'post-render',
-              `Image ready: ${model} ${Date.now() - t0Img}ms ~$${estimatedCostUsd.toFixed(4)}`,
-              { event_type: 'post_image_gen_end', provider, model, estimated_cost_usd: estimatedCostUsd, duration_ms: Date.now() - t0Img, size_bytes: buffer.length },
+              `AI slide ready: ${model} ${Date.now() - t0Ai}ms ~$${estimatedCostUsd.toFixed(4)}`,
+              { event_type: 'post_ai_slide_end', provider, model, estimated_cost_usd: estimatedCostUsd, slide_index: i },
             ).catch(() => {});
             if (estimatedCostUsd > 0) {
               void this.usageSvc.record({
@@ -288,17 +257,83 @@ export class PostRendererService {
                 inputTokens: 0, outputTokens: 0, costUsdOverride: estimatedCostUsd,
               }).catch(() => {});
             }
-          } catch (err) {
-            this.logger.warn(`image gen failed for slide ${i}: ${(err as Error).message}`);
-            await this.logSvc.warn(runId ?? 'post-render',
-              `Image gen failed — using gradient background`,
-              { event_type: 'post_image_gen_fallback', slide_index: i, error: (err as Error).message },
-            ).catch(() => {});
+          } else {
+            this.logger.warn(`AI slide gen empty buffer slide ${i + 1} — Satori fallback`);
+            pngBuffer = await this.renderSlide(slide, contract, format.dimensions, i + 1, undefined, visualSpecMap.get(i));
+          }
+        } catch (err) {
+          this.logger.warn(`AI slide gen failed slide ${i + 1}: ${(err as Error).message} — Satori fallback`);
+          pngBuffer = await this.renderSlide(slide, contract, format.dimensions, i + 1, undefined, visualSpecMap.get(i));
+        }
+      } else {
+        // Satori path (background image + code render)
+        let backgroundImageBase64: string | undefined;
+        if (schema.styleRules.backgroundType === 'ai-image') {
+          const imgPrompt = (slide.slots['image_prompt'] as string | undefined) ??
+            this._buildImagePrompt(req.topic, contract, dominantDNA);
+          const t0Img = Date.now();
+
+          const needsRealPhoto = dominantDNA?.photography_style &&
+            dominantDNA.photography_style !== 'none' &&
+            dominantDNA.illustration_style === 'none';
+
+          let usedUnsplash = false;
+          if (needsRealPhoto) {
+            try {
+              const unsplashConfigured = await this.unsplash.isConfigured();
+              if (unsplashConfigured) {
+                await this.logSvc.info(runId ?? 'post-render',
+                  `Unsplash photo: "${req.topic ?? 'business'}" style:${dominantDNA!.photography_style} — slide ${i + 1}`,
+                  { event_type: 'post_image_gen_start', provider: 'unsplash', slide_index: i },
+                ).catch(() => {});
+                const query = this._buildUnsplashQuery(req.topic, dominantDNA);
+                const result = await this.unsplash.fetchAsBuffer(query, format.dimensions);
+                if (result) {
+                  backgroundImageBase64 = `data:image/png;base64,${result.buffer.toString('base64')}`;
+                  usedUnsplash = true;
+                  await this.logSvc.info(runId ?? 'post-render',
+                    `Unsplash photo ready: ${result.photo.id} by ${result.photo.user.name} — ${Date.now() - t0Img}ms`,
+                    { event_type: 'post_image_gen_end', provider: 'unsplash', model: 'unsplash-photo', estimated_cost_usd: 0, duration_ms: Date.now() - t0Img, size_bytes: result.buffer.length },
+                  ).catch(() => {});
+                }
+              }
+            } catch (err) {
+              this.logger.warn(`Unsplash failed for slide ${i}, falling back to AI: ${(err as Error).message}`);
+            }
+          }
+
+          if (!usedUnsplash) {
+            try {
+              await this.logSvc.info(runId ?? 'post-render',
+                `Image gen: ${req.imageProvider ?? 'auto'} — slide ${i + 1}`,
+                { event_type: 'post_image_gen_start', provider: req.imageProvider ?? 'auto', slide_index: i },
+              ).catch(() => {});
+              const { buffer, provider, model, estimatedCostUsd } = await this.imageGen.generate(imgPrompt, format.dimensions, req.imageProvider);
+              if (buffer.length > 0) {
+                backgroundImageBase64 = `data:image/png;base64,${buffer.toString('base64')}`;
+              }
+              await this.logSvc.info(runId ?? 'post-render',
+                `Image ready: ${model} ${Date.now() - t0Img}ms ~$${estimatedCostUsd.toFixed(4)}`,
+                { event_type: 'post_image_gen_end', provider, model, estimated_cost_usd: estimatedCostUsd, duration_ms: Date.now() - t0Img, size_bytes: buffer.length },
+              ).catch(() => {});
+              if (estimatedCostUsd > 0) {
+                void this.usageSvc.record({
+                  runId: runId ?? null, agentKey: 'canva', provider, model,
+                  inputTokens: 0, outputTokens: 0, costUsdOverride: estimatedCostUsd,
+                }).catch(() => {});
+              }
+            } catch (err) {
+              this.logger.warn(`image gen failed for slide ${i}: ${(err as Error).message}`);
+              await this.logSvc.warn(runId ?? 'post-render',
+                `Image gen failed — using gradient background`,
+                { event_type: 'post_image_gen_fallback', slide_index: i, error: (err as Error).message },
+              ).catch(() => {});
+            }
           }
         }
-      }
 
-      const pngBuffer = await this.renderSlide(slide, contract, format.dimensions, i + 1, backgroundImageBase64, visualSpecMap.get(i));
+        pngBuffer = await this.renderSlide(slide, contract, format.dimensions, i + 1, backgroundImageBase64, visualSpecMap.get(i));
+      }
 
       await this.logSvc.debug(runId ?? 'post-render',
         `Slide ${i + 1} rendered: ${Math.round(pngBuffer.length / 1024)}KB PNG`,

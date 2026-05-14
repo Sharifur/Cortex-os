@@ -12,6 +12,7 @@ import { DbService } from '../../db/db.service';
 import { knowledgeEntries } from '../knowledge-base/schema';
 import { designReanalysisState } from './schema';
 import type { DesignDNA } from './types';
+import { buildStylePromptBase } from './slide-prompt-builder';
 import { DesignPatternService } from './design-pattern.service';
 
 const LOCAL_SAMPLES_DIR = path.join(os.homedir(), 'Designs', 'AI-Agent', 'DesignSamples');
@@ -410,6 +411,7 @@ export class DesignAnalysisService {
     }
 
     // Build KB entry content
+    dna.prompt_base = buildStylePromptBase(dna);
     const embeddingText = this.buildEmbeddingText(dna);
     const content = this.buildKbContent(dna);
 
@@ -520,6 +522,7 @@ export class DesignAnalysisService {
     // Embed carousel metadata into the DNA
     carouselDNA.carousel_slide_count = slides.length;
     carouselDNA.carousel_slide_urls = uploadResults;
+    carouselDNA.prompt_base = buildStylePromptBase(carouselDNA);
 
     const content = this.buildKbContent(carouselDNA);
     const kbRow = await this.kb.createEntry({
@@ -599,6 +602,7 @@ export class DesignAnalysisService {
 
     carouselDNA.carousel_slide_count = perSlideDNAs.length;
     carouselDNA.carousel_slide_urls = slideUrls;
+    carouselDNA.prompt_base = buildStylePromptBase(carouselDNA);
 
     const content = this.buildKbContent(carouselDNA);
     const kbRow = await this.kb.createEntry({
@@ -746,6 +750,7 @@ export class DesignAnalysisService {
 
     const jsonMatch = llmRes.content.match(/```(?:json)?\s*([\s\S]+?)\s*```/) ?? llmRes.content.match(/(\{[\s\S]+\})/);
     const dna = JSON.parse(jsonMatch?.[1] ?? llmRes.content) as DesignDNA;
+    dna.prompt_base = buildStylePromptBase(dna);
 
     const content = this.buildKbContent(dna);
     const title = `Design Sample — ${dna.slide_type} — ${dna.platform_fit[0] ?? 'any'} — ${id}`;
@@ -1116,6 +1121,7 @@ export class DesignAnalysisService {
           continue;
         }
 
+        dna.prompt_base = buildStylePromptBase(dna);
         const content = this.buildKbContent(dna);
         const title = `Design Sample — ${dna.slide_type} — ${dna.platform_fit[0] ?? 'any'} — ${row.id}`;
 
@@ -1210,6 +1216,7 @@ export class DesignAnalysisService {
           const llmRes = await this.llm.complete({ messages: [{ role: 'user', content: DNA_PROMPT }], imageBase64, imageMimeType: 'image/png', maxTokens: await this.getDnaMaxTokens(), temperature: 0.1, agentKey: 'canva' });
           const jsonMatch = llmRes.content.match(/```(?:json)?\s*([\s\S]+?)\s*```/) ?? llmRes.content.match(/(\{[\s\S]+\})/);
           const dna: DesignDNA = JSON.parse(jsonMatch?.[1] ?? llmRes.content);
+          dna.prompt_base = buildStylePromptBase(dna);
           const content = this.buildKbContent(dna);
           const title = `Design Sample — ${dna.slide_type} — ${dna.platform_fit[0] ?? 'any'} — ${row.id}`;
           await this.db.db.execute(sql`UPDATE knowledge_entries SET content = ${content}, title = ${title}, updated_at = NOW() WHERE id = ${row.id}`);
