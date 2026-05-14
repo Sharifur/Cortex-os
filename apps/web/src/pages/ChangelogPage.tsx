@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.66.4',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'fix', scope: 'support', description: 'Webhook trigger no longer scans all open tickets. buildContext() now uses normalizeCrmPayload() (same as ingestWebhook) to extract the CRM ticket ID from nested payload formats. Previously the flat-only payload?.ticket?.id lookup always returned null, causing fallthrough to the CRON batch path which processed every open ticket including unrelated ones. Now only the specific ticket from the webhook is processed, and if it is not open the run exits immediately.' },
+    ],
+  },
+  {
     version: 'v4.66.3',
     date: '2026-05-14',
     entries: [

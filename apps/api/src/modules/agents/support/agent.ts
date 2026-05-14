@@ -125,16 +125,28 @@ export class SupportAgent implements IAgent, OnModuleInit {
 
     if (trigger.type === 'WEBHOOK') {
       const payload = trigger.payload as any;
-      const crmTicketId = payload?.ticket?.id;
+      // Use the same normalization as ingestWebhook — the CRM sends nested formats
+      // that payload?.ticket?.id misses, causing fallthrough to the full open-ticket scan.
+      const { ticket: normalizedTicket } = this.normalizeCrmPayload(payload);
+      const crmTicketId = normalizedTicket?.id ?? payload?.ticket?.id ?? null;
       if (crmTicketId != null) {
         const [row] = await this.db.db
           .select()
           .from(supportTickets)
-          .where(eq(supportTickets.externalId, String(crmTicketId)));
+          .where(and(
+            eq(supportTickets.externalId, String(crmTicketId)),
+            eq(supportTickets.status, 'open'),
+          ));
         if (row) {
           return { source: trigger, snapshot: { tickets: [row], config }, followups: [] };
         }
+        // Ticket exists but is not open (replied/closed) — nothing to do
+        this.logger.log(`buildContext: ticket #${crmTicketId} found via webhook but not open — skipping`);
+        return { source: trigger, snapshot: { tickets: [], config }, followups: [] };
       }
+      // Could not resolve ticket from webhook payload — log and skip rather than processing all open tickets
+      this.logger.warn(`buildContext: WEBHOOK trigger but could not resolve crmTicketId — payload keys: ${Object.keys(payload ?? {}).join(', ')}`);
+      return { source: trigger, snapshot: { tickets: [], config }, followups: [] };
     }
 
     const openTickets = await this.db.db
