@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.46.0',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'support', description: 'Server access detection gate: when a verified ticket body contains a 500/server error, license error, or 404 error keyword, the agent checks whether admin credentials have been provided (username+password pattern). If missing, it queues a request_server_access action — posts a reply listing exactly what is needed (URL, admin credentials, FTP/cPanel details) and sends a Telegram notification. Goes through the same Approve/Reject flow as other actions. New detectServerIssue() and detectCredentials() private helpers.' },
+      { tag: 'fix', scope: 'support', description: 'Already-verified tickets now pass a cached purchase status block to the LLM (Active/Expired/Invalid with instructions) instead of an empty block — preventing re-verification API calls and giving the LLM correct license context on every run after the first verification.' },
+    ],
+  },
+  {
     version: 'v4.45.2',
     date: '2026-05-14',
     entries: [

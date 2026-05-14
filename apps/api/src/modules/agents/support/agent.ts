@@ -181,6 +181,14 @@ export class SupportAgent implements IAgent, OnModuleInit {
 
         // --- Verify purchase code if we have one and haven't verified yet ---
         let purchaseBlock = '';
+        if (alreadyGated && ticket.purchaseCode) {
+          const statusLabel = ticket.purchaseCodeStatus === 'verified'
+            ? 'Active — support is enabled. Proceed to help the customer.'
+            : ticket.purchaseCodeStatus === 'expired'
+            ? 'Expired — support period has ended. Direct them to renew via Envato.'
+            : 'Invalid — code did not validate. Do not provide technical support.';
+          purchaseBlock = `\n\n--- Purchase Status (cached) ---\nCode: ${ticket.purchaseCode}\nStatus: ${statusLabel}`;
+        }
         if (purchaseCodes.length && !alreadyGated) {
           await this.writeTicketEvent({
             ticketId: ticket.id,
@@ -215,6 +223,42 @@ export class SupportAgent implements IAgent, OnModuleInit {
                 updatedAt: new Date(),
               })
               .where(eq(supportTickets.id, ticket.id));
+          }
+        }
+
+        // --- Server access gate ---
+        const serverIssue = this.detectServerIssue(ticketText);
+        if (serverIssue && ticket.purchaseCodeStatus === 'verified') {
+          const creds = this.detectCredentials(ticket.body ?? '');
+          if (!creds.hasAdmin) {
+            const missing: string[] = [];
+            if (!creds.hasUrl) missing.push('Website URL');
+            missing.push('Admin panel URL and login credentials (username + password)');
+            if (!creds.hasFtp) missing.push('FTP / cPanel access (host, username, password, port)');
+
+            const credDraft = `Thank you for the details. To investigate this ${serverIssue} issue directly on your server, I need the following:\n\n${missing.map((m, i) => `${i + 1}. ${m}`).join('\n')}\n\nPlease share these details so I can look into it promptly.`;
+
+            await this.writeTicketEvent({
+              ticketId: ticket.id,
+              externalId: ticket.externalId,
+              eventType: 'server_access_not_found',
+              summary: `${serverIssue} detected — missing credentials: ${missing.join(', ')}`,
+              payload: { serverIssue, creds },
+            });
+            actions.push({
+              type: 'request_server_access',
+              summary: `Request server access: ${ticket.subject} from ${ticket.userEmail}`,
+              payload: {
+                ticketId: ticket.id,
+                crmTicketId: ticket.externalId ? Number(ticket.externalId) : null,
+                subject: ticket.subject,
+                userEmail: ticket.userEmail,
+                serverIssue,
+                draft: credDraft,
+              },
+              riskLevel: 'low',
+            });
+            continue;
           }
         }
 
@@ -316,7 +360,7 @@ export class SupportAgent implements IAgent, OnModuleInit {
   }
 
   requiresApproval(action: ProposedAction): boolean {
-    return action.type === 'post_reply' || action.type === 'escalate_to_owner' || action.type === 'request_purchase_code';
+    return action.type === 'post_reply' || action.type === 'escalate_to_owner' || action.type === 'request_purchase_code' || action.type === 'request_server_access';
   }
 
   async execute(action: ProposedAction): Promise<ActionResult> {
@@ -342,6 +386,29 @@ export class SupportAgent implements IAgent, OnModuleInit {
       });
       await this.telegram.sendMessage(
         `Purchase code requested: ${p.subject}\nFrom: ${p.userEmail}\n\nSent:\n${p.draft}`,
+      );
+      return { success: true, data: { ticketId: p.ticketId } };
+    }
+
+    if (action.type === 'request_server_access') {
+      if (p.ticketId) {
+        await this.db.db
+          .update(supportTickets)
+          .set({ status: 'replied', repliedAt: new Date(), updatedAt: new Date() })
+          .where(eq(supportTickets.id, p.ticketId));
+      }
+      if (p.crmTicketId) {
+        await this.postCrmReply(p.crmTicketId, p.draft);
+      }
+      await this.writeTicketEvent({
+        ticketId: p.ticketId,
+        externalId: p.crmTicketId ? String(p.crmTicketId) : null,
+        eventType: 'server_access_requested',
+        summary: `Server access requested (${p.serverIssue}) for ticket: ${p.subject}`,
+        payload: { draft: p.draft, serverIssue: p.serverIssue },
+      });
+      await this.telegram.sendMessage(
+        `Server access requested: ${p.subject}\nFrom: ${p.userEmail}\nIssue: ${p.serverIssue}\n\nSent:\n${p.draft}`,
       );
       return { success: true, data: { ticketId: p.ticketId } };
     }
@@ -845,6 +912,32 @@ export class SupportAgent implements IAgent, OnModuleInit {
   private async crmHeaders(): Promise<Record<string, string>> {
     const key = await this.settings.getDecrypted('support_crm_api_key');
     return { 'X-Secret-Key': key ?? '', 'Content-Type': 'application/json', Accept: 'application/json' };
+  }
+
+  private detectServerIssue(text: string): string | null {
+    if (/\b(500|internal server error|white screen|wsod|fatal error|php error|parse error|database error|db error|connection refused|server down|blank page|blank screen)\b/i.test(text)) {
+      return '500/server error';
+    }
+    if (/\b(license\s*(error|invalid|expired|fail|not found)|activation\s*(fail|error|invalid)|invalid\s*(license|key)|license\s*key\s*(wrong|incorrect))\b/i.test(text)) {
+      return 'license error';
+    }
+    if (/\b(404|page not found|file not found|missing\s*file|resource not found)\b/i.test(text)) {
+      return '404 error';
+    }
+    return null;
+  }
+
+  private detectCredentials(text: string): { hasUrl: boolean; hasAdmin: boolean; hasFtp: boolean } {
+    const hasUrl = /https?:\/\/[^\s]+/i.test(text);
+    const hasAdmin = (
+      /\b(username|user|login)\s*[:=]\s*\S+/i.test(text) &&
+      /\b(password|pass|pwd)\s*[:=]\s*\S+/i.test(text)
+    );
+    const hasFtp = /\b(ftp|ssh|sftp|cpanel|plesk|whm)\b/i.test(text) && (
+      /\b(host|server|ip|address)\s*[:=]\s*\S+/i.test(text) ||
+      /\b(user|username|login)\s*[:=]\s*\S+/i.test(text)
+    );
+    return { hasUrl, hasAdmin, hasFtp };
   }
 
   private stripHtml(html: string): string {
