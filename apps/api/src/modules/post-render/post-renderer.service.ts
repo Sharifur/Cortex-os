@@ -535,4 +535,10 @@ export class PostRendererService {
   async updateStatus(id: string, status: string): Promise<void> {
     await this.db.db.update(postRenders).set({ status }).where(eq(postRenders.id, id));
   }
+
+  async deleteRender(id: string): Promise<void> {
+    await this.db.db.delete(postRenders).where(eq(postRenders.id, id));
+    const dir = path.join(LOCAL_RENDERS_DIR, id);
+    await fs.rm(dir, { recursive: true, force: true });
+  }
 }

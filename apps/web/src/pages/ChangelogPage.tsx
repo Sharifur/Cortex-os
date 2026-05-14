@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.65.0',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'Delete button on Post Renders tab: each render card now has a Delete button that sends DELETE /posts/renders/:id, removes the DB row and local PNG files on disk, and removes the card from the list without a page reload.' },
+    ],
+  },
+  {
     version: 'v4.64.0',
     date: '2026-05-14',
     entries: [

@@ -3880,6 +3880,7 @@ function SlideLightbox({
 function PostRendersTab({ token }: { token: string }) {
   const [renders, setRenders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [lightbox, setLightbox] = useState<{ urls: string[]; index: number } | null>(null);
 
   useEffect(() => {
@@ -3888,6 +3889,17 @@ function PostRendersTab({ token }: { token: string }) {
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [token]);
+
+  async function handleDelete(id: string) {
+    if (!confirm('Delete this render? This cannot be undone.')) return;
+    setDeletingId(id);
+    try {
+      await fetch(`/posts/renders/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+      setRenders(prev => prev.filter(r => r.id !== id));
+    } catch { /* ignore */ } finally {
+      setDeletingId(null);
+    }
+  }
 
   if (loading) return <p className="text-sm text-muted-foreground">Loading...</p>;
 
@@ -3908,6 +3920,13 @@ function PostRendersTab({ token }: { token: string }) {
                 <a href={apiHref(`/posts/renders/${r.id}/pptx`)} className="text-xs text-primary underline">PPTX</a>
                 <a href={apiHref(`/posts/renders/${r.id}/canva-csv`)} className="text-xs text-primary underline">CSV</a>
                 <a href={apiHref(`/posts/renders/${r.id}/text-export`)} className="text-xs text-primary underline">Text</a>
+                <button
+                  onClick={() => handleDelete(r.id)}
+                  disabled={deletingId === r.id}
+                  className="text-xs text-red-500 hover:text-red-700 disabled:opacity-40 transition-colors"
+                >
+                  {deletingId === r.id ? 'Deleting...' : 'Delete'}
+                </button>
               </div>
             </div>
             {Array.isArray(r.slideUrls) && r.slideUrls.length > 0 && (

@@ -67,6 +67,17 @@ export class PostRenderController {
     return { ok: true };
   }
 
+  @Delete('renders/:id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async deleteRender(@Param('id') id: string) {
+    try {
+      await this.renderer.deleteRender(id);
+    } catch (err) {
+      this.logger.error(`DELETE /posts/renders/${id} failed: ${(err as Error).message}`);
+      throw new HttpException({ error: (err as Error).message }, HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
+
   // ─── Local slide PNG (no R2 configured) ──────────────────────────────────────
 
   @Get('renders/:id/slides/:n/png')
