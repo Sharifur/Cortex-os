@@ -1,8 +1,10 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { eq, desc, sql, and, ilike, or } from 'drizzle-orm';
 import { createId } from '@paralleldrive/cuid2';
 import { DbService } from '../../../db/db.service';
 import { agents } from '../../../db/schema';
+import { kbProposals } from '../../knowledge-base/schema';
 import { supportTickets, supportWebhookLogs, supportTicketEvents } from './schema';
 import { AgentRegistryService } from '../runtime/agent-registry.service';
 import { LlmRouterService } from '../../llm/llm-router.service';
@@ -52,6 +54,26 @@ const SYSTEM_PROMPT = `You are a support agent for Taskip/Xgenious. Given a supp
 Respond with valid JSON only:
 { "category": "...", "priority": "...", "reply": "..." }`;
 
+const TRAIN_PROPOSE_SYSTEM = `You are a knowledge base curator for a support ticket AI agent.
+An operator is training the agent by providing a ticket example and an instruction for how similar tickets should be handled in the future.
+
+Your job: formulate a clear, reusable rule from the instruction so the support agent consistently applies it.
+
+Category guidance:
+- spam_filter: Write a detection + action rule. Pattern: "SPAM FILTER: If ticket [matches pattern], [action — e.g. close with brief reply or skip entirely]."
+- decision_rule: Write a routing instruction. Pattern: "DECISION RULE: When ticket is about [topic], [action — escalate / skip / close / auto-reply with X]."
+- faq: Write a Q&A fact. Pattern: "FAQ: [Generalized question] → [Complete accurate answer]."
+- policy: Write a policy statement. Pattern: "POLICY: [Condition] → [Required action or response]."
+
+The rule must be general enough to apply to similar future tickets, not just this specific one.
+
+Return JSON only — no markdown:
+{
+  "title": "short descriptive title (max 8 words)",
+  "content": "the rule, clearly worded for the AI to follow",
+  "reasoning": "one sentence: what problem this solves"
+}`;
+
 @Injectable()
 export class SupportAgent implements IAgent, OnModuleInit {
   readonly key = 'support';
@@ -66,6 +88,7 @@ export class SupportAgent implements IAgent, OnModuleInit {
     private kb: KnowledgeBaseService,
     private purchaseVerify: PurchaseVerifyService,
     private settings: SettingsService,
+    private events: EventEmitter2,
   ) {}
 
   onModuleInit() {
@@ -517,6 +540,18 @@ export class SupportAgent implements IAgent, OnModuleInit {
         requiresAuth: true,
         handler: async (params) => this.deleteTicket((params as any).id),
       },
+      {
+        method: 'POST',
+        path: '/support/tickets/:id/train',
+        requiresAuth: true,
+        handler: async (params) => {
+          const { id, category, instruction } = params as any;
+          if (!instruction?.trim()) throw new Error('instruction is required');
+          const validCategories = ['spam_filter', 'decision_rule', 'faq', 'policy'];
+          if (!validCategories.includes(category)) throw new Error('invalid category');
+          return this.trainFromTicket(id, category, instruction.trim());
+        },
+      },
     ];
   }
 
@@ -538,6 +573,71 @@ export class SupportAgent implements IAgent, OnModuleInit {
     await this.db.db.delete(supportTicketEvents).where(eq(supportTicketEvents.ticketId, id));
     await this.db.db.delete(supportTickets).where(eq(supportTickets.id, id));
     return { ok: true };
+  }
+
+  private async trainFromTicket(id: string, category: string, instruction: string): Promise<{ proposalId: string }> {
+    const [ticket] = await this.db.db.select().from(supportTickets).where(eq(supportTickets.id, id));
+    if (!ticket) throw new Error('Ticket not found');
+
+    const userContent = [
+      `Ticket subject: "${ticket.subject}"`,
+      ticket.body ? `Ticket body (excerpt): "${ticket.body.slice(0, 400)}"` : null,
+      `Training category: ${category}`,
+      `Operator instruction: "${instruction}"`,
+    ].filter(Boolean).join('\n\n');
+
+    const response = await this.llm.complete({
+      messages: [
+        { role: 'system', content: TRAIN_PROPOSE_SYSTEM },
+        { role: 'user', content: userContent },
+      ],
+      provider: 'auto',
+      model: 'gpt-4o-mini',
+      maxTokens: 400,
+      temperature: 0.2,
+    });
+
+    const raw = response.content.trim();
+    const match = raw.match(/\{[\s\S]*\}/);
+    const proposal: { title: string; content: string; reasoning: string } = JSON.parse(match?.[0] ?? raw);
+    if (!proposal.title || !proposal.content) throw new Error('LLM returned incomplete proposal');
+
+    const categoryMap: Record<string, string> = { spam_filter: 'spam_rule', decision_rule: 'decision_rule', faq: 'faq', policy: 'policy' };
+    const priorityMap: Record<string, number> = { spam_filter: 90, decision_rule: 85, policy: 75, faq: 70 };
+
+    const [row] = await this.db.db
+      .insert(kbProposals)
+      .values({
+        agentKey: this.key,
+        proposedEntryType: 'fact',
+        title: proposal.title,
+        content: proposal.content,
+        polarity: null,
+        reasoning: proposal.reasoning ?? '',
+        category: categoryMap[category] ?? 'general',
+        sourceType: 'training',
+      })
+      .returning();
+
+    const labelMap: Record<string, string> = { spam_filter: 'Spam Filter', decision_rule: 'Decision Rule', faq: 'FAQ', policy: 'Policy' };
+    const text = [
+      `*Agent Training Proposal*`,
+      `Agent: *${this.name}* (\`${this.key}\`)`,
+      ``,
+      `Type: *${labelMap[category] ?? category}*`,
+      `From ticket: _"${ticket.subject.slice(0, 100)}"_`,
+      ``,
+      `Rule: *${proposal.title}*`,
+      `_${proposal.content.slice(0, 300)}_`,
+      ``,
+      `Why: ${proposal.reasoning}`,
+      ``,
+      `Add this to the Knowledge Base?`,
+    ].join('\n');
+
+    this.events.emit('telegram.kb_proposal', { proposalId: row.id, text });
+    this.logger.log(`Training proposal created: ${row.id} agent=${this.key} category=${category}`);
+    return { proposalId: row.id };
   }
 
   private async writeTicketEvent(entry: {

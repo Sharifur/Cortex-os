@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.45.0',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'support', description: 'Train Agent panel on ticket detail page: operators can submit a rule type (Spam Filter, Decision Rule, FAQ, Policy) and a plain-English instruction. The LLM reformulates it into a reusable KB fact, saves it as a kb_proposal, and sends a Telegram approval request before it goes live. Backend: new POST /support/tickets/:id/train route + trainFromTicket() method in SupportAgent. Frontend: inline collapsible panel with category selector, instruction textarea, and approval-confirmation state.' },
+    ],
+  },
+  {
     version: 'v4.44.1',
     date: '2026-05-14',
     entries: [
