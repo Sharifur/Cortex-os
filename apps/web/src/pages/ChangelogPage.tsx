@@ -16,6 +16,15 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.66.3',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'fix', scope: 'canva', description: 'Activity panel now shows "Executing" and "Executed" log entries, plus a "Run completed" entry at the end of each run. Previously these messages were silently dropped and the panel appeared empty.' },
+      { tag: 'fix', scope: 'canva', description: 'Activity panel no longer freezes on an empty state when a fast run finishes before the first poll. Polling now continues until at least one log entry is received.' },
+      { tag: 'fix', scope: 'canva', description: 'Generated slides now leave a 50px safe-zone margin on all edges, preventing text from rendering flush against the image border.' },
+    ],
+  },
+  {
     version: 'v4.66.2',
     date: '2026-05-14',
     entries: [

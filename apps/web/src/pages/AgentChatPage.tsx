@@ -1682,6 +1682,18 @@ function parseLogsToTimeline(logs: RunLog[], finished: boolean): ActivityEntry[]
       entries.push({ id: log.id, at, type: 'complete', label: log.message.slice(0, 60), status: 'success' });
       continue;
     }
+    if (log.message.startsWith('Executing:')) {
+      entries.push({ id: log.id, at, type: 'tool_call', label: log.message.slice(0, 60), status: 'running' });
+      continue;
+    }
+    if (log.message.startsWith('Executed:')) {
+      entries.push({ id: log.id, at, type: 'tool_result', label: log.message.slice(0, 60), status: 'success' });
+      continue;
+    }
+    if (log.message.startsWith('Execute failed:')) {
+      entries.push({ id: log.id, at, type: 'error', label: log.message.slice(0, 70), status: 'failed' });
+      continue;
+    }
     if (log.message.startsWith('Run completed')) {
       entries.push({ id: log.id, at, type: 'complete', label: 'Run completed', status: 'success' });
       continue;
@@ -1779,7 +1791,8 @@ function RunActivityPanel({
     queryFn: () => apiFetch(token, `/runs/${runId}/logs`),
     refetchInterval: (query) => {
       if (!runId) return false;
-      if (query.state.data?.finished) return false;
+      const data = query.state.data;
+      if (data?.finished && data.logs.length > 0) return false;
       return 1500;
     },
   });

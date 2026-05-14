@@ -119,6 +119,7 @@ export class DesignStudioService {
       dna.stylePrompt,
       '',
       `Critical: the slide must show only the headline${bodyText ? ' and body' : ''} specified above. Do not add, invent, or replace any text.`,
+      `Leave a minimum 50px margin on every edge — no text or graphic element may touch within 50px of any border.`,
     ].filter(Boolean).join('\n');
 
     const apiKey = await this.settings.getDecrypted('openai_api_key');
