@@ -1188,10 +1188,20 @@ function MessageBubble({
           // Slide render result
           if (!isUser && msg.content.startsWith(SLIDE_RENDER_PREFIX)) {
             try {
-              const { slideUrls, renderId } = JSON.parse(msg.content.slice(SLIDE_RENDER_PREFIX.length));
+              const { slideUrls, renderId, nextSlidePrompt } = JSON.parse(msg.content.slice(SLIDE_RENDER_PREFIX.length));
+              const displayPrompt = nextSlidePrompt
+                ? String(nextSlidePrompt).replace(/\[carousel-gather:[\s\S]*$/, '').trim()
+                : null;
               return (
-                <div className={`rounded-2xl rounded-bl-sm px-4 py-3 ${color.bubble}`}>
-                  <SlideGrid slideUrls={slideUrls} renderId={renderId} />
+                <div className="flex flex-col gap-2">
+                  <div className={`rounded-2xl rounded-bl-sm px-4 py-3 ${color.bubble}`}>
+                    <SlideGrid slideUrls={slideUrls} renderId={renderId} />
+                  </div>
+                  {displayPrompt && (
+                    <div className={`rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${color.bubble} text-foreground rounded-bl-sm`}>
+                      <div dangerouslySetInnerHTML={{ __html: renderMarkdown(displayPrompt) }} />
+                    </div>
+                  )}
                 </div>
               );
             } catch { /* fall through */ }

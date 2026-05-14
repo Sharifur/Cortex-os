@@ -165,8 +165,16 @@ export class CanvaAgent implements IAgent, OnModuleInit {
 
     type DnaParam = { key: string; description: string; example?: string };
     type StyleEntry = { num: string; id: string; title: string; thumb: string | null };
+    type CarouselGatherState = {
+      slides: Array<{ id: string; name: string; params: DnaParam[] }>;
+      slideIdx: number;
+      paramIdx: number;
+      gatheredForSlide: Record<string, string>;
+      results: string[];
+    };
 
     const histStr = history ?? '';
+    const SLIDE_RENDER_STR = '__SLIDE_RENDER__:';
 
     // ===== FORCED STATE MACHINE =====
     const agentMarker = '\nAgent: ';
@@ -175,9 +183,19 @@ export class CanvaAgent implements IAgent, OnModuleInit {
       ? histStr.slice(lastAgentIdx + agentMarker.length)
       : (histStr.startsWith('Agent: ') ? histStr.slice('Agent: '.length) : '');
 
+    // Unwrap carousel gather state from SLIDE_RENDER wrapper if needed
+    let cgSearchText = lastAgentText;
+    if (lastAgentText.startsWith(SLIDE_RENDER_STR)) {
+      try {
+        const d = JSON.parse(lastAgentText.slice(SLIDE_RENDER_STR.length)) as { nextSlidePrompt?: string };
+        if (d.nextSlidePrompt) cgSearchText = d.nextSlidePrompt;
+      } catch { /* ignore */ }
+    }
+
     const inParamGatherStep = lastAgentText.includes('[param-gather:');
-    const inStylePickerStep = lastAgentText.includes('[styles:') && !inParamGatherStep;
-    const inContentConfirmStep = lastAgentText.includes('[pending:') && !lastAgentText.includes('[styles:') && !inParamGatherStep;
+    const inCarouselGatherStep = cgSearchText.includes('[carousel-gather:') && !inParamGatherStep;
+    const inStylePickerStep = lastAgentText.includes('[styles:') && !inParamGatherStep && !inCarouselGatherStep;
+    const inContentConfirmStep = lastAgentText.includes('[pending:') && !lastAgentText.includes('[styles:') && !inParamGatherStep && !inCarouselGatherStep;
 
     // STEP 3 (FORCED): parameter gathering — user answered a param question
     if (inParamGatherStep) {
@@ -205,6 +223,93 @@ export class CanvaAgent implements IAgent, OnModuleInit {
           // All params gathered — generate
           const userPrompt = pg.params.map(p => `${p.key}: ${updatedGathered[p.key]}`).join(', ');
           return [{ type: 'dna_generate', summary: `Generate DNA image`, payload: { templateId: pg.templateId, userPrompt }, riskLevel: 'low' }];
+        } catch { /* fall through */ }
+      }
+    }
+
+    // STEP 2.5 (FORCED): carousel parameter gathering — one slide at a time
+    if (inCarouselGatherStep) {
+      const cgMatch = cgSearchText.match(/\[carousel-gather:(\{.+?\})\]/s);
+      if (cgMatch) {
+        try {
+          const cg = JSON.parse(cgMatch[1]) as CarouselGatherState;
+          const currentSlide = cg.slides[cg.slideIdx];
+          if (!currentSlide) {
+            // Shouldn't happen, but guard
+            const msg = `${SLIDE_RENDER_STR}${JSON.stringify({ slideUrls: cg.results })}`;
+            return [{ type: 'notify_result', summary: 'Carousel complete', payload: { message: msg }, riskLevel: 'low' }];
+          }
+
+          const updatedGathered = { ...cg.gatheredForSlide };
+          const currentParam = currentSlide.params[cg.paramIdx];
+          if (currentParam) {
+            updatedGathered[currentParam.key] = query.trim();
+          }
+
+          const nextParamIdx = cg.paramIdx + 1;
+          if (nextParamIdx < currentSlide.params.length) {
+            const nextParam = currentSlide.params[nextParamIdx];
+            const nextState: CarouselGatherState = { ...cg, paramIdx: nextParamIdx, gatheredForSlide: updatedGathered };
+            const msg = [
+              `Got it. Now — ${nextParam.description}?`,
+              nextParam.example ? `(e.g. ${nextParam.example})` : '',
+              `[carousel-gather:${JSON.stringify(nextState)}]`,
+            ].filter(Boolean).join('\n');
+            return [{ type: 'notify_result', summary: 'Carousel param', payload: { message: msg }, riskLevel: 'low' }];
+          }
+
+          // All params for this slide gathered — build prompt and generate
+          const userPrompt = currentSlide.params.length > 0
+            ? currentSlide.params.map(p => `${p.key}: ${updatedGathered[p.key] ?? ''}`).join(', ')
+            : query.trim();
+
+          const slideLabelShort = currentSlide.name.split('/').pop() ?? currentSlide.name;
+          let slideUrl = '';
+          try {
+            const { url } = await this.designStudio.generateAndSave(currentSlide.id, userPrompt);
+            slideUrl = url;
+          } catch (genErr) {
+            const msg = `Slide ${cg.slideIdx + 1} generation failed: ${(genErr as Error).message}`;
+            return [{ type: 'notify_result', summary: 'Slide failed', payload: { message: msg }, riskLevel: 'low' }];
+          }
+
+          const newResults = [...cg.results, slideUrl];
+          const nextSlideIdx = cg.slideIdx + 1;
+
+          if (nextSlideIdx >= cg.slides.length) {
+            // All slides done — return combined render
+            const msg = `${SLIDE_RENDER_STR}${JSON.stringify({ slideUrls: newResults })}`;
+            return [{ type: 'notify_result', summary: 'Carousel complete', payload: { message: msg }, riskLevel: 'low' }];
+          }
+
+          // More slides — ask first param of next slide
+          const nextSlide = cg.slides[nextSlideIdx];
+          const nextSlideLabelShort = nextSlide.name.split('/').pop() ?? nextSlide.name;
+          const nextState: CarouselGatherState = {
+            slides: cg.slides,
+            slideIdx: nextSlideIdx,
+            paramIdx: 0,
+            gatheredForSlide: {},
+            results: newResults,
+          };
+
+          let nextAsk: string;
+          if (nextSlide.params.length === 0) {
+            nextAsk = [
+              `Slide ${cg.slideIdx + 1} ("${slideLabelShort}") done. For slide ${nextSlideIdx + 1} ("${nextSlideLabelShort}") — what content?`,
+              `[carousel-gather:${JSON.stringify(nextState)}]`,
+            ].join('\n');
+          } else {
+            const firstParam = nextSlide.params[0];
+            nextAsk = [
+              `Slide ${cg.slideIdx + 1} ("${slideLabelShort}") done. For slide ${nextSlideIdx + 1} ("${nextSlideLabelShort}") — ${firstParam.description}?`,
+              firstParam.example ? `(e.g. ${firstParam.example})` : '',
+              `[carousel-gather:${JSON.stringify(nextState)}]`,
+            ].filter(Boolean).join('\n');
+          }
+
+          const combinedMsg = `${SLIDE_RENDER_STR}${JSON.stringify({ slideUrls: [slideUrl], nextSlidePrompt: nextAsk })}`;
+          return [{ type: 'notify_result', summary: `Slide ${cg.slideIdx + 1} generated`, payload: { message: combinedMsg }, riskLevel: 'low' }];
         } catch { /* fall through */ }
       }
     }
@@ -246,11 +351,54 @@ export class CanvaAgent implements IAgent, OnModuleInit {
         return [{ type: 'notify_result', summary: 'Template re-pick', payload: { message: msg }, riskLevel: 'low' }];
       }
 
-      // Load template params
+      // Load template — check if it's a carousel set member first
       let templateParams: DnaParam[] = [];
       if (pickedId) {
         try {
           const tpl = await this.designStudio.getTemplate(pickedId);
+          const tplName = (tpl as any).name as string;
+
+          if (tplName.includes('/')) {
+            // Carousel mode — load all slides in the set
+            const setName = tplName.split('/')[0];
+            const allTpls = await this.designStudio.listTemplates() as Array<{ id: string; name: string; parameters: unknown }>;
+            const setSlides = allTpls
+              .filter(t => t.name.startsWith(setName + '/'))
+              .sort((a, b) => a.name.localeCompare(b.name));
+
+            if (setSlides.length > 0) {
+              const firstSlide = setSlides[0];
+              const firstParams = Array.isArray(firstSlide.parameters) ? firstSlide.parameters as DnaParam[] : [];
+              const cgState: CarouselGatherState = {
+                slides: setSlides.map(t => ({
+                  id: t.id,
+                  name: t.name,
+                  params: Array.isArray(t.parameters) ? t.parameters as DnaParam[] : [],
+                })),
+                slideIdx: 0,
+                paramIdx: 0,
+                gatheredForSlide: {},
+                results: [],
+              };
+              const firstSlideName = firstSlide.name.split('/').pop() ?? firstSlide.name;
+              let firstMsg: string;
+              if (firstParams.length === 0) {
+                firstMsg = [
+                  `Carousel mode — ${setSlides.length} slides to generate. For slide 1 ("${firstSlideName}") — what content?`,
+                  `[carousel-gather:${JSON.stringify(cgState)}]`,
+                ].join('\n');
+              } else {
+                const fp = firstParams[0];
+                firstMsg = [
+                  `Carousel mode — ${setSlides.length} slides to generate. For slide 1 ("${firstSlideName}") — ${fp.description}?`,
+                  fp.example ? `(e.g. ${fp.example})` : '',
+                  `[carousel-gather:${JSON.stringify(cgState)}]`,
+                ].filter(Boolean).join('\n');
+              }
+              return [{ type: 'notify_result', summary: 'Start carousel', payload: { message: firstMsg }, riskLevel: 'low' }];
+            }
+          }
+
           templateParams = Array.isArray((tpl as any).parameters) ? (tpl as any).parameters as DnaParam[] : [];
         } catch { /* ignore */ }
       }

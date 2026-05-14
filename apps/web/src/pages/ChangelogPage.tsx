@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.63.0',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'Carousel one-by-one: when a carousel-set template is selected in the style picker, the agent enters carousel-gather mode — it asks content questions for each slide individually, generates each slide via gpt-image-1 as answers arrive, shows the rendered image inline with the next slide question below it, and displays all slide images together when the set is complete.' },
+      { tag: 'feat', scope: 'canva', description: 'SlideGrid messages now support a nextSlidePrompt field: when present the prompt text is rendered below the image grid, allowing combined image+question responses in carousel mode.' },
+    ],
+  },
+  {
     version: 'v4.62.0',
     date: '2026-05-14',
     entries: [
