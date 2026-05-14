@@ -17,6 +17,7 @@ import { CanvaDebugService } from './canva-debug.service';
 import { PostRendererService } from '../../post-render/post-renderer.service';
 import { DesignPatternService } from '../../post-render/design-pattern.service';
 import { listFormats } from '../../post-render/post-format.registry';
+import { DesignStudioService } from '../../design-studio/design-studio.service';
 import { agentLlmOpts } from '../runtime/llm-config.util';
 import type {
   IAgent,
@@ -71,6 +72,7 @@ export class CanvaAgent implements IAgent, OnModuleInit {
     private readonly debug: CanvaDebugService,
     private readonly renderer: PostRendererService,
     private readonly designPattern: DesignPatternService,
+    private readonly designStudio: DesignStudioService,
   ) {}
 
   onModuleInit() {
@@ -151,7 +153,7 @@ export class CanvaAgent implements IAgent, OnModuleInit {
     }
 
     const firstBrand = (config.brands?.[0] ?? 'taskip').toLowerCase();
-    const trainingSamples = await this.designPattern.listSampleMeta(firstBrand).catch(() => [] as Array<{ id: string; title: string; thumbUrl?: string }>);
+    const dnaTemplates = await this.designStudio.listTemplates().catch(() => [] as Array<{ id: string; name: string; parameters: unknown; createdAt: Date }>);
 
     const toneInstructions: Record<string, string> = {
       'bold-punchy':        'Bold punchy style — max 6 words per headline, heavy font weight, very high contrast backgrounds (dark or vivid), large corner decorations, 1-2 word highlights per slide.',
@@ -161,97 +163,120 @@ export class CanvaAgent implements IAgent, OnModuleInit {
       'energetic-colorful': 'Energetic colorful style — saturated backgrounds (yellow, coral, electric purple), white text, multiple overlapping shapes, bold decorations at every corner.',
     };
 
+    type DnaParam = { key: string; description: string; example?: string };
+    type StyleEntry = { num: string; id: string; title: string; thumb: string | null };
+
     const histStr = history ?? '';
 
     // ===== FORCED STATE MACHINE =====
-    // Detect step from the last agent message in history.
-    // Content confirmation and style selection are NOT delegated to the LLM classifier —
-    // they are forced based on what the agent last showed.
     const agentMarker = '\nAgent: ';
     const lastAgentIdx = histStr.lastIndexOf(agentMarker);
     const lastAgentText = lastAgentIdx >= 0
       ? histStr.slice(lastAgentIdx + agentMarker.length)
       : (histStr.startsWith('Agent: ') ? histStr.slice('Agent: '.length) : '');
 
-    const inStylePickerStep = lastAgentText.includes('[styles:');
-    const inContentConfirmStep = lastAgentText.includes('[pending:') && !lastAgentText.includes('[styles:');
+    const inParamGatherStep = lastAgentText.includes('[param-gather:');
+    const inStylePickerStep = lastAgentText.includes('[styles:') && !inParamGatherStep;
+    const inContentConfirmStep = lastAgentText.includes('[pending:') && !lastAgentText.includes('[styles:') && !inParamGatherStep;
 
-    // STEP 2 (FORCED): style picker is active — next message is always a style selection
+    // STEP 3 (FORCED): parameter gathering — user answered a param question
+    if (inParamGatherStep) {
+      const pgMatch = lastAgentText.match(/\[param-gather:(\{.+?\})\]/s);
+      if (pgMatch) {
+        try {
+          const pg = JSON.parse(pgMatch[1]) as {
+            templateId: string;
+            params: DnaParam[];
+            gathered: Record<string, string>;
+            idx: number;
+            topic: string;
+          };
+          const updatedGathered = { ...pg.gathered, [pg.params[pg.idx].key]: query.trim() };
+          const nextIdx = pg.idx + 1;
+          if (nextIdx < pg.params.length) {
+            const next = pg.params[nextIdx];
+            const msg = [
+              `Got it. Now — ${next.description}?`,
+              next.example ? `(e.g. ${next.example})` : '',
+              `[param-gather:${JSON.stringify({ ...pg, gathered: updatedGathered, idx: nextIdx })}]`,
+            ].filter(Boolean).join('\n');
+            return [{ type: 'notify_result', summary: 'Param gathering', payload: { message: msg }, riskLevel: 'low' }];
+          }
+          // All params gathered — generate
+          const userPrompt = pg.params.map(p => `${p.key}: ${updatedGathered[p.key]}`).join(', ');
+          return [{ type: 'dna_generate', summary: `Generate DNA image`, payload: { templateId: pg.templateId, userPrompt }, riskLevel: 'low' }];
+        } catch { /* fall through */ }
+      }
+    }
+
+    // STEP 2 (FORCED): style picker — user selected a template number
     if (inStylePickerStep) {
-      type StyleSampleEntry = { num: string; id: string; title: string; thumb: string | null };
-      let samples: StyleSampleEntry[] = [];
+      let samples: StyleEntry[] = [];
       const stylesMatch = lastAgentText.match(/\[styles:(\{[^\n]+\})\]/);
       if (stylesMatch) {
         try {
-          const parsed = JSON.parse(stylesMatch[1]) as { samples: StyleSampleEntry[] };
+          const parsed = JSON.parse(stylesMatch[1]) as { samples: StyleEntry[] };
           samples = parsed.samples ?? [];
         } catch { /* fall through */ }
       }
       if (!samples.length) {
-        samples = trainingSamples.map((s, i) => ({ num: String(i + 1), id: s.id, title: s.title || `Sample ${i + 1}`, thumb: s.thumbUrl ?? null }));
+        samples = dnaTemplates.map((t, i) => ({
+          num: String(i + 1), id: t.id, title: t.name,
+          thumb: `/design-studio/templates/${t.id}/preview`,
+        }));
       }
 
       const numMatch = query.trim().match(/^\d+$/);
       const styleNum = numMatch ? parseInt(numMatch[0], 10) : 0;
-      const isRandom = /^random$/i.test(query.trim()) || styleNum === 0;
 
-      let pickedSampleId: string | undefined;
-      if (isRandom) {
-        pickedSampleId = samples[Math.floor(Math.random() * samples.length)]?.id;
+      let pickedId: string | undefined;
+      if (/^random$/i.test(query.trim()) || styleNum === 0) {
+        pickedId = samples[Math.floor(Math.random() * samples.length)]?.id;
       } else if (styleNum >= 1 && styleNum <= samples.length) {
-        pickedSampleId = samples[styleNum - 1]?.id;
+        pickedId = samples[styleNum - 1]?.id;
       } else {
-        // Unrecognised selection — re-show picker
         const pendingMatch = lastAgentText.match(/\[pending:(\{[^\n]+\})\]/);
         const pendingTag = pendingMatch ? `\n[pending:${pendingMatch[1]}]` : '';
         const msg = [
-          'Please pick one of the numbered styles (type a number or click a tile):',
+          'Please pick one of the numbered templates (type a number or click a tile):',
           '',
           'Choose a style reference:',
           `[styles:${JSON.stringify({ samples })}]${pendingTag}`,
         ].join('\n');
-        return [{ type: 'notify_result', summary: 'Style re-pick', payload: { message: msg, query }, riskLevel: 'low' }];
+        return [{ type: 'notify_result', summary: 'Template re-pick', payload: { message: msg }, riskLevel: 'low' }];
       }
 
-      // Extract pending from history
-      let pendingFormatId = 'linkedin-tips-carousel';
-      let pendingBrand = firstBrand;
+      // Load template params
+      let templateParams: DnaParam[] = [];
+      if (pickedId) {
+        try {
+          const tpl = await this.designStudio.getTemplate(pickedId);
+          templateParams = Array.isArray((tpl as any).parameters) ? (tpl as any).parameters as DnaParam[] : [];
+        } catch { /* ignore */ }
+      }
+
+      // Extract topic from pending
       let pendingTopic = '';
-      let pendingIntentStr = '';
-      let pendingSlides: Array<{ slideLabel?: string; headline: string; body?: string }> = [];
-      const lastPendingIdx = histStr.lastIndexOf('[pending:');
-      if (lastPendingIdx !== -1) {
-        const tail = histStr.slice(lastPendingIdx);
+      const lastPendingIdx2 = histStr.lastIndexOf('[pending:');
+      if (lastPendingIdx2 !== -1) {
+        const tail = histStr.slice(lastPendingIdx2);
         const m = tail.match(/^\[pending:(\{.+\})\]/);
-        if (m) {
-          try {
-            const p = JSON.parse(m[1]) as { formatId?: string; brand?: string; topic?: string; intentStr?: string; slides?: Array<{ slideLabel?: string; headline: string; body?: string }> };
-            if (p.formatId) pendingFormatId = p.formatId;
-            if (p.brand) pendingBrand = p.brand;
-            if (p.topic) pendingTopic = p.topic;
-            if (p.intentStr) pendingIntentStr = p.intentStr;
-            if (p.slides?.length) pendingSlides = p.slides;
-          } catch { /* use defaults */ }
-        }
+        if (m) { try { pendingTopic = (JSON.parse(m[1]) as { topic?: string }).topic ?? ''; } catch { /* ignore */ } }
       }
 
-      const exactContentPrefix = pendingSlides.length
-        ? `Use EXACTLY these slide headlines and bodies (do not change them):\n${pendingSlides.map((s, i) => `Slide ${i + 1}: headline="${s.headline}"${s.body ? `, body="${s.body}"` : ''}`).join('\n')}\n\n`
-        : '';
-      const pickedTitle = isRandom ? 'Random' : (samples[styleNum - 1]?.title ?? 'Unknown');
+      if (templateParams.length > 0) {
+        const first = templateParams[0];
+        const pgState = JSON.stringify({ templateId: pickedId, params: templateParams, gathered: {}, idx: 0, topic: pendingTopic });
+        const msg = [
+          `Template selected. Let\'s fill in the content — ${first.description}?`,
+          first.example ? `(e.g. ${first.example})` : '',
+          `[param-gather:${pgState}]`,
+        ].filter(Boolean).join('\n');
+        return [{ type: 'notify_result', summary: 'Start param gathering', payload: { message: msg }, riskLevel: 'low' }];
+      }
 
-      return [{
-        type: 'post_render',
-        summary: `Render ${pendingFormatId} for ${pendingBrand} (style: ${pickedTitle})`,
-        payload: {
-          formatId: pendingFormatId,
-          brand: pendingBrand,
-          topic: pendingTopic,
-          intent: (exactContentPrefix + pendingIntentStr) || undefined,
-          sampleId: pickedSampleId,
-        },
-        riskLevel: 'low',
-      }];
+      // No params — generate directly using topic
+      return [{ type: 'dna_generate', summary: `Generate DNA image`, payload: { templateId: pickedId, userPrompt: pendingTopic }, riskLevel: 'low' }];
     }
 
     // STEP 1 (FORCED): content draft shown — any message = confirmed or revise
@@ -262,12 +287,12 @@ export class CanvaAgent implements IAgent, OnModuleInit {
         return [{
           type: 'notify_result',
           summary: 'Revision requested',
-          payload: { message: 'What would you like to change? Describe the revision and I\'ll prepare an updated content plan.', query },
+          payload: { message: 'What would you like to change? Describe the revision and I\'ll prepare an updated content plan.' },
           riskLevel: 'low',
         }];
       }
 
-      // Confirmed — extract pending and show style picker
+      // Confirmed — extract pending context
       let formatId = 'linkedin-tips-carousel';
       let brand = firstBrand;
       let topic = '';
@@ -288,29 +313,31 @@ export class CanvaAgent implements IAgent, OnModuleInit {
           } catch { /* use defaults */ }
         }
       }
-
-      if (trainingSamples.length > 0) {
+      if (dnaTemplates.length > 0) {
         const stylesPayload = JSON.stringify({
-          samples: trainingSamples.map((s, i) => ({ num: String(i + 1), id: s.id, title: s.title || `Sample ${i + 1}`, thumb: s.thumbUrl ?? null })),
+          samples: dnaTemplates.map((t, i) => ({
+            num: String(i + 1), id: t.id, title: t.name,
+            thumb: `/design-studio/templates/${t.id}/preview`,
+          })),
         });
         const msg = [
-          `Content confirmed — now choose a layout style for "${topic || formatId}":`,
+          `Content confirmed — now choose a design template for "${topic}":`,
           '',
           'Choose a style reference:',
           `[styles:${stylesPayload}]`,
           `[pending:${JSON.stringify({ formatId, brand, topic, intentStr, slides })}]`,
         ].join('\n');
-        return [{ type: 'notify_result', summary: 'Style selection', payload: { message: msg, query }, riskLevel: 'low' }];
+        return [{ type: 'notify_result', summary: 'Template selection', payload: { message: msg }, riskLevel: 'low' }];
       }
 
-      // No training samples — render directly
+      // No DNA templates — fall back to old Satori render
       const exactContentIntent = slides.length
         ? `Use EXACTLY these slide headlines and bodies:\n${slides.map((s, i) => `Slide ${i + 1}: headline="${s.headline}"${s.body ? `, body="${s.body}"` : ''}`).join('\n')}\n\n${intentStr}`
         : intentStr;
       return [{
         type: 'post_render',
         summary: `Render ${formatId} for ${brand}`,
-        payload: { formatId, brand, topic, intent: exactContentIntent || undefined, sampleId: sampleId || undefined },
+        payload: { formatId, brand, topic, intent: exactContentIntent || undefined },
         riskLevel: 'low',
       }];
     }
@@ -350,7 +377,7 @@ Rules:
         ? classification.formatId
         : 'linkedin-tips-carousel';
       const brand = (classification.brand ?? firstBrand).toLowerCase();
-      return this.generateContentDraft(topic, formatId, brand, 'bold-punchy', toneInstructions, config, trainingSamples);
+      return this.generateContentDraft(topic, formatId, brand, 'bold-punchy', toneInstructions, config);
     }
 
     // BRANCH B: general chat
@@ -383,7 +410,6 @@ Be concise and practical. No filler. No emojis.`;
     tone: string,
     toneInstructions: Record<string, string>,
     config: CanvaConfig,
-    trainingSamples: Array<{ id: string; title: string; thumbUrl?: string }>,
   ): Promise<ProposedAction[]> {
     const intentStr = toneInstructions[tone] ?? toneInstructions['bold-punchy'];
     const brandDesc = brand === 'xgenious'
@@ -581,6 +607,20 @@ Return ONLY a JSON array (no markdown):
         const e = err as Error;
         this.logger.error(`post_render failed: ${e.message}\n${e.stack ?? ''}`);
         return { success: true, data: { message: `Render failed: ${e.message}` } };
+      }
+    }
+
+    if (action.type === 'dna_generate') {
+      const { templateId, userPrompt } = action.payload as { templateId: string; userPrompt: string };
+      try {
+        const { renderId, url } = await this.designStudio.generateAndSave(templateId, userPrompt ?? '');
+        const SLIDE_RENDER_PREFIX = '__SLIDE_RENDER__';
+        const message = `${SLIDE_RENDER_PREFIX}${JSON.stringify({ slideUrls: [url], renderId })}`;
+        return { success: true, data: { message, slideUrls: [url], renderId } };
+      } catch (err) {
+        const e = err as Error;
+        this.logger.error(`dna_generate failed: ${e.message}`);
+        return { success: true, data: { message: `Image generation failed: ${e.message}` } };
       }
     }
 

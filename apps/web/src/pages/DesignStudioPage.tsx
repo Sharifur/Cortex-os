@@ -76,7 +76,7 @@ export default function DesignStudioPage() {
   const [queueError, setQueueError] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [prompt, setPrompt] = useState('');
+  const [prompt, setPrompt] = useState('5 productivity habits that boost remote team output');
   const [generating, setGenerating] = useState(false);
   const [generateError, setGenerateError] = useState('');
 

@@ -16,6 +16,18 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.62.0',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'Design Samples tab completely rewritten: uploads images to /design-studio/import-batch (DNA extraction via gpt-image-1), polls job status every 2.5s, and displays extracted templates as clickable cards in two sections — Individual Images and Carousel Sets (grouped by name prefix). Each card shows a preview thumbnail, parameter count badge, and a detail modal with all extracted parameters.' },
+      { tag: 'feat', scope: 'canva', description: 'Chat flow step 2 now shows DNA templates as the style picker instead of training samples. Templates load from DesignStudioService; thumbnails served from /design-studio/templates/:id/preview.' },
+      { tag: 'feat', scope: 'canva', description: 'New parameter gathering step (step 3): after picking a DNA template the agent asks for each template parameter one by one using [param-gather:] state marker. When all parameters are collected the agent calls dna_generate to produce the image.' },
+      { tag: 'feat', scope: 'canva', description: 'dna_generate action: calls DesignStudioService.generateAndSave() which runs gpt-image-1 with the extracted stylePrompt, saves the PNG to ~/Designs/AI-Agent/DnaRenders/, and returns the image via SlideGrid in the chat.' },
+      { tag: 'feat', scope: 'design-studio', description: 'Added GET /design-studio/templates/:id/preview endpoint serving the stored base64 previewData as an image with 24h cache header. Added GET /design-studio/renders/:id endpoint serving saved PNG renders.' },
+      { tag: 'chore', scope: 'design-studio', description: 'DesignStudioModule now exports DesignStudioService so CanvaModule can inject it. CanvaModule imports DesignStudioModule.' },
+    ],
+  },
+  {
     version: 'v4.61.0',
     date: '2026-05-14',
     entries: [
