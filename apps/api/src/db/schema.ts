@@ -27,3 +27,4 @@ export * from '../modules/push/push.schema';
 export * from '../modules/gmail/schema';
 export * from '../modules/ses/ses-suppressions.schema';
 export * from '../modules/post-render/schema';
+export * from '../modules/design-studio/schema';

@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.60.0',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'design-studio', description: 'New experimental Design Studio page: upload any design image, AI (Claude Vision) extracts the layout as a structured spec with parameter schema, saved as a reusable template. Generate variations by typing a chat prompt — AI fills the parameter values and Satori renders the new image. Original vs generated shown side by side for comparison.' },
+      { tag: 'feat', scope: 'design-studio', description: 'New design-studio backend module with three endpoints: POST /design-studio/templates/import (image upload + AI extraction), POST /design-studio/templates/:id/generate (prompt → PNG), GET/DELETE /design-studio/templates. Design specs stored in new design_studio_templates table (migration 0074).' },
+    ],
+  },
+  {
     version: 'v4.59.0',
     date: '2026-05-14',
     entries: [
