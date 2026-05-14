@@ -24,9 +24,9 @@ export class PostVisualService {
     filledSlides: FilledSlide[],
     patternRules: string[],
     contract: ThemeContract,
-    opts: { runId?: string; sampledDNA?: DesignDNA } = {},
+    opts: { runId?: string; sampledDNA?: DesignDNA; perSlideDNAs?: (DesignDNA | null)[] } = {},
   ): Promise<SlideVisualSpec[]> {
-    const { sampledDNA } = opts;
+    const { sampledDNA, perSlideDNAs } = opts;
 
     const groups: Record<string, string[]> = {};
     for (const r of patternRules) {
@@ -38,8 +38,9 @@ export class PostVisualService {
 
     const hasPatterns = Object.keys(groups).length > 0;
     const hasSampledDNA = !!(sampledDNA?.primary_color || sampledDNA?.accent_color);
+    const hasPerSlide = !!(perSlideDNAs?.some(d => d?.primary_color || d?.accent_color));
 
-    if (!hasPatterns && !hasSampledDNA) return [];
+    if (!hasPatterns && !hasSampledDNA && !hasPerSlide) return [];
 
     const patternBlock = hasPatterns
       ? Object.entries(groups)
@@ -55,19 +56,29 @@ export class PostVisualService {
       })
       .join('\n');
 
-    // Build sampled DNA color anchor block — gives the LLM exact hex values to work with
-    const sampledBlock = sampledDNA ? [
+    // Per-slide color table — each slide gets a different training sample's colors
+    const perSlideColorTable = (perSlideDNAs?.length)
+      ? [
+        'PER-SLIDE TRAINING COLORS (MANDATORY — use EXACTLY these colors, one per slide index):',
+        ...filledSlides.map((slide, i) => {
+          const dna = perSlideDNAs[i];
+          const bg = dna?.primary_color || sampledDNA?.primary_color || contract.backgroundCover;
+          const acc = dna?.accent_color || sampledDNA?.accent_color || contract.accentColor;
+          const shapes = dna?.shape_elements?.slice(0, 2).map(s => s.shape_type).join(', ') || '';
+          return `  Slide ${slide.slideIndex} (${slide.role}): bg=${bg} accent=${acc}${shapes ? ` shapes=[${shapes}]` : ''}`;
+        }),
+        '',
+        'Each slide MUST use the bgColor specified for its index above. Do NOT repeat colors across slides.',
+      ].join('\n')
+      : '';
+
+    // Fallback single-sample anchor block (used when no per-slide DNAs available)
+    const sampledBlock = (!perSlideDNAs?.length && sampledDNA) ? [
       'TRAINING SAMPLE COLORS (use these as your primary color palette for this render):',
       `  background: ${sampledDNA.primary_color || contract.backgroundCover}`,
       `  accent: ${sampledDNA.accent_color || contract.accentColor}`,
       sampledDNA.secondary_colors?.length
         ? `  secondary: ${sampledDNA.secondary_colors.slice(0, 3).join(', ')}`
-        : '',
-      sampledDNA.color_usage?.headline_text_hex
-        ? `  text: ${sampledDNA.color_usage.headline_text_hex}`
-        : '',
-      sampledDNA.background_style
-        ? `  bg style: ${sampledDNA.background_style}`
         : '',
       sampledDNA.shape_elements?.length
         ? `  shapes in sample: ${sampledDNA.shape_elements.slice(0, 3).map(s => s.shape_type).join(', ')}`
@@ -84,7 +95,7 @@ export class PostVisualService {
     ].join(' ');
 
     const userPrompt = [
-      sampledBlock,
+      perSlideColorTable || sampledBlock,
       '',
       hasPatterns ? `Brand design pattern rules (randomly sampled subset):\n${patternBlock}` : '',
       '',
@@ -94,8 +105,8 @@ export class PostVisualService {
       slideList,
       '',
       'For each slide produce:',
-      '- bgColor: hex background — USE THE TRAINING SAMPLE COLORS. Must be non-null. Vary the shade/tone per slide.',
-      '- accentColor: hex accent — use accent or a complementary color. Must be non-null.',
+      '- bgColor: hex background — USE THE EXACT COLOR ASSIGNED TO THAT SLIDE INDEX ABOVE. Must be non-null and different for each slide.',
+      '- accentColor: hex accent — use the assigned accent or a complementary color. Must be non-null.',
       '- decorations: 1-4 shapes per slide inspired by the training sample shapes.',
       '  Positions are % of canvas (0-100). Negative values OK for partial-edge shapes.',
       '  Shape types: circle, rectangle, rounded-rect, ellipse',
@@ -133,20 +144,24 @@ export class PostVisualService {
 
     try {
       const parsed = JSON.parse(jsonStr) as { slides: SlideVisualSpec[] };
-      const fallbackBg = sampledDNA?.primary_color || contract.backgroundCover;
-      const fallbackAccent = sampledDNA?.accent_color || contract.accentColor;
 
-      const specs = (parsed.slides ?? []).map(s => ({
-        ...s,
-        // Enforce non-null colors — fall back to sampled DNA colors, never white
-        bgColor: (s.bgColor && s.bgColor !== '#ffffff' && s.bgColor !== '#fff') ? s.bgColor : fallbackBg,
-        accentColor: s.accentColor || fallbackAccent,
-        decorations: (s.decorations ?? []).slice(0, 4).map(d => ({
-          ...d,
-          opacity: Math.min(Math.max(d.opacity, 0.04), 0.2),
-        })),
-        wordHighlights: (s.wordHighlights ?? []).slice(0, 2),
-      }));
+      const specs = (parsed.slides ?? []).map(s => {
+        const slideIdx = s.slideIndex ?? 0;
+        const perDNA = perSlideDNAs?.[slideIdx] ?? null;
+        const fallbackBg = perDNA?.primary_color || sampledDNA?.primary_color || contract.backgroundCover;
+        const fallbackAccent = perDNA?.accent_color || sampledDNA?.accent_color || contract.accentColor;
+        return {
+          ...s,
+          // Enforce non-null colors — fall back to per-slide DNA colors, never white
+          bgColor: (s.bgColor && s.bgColor !== '#ffffff' && s.bgColor !== '#fff') ? s.bgColor : fallbackBg,
+          accentColor: s.accentColor || fallbackAccent,
+          decorations: (s.decorations ?? []).slice(0, 4).map(d => ({
+            ...d,
+            opacity: Math.min(Math.max(d.opacity, 0.12), 0.35),
+          })),
+          wordHighlights: (s.wordHighlights ?? []).slice(0, 2),
+        };
+      });
       this.logger.log(
         `Visual specs: ${specs.length} slides, ` +
         `${specs.reduce((n, s) => n + (s.decorations?.length ?? 0), 0)} shapes, ` +

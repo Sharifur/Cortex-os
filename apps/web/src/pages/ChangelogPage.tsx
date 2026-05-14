@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.45.2',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'fix', scope: 'design-samples', description: 'Per-slide color variety: each slide now independently picks a different random training sample DNA so slides get distinct background colors instead of one repeated color. PostVisualService receives a per-slide color table with exact hex assignments and is instructed to use each slide\'s assigned color, not repeat them. Decoration opacity floor raised from 0.04 to 0.12 (max 0.35) so shapes are actually visible on slides. Fallback bgColor at parse time also uses per-slide DNA when available.' },
+    ],
+  },
+  {
     version: 'v4.45.1',
     date: '2026-05-14',
     entries: [

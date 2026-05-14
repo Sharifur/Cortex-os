@@ -160,9 +160,14 @@ export class PostRendererService {
       { event_type: 'post_content_end', duration_ms: Date.now() - t0Content, slide_count: filledSlides.length },
     ).catch(() => {});
 
-    // Phase 2: Generate per-slide visual specs from pattern rules + sampled DNA colors
-    const visualSpecs: SlideVisualSpec[] = (dominantDNA?.pattern_rules?.length || sampledDNA)
-      ? await this.visualSvc.generateSpecs(filledSlides, dominantDNA?.pattern_rules ?? [], contract, { runId, sampledDNA: sampledDNA ?? undefined })
+    // Phase 2: Pick one independent random training sample per slide for color variety
+    const perSlideDNAs = await Promise.all(
+      filledSlides.map(() => this.designPattern.getRandomSampleDNA(req.brand).catch(() => null)),
+    );
+
+    // Phase 2: Generate per-slide visual specs from pattern rules + per-slide sampled DNA colors
+    const visualSpecs: SlideVisualSpec[] = (dominantDNA?.pattern_rules?.length || sampledDNA || perSlideDNAs.some(d => d !== null))
+      ? await this.visualSvc.generateSpecs(filledSlides, dominantDNA?.pattern_rules ?? [], contract, { runId, sampledDNA: sampledDNA ?? undefined, perSlideDNAs })
         .catch(() => [] as SlideVisualSpec[])
       : [];
     const visualSpecMap = new Map(visualSpecs.map(s => [s.slideIndex, s]));
