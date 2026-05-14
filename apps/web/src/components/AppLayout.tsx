@@ -13,7 +13,7 @@ function useApprovalCount(token: string) {
       if (!res.ok) return [];
       return res.json();
     },
-    refetchInterval: 15_000,
+    refetchInterval: 5 * 60_000,
     select: (data) => ({ length: Array.isArray(data) ? data.length : 0 }),
   });
   return data?.length ?? 0;
@@ -47,9 +47,11 @@ function NotificationBell({ token }: { token: string }) {
   const location = useLocation();
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
+  const [summary, setSummary] = useState<NotifSummary | null>(null);
   const ref = useRef<HTMLDivElement>(null);
 
-  const { data } = useQuery<NotifSummary>({
+  // HTTP fallback — only fires on mount and every 5 min (WebSocket keeps it current)
+  useQuery<NotifSummary>({
     queryKey: ['notifications-summary'],
     queryFn: async () => {
       const since = getFailuresSince();
@@ -57,39 +59,43 @@ function NotificationBell({ token }: { token: string }) {
       if (!res.ok) return { waitingChats: 0, pendingApprovals: 0, agentFailures: 0, kbProposals: 0, kbGaps: 0, total: 0 };
       return res.json();
     },
-    refetchInterval: 15_000,
-  });
+    refetchInterval: 5 * 60_000,
+    onSuccess: (data: NotifSummary) => setSummary(data),
+  } as any);
 
-  const total = data?.total ?? 0;
+  const total = summary?.total ?? 0;
 
   // Auto-dismiss failure count when user is on /activity
   useEffect(() => {
-    if (location.pathname === '/activity' && (data?.agentFailures ?? 0) > 0) {
+    if (location.pathname === '/activity' && (summary?.agentFailures ?? 0) > 0) {
       markFailuresSeen();
-      queryClient.invalidateQueries({ queryKey: ['notifications-summary'] });
+      setSummary(prev => prev ? { ...prev, agentFailures: 0, total: prev.total - prev.agentFailures } : prev);
     }
-  }, [location.pathname, data?.agentFailures, queryClient]);
+  }, [location.pathname, summary?.agentFailures]);
 
   useEffect(() => {
     const socket = getRealtimeSocket(token);
-    const invalidate = () => queryClient.invalidateQueries({ queryKey: ['notifications-summary'] });
 
     const onConnect = () => {
+      socket.emit('notifications:subscribe', { failuresSince: new Date(getFailuresSince()).getTime() });
       socket.emit('approvals:subscribe');
       socket.emit('activity:subscribe');
     };
 
+    const onUpdate = (data: NotifSummary) => {
+      setSummary(data);
+      // Keep the sidebar approval badge in sync without an extra HTTP request
+      queryClient.setQueryData(['approvals-count'], new Array(data.pendingApprovals));
+    };
+
     if (socket.connected) onConnect();
     socket.on('connect', onConnect);
-    socket.on('approval:created', invalidate);
-    socket.on('approval:removed', invalidate);
-    socket.on('activity:log', invalidate);
+    socket.on('notifications:update', onUpdate);
 
     return () => {
       socket.off('connect', onConnect);
-      socket.off('approval:created', invalidate);
-      socket.off('approval:removed', invalidate);
-      socket.off('activity:log', invalidate);
+      socket.off('notifications:update', onUpdate);
+      socket.emit('notifications:unsubscribe');
       socket.emit('approvals:unsubscribe');
       socket.emit('activity:unsubscribe');
     };
@@ -106,7 +112,7 @@ function NotificationBell({ token }: { token: string }) {
   function go(to: string) {
     if (to === '/activity') {
       markFailuresSeen();
-      queryClient.invalidateQueries({ queryKey: ['notifications-summary'] });
+      setSummary(prev => prev ? { ...prev, agentFailures: 0, total: prev.total - prev.agentFailures } : prev);
     }
     navigate(to);
     setOpen(false);
@@ -116,31 +122,31 @@ function NotificationBell({ token }: { token: string }) {
     {
       icon: <MessageCircleQuestion className="w-4 h-4 text-sky-400" />,
       label: 'Chats waiting for reply',
-      count: data?.waitingChats ?? 0,
+      count: summary?.waitingChats ?? 0,
       to: '/livechat',
     },
     {
       icon: <AlertTriangle className="w-4 h-4 text-yellow-400" />,
       label: 'Pending approvals',
-      count: data?.pendingApprovals ?? 0,
+      count: summary?.pendingApprovals ?? 0,
       to: '/approvals',
     },
     {
       icon: <ShieldAlert className="w-4 h-4 text-red-400" />,
       label: 'Agent failures (24h)',
-      count: data?.agentFailures ?? 0,
+      count: summary?.agentFailures ?? 0,
       to: '/activity',
     },
     {
       icon: <BookMarked className="w-4 h-4 text-violet-400" />,
       label: 'KB proposals pending',
-      count: data?.kbProposals ?? 0,
+      count: summary?.kbProposals ?? 0,
       to: '/knowledge-base',
     },
     {
       icon: <HelpCircle className="w-4 h-4 text-orange-400" />,
       label: 'KB gaps unanswered',
-      count: data?.kbGaps ?? 0,
+      count: summary?.kbGaps ?? 0,
       to: '/knowledge-base',
     },
   ];
@@ -151,9 +157,9 @@ function NotificationBell({ token }: { token: string }) {
         onClick={() => {
           const next = !open;
           setOpen(next);
-          if (next && (data?.agentFailures ?? 0) > 0) {
+          if (next && (summary?.agentFailures ?? 0) > 0) {
             markFailuresSeen();
-            queryClient.invalidateQueries({ queryKey: ['notifications-summary'] });
+            setSummary(prev => prev ? { ...prev, agentFailures: 0, total: prev.total - prev.agentFailures } : prev);
           }
         }}
         className="relative flex items-center justify-center w-8 h-8 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
@@ -328,7 +334,7 @@ function Sidebar({
           <>
             <Bot className="w-5 h-5 text-primary shrink-0" />
             <span className="font-semibold text-sm">Cortex OS</span>
-            <span className="text-muted-foreground text-xs">v4.52.2</span>
+            <span className="text-muted-foreground text-xs">v4.53.0</span>
             {onToggleCollapse && (
               <button
                 onClick={onToggleCollapse}
@@ -530,7 +536,7 @@ export default function AppLayout() {
           <div className="flex items-center gap-2">
             <Bot className="w-5 h-5 text-primary" />
             <span className="font-semibold text-sm">Cortex OS</span>
-            <span className="text-muted-foreground text-xs">v4.52.2</span>
+            <span className="text-muted-foreground text-xs">v4.53.0</span>
           </div>
           <button
             onClick={() => setDrawerOpen(false)}

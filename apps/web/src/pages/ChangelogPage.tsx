@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.53.0',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'realtime', description: 'Notification bell is now WebSocket-driven: backend pushes a full NotifSummary via notifications:update whenever approvals are created/removed or agent logs are written — no HTTP fetch on every event. Frontend subscribes to notifications:subscribe on connect and receives an immediate snapshot. Polling reduced from 15s to 5-minute fallback only. Sidebar approval badge is kept in sync by seeding the approvals-count React Query cache from the WebSocket payload — no extra HTTP call.' },
+    ],
+  },
+  {
     version: 'v4.52.2',
     date: '2026-05-14',
     entries: [

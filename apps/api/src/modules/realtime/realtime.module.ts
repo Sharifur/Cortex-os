@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { RunsModule } from '../runs/runs.module';
 import { AgentRuntimeModule } from '../agents/runtime/agent-runtime.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { RealtimeGateway } from './realtime.gateway';
 
 @Module({
@@ -9,6 +10,7 @@ import { RealtimeGateway } from './realtime.gateway';
     JwtModule.register({}),
     RunsModule,
     AgentRuntimeModule,
+    NotificationsModule,
   ],
   providers: [RealtimeGateway],
   exports: [RealtimeGateway],

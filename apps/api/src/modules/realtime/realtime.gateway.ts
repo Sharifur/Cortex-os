@@ -13,9 +13,11 @@ import { JwtService } from '@nestjs/jwt';
 import type { Server, Socket } from 'socket.io';
 import { ApprovalService } from '../agents/runtime/approval.service';
 import { RunsService } from '../runs/runs.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 const ROOM_ACTIVITY = 'activity';
 const ROOM_APPROVALS = 'approvals';
+const ROOM_NOTIFICATIONS = 'notifications';
 
 interface AuthedSocket extends Socket {
   userId?: string;
@@ -39,20 +41,36 @@ export class RealtimeGateway
     private readonly jwt: JwtService,
     private readonly approvals: ApprovalService,
     private readonly runs: RunsService,
+    private readonly notifications: NotificationsService,
     private readonly events: EventEmitter2,
   ) {}
 
   onModuleInit() {
-    // Re-broadcast app events to subscribed sockets.
     this.events.on('log.created', (entry: unknown) => {
       this.server.to(ROOM_ACTIVITY).emit('activity:log', entry);
+      void this.pushNotificationSummary();
     });
     this.events.on('approval.created', (approval: unknown) => {
       this.server.to(ROOM_APPROVALS).emit('approval:created', approval);
+      void this.pushNotificationSummary();
     });
     this.events.on('approval.removed', (payload: unknown) => {
       this.server.to(ROOM_APPROVALS).emit('approval:removed', payload);
+      void this.pushNotificationSummary();
     });
+    // KB proposal created/approved/rejected — affects the proposals count
+    this.events.on('kb.proposal.created', () => void this.pushNotificationSummary());
+    this.events.on('kb.proposal.resolved', () => void this.pushNotificationSummary());
+  }
+
+  private async pushNotificationSummary(sinceMs?: number) {
+    try {
+      const since = sinceMs ? new Date(sinceMs) : new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const summary = await this.notifications.getSummary({ failuresSince: since });
+      this.server.to(ROOM_NOTIFICATIONS).emit('notifications:update', summary);
+    } catch (err) {
+      this.logger.warn(`pushNotificationSummary failed: ${(err as Error).message}`);
+    }
   }
 
   handleConnection(client: AuthedSocket) {
@@ -80,6 +98,28 @@ export class RealtimeGateway
 
   handleDisconnect(client: AuthedSocket) {
     this.logger.debug(`socket disconnected: ${client.id}`);
+  }
+
+  @SubscribeMessage('notifications:subscribe')
+  async onNotificationsSubscribe(
+    @ConnectedSocket() client: AuthedSocket,
+    @MessageBody() data: { failuresSince?: number },
+  ) {
+    if (!client.userId) return;
+    await client.join(ROOM_NOTIFICATIONS);
+    // Push current summary immediately on subscription
+    try {
+      const since = data?.failuresSince ? new Date(data.failuresSince) : new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const summary = await this.notifications.getSummary({ failuresSince: since });
+      client.emit('notifications:update', summary);
+    } catch (err) {
+      this.logger.warn(`notifications:subscribe snapshot failed: ${(err as Error).message}`);
+    }
+  }
+
+  @SubscribeMessage('notifications:unsubscribe')
+  async onNotificationsUnsubscribe(@ConnectedSocket() client: AuthedSocket) {
+    await client.leave(ROOM_NOTIFICATIONS);
   }
 
   @SubscribeMessage('activity:subscribe')
