@@ -703,6 +703,23 @@ export class SupportAgent implements IAgent, OnModuleInit {
           return { ok: true };
         },
       },
+      {
+        method: 'POST',
+        path: '/support/tickets/:id/send-reply',
+        requiresAuth: true,
+        handler: async (params) => {
+          const { id } = params as any;
+          const [ticket] = await this.db.db.select().from(supportTickets).where(eq(supportTickets.id, id));
+          if (!ticket) throw new Error('Ticket not found');
+          if (!ticket.lastDraft?.trim()) throw new Error('No draft to send — generate a draft first');
+          const crmId = ticket.externalId ? Number(ticket.externalId) : null;
+          if (!crmId || isNaN(crmId)) throw new Error('Ticket has no CRM ID — cannot post reply');
+          await this.postCrmReply(crmId, ticket.lastDraft);
+          await this.db.db.update(supportTickets).set({ status: 'replied', updatedAt: new Date() }).where(eq(supportTickets.id, id));
+          await this.writeTicketEvent({ ticketId: id, externalId: ticket.externalId, eventType: 'reply_sent', summary: `Reply sent via dashboard: ${ticket.lastDraft.slice(0, 120)}`, payload: { draft: ticket.lastDraft } });
+          return { ok: true };
+        },
+      },
     ];
   }
 

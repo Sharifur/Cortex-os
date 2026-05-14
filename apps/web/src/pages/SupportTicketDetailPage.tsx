@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft, Hash, Mail, User, Phone, Clock, MessageSquare,
   Wand2, RefreshCw, AlertTriangle, CheckCircle2, XCircle,
-  ChevronDown, ChevronUp, Trash2, Loader2, Brain, Settings2, StickyNote,
+  ChevronDown, ChevronUp, Trash2, Loader2, Brain, Settings2, StickyNote, Send,
 } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -77,6 +77,7 @@ const EVENT_TYPE_STYLES: Record<string, string> = {
   priority_updated:          'bg-indigo-500/15 text-indigo-300',
   status_updated:            'bg-teal-500/15 text-teal-300',
   note_added:                'bg-slate-500/15 text-slate-300',
+  reply_sent:                'bg-emerald-500/15 text-emerald-300',
 };
 
 function Badge({ label, styles }: { label: string; styles: string }) {
@@ -145,6 +146,9 @@ export default function SupportTicketDetailPage() {
   const [generating, setGenerating] = useState(false);
   const [draft, setDraft] = useState<string | null>(null);
   const [draftError, setDraftError] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
+  const [sendSuccess, setSendSuccess] = useState(false);
 
   const [trainOpen, setTrainOpen] = useState(false);
   const [trainCategory, setTrainCategory] = useState<'spam_filter' | 'decision_rule' | 'faq' | 'policy'>('decision_rule');
@@ -280,6 +284,32 @@ export default function SupportTicketDetailPage() {
     }
   }
 
+  async function handleSendReply() {
+    if (!id) return;
+    if (!confirm('Send this reply to the customer now?')) return;
+    setSending(true);
+    setSendError(null);
+    setSendSuccess(false);
+    try {
+      const res = await fetch(`/support/tickets/${id}/send-reply`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setSendError(data.error ?? 'Send failed');
+      } else {
+        setSendSuccess(true);
+        qc.invalidateQueries({ queryKey: ['support-ticket', id] });
+        refetchEvents();
+      }
+    } catch (err) {
+      setSendError((err as Error).message);
+    } finally {
+      setSending(false);
+    }
+  }
+
   const sortedEvents = [...events].sort(
     (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
   );
@@ -396,18 +426,30 @@ export default function SupportTicketDetailPage() {
           <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
             {activeDraft ? (ticket.status === 'replied' ? 'Reply Sent' : 'Draft Reply') : 'AI Draft Reply'}
           </p>
-          <button
-            onClick={handleGenerateDraft}
-            disabled={generating}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            {generating ? (
-              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-            ) : (
-              <Wand2 className="w-3.5 h-3.5" />
+          <div className="flex items-center gap-2">
+            {activeDraft && ticket.status !== 'replied' && (
+              <button
+                onClick={handleSendReply}
+                disabled={sending}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-emerald-600 text-white text-xs font-medium hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {sending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                {sending ? 'Sending...' : 'Send Reply'}
+              </button>
             )}
-            {generating ? 'Generating...' : activeDraft ? 'Regenerate Draft' : 'Generate Draft'}
-          </button>
+            <button
+              onClick={handleGenerateDraft}
+              disabled={generating}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {generating ? (
+                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Wand2 className="w-3.5 h-3.5" />
+              )}
+              {generating ? 'Generating...' : activeDraft ? 'Regenerate Draft' : 'Generate Draft'}
+            </button>
+          </div>
         </div>
 
         {draftError && (
@@ -421,6 +463,18 @@ export default function SupportTicketDetailPage() {
           <div className="flex items-center gap-1.5 text-xs text-emerald-400">
             <CheckCircle2 className="w-3.5 h-3.5" />
             Draft generated and saved
+          </div>
+        )}
+        {sendSuccess && (
+          <div className="flex items-center gap-1.5 text-xs text-emerald-400">
+            <CheckCircle2 className="w-3.5 h-3.5" />
+            Reply sent to customer
+          </div>
+        )}
+        {sendError && (
+          <div className="flex items-center gap-2 text-sm text-red-400">
+            <XCircle className="w-4 h-4 shrink-0" />
+            {sendError}
           </div>
         )}
 

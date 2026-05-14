@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.64.0',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'support', description: 'Send Reply button on ticket detail page: when a draft is present and the ticket is not yet replied, a green "Send Reply" button appears next to "Regenerate Draft". Clicking it confirms with the user, then posts the draft directly to the CRM via the public API and marks the ticket as replied. A reply_sent event is recorded in the ticket history.' },
+    ],
+  },
+  {
     version: 'v4.63.0',
     date: '2026-05-14',
     entries: [
