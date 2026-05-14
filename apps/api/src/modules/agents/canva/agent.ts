@@ -198,7 +198,7 @@ export class CanvaAgent implements IAgent, OnModuleInit {
           const params: DnaParam[] = Array.isArray((t as any).parameters) ? (t as any).parameters as DnaParam[] : [];
           if (params.length) fields = params.map(p => p.key).join(', ');
         }
-        return { num: String(i + 1), id: t.id, title, thumb: `/design-studio/templates/${t.id}/preview`, fields };
+        return { num: String(i + 1), id: t.id, title, thumb: `/design-studio/templates/${t.id}/preview`, fields, isSet };
       });
     };
     type CarouselGatherState = {
@@ -932,10 +932,9 @@ Rules:
       '',
       slideDisplay,
       '',
-      `Confirm to generate${extraParamNote}`,
+      `Confirm to generate — ${slideCount} slides.${extraParamNote}`,
       '',
-      '1. Content — Looks good! / Revise it?',
-      '',
+      '[content-confirm]',
       `[pending:${pendingJson}]`,
     ].join('\n');
 

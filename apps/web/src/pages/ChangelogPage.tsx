@@ -16,6 +16,16 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.66.1',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'Template picker tiles are now portrait stacked-card UI (90×118px) with a depth-shadow effect for carousel sets, so users can visually compare layouts before selecting.' },
+      { tag: 'feat', scope: 'canva', description: 'Content plan confirmation now shows "Looks good" and "Revise it" buttons instead of plain text, with immediate skeleton grid feedback while slides generate.' },
+      { tag: 'feat', scope: 'canva', description: 'Slide render grid now includes a "Download all" button that packages all carousel slides into a ZIP file.' },
+      { tag: 'feat', scope: 'canva', description: 'While slides are generating, a skeleton grid with animated placeholders replaces the generic typing dots for better generation UX.' },
+    ],
+  },
+  {
     version: 'v4.66.0',
     date: '2026-05-14',
     entries: [
