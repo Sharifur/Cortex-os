@@ -1252,7 +1252,12 @@ function MessageBubble({
               {isUser
                 ? msg.content
                 : <div dangerouslySetInnerHTML={{ __html: renderMarkdown(
-                    msg.content.replace(/\[styles:\{[^\n]*\}\]\n?/g, '').replace(/\[pending:\{[^\n]*\}\]\n?/g, '').trim()
+                    msg.content
+                      .replace(/\[styles:\{[^\n]*\}\]\n?/g, '')
+                      .replace(/\[pending:\{[^\n]*\}\]\n?/g, '')
+                      .replace(/\[param-gather:\{[^\n]*\}\]\n?/g, '')
+                      .replace(/\[carousel-gather:\{[^\n]*\}\]\n?/g, '')
+                      .trim()
                   ) }} />
               }
             </div>

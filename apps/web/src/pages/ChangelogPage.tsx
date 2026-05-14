@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.65.3',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'fix', scope: 'canva', description: 'Hide [carousel-gather:] and [param-gather:] state markers from chat bubbles — raw JSON state blobs are now stripped before rendering, matching how [styles:] and [pending:] are already hidden.' },
+    ],
+  },
+  {
     version: 'v4.65.2',
     date: '2026-05-14',
     entries: [
