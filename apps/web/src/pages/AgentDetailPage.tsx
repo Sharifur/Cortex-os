@@ -131,7 +131,10 @@ async function apiFetch(token: string, path: string, opts?: RequestInit) {
     ...opts,
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', ...opts?.headers },
   });
-  if (!res.ok) throw new Error('Request failed');
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data?.error ?? data?.message ?? `Request failed (${res.status})`);
+  }
   return res.json();
 }
 

@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.52.1',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'fix', scope: 'render', description: 'Quick Generate 500 error: PostBrandService.resolve() no longer throws when a brand name is not in the canvaBrands table — it falls back to default fonts (Inter) and palette, logging a warning. PostRenderController.render() now wraps errors in a proper HttpException so the client receives the actual error message instead of a generic 500. apiFetch in AgentDetailPage now reads the JSON error body before throwing so "Request failed" shows the real cause.' },
+    ],
+  },
+  {
     version: 'v4.52.0',
     date: '2026-05-14',
     entries: [

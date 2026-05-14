@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Body, Param, Query, Delete, Res, HttpCode, HttpStatus, Logger } from '@nestjs/common';
+import { Controller, Post, Get, Body, Param, Query, Delete, Res, HttpCode, HttpStatus, HttpException, Logger } from '@nestjs/common';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
@@ -24,7 +24,12 @@ export class PostRenderController {
   @Post('render')
   @HttpCode(HttpStatus.OK)
   async render(@Body() body: RenderRequest) {
-    return this.renderer.render(body);
+    try {
+      return await this.renderer.render(body);
+    } catch (err) {
+      const message = (err as Error).message ?? String(err);
+      throw new HttpException({ error: message }, HttpStatus.INTERNAL_SERVER_ERROR);
+    }
   }
 
   @Get('renders')
