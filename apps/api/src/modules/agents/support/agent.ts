@@ -915,11 +915,17 @@ export class SupportAgent implements IAgent, OnModuleInit {
     }
 
     // For reply events triggered by our own agent — update ticket to 'replied' and stop
+    const ticketData = payload?.data?.ticket;
     const isAgentReply = event === 'support.ticket.replied' && (
+      payload?.replied_by?.type === 'agent' ||
       payload?.data?.replied_by?.type === 'agent' ||
       payload?.data?.user?.type === 'agent' ||
       payload?.data?.reply?.user?.type === 'agent' ||
-      replyData?.user?.type === 'agent'
+      replyData?.user?.type === 'agent' ||
+      // CRM format: data.ticket.user = replier, data.ticket.created_by = customer
+      // If they differ, the reply was posted by a support agent, not the customer
+      (ticketData?.user?.id != null && ticketData?.created_by?.id != null &&
+        ticketData.user.id !== ticketData.created_by.id)
     );
     if (isAgentReply) {
       this.logger.log(`ingestWebhook: agent reply event for ticket #${ticket.id} — marking replied`);

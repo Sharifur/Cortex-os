@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.60.1',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'fix', scope: 'support', description: 'Agent reply webhooks no longer trigger actions, approvals, or Telegram messages. Added detection for CRM format where data.ticket.user (agent) differs from data.ticket.created_by (customer) — covers the actual webhook structure sent by the CRM alongside the existing replied_by.type checks.' },
+    ],
+  },
+  {
     version: 'v4.60.0',
     date: '2026-05-14',
     entries: [
