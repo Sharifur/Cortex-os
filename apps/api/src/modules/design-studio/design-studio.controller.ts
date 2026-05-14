@@ -4,7 +4,7 @@ import {
 import type { FastifyReply } from 'fastify';
 import { DesignStudioService } from './design-studio.service';
 
-interface ImportBody {
+interface BatchImportItem {
   name: string;
   imageBase64: string;
   mimeType?: string;
@@ -20,30 +20,41 @@ export class DesignStudioController {
 
   constructor(private readonly service: DesignStudioService) {}
 
-  @Post('templates/import')
+  // ─── Import ──────────────────────────────────────────────────────────────────
+
+  @Post('import-batch')
   @HttpCode(HttpStatus.OK)
-  async importTemplate(@Body() body: ImportBody) {
+  async importBatch(@Body() body: { items: BatchImportItem[] }) {
     try {
-      return await this.service.importFromImage(body.name, body.imageBase64, body.mimeType);
+      return await this.service.importBatch(body.items ?? []);
     } catch (err) {
       throw new HttpException({ error: (err as Error).message }, HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
 
+  // ─── Jobs ────────────────────────────────────────────────────────────────────
+
+  @Get('jobs')
+  async listJobs() {
+    return this.service.listJobs();
+  }
+
+  // ─── Templates ───────────────────────────────────────────────────────────────
+
   @Get('templates')
   async listTemplates() {
-    return this.service.list();
+    return this.service.listTemplates();
   }
 
   @Get('templates/:id')
   async getTemplate(@Param('id') id: string) {
-    return this.service.getOne(id);
+    return this.service.getTemplate(id);
   }
 
   @Delete('templates/:id')
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteTemplate(@Param('id') id: string) {
-    await this.service.delete(id);
+    await this.service.deleteTemplate(id);
   }
 
   @Post('templates/:id/generate')

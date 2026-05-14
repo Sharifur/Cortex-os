@@ -18,6 +18,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 const ROOM_ACTIVITY = 'activity';
 const ROOM_APPROVALS = 'approvals';
 const ROOM_NOTIFICATIONS = 'notifications';
+const ROOM_DESIGN_STUDIO = 'design-studio';
 
 interface AuthedSocket extends Socket {
   userId?: string;
@@ -61,6 +62,9 @@ export class RealtimeGateway
     // KB proposal created/approved/rejected — affects the proposals count
     this.events.on('kb.proposal.created', () => void this.pushNotificationSummary());
     this.events.on('kb.proposal.resolved', () => void this.pushNotificationSummary());
+    this.events.on('design-studio.job.updated', (payload: unknown) => {
+      this.server.to(ROOM_DESIGN_STUDIO).emit('design-studio:job-update', payload);
+    });
   }
 
   private async pushNotificationSummary(sinceMs?: number) {
@@ -146,6 +150,17 @@ export class RealtimeGateway
   @SubscribeMessage('approvals:unsubscribe')
   async onApprovalsUnsubscribe(@ConnectedSocket() client: AuthedSocket) {
     await client.leave(ROOM_APPROVALS);
+  }
+
+  @SubscribeMessage('design-studio:subscribe')
+  async onDesignStudioSubscribe(@ConnectedSocket() client: AuthedSocket) {
+    if (!client.userId) return;
+    await client.join(ROOM_DESIGN_STUDIO);
+  }
+
+  @SubscribeMessage('design-studio:unsubscribe')
+  async onDesignStudioUnsubscribe(@ConnectedSocket() client: AuthedSocket) {
+    await client.leave(ROOM_DESIGN_STUDIO);
   }
 
   @SubscribeMessage('ping')

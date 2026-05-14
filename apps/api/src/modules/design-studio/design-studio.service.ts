@@ -1,9 +1,13 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 import { eq, sql } from 'drizzle-orm';
 import { createId } from '@paralleldrive/cuid2';
 import { DbService } from '../../db/db.service';
 import { LlmRouterService } from '../llm/llm-router.service';
-import { designStudioTemplates, DesignSpec, TemplateParameter, SpecElement } from './schema';
+import { QUEUE_NAMES } from '../../common/queue/queue.constants';
+import { designStudioTemplates, designStudioJobs, DesignSpec, TemplateParameter, SpecElement } from './schema';
+import type { DesignStudioJobData } from './design-studio.processor';
 
 @Injectable()
 export class DesignStudioService {
@@ -12,79 +16,55 @@ export class DesignStudioService {
   constructor(
     private readonly db: DbService,
     private readonly llm: LlmRouterService,
+    @InjectQueue(QUEUE_NAMES.DESIGN_STUDIO) private readonly queue: Queue,
   ) {}
 
-  // ─── Import ──────────────────────────────────────────────────────────────────
+  // ─── Batch import ────────────────────────────────────────────────────────────
 
-  async importFromImage(name: string, imageBase64: string, mimeType = 'image/png') {
-    const systemPrompt = `You are a design analysis AI. Analyze the provided image and extract it as a structured Satori-compatible design spec.
+  async importBatch(items: Array<{ name: string; imageBase64: string; mimeType?: string }>) {
+    const jobs: Array<typeof designStudioJobs.$inferSelect> = [];
 
-Output ONLY valid JSON with this exact structure:
-{
-  "parameters": [
-    { "key": "string", "type": "text|color|number|lines", "description": "what this field represents", "example": <value> }
-  ],
-  "spec": {
-    "width": <number>,
-    "height": <number>,
-    "root": <SpecElement>
-  }
-}
+    for (const item of items) {
+      const jobId = createId();
+      const mimeType = item.mimeType ?? 'image/png';
 
-SpecElement schema:
-{
-  "type": "div" | "span" | "img",
-  "style": { <CSS property in camelCase>: <value> },
-  "text": "static text or {{paramKey}} for dynamic",
-  "src": "for img elements only",
-  "children": [ <SpecElement>... ]
-}
+      const [row] = await this.db.db
+        .insert(designStudioJobs)
+        .values({
+          id: jobId,
+          name: item.name,
+          status: 'pending',
+          previewData: `data:${mimeType};base64,${item.imageBase64}`,
+        })
+        .returning();
 
-Rules:
-- Use display:flex for ALL layout (no grid, no block, no inline)
-- All sizes in px numbers (not strings)
-- Colors as hex strings
-- Dynamic text/color values use {{paramKey}} syntax matching a parameter key
-- The root element must fill 100% width and height: style.width="100%" style.height="100%"
-- Estimate px sizes from the visual proportions
-- Identify every piece of text and color that would change per-generation as a parameter
-- Fixed decorative colors can be hardcoded directly in style
-- Only output JSON — no markdown, no explanation`;
+      const jobData: DesignStudioJobData = {
+        jobId,
+        name: item.name,
+        imageBase64: item.imageBase64,
+        mimeType,
+      };
 
-    const userPrompt = `Analyze this design image and extract the complete design spec. Identify all dynamic text fields and colors as parameters.`;
+      await this.queue.add('analyze', jobData, {
+        jobId: `ds-${jobId}`,
+        attempts: 2,
+        backoff: { type: 'fixed', delay: 5000 },
+      });
 
-    const res = await this.llm.complete({
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
-      imageBase64,
-      imageMimeType: mimeType,
-      maxTokens: 4000,
-      agentKey: 'design-studio',
-    });
-
-    let extracted: { parameters: TemplateParameter[]; spec: DesignSpec };
-    try {
-      const raw = res.content.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '').trim();
-      extracted = JSON.parse(raw) as { parameters: TemplateParameter[]; spec: DesignSpec };
-    } catch {
-      this.logger.error(`Failed to parse LLM spec output: ${res.content.slice(0, 500)}`);
-      throw new Error('AI could not extract a valid spec from the image. Try a cleaner screenshot.');
+      jobs.push(row);
     }
 
-    const [row] = await this.db.db
-      .insert(designStudioTemplates)
-      .values({
-        id: createId(),
-        name,
-        previewData: `data:${mimeType};base64,${imageBase64}`,
-        parameters: extracted.parameters,
-        spec: extracted.spec,
-      })
-      .returning();
+    return jobs;
+  }
 
-    return row;
+  // ─── Jobs ────────────────────────────────────────────────────────────────────
+
+  async listJobs() {
+    return this.db.db
+      .select()
+      .from(designStudioJobs)
+      .orderBy(sql`created_at DESC`)
+      .limit(50);
   }
 
   // ─── Generate ────────────────────────────────────────────────────────────────
@@ -98,7 +78,6 @@ Rules:
 
     if (!template) throw new NotFoundException(`Template ${id} not found`);
 
-    // Step 1: fill parameter values from user prompt
     const paramSchema = JSON.stringify(template.parameters, null, 2);
     const fillRes = await this.llm.complete({
       messages: [
@@ -118,17 +97,10 @@ ${paramSchema}`,
     });
 
     let values: Record<string, unknown>;
-    try {
-      const raw = fillRes.content.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '').trim();
-      values = JSON.parse(raw) as Record<string, unknown>;
-    } catch {
-      throw new Error('AI could not extract parameter values from your prompt. Be more specific.');
-    }
+    const rawFill = fillRes.content.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '').trim();
+    values = JSON.parse(rawFill) as Record<string, unknown>;
 
-    // Step 2: resolve spec → Satori element tree
     const resolved = this.resolveSpec(template.spec.root, values);
-
-    // Step 3: render
     return this.renderElement(resolved, template.spec.width, template.spec.height);
   }
 
@@ -137,8 +109,7 @@ ${paramSchema}`,
   private resolveValue(val: unknown, params: Record<string, unknown>): unknown {
     if (typeof val !== 'string') return val;
     if (val.startsWith('{{') && val.endsWith('}}')) {
-      const key = val.slice(2, -2).trim();
-      return params[key] ?? val;
+      return params[val.slice(2, -2).trim()] ?? val;
     }
     return val;
   }
@@ -157,23 +128,14 @@ ${paramSchema}`,
     const style = this.resolveStyle(node.style, params);
 
     if (node.type === 'img') {
-      return {
-        type: 'img',
-        props: {
-          src: this.resolveValue(node.src, params) ?? '',
-          style,
-        },
-      };
+      return { type: 'img', props: { src: this.resolveValue(node.src, params) ?? '', style } };
     }
 
     const children: unknown = node.text !== undefined
       ? this.resolveValue(node.text, params)
       : node.children?.map(c => this.resolveSpec(c, params));
 
-    return {
-      type: node.type,
-      props: { style, children },
-    };
+    return { type: node.type, props: { style, children } };
   }
 
   // ─── Satori render ───────────────────────────────────────────────────────────
@@ -207,9 +169,9 @@ ${paramSchema}`,
     return Buffer.from(resvg.render().asPng());
   }
 
-  // ─── CRUD ────────────────────────────────────────────────────────────────────
+  // ─── Templates CRUD ──────────────────────────────────────────────────────────
 
-  async list() {
+  async listTemplates() {
     return this.db.db
       .select({
         id: designStudioTemplates.id,
@@ -222,7 +184,7 @@ ${paramSchema}`,
       .orderBy(sql`created_at DESC`);
   }
 
-  async getOne(id: string) {
+  async getTemplate(id: string) {
     const [row] = await this.db.db
       .select()
       .from(designStudioTemplates)
@@ -232,7 +194,7 @@ ${paramSchema}`,
     return row;
   }
 
-  async delete(id: string) {
+  async deleteTemplate(id: string) {
     await this.db.db.delete(designStudioTemplates).where(eq(designStudioTemplates.id, id));
   }
 }

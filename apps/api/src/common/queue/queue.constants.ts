@@ -6,6 +6,7 @@ export const QUEUE_NAMES = {
   INTEGRATIONS_POLL: 'integrations-poll',
   APPROVAL_SWEEP: 'approval-sweep',
   TASK_SWEEP: 'task-sweep',
+  DESIGN_STUDIO: 'design-studio',
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];

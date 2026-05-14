@@ -16,6 +16,16 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.61.0',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'design-studio', description: 'Multi-image upload with background processing: drop multiple design images at once — each is queued as a BullMQ job, analyzed by Claude Vision in the background, and saved as a template. Progress is shown in real time via WebSocket and persists across page reloads (jobs stored in design_studio_jobs table, migration 0075).' },
+      { tag: 'feat', scope: 'design-studio', description: 'Analysis queue panel shows per-job status (Queued, Analyzing, Extracted, Failed) with thumbnail preview, live spinner, and color-coded border. WebSocket subscription to design-studio room pushes status updates instantly; 3-second polling fallback keeps UI in sync during reconnect gaps.' },
+      { tag: 'feat', scope: 'design-studio', description: 'Drag-and-drop upload zone now accepts multiple files simultaneously. File input also supports multiple selection.' },
+      { tag: 'fix', scope: 'design-studio', description: 'Import endpoint replaced with batch endpoint (POST /design-studio/import-batch); single legacy import endpoint removed. Templates list updates automatically when any job completes.' },
+    ],
+  },
+  {
     version: 'v4.60.2',
     date: '2026-05-14',
     entries: [
