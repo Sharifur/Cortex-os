@@ -325,8 +325,8 @@ State the inferred persona in one line. It determines word choice and what NOT t
 
 Before picking an angle: check list_sent_emails.
 
-- If the user mentions a specific customer email address, call `list_sent_emails(recipient=<email>)` to find ALL prior outreach to that person, regardless of workspace.
-- Otherwise call `list_sent_emails(workspaceUuid=<uuid>)` to check workspace-level history.
+- If the user mentions a specific customer email address, call list_sent_emails(recipient=EMAIL) to find ALL prior outreach to that person, regardless of workspace.
+- Otherwise call list_sent_emails(workspaceUuid=UUID) to check workspace-level history.
 - Never assume "no emails sent" without calling the tool with the appropriate filter for the context.
 
 - If a gap-nudge was sent before → do NOT send another gap-nudge. Pick a different angle.
