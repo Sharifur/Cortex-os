@@ -1667,6 +1667,19 @@ function parseLogsToTimeline(logs: RunLog[], finished: boolean): ActivityEntry[]
       entries.push({ id: log.id, at, type: 'image_gen', label: log.message, status: 'failed' });
       continue;
     }
+    if (meta?.event_type === 'post_ai_slide_start') {
+      entries.push({ id: log.id, at, type: 'image_gen', label: log.message, status: 'running' });
+      continue;
+    }
+    if (meta?.event_type === 'post_ai_slide_end') {
+      const cost = meta.estimated_cost_usd ? ` ~$${Number(meta.estimated_cost_usd).toFixed(4)}` : '';
+      entries.push({ id: log.id, at, type: 'image_gen', label: `${log.message}${cost}`, status: 'success', durationMs: meta.duration_ms ? Number(meta.duration_ms) : undefined });
+      continue;
+    }
+    if (meta?.event_type === 'post_ai_slide_fallback') {
+      entries.push({ id: log.id, at, type: 'image_gen', label: log.message, status: 'failed' });
+      continue;
+    }
     if (meta?.event_type === 'post_render_slide') {
       entries.push({ id: log.id, at, type: 'render_slide', label: log.message, status: 'running' });
       continue;
@@ -1833,7 +1846,7 @@ function RunActivityPanel({
       if (!runId) return false;
       const data = query.state.data;
       if (data?.finished && data.logs.length > 0) return false;
-      return 1500;
+      return 800;
     },
   });
 
@@ -2066,7 +2079,7 @@ function ChatTab({
     queryKey: ['run-logs', activeRunId],
     enabled: !!activeRunId,
     queryFn: () => apiFetch(token, `/runs/${activeRunId}/logs`),
-    refetchInterval: (query) => (!activeRunId || query.state.data?.finished) ? false : 1500,
+    refetchInterval: (query) => (!activeRunId || query.state.data?.finished) ? false : 800,
   });
 
   const renderProgress = useMemo(() => {

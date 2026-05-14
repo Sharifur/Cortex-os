@@ -16,6 +16,15 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.66.6',
+    date: '2026-05-15',
+    entries: [
+      { tag: 'fix', scope: 'canva', description: 'Activity panel now shows per-slide AI generation progress in real-time. The canva agent injects AgentLogService and writes post_ai_slide_start/end events for each slide during design-studio DALL-E generation, so the panel updates as each slide completes.' },
+      { tag: 'fix', scope: 'canva', description: 'Activity panel polling interval reduced to 800ms (from 1500ms) for faster real-time feel.' },
+      { tag: 'fix', scope: 'canva', description: 'parseLogsToTimeline now handles post_ai_slide_start, post_ai_slide_end, and post_ai_slide_fallback events from both the canva agent and post-renderer.' },
+    ],
+  },
+  {
     version: 'v4.66.5',
     date: '2026-05-14',
     entries: [

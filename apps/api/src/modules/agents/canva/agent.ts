@@ -4,6 +4,7 @@ import { DbService } from '../../../db/db.service';
 import { agents } from '../../../db/schema';
 import { contentIdeas, canvaCandidates, canvaSessions, canvaDebugLog } from './schema';
 import { AgentRegistryService } from '../runtime/agent-registry.service';
+import { AgentLogService } from '../runtime/agent-log.service';
 import { LlmRouterService } from '../../llm/llm-router.service';
 import { TelegramService } from '../../telegram/telegram.service';
 import { ConceptParserService } from './concept-parser.service';
@@ -62,6 +63,7 @@ export class CanvaAgent implements IAgent, OnModuleInit {
     private readonly llm: LlmRouterService,
     private readonly telegram: TelegramService,
     private readonly registry: AgentRegistryService,
+    private readonly logSvc: AgentLogService,
     private readonly conceptParser: ConceptParserService,
     private readonly planner: PlannerService,
     private readonly skills: SkillLoaderService,
@@ -96,7 +98,7 @@ export class CanvaAgent implements IAgent, OnModuleInit {
     if (payload?.source === 'chat' || (payload?.query && !taskMode)) {
       return {
         source: trigger,
-        snapshot: { mode: 'chat', query: payload.query ?? '', history: payload.history ?? '', sampleId: payload.sampleId ?? null, config },
+        snapshot: { mode: 'chat', query: payload.query ?? '', history: payload.history ?? '', sampleId: payload.sampleId ?? null, config, runId: run.id },
         followups: (run.context as AgentContext | null)?.followups ?? [],
       };
     }
@@ -124,7 +126,7 @@ export class CanvaAgent implements IAgent, OnModuleInit {
     const config: CanvaConfig = snap.config;
 
     if (snap.mode === 'chat') {
-      return this.decideChat(snap.query, config, snap.history, snap.sampleId ?? undefined);
+      return this.decideChat(snap.query, config, snap.history, snap.sampleId ?? undefined, snap.runId ?? undefined);
     }
     if (snap.mode === 'design') {
       return this.decideDesign(snap.concept, config);
@@ -132,7 +134,7 @@ export class CanvaAgent implements IAgent, OnModuleInit {
     return this.decideCalendar(snap.month, config, snap.existingCount);
   }
 
-  private async decideChat(query: string, config: CanvaConfig, history?: string, sampleId?: string): Promise<ProposedAction[]> {
+  private async decideChat(query: string, config: CanvaConfig, history?: string, sampleId?: string, runId?: string): Promise<ProposedAction[]> {
     if (!query?.trim()) {
       return [{ type: 'notify_result', summary: 'No query', payload: { message: 'What topic would you like to create a carousel about?' }, riskLevel: 'low' }];
     }
@@ -268,16 +270,32 @@ export class CanvaAgent implements IAgent, OnModuleInit {
           // All extra params collected — auto-generate all confirmed slides
           const slideUrls: string[] = [];
           const extraStr = Object.entries(collected).map(([k, v]) => `${k}: ${v}`).join(', ');
+          if (runId) {
+            await this.logSvc.info(runId, `Generating ${ep.confirmedSlides.length} slides`, { event_type: 'post_render_start', slide_count: ep.confirmedSlides.length, render_id: 'dna' }).catch(() => {});
+          }
           for (let i = 0; i < ep.confirmedSlides.length; i++) {
             const cs = ep.confirmedSlides[i];
             const tplSlide = ep.templateSlides[i % ep.templateSlides.length];
             const prompt = [cs.headline, cs.body, extraStr].filter(Boolean).join(' | ');
+            const t0 = Date.now();
+            if (runId) {
+              await this.logSvc.info(runId, `AI slide ${i + 1}/${ep.confirmedSlides.length}: "${cs.headline}"`, { event_type: 'post_ai_slide_start', slide_index: i }).catch(() => {});
+            }
             try {
               const { url } = await this.designStudio.generateAndSave(tplSlide.id, prompt);
               slideUrls.push(url);
+              if (runId) {
+                await this.logSvc.info(runId, `Slide ${i + 1} ready (${Date.now() - t0}ms)`, { event_type: 'post_ai_slide_end', slide_index: i, duration_ms: Date.now() - t0, estimated_cost_usd: 0.19 }).catch(() => {});
+              }
             } catch (e) {
               this.logger.warn(`Auto-gen slide ${i + 1} failed: ${(e as Error).message}`);
+              if (runId) {
+                await this.logSvc.warn(runId, `Slide ${i + 1} failed: ${(e as Error).message}`, { event_type: 'post_ai_slide_fallback', slide_index: i }).catch(() => {});
+              }
             }
+          }
+          if (runId) {
+            await this.logSvc.info(runId, `All ${slideUrls.length} slides generated`, { event_type: 'post_upload_done', slide_urls: slideUrls }).catch(() => {});
           }
           const msg = `${SLIDE_RENDER_STR}${JSON.stringify({ slideUrls })}`;
           return [{ type: 'notify_result', summary: 'Carousel auto-generated', payload: { message: msg }, riskLevel: 'low' }];
@@ -707,16 +725,32 @@ export class CanvaAgent implements IAgent, OnModuleInit {
       if (pendingTemplateId && pendingTemplateSlides?.length) {
         if (pendingExtraParams.length === 0) {
           const slideUrls: string[] = [];
+          if (runId) {
+            await this.logSvc.info(runId, `Generating ${slides.length} slides`, { event_type: 'post_render_start', slide_count: slides.length, render_id: 'dna' }).catch(() => {});
+          }
           for (let i = 0; i < slides.length; i++) {
             const cs = slides[i];
             const tplSlide = pendingTemplateSlides[i % pendingTemplateSlides.length];
             const prompt = [cs.headline, cs.body].filter(Boolean).join(' | ');
+            const t0 = Date.now();
+            if (runId) {
+              await this.logSvc.info(runId, `AI slide ${i + 1}/${slides.length}: "${cs.headline}"`, { event_type: 'post_ai_slide_start', slide_index: i, slide_role: cs.slideLabel ?? 'content' }).catch(() => {});
+            }
             try {
               const { url } = await this.designStudio.generateAndSave(tplSlide.id, prompt);
               slideUrls.push(url);
+              if (runId) {
+                await this.logSvc.info(runId, `Slide ${i + 1} ready (${Date.now() - t0}ms)`, { event_type: 'post_ai_slide_end', slide_index: i, duration_ms: Date.now() - t0, estimated_cost_usd: 0.19 }).catch(() => {});
+              }
             } catch (e) {
               this.logger.warn(`Auto-gen slide ${i + 1} failed: ${(e as Error).message}`);
+              if (runId) {
+                await this.logSvc.warn(runId, `Slide ${i + 1} failed: ${(e as Error).message}`, { event_type: 'post_ai_slide_fallback', slide_index: i }).catch(() => {});
+              }
             }
+          }
+          if (runId) {
+            await this.logSvc.info(runId, `All ${slideUrls.length} slides generated`, { event_type: 'post_upload_done', slide_urls: slideUrls }).catch(() => {});
           }
           const msg = `${SLIDE_RENDER_STR}${JSON.stringify({ slideUrls })}`;
           return [{ type: 'notify_result', summary: 'Carousel auto-generated', payload: { message: msg }, riskLevel: 'low' }];
