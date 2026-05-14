@@ -258,11 +258,17 @@ export class PostRendererService {
               }).catch(() => {});
             }
           } else {
-            this.logger.warn(`AI slide gen empty buffer slide ${i + 1} — Satori fallback`);
+            await this.logSvc.warn(runId ?? 'post-render',
+              `AI slide gen returned empty buffer for slide ${i + 1} — check OpenAI/Stability API key in Settings. Using Satori fallback.`,
+              { event_type: 'post_ai_slide_fallback', slide_index: i, reason: 'empty_buffer' },
+            ).catch(() => {});
             pngBuffer = await this.renderSlide(slide, contract, format.dimensions, i + 1, undefined, visualSpecMap.get(i));
           }
         } catch (err) {
-          this.logger.warn(`AI slide gen failed slide ${i + 1}: ${(err as Error).message} — Satori fallback`);
+          await this.logSvc.warn(runId ?? 'post-render',
+            `AI slide gen failed for slide ${i + 1}: ${(err as Error).message} — Using Satori fallback.`,
+            { event_type: 'post_ai_slide_fallback', slide_index: i, reason: (err as Error).message },
+          ).catch(() => {});
           pngBuffer = await this.renderSlide(slide, contract, format.dimensions, i + 1, undefined, visualSpecMap.get(i));
         }
       } else {
