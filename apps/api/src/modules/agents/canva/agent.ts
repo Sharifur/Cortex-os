@@ -132,10 +132,10 @@ export class CanvaAgent implements IAgent, OnModuleInit {
 
   private async decideChat(query: string, config: CanvaConfig, history?: string, sampleId?: string): Promise<ProposedAction[]> {
     if (!query?.trim()) {
-      return [{ type: 'notify_result', summary: 'No query', payload: { message: 'What would you like help with?' }, riskLevel: 'low' }];
+      return [{ type: 'notify_result', summary: 'No query', payload: { message: 'What topic would you like to create a carousel about?' }, riskLevel: 'low' }];
     }
 
-    // Hard-coded render trigger: "generate a <format-id> for brand <brand> about "..."
+    // Debug-only hard-coded trigger: "generate a <format-id> for brand <brand> about "..."
     const renderMatch = query.match(
       /generate\s+an?\s+([\w-]+)\s+for\s+brand\s+(\w+)(?:\s+about\s+"([^"]+)")?(?:\s+intent\s+([\w\s]+))?/i,
     );
@@ -146,12 +146,7 @@ export class CanvaAgent implements IAgent, OnModuleInit {
       const intent = renderMatch[4]?.trim() || undefined;
       const validFormats = new Set(listFormats().map(f => f.id));
       if (validFormats.has(formatId)) {
-        return [{
-          type: 'post_render',
-          summary: `Render ${formatId} for ${brand}`,
-          payload: { formatId, brand, topic, intent },
-          riskLevel: 'low',
-        }];
+        return [{ type: 'post_render', summary: `Render ${formatId} for ${brand}`, payload: { formatId, brand, topic, intent }, riskLevel: 'low' }];
       }
     }
 
@@ -166,123 +161,121 @@ export class CanvaAgent implements IAgent, OnModuleInit {
       'energetic-colorful': 'Energetic colorful style — saturated backgrounds (yellow, coral, electric purple), white text, multiple overlapping shapes, bold decorations at every corner.',
     };
 
-    const classifyPrompt = `You are classifying a chat message sent to a social media carousel design agent.
+    const histStr = history ?? '';
 
-Available brands: taskip (project management SaaS), xgenious (premium WordPress/CodeIgniter themes)
+    // ===== FORCED STATE MACHINE =====
+    // Detect step from the last agent message in history.
+    // Content confirmation and style selection are NOT delegated to the LLM classifier —
+    // they are forced based on what the agent last showed.
+    const agentMarker = '\nAgent: ';
+    const lastAgentIdx = histStr.lastIndexOf(agentMarker);
+    const lastAgentText = lastAgentIdx >= 0
+      ? histStr.slice(lastAgentIdx + agentMarker.length)
+      : (histStr.startsWith('Agent: ') ? histStr.slice('Agent: '.length) : '');
 
-Format ID mapping — match user's content type choice to the EXACT format ID:
-  "Tips carousel" | "Tips (5 slides)" | "tips list"  → linkedin-tips-carousel
-  "How-To guide" | "Step-by-step" | "how-to"         → linkedin-howto-carousel
-  "Listicle" | "Numbered list" | "list"               → linkedin-list-carousel
-  "Stat card" | "Single stat" | "data point"          → linkedin-stat-single
-  "Quote card" | "testimonial" | "quote"              → linkedin-quote-single
-  "Instagram" | "edu carousel"                        → instagram-carousel-edu
-  "Infographic"                                       → generic-infographic
-  "Checklist"                                         → generic-checklist
+    const inStylePickerStep = lastAgentText.includes('[styles:');
+    const inContentConfirmStep = lastAgentText.includes('[pending:') && !lastAgentText.includes('[styles:');
 
-Visual tone ID mapping:
-  "Bold & Punchy" | "bold" | "punchy"                → bold-punchy
-  "Clean & Minimal" | "minimal" | "clean"            → clean-minimal
-  "Warm & Professional" | "warm" | "professional"    → warm-professional
-  "Dark & Dramatic" | "dark" | "dramatic"            → dark-dramatic
-  "Bright & Colorful" | "colorful" | "vibrant"       → energetic-colorful
-
-Recent conversation (last 6 messages, may be empty):
-${history || '(no history)'}
-
-Current user message: "${query}"
-
-Return JSON only (no markdown):
-{
-  "intent": "design-generate" | "questions-answered" | "content-confirmed" | "style-selected" | "general-chat",
-  "topic": "extracted content topic, else null",
-  "brand": "taskip" | "xgenious" | null,
-  "formatId": "exact format ID from the mapping above, or null",
-  "visualTone": "bold-punchy" | "clean-minimal" | "warm-professional" | "dark-dramatic" | "energetic-colorful" | null,
-  "audience": "target audience if mentioned, else null",
-  "styleNumber": "number string if user picked a style reference (e.g. '2'), else null"
-}
-
-Rules:
-- "design-generate": user wants to create a carousel/banner (even natural phrasing like "make a post about X")
-- "questions-answered": agent asked clarifying questions about brand/tone/format AND user answered all three — NOT approving a content plan
-- "content-confirmed": agent just showed a numbered slide content plan AND user approved it ("yes", "looks good", "ok", "proceed", "Looks good!", "confirm", "go ahead", "good")
-- "style-selected": agent showed style thumbnails/numbered list AND user replied with a number or "random"
-- "general-chat": advice, brainstorm, feedback, anything else`;
-
-    let classification: { intent: string; topic?: string; brand?: string; formatId?: string; visualTone?: string; audience?: string; styleNumber?: string } = { intent: 'general-chat' };
-    try {
-      const classRes = await this.llm.complete({
-        messages: [{ role: 'user', content: classifyPrompt }],
-        agentKey: this.key,
-        maxTokens: 200,
-        temperature: 0.1,
-      });
-      const raw = classRes.content.replace(/```(?:json)?\s*/g, '').replace(/```/g, '').trim();
-      classification = JSON.parse(raw);
-    } catch { /* fall through to general-chat */ }
-
-    // BRANCH A: user wants to generate
-    if (classification.intent === 'design-generate') {
-      const topic = classification.topic ?? query.trim();
-      const validFormats = new Set(listFormats().map(f => f.id));
-      const hasFormat = !!(classification.formatId && validFormats.has(classification.formatId));
-      const hasBrand = !!classification.brand;
-
-      // Full prompt (topic + format + brand given) → generate content draft first
-      if (topic && hasFormat && hasBrand) {
-        return this.generateContentDraft(
-          topic,
-          classification.formatId!,
-          classification.brand!.toLowerCase(),
-          classification.visualTone ?? 'bold-punchy',
-          toneInstructions,
-          config,
-          trainingSamples,
-        );
+    // STEP 2 (FORCED): style picker is active — next message is always a style selection
+    if (inStylePickerStep) {
+      type StyleSampleEntry = { num: string; id: string; title: string; thumb: string | null };
+      let samples: StyleSampleEntry[] = [];
+      const stylesMatch = lastAgentText.match(/\[styles:(\{[^\n]+\})\]/);
+      if (stylesMatch) {
+        try {
+          const parsed = JSON.parse(stylesMatch[1]) as { samples: StyleSampleEntry[] };
+          samples = parsed.samples ?? [];
+        } catch { /* fall through */ }
+      }
+      if (!samples.length) {
+        samples = trainingSamples.map((s, i) => ({ num: String(i + 1), id: s.id, title: s.title || `Sample ${i + 1}`, thumb: s.thumbUrl ?? null }));
       }
 
-      // Partial prompt — ask 3 clarifying questions
-      const brands = (config.brands ?? ['taskip', 'xgenious']).join(' / ');
-      const message = [
-        `I'll create a social media design on: "${topic}"`,
-        '',
-        'Quick questions before I start:',
-        '',
-        `1. Brand — ${brands}?`,
-        `2. Visual style — Bold & Punchy / Clean & Minimal / Warm & Professional / Dark & Dramatic / Bright & Colorful?`,
-        `3. Content type — Tips (5 slides) / How-To Guide / Listicle / Stat Card / Quote Card?`,
-        '',
-        'Brand is optional — skip it to use the default brand.',
-      ].join('\n');
+      const numMatch = query.trim().match(/^\d+$/);
+      const styleNum = numMatch ? parseInt(numMatch[0], 10) : 0;
+      const isRandom = /^random$/i.test(query.trim()) || styleNum === 0;
 
-      return [{ type: 'notify_result', summary: 'Clarifying questions', payload: { message, query }, riskLevel: 'low' }];
+      let pickedSampleId: string | undefined;
+      if (isRandom) {
+        pickedSampleId = samples[Math.floor(Math.random() * samples.length)]?.id;
+      } else if (styleNum >= 1 && styleNum <= samples.length) {
+        pickedSampleId = samples[styleNum - 1]?.id;
+      } else {
+        // Unrecognised selection — re-show picker
+        const pendingMatch = lastAgentText.match(/\[pending:(\{[^\n]+\})\]/);
+        const pendingTag = pendingMatch ? `\n[pending:${pendingMatch[1]}]` : '';
+        const msg = [
+          'Please pick one of the numbered styles (type a number or click a tile):',
+          '',
+          'Choose a style reference:',
+          `[styles:${JSON.stringify({ samples })}]${pendingTag}`,
+        ].join('\n');
+        return [{ type: 'notify_result', summary: 'Style re-pick', payload: { message: msg, query }, riskLevel: 'low' }];
+      }
+
+      // Extract pending from history
+      let pendingFormatId = 'linkedin-tips-carousel';
+      let pendingBrand = firstBrand;
+      let pendingTopic = '';
+      let pendingIntentStr = '';
+      let pendingSlides: Array<{ slideLabel?: string; headline: string; body?: string }> = [];
+      const lastPendingIdx = histStr.lastIndexOf('[pending:');
+      if (lastPendingIdx !== -1) {
+        const tail = histStr.slice(lastPendingIdx);
+        const m = tail.match(/^\[pending:(\{.+\})\]/);
+        if (m) {
+          try {
+            const p = JSON.parse(m[1]) as { formatId?: string; brand?: string; topic?: string; intentStr?: string; slides?: Array<{ slideLabel?: string; headline: string; body?: string }> };
+            if (p.formatId) pendingFormatId = p.formatId;
+            if (p.brand) pendingBrand = p.brand;
+            if (p.topic) pendingTopic = p.topic;
+            if (p.intentStr) pendingIntentStr = p.intentStr;
+            if (p.slides?.length) pendingSlides = p.slides;
+          } catch { /* use defaults */ }
+        }
+      }
+
+      const exactContentPrefix = pendingSlides.length
+        ? `Use EXACTLY these slide headlines and bodies (do not change them):\n${pendingSlides.map((s, i) => `Slide ${i + 1}: headline="${s.headline}"${s.body ? `, body="${s.body}"` : ''}`).join('\n')}\n\n`
+        : '';
+      const pickedTitle = isRandom ? 'Random' : (samples[styleNum - 1]?.title ?? 'Unknown');
+
+      return [{
+        type: 'post_render',
+        summary: `Render ${pendingFormatId} for ${pendingBrand} (style: ${pickedTitle})`,
+        payload: {
+          formatId: pendingFormatId,
+          brand: pendingBrand,
+          topic: pendingTopic,
+          intent: (exactContentPrefix + pendingIntentStr) || undefined,
+          sampleId: pickedSampleId,
+        },
+        riskLevel: 'low',
+      }];
     }
 
-    // BRANCH B: user answered clarifying questions → generate content draft for confirmation
-    if (classification.intent === 'questions-answered') {
-      const topic = classification.topic ?? '';
-      const brand = (classification.brand ?? firstBrand).toLowerCase();
-      const tone = classification.visualTone ?? 'bold-punchy';
-      const validFormats = new Set(listFormats().map(f => f.id));
-      const formatId = (classification.formatId && validFormats.has(classification.formatId))
-        ? classification.formatId
-        : 'linkedin-tips-carousel';
+    // STEP 1 (FORCED): content draft shown — any message = confirmed or revise
+    if (inContentConfirmStep) {
+      const isRevise = /\b(revise|change|update|no|different|fix|wrong|edit|modify|redo|again|rework)\b/i.test(query.toLowerCase());
 
-      return this.generateContentDraft(topic, formatId, brand, tone, toneInstructions, config, trainingSamples);
-    }
+      if (isRevise) {
+        return [{
+          type: 'notify_result',
+          summary: 'Revision requested',
+          payload: { message: 'What would you like to change? Describe the revision and I\'ll prepare an updated content plan.', query },
+          riskLevel: 'low',
+        }];
+      }
 
-    // BRANCH B1: user confirmed content → show style picker
-    if (classification.intent === 'content-confirmed') {
+      // Confirmed — extract pending and show style picker
       let formatId = 'linkedin-tips-carousel';
       let brand = firstBrand;
       let topic = '';
       let intentStr = '';
       let slides: Array<{ slideLabel?: string; headline: string; body?: string }> = [];
-
-      const lastPendingIdx = (history ?? '').lastIndexOf('[pending:');
+      const lastPendingIdx = histStr.lastIndexOf('[pending:');
       if (lastPendingIdx !== -1) {
-        const tail = (history ?? '').slice(lastPendingIdx);
+        const tail = histStr.slice(lastPendingIdx);
         const m = tail.match(/^\[pending:(\{.+\})\]/);
         if (m) {
           try {
@@ -292,7 +285,7 @@ Rules:
             if (p.topic) topic = p.topic;
             if (p.intentStr) intentStr = p.intentStr;
             if (p.slides?.length) slides = p.slides;
-          } catch { /* ignore */ }
+          } catch { /* use defaults */ }
         }
       }
 
@@ -310,7 +303,7 @@ Rules:
         return [{ type: 'notify_result', summary: 'Style selection', payload: { message: msg, query }, riskLevel: 'low' }];
       }
 
-      // No training samples — render directly with the confirmed content
+      // No training samples — render directly
       const exactContentIntent = slides.length
         ? `Use EXACTLY these slide headlines and bodies:\n${slides.map((s, i) => `Slide ${i + 1}: headline="${s.headline}"${s.body ? `, body="${s.body}"` : ''}`).join('\n')}\n\n${intentStr}`
         : intentStr;
@@ -322,54 +315,45 @@ Rules:
       }];
     }
 
-    // BRANCH B2: user picked a style → extract confirmed content from history and fire render
-    if (classification.intent === 'style-selected') {
-      const styleNum = parseInt(classification.styleNumber ?? '0', 10);
-      const pickedSample = styleNum > 0 ? (trainingSamples[styleNum - 1] ?? null) : null;
-      const resolvedSampleId = pickedSample?.id ?? sampleId ?? undefined;
+    // ===== LLM CLASSIFIER (only for new requests — two intents only) =====
+    const classifyPrompt = `Classify this message from a user of a social media carousel design tool.
 
-      let pendingFormatId = 'linkedin-tips-carousel';
-      let pendingBrand = firstBrand;
-      let pendingTopic = '';
-      let pendingIntentStr = '';
-      let pendingSlides: Array<{ slideLabel?: string; headline: string; body?: string }> = [];
+User message: "${query}"
 
-      const lastPendingIdx = (history ?? '').lastIndexOf('[pending:');
-      if (lastPendingIdx !== -1) {
-        const tail = (history ?? '').slice(lastPendingIdx);
-        const m = tail.match(/^\[pending:(\{.+\})\]/);
-        if (m) {
-          try {
-            const p = JSON.parse(m[1]) as { formatId?: string; brand?: string; topic?: string; intentStr?: string; slides?: Array<{ slideLabel?: string; headline: string; body?: string }> };
-            if (p.formatId) pendingFormatId = p.formatId;
-            if (p.brand) pendingBrand = p.brand;
-            if (p.topic) pendingTopic = p.topic;
-            if (p.intentStr) pendingIntentStr = p.intentStr;
-            if (p.slides?.length) pendingSlides = p.slides;
-          } catch { /* ignore */ }
-        }
+Return JSON only (no markdown):
+{"intent":"design-generate"|"general-chat","topic":"content topic or null","brand":"taskip"|"xgenious"|null,"formatId":"linkedin-tips-carousel"|"linkedin-howto-carousel"|"linkedin-list-carousel"|"linkedin-stat-single"|"linkedin-quote-single"|null}
+
+Rules:
+- "design-generate": user wants to create a carousel, banner, post, or any social media graphic
+- "general-chat": questions, advice, feedback, brainstorming, anything that is NOT creating a design right now`;
+
+    let classification: { intent: string; topic?: string; brand?: string; formatId?: string } = { intent: 'general-chat' };
+    try {
+      const classRes = await this.llm.complete({
+        messages: [{ role: 'user', content: classifyPrompt }],
+        agentKey: this.key,
+        maxTokens: 150,
+        temperature: 0.1,
+      });
+      const raw = classRes.content.replace(/```(?:json)?\s*/g, '').replace(/```/g, '').trim();
+      classification = JSON.parse(raw);
+    } catch { /* fall through to general-chat */ }
+
+    // BRANCH A: new design request — always generate content draft (no clarifying questions)
+    if (classification.intent === 'design-generate') {
+      const topic = classification.topic ?? query.trim();
+      if (!topic) {
+        return [{ type: 'notify_result', summary: 'Ask for topic', payload: { message: 'What topic should I create a carousel about?', query }, riskLevel: 'low' }];
       }
-
-      const exactContentPrefix = pendingSlides.length
-        ? `Use EXACTLY these slide headlines and bodies (do not change them):\n${pendingSlides.map((s, i) => `Slide ${i + 1}: headline="${s.headline}"${s.body ? `, body="${s.body}"` : ''}`).join('\n')}\n\n`
-        : '';
-      const fullIntent = exactContentPrefix + pendingIntentStr;
-
-      return [{
-        type: 'post_render',
-        summary: `Render ${pendingFormatId} for ${pendingBrand}${pickedSample ? ` (style: ${pickedSample.title})` : ''}`,
-        payload: {
-          formatId: pendingFormatId,
-          brand: pendingBrand,
-          topic: pendingTopic,
-          intent: fullIntent || undefined,
-          sampleId: resolvedSampleId,
-        },
-        riskLevel: 'low',
-      }];
+      const validFormats = new Set(listFormats().map(f => f.id));
+      const formatId = (classification.formatId && validFormats.has(classification.formatId))
+        ? classification.formatId
+        : 'linkedin-tips-carousel';
+      const brand = (classification.brand ?? firstBrand).toLowerCase();
+      return this.generateContentDraft(topic, formatId, brand, 'bold-punchy', toneInstructions, config, trainingSamples);
     }
 
-    // BRANCH C: general chat — conversational response
+    // BRANCH B: general chat
     const systemPrompt = `You are a social media design assistant for Sharifur Rahman, founder of Taskip and Xgenious.
 You help with: design prompts, content ideas, carousel layouts, caption writing, platform-specific advice, and content strategy.
 Be concise and practical. No filler. No emojis.`;

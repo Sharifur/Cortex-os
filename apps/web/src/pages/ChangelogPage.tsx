@@ -16,6 +16,16 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.58.0',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'Forced 2-step state machine: step 1 (content confirmation) and step 2 (style selection) are now detected from the last agent message in history — not delegated to the LLM classifier. If the last agent message contains [styles:...], the next user message is always treated as a style pick. If it contains [pending:...] (no styles), it is always treated as content confirmation or revision. LLM misclassification can no longer bypass either step.' },
+      { tag: 'feat', scope: 'canva', description: 'Removed the 3-question clarifying step: when a design request is detected, the agent immediately generates a content draft (no brand/tone/format questions first). This eliminates the main source of "questions-answered" messages being misclassified as content confirmations.' },
+      { tag: 'feat', scope: 'canva', description: 'Style selection now reads the sample list directly from the [styles:...] payload in the last agent message — not from a fresh listSampleMeta call. The picked sample ID is resolved from the embedded samples array, guaranteeing the correct sample is always used.' },
+      { tag: 'fix', scope: 'canva', description: 'Simplified LLM classifier to 2 intents only (design-generate | general-chat). Removed questions-answered, content-confirmed, and style-selected from the classifier prompt — these are now handled by the history state machine.' },
+    ],
+  },
+  {
     version: 'v4.57.2',
     date: '2026-05-14',
     entries: [
