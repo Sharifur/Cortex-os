@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.65.2',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'Carousel sets in Templates tab now display as a single stacked card (cover image with depth effect and slide count badge). Clicking opens a full-screen gallery with prev/next navigation, dot indicators, thumbnail strip at the bottom, and per-slide delete.' },
+    ],
+  },
+  {
     version: 'v4.65.1',
     date: '2026-05-14',
     entries: [

@@ -3970,6 +3970,138 @@ function fileToBase64(file: File): Promise<string> {
   });
 }
 
+function CarouselSetCard({ setName, slides, onDeleteSlide, deletingId }: {
+  setName: string;
+  slides: any[];
+  onDeleteSlide: (id: string) => void;
+  deletingId: string | null;
+}) {
+  const [gallery, setGallery] = useState<number | null>(null);
+  const cover = slides[0];
+  const total = slides.length;
+
+  return (
+    <>
+      <div className="bg-card border border-border rounded-xl p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <p className="text-sm font-medium text-foreground truncate">{setName}</p>
+          <span className="text-xs text-muted-foreground">{total} slides</span>
+        </div>
+        <button
+          onClick={() => setGallery(0)}
+          className="relative w-full group focus:outline-none"
+        >
+          {[2, 1, 0].map((offset) => {
+            const s = slides[offset];
+            if (!s) return null;
+            const rotate = offset === 2 ? '-rotate-3' : offset === 1 ? 'rotate-1' : 'rotate-0';
+            const translate = offset === 2 ? '-translate-y-1' : offset === 1 ? '-translate-y-0.5' : '';
+            return (
+              <div
+                key={offset}
+                className={`absolute inset-0 rounded-xl overflow-hidden border border-border/60 ${rotate} ${translate} ${offset === 0 ? 'relative shadow-md' : ''}`}
+              >
+                {s.previewData ? (
+                  <img src={s.previewData} alt="" className="w-full aspect-video object-cover" />
+                ) : (
+                  <div className="w-full aspect-video bg-muted flex items-center justify-center">
+                    <span className="text-xs text-muted-foreground">No preview</span>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          <div className="absolute inset-0 rounded-xl bg-black/0 group-hover:bg-black/15 transition-colors pointer-events-none" />
+          <span className="absolute bottom-2 right-2 bg-black/60 text-white text-xs font-semibold px-2 py-0.5 rounded-full pointer-events-none">
+            {total} slides
+          </span>
+        </button>
+        {cover && (
+          <p className="text-xs text-muted-foreground truncate">{cover.name.split('/')[0]}</p>
+        )}
+      </div>
+
+      {gallery !== null && (
+        <div
+          className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/85 backdrop-blur-md"
+          onClick={() => setGallery(null)}
+        >
+          <div className="flex items-center justify-between w-full max-w-2xl px-4 pb-3" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-2">
+              {slides.map((_, i) => (
+                <button
+                  key={i}
+                  onClick={() => setGallery(i)}
+                  className={`rounded-full transition-all ${i === gallery ? 'w-4 h-2 bg-white' : 'w-2 h-2 bg-white/30 hover:bg-white/60'}`}
+                />
+              ))}
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-white/40 text-xs mr-2">{gallery + 1} / {total}</span>
+              <button
+                onClick={() => setGallery(null)}
+                className="flex items-center justify-center w-9 h-9 rounded-lg bg-white/10 hover:bg-white/20 text-white/70 hover:text-white border border-white/10 transition-all"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 w-full max-w-2xl px-2" onClick={e => e.stopPropagation()}>
+            <button
+              onClick={() => setGallery(g => Math.max(0, (g ?? 0) - 1))}
+              disabled={gallery === 0}
+              className="flex-shrink-0 flex items-center justify-center w-11 h-11 rounded-full bg-white/10 hover:bg-white/25 disabled:opacity-20 disabled:cursor-not-allowed text-white border border-white/10 transition-all"
+            >
+              <ChevronLeft className="w-5 h-5" />
+            </button>
+            <div className="flex-1 min-w-0 space-y-2">
+              {slides[gallery]?.previewData ? (
+                <img src={slides[gallery].previewData} alt={`Slide ${gallery + 1}`} className="w-full rounded-2xl shadow-2xl ring-1 ring-white/10" />
+              ) : (
+                <div className="w-full aspect-video bg-muted/20 rounded-2xl flex items-center justify-center">
+                  <span className="text-sm text-white/40">No preview</span>
+                </div>
+              )}
+              <p className="text-center text-xs text-white/40">{slides[gallery]?.name?.split('/').slice(1).join('/') ?? ''}</p>
+            </div>
+            <button
+              onClick={() => setGallery(g => Math.min(total - 1, (g ?? 0) + 1))}
+              disabled={gallery === total - 1}
+              className="flex-shrink-0 flex items-center justify-center w-11 h-11 rounded-full bg-white/10 hover:bg-white/25 disabled:opacity-20 disabled:cursor-not-allowed text-white border border-white/10 transition-all"
+            >
+              <ChevronRight className="w-5 h-5" />
+            </button>
+          </div>
+          <div className="flex gap-2 mt-3 overflow-x-auto max-w-2xl px-4" onClick={e => e.stopPropagation()}>
+            {slides.map((s, i) => (
+              <button
+                key={i}
+                onClick={() => setGallery(i)}
+                className={`flex-shrink-0 w-12 h-12 rounded-lg overflow-hidden border-2 transition-all ${i === gallery ? 'border-white' : 'border-white/20 hover:border-white/60'}`}
+              >
+                {s.previewData ? (
+                  <img src={s.previewData} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  <div className="w-full h-full bg-white/10" />
+                )}
+              </button>
+            ))}
+          </div>
+          <div className="flex gap-2 mt-3" onClick={e => e.stopPropagation()}>
+            <button
+              onClick={() => onDeleteSlide(slides[gallery]?.id)}
+              disabled={deletingId === slides[gallery]?.id}
+              className="px-3 py-1.5 text-xs text-red-400 border border-red-400/30 rounded-lg hover:bg-red-400/10 transition-colors disabled:opacity-40"
+            >
+              {deletingId === slides[gallery]?.id ? 'Deleting...' : 'Delete this slide'}
+            </button>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 function DnaTemplateCard({ template, onDelete, deleting, compact }: {
   template: any;
   onDelete: () => void;
@@ -4332,22 +4464,17 @@ function DesignSamplesTab({ token }: { token: string }) {
           <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
             Carousel Sets ({Object.keys(carouselGroups).length})
           </p>
-          {Object.entries(carouselGroups).map(([setName, slides]) => (
-            <div key={setName} className="bg-card border border-border rounded-xl p-4 space-y-3">
-              <p className="text-sm font-medium text-foreground">{setName}</p>
-              <div className="flex flex-wrap gap-3">
-                {slides.map((t: any) => (
-                  <DnaTemplateCard
-                    key={t.id}
-                    template={t}
-                    onDelete={() => void deleteTemplate(t.id)}
-                    deleting={deletingId === t.id}
-                    compact
-                  />
-                ))}
-              </div>
-            </div>
-          ))}
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            {Object.entries(carouselGroups).map(([setName, slides]) => (
+              <CarouselSetCard
+                key={setName}
+                setName={setName}
+                slides={slides}
+                onDeleteSlide={(id) => void deleteTemplate(id)}
+                deletingId={deletingId}
+              />
+            ))}
+          </div>
         </div>
       )}
 
