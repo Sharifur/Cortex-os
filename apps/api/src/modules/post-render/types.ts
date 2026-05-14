@@ -1,7 +1,7 @@
 export type PostPlatform = 'linkedin' | 'instagram' | 'twitter' | 'facebook';
 export type PostCategory = 'carousel' | 'single' | 'story';
 export type SlideRole = 'cover' | 'content' | 'stat' | 'quote' | 'list' | 'cta';
-export type LayoutType = 'centered' | 'left-aligned' | 'split-panel' | 'overlay' | 'list-layout';
+export type LayoutType = 'centered' | 'left-aligned' | 'split-panel' | 'overlay' | 'list-layout' | 'cover-hero' | 'numbered-list-content';
 export type BackgroundVariant = 'brand-primary' | 'brand-secondary' | 'white' | 'dark' | 'gradient';
 export type TextColorMode = 'auto' | 'white' | 'dark';
 export type AccentType = 'top-bar' | 'bottom-bar' | 'left-stripe' | 'none';

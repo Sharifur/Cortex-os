@@ -25,6 +25,8 @@ import { leftAlignedLayout } from './layouts/left-aligned.layout';
 import { splitPanelLayout } from './layouts/split-panel.layout';
 import { overlayLayout } from './layouts/overlay.layout';
 import { listLayout } from './layouts/list.layout';
+import { coverHeroLayout } from './layouts/cover-hero.layout';
+import { numberedListContentLayout } from './layouts/numbered-list-content.layout';
 import type { RenderRequest, RenderResult, FilledSlide, ThemeContract, LayoutType, DominantDNA, SlideVisualSpec, DesignDNA } from './types';
 
 const LAYOUT_MAP: Record<LayoutType, (props: import('./layouts/layout.types').LayoutProps) => object> = {
@@ -33,6 +35,8 @@ const LAYOUT_MAP: Record<LayoutType, (props: import('./layouts/layout.types').La
   'split-panel': splitPanelLayout,
   'overlay': overlayLayout,
   'list-layout': listLayout,
+  'cover-hero': coverHeroLayout,
+  'numbered-list-content': numberedListContentLayout,
 };
 
 // Compatible layout options per slide role — used for randomised layout selection
@@ -157,6 +161,17 @@ export class PostRendererService {
     for (const slide of filledSlides) {
       const dominant = useLearned ? dominantDNA!.slide_role_layouts?.[slide.role] : undefined;
       slide.layout = pickLayout(slide.role, dominant);
+    }
+
+    // When a specific training sample is pinned, override layouts to structurally match that sample
+    if (req.sampleId && sampledDNA) {
+      for (const slide of filledSlides) {
+        if (slide.role === 'cover') {
+          slide.layout = 'cover-hero';
+        } else if (slide.role === 'list' || slide.role === 'content') {
+          slide.layout = 'numbered-list-content';
+        }
+      }
     }
 
     await this.logSvc.info(runId ?? 'post-render',

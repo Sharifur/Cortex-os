@@ -60,8 +60,11 @@ export class ThemeContractService {
       || (useLearned ? (dna!.dominant_accent_color || brand.palette[2] || brand.palette[1]) : null)
       || brand.palette[2] ?? brand.palette[1] ?? '#6366f1';
 
-    const headlineColor = pickTextColor(contentBg);
-    const bodyColor = headlineColor === '#ffffff' ? '#cccccc' : '#444444';
+    // Use exact text colors from sample DNA when available (structural replication)
+    const sampledHeadlineHex = sampledDNA?.color_usage?.headline_text_hex?.startsWith('#') ? sampledDNA.color_usage.headline_text_hex : null;
+    const sampledBodyHex = sampledDNA?.color_usage?.body_text_hex?.startsWith('#') ? sampledDNA.color_usage.body_text_hex : null;
+    const headlineColor = sampledHeadlineHex || pickTextColor(contentBg);
+    const bodyColor = sampledBodyHex || (headlineColor === '#ffffff' ? '#cccccc' : '#444444');
     const subtextColor = headlineColor === '#ffffff' ? '#aaaaaa' : '#888888';
 
     // Heading size from DNA font_size_heading

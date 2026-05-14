@@ -16,6 +16,16 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.57.0',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'render', description: 'Structural layout replication: two new Satori layouts added — cover-hero (vivid full-bleed background, giant bold headline, thin separator line, body text, CTA pill footer) and numbered-list-content (accent underline below headline, numbered items with colored box backgrounds). These mirror the visual structure of the uploaded training samples.' },
+      { tag: 'feat', scope: 'render', description: 'Sample-pinned layout override: when a specific training sample is selected (sampleId), cover slides automatically use cover-hero layout and content/list slides use numbered-list-content layout — structurally matching the chosen sample instead of picking a generic layout.' },
+      { tag: 'feat', scope: 'render', description: 'Exact text color replication: ThemeContract now reads headline_text_hex and body_text_hex from the selected sample\'s color_usage field, so text renders in the same exact colors as the training sample instead of auto-computed contrast colors.' },
+      { tag: 'fix', scope: 'render', description: 'Visual spec color anchor: bgColor fallback now prefers color_usage.background_hex from per-slide DNA before primary_color, ensuring the LLM-generated background color is grounded in the most accurate sample data.' },
+    ],
+  },
+  {
     version: 'v4.56.0',
     date: '2026-05-14',
     entries: [

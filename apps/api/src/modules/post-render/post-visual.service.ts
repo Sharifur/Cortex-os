@@ -156,7 +156,7 @@ export class PostVisualService {
       const specs = (parsed.slides ?? []).map(s => {
         const slideIdx = s.slideIndex ?? 0;
         const perDNA = perSlideDNAs?.[slideIdx] ?? null;
-        const fallbackBg = perDNA?.primary_color || sampledDNA?.primary_color || contract.backgroundCover;
+        const fallbackBg = perDNA?.color_usage?.background_hex || perDNA?.primary_color || sampledDNA?.color_usage?.background_hex || sampledDNA?.primary_color || contract.backgroundCover;
         const fallbackAccent = perDNA?.accent_color || sampledDNA?.accent_color || contract.accentColor;
         return {
           ...s,
