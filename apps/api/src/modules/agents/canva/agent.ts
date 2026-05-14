@@ -224,9 +224,7 @@ Rules:
         `3. Content format — ${formatChoices}?`,
         ...styleLines,
         '',
-        trainingSamples.length > 0
-          ? 'Reply with your choices (e.g. "taskip, bold, tips list, 2") and I\'ll generate it.'
-          : 'Reply with your choices (e.g. "taskip, bold, tips list") and I\'ll generate it.',
+        'Brand is optional — skip it to use the default brand.',
       ].join('\n');
 
       return [{ type: 'notify_result', summary: 'Clarifying questions', payload: { message, query }, riskLevel: 'low' }];
@@ -235,7 +233,7 @@ Rules:
     // BRANCH B: user answered the clarifying questions — extract context, then ask for style if not answered yet
     if (classification.intent === 'questions-answered') {
       const topic = classification.topic ?? '';
-      const brand = (classification.brand ?? config.brands[0] ?? 'taskip').toLowerCase();
+      const brand = (classification.brand ?? 'default').toLowerCase();
       const tone = classification.visualTone ?? 'bold-punchy';
       const audience = classification.audience ?? '';
       const validFormats = new Set(listFormats().map(f => f.id));

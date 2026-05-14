@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.54.0',
+    date: '2026-05-14',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'Pill quick-reply UI in chat: when the Canva agent asks clarifying questions (brand, tone, format), the message now renders as interactive pill buttons instead of plain text. Each question gets its own row of selectable pills; clicking a pill toggles it. A Generate button assembles the selections and sends them. The style reference picker also renders as pills. Pills only appear on the last (unanswered) agent message — older messages show as plain text.' },
+      { tag: 'feat', scope: 'canva', description: 'Brand is now optional: when the user skips the brand question (or selects nothing), the render uses the "default" brand. Removed the fallback to config.brands[0] which was causing brand=taskip with no matching samples.' },
+    ],
+  },
+  {
     version: 'v4.53.1',
     date: '2026-05-14',
     entries: [

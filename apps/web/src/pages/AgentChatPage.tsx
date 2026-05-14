@@ -987,10 +987,157 @@ function SlideGrid({ slideUrls, renderId }: { slideUrls: string[]; renderId?: st
   );
 }
 
+// ─── Quick reply pill cards ───────────────────────────────────────────────────
+
+interface ParsedQuestion { label: string; options: string[] }
+
+function parseClarifyingQuestions(content: string): { intro: string; questions: ParsedQuestion[] } | null {
+  if (!content.includes('Quick questions before I start:')) return null;
+  const lines = content.split('\n');
+  const questions: ParsedQuestion[] = [];
+  for (const line of lines) {
+    const m = line.match(/^\d+\.\s+(.+?)\s+[—-]\s+(.+?)(\?)?$/);
+    if (m) {
+      const label = m[1].trim();
+      const options = m[2].trim().split(/\s*\/\s*/).map(o => o.replace(/\?$/, '').trim()).filter(Boolean);
+      if (options.length) questions.push({ label, options });
+    }
+  }
+  if (!questions.length) return null;
+  const firstNum = lines.findIndex(l => /^\d+\./.test(l.trim()));
+  const intro = lines.slice(0, firstNum).join('\n').trim();
+  return { intro, questions };
+}
+
+function parseStylePicker(content: string): { header: string; options: { num: string; label: string }[] } | null {
+  if (!content.includes('Choose a style reference for this render:')) return null;
+  const lines = content.split('\n');
+  const options: { num: string; label: string }[] = [];
+  for (const line of lines) {
+    const m = line.match(/^(\d+)\.\s+(.+)$/);
+    if (m && !m[2].includes('[pending:')) options.push({ num: m[1], label: m[2].trim() });
+  }
+  if (!options.length) return null;
+  const headerLines = lines.filter(l => l.trim() && !/^\d+\./.test(l.trim()) && !l.includes('[pending:'));
+  return { header: headerLines.join('\n').trim(), options };
+}
+
+function QuickReplyCard({
+  content,
+  onSubmit,
+  color,
+}: {
+  content: string;
+  onSubmit: (text: string) => void;
+  color: ReturnType<typeof agentColor>;
+}) {
+  const parsed = parseClarifyingQuestions(content);
+  const [selections, setSelections] = useState<Record<number, string>>({});
+  const [submitted, setSubmitted] = useState(false);
+  if (!parsed) return null;
+
+  function toggle(qi: number, opt: string) {
+    setSelections(prev => ({ ...prev, [qi]: prev[qi] === opt ? '' : opt }));
+  }
+
+  function submit() {
+    if (submitted) return;
+    const parts = parsed!.questions.map((_, i) => selections[i] ?? '').filter(Boolean);
+    setSubmitted(true);
+    onSubmit(parts.length ? parts.join(', ') : 'default, bold & punchy, tips list');
+  }
+
+  if (submitted) {
+    return (
+      <div className={`rounded-2xl px-4 py-2.5 text-sm ${color.bubble} text-foreground rounded-bl-sm opacity-50`}>
+        <p className="text-sm">{parsed.intro}</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className={`rounded-2xl px-4 py-3 ${color.bubble} text-foreground rounded-bl-sm space-y-3`}>
+      {parsed.intro && <p className="text-sm leading-relaxed">{parsed.intro}</p>}
+      {parsed.questions.map((q, i) => (
+        <div key={i} className="space-y-1.5">
+          <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">{q.label}</p>
+          <div className="flex flex-wrap gap-1.5">
+            {q.options.map(opt => (
+              <button
+                key={opt}
+                onClick={() => toggle(i, opt)}
+                className={`px-3 py-1 rounded-full text-xs border transition-colors ${
+                  selections[i] === opt
+                    ? 'bg-primary text-primary-foreground border-primary'
+                    : 'border-border text-muted-foreground hover:border-foreground/40 hover:text-foreground'
+                }`}
+              >
+                {opt}
+              </button>
+            ))}
+          </div>
+        </div>
+      ))}
+      <button
+        onClick={submit}
+        className="mt-1 px-4 py-1.5 rounded-full bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition-colors"
+      >
+        Generate
+      </button>
+    </div>
+  );
+}
+
+function StylePickerCard({
+  content,
+  onSubmit,
+  color,
+}: {
+  content: string;
+  onSubmit: (text: string) => void;
+  color: ReturnType<typeof agentColor>;
+}) {
+  const parsed = parseStylePicker(content);
+  const [selected, setSelected] = useState<string | null>(null);
+
+  if (!parsed) return null;
+
+  function pick(num: string, label: string) {
+    if (selected) return;
+    setSelected(num);
+    onSubmit(num === '0' ? 'random' : num);
+  }
+
+  const headerLines = parsed.header.split('\n').filter(l => l.trim());
+
+  return (
+    <div className={`rounded-2xl px-4 py-3 ${color.bubble} text-foreground rounded-bl-sm space-y-2`}>
+      {headerLines.map((line, i) => (
+        <p key={i} className="text-sm leading-relaxed">{line}</p>
+      ))}
+      <div className="flex flex-wrap gap-1.5 pt-1">
+        {parsed.options.map(opt => (
+          <button
+            key={opt.num}
+            onClick={() => pick(opt.num, opt.label)}
+            className={`px-3 py-1 rounded-full text-xs border transition-colors ${
+              selected === opt.num
+                ? 'bg-primary text-primary-foreground border-primary'
+                : 'border-border text-muted-foreground hover:border-foreground/40 hover:text-foreground'
+            }`}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ─── Message bubble ───────────────────────────────────────────────────────────
 
 function MessageBubble({
-  msg, color, agentName, onFeedback, onReply, onApprove, onReject, token, agentKey,
+  msg, color, agentName, onFeedback, onReply, onApprove, onReject, token, agentKey, onQuickReply, isLast,
 }: {
   msg: ConvMessage & { pending?: boolean; feedback?: 'up' | 'down' };
   color: ReturnType<typeof agentColor>;
@@ -1001,6 +1148,8 @@ function MessageBubble({
   onReject?: () => void;
   token: string;
   agentKey?: string;
+  onQuickReply?: (text: string) => void;
+  isLast?: boolean;
 }) {
   const isUser = msg.role === 'user';
 
@@ -1023,6 +1172,15 @@ function MessageBubble({
                 </div>
               );
             } catch { /* fall through */ }
+          }
+          // Quick reply pill cards — only on the last agent message (unanswered)
+          if (!isUser && isLast && onQuickReply) {
+            if (parseClarifyingQuestions(msg.content)) {
+              return <QuickReplyCard content={msg.content} onSubmit={onQuickReply} color={color} />;
+            }
+            if (parseStylePicker(msg.content)) {
+              return <StylePickerCard content={msg.content} onSubmit={onQuickReply} color={color} />;
+            }
           }
           // Structured email draft from proposedActions
           if (!isUser && msg.content.startsWith(EMAIL_DRAFT_PREFIX)) {
@@ -1959,8 +2117,9 @@ function ChatTab({
           </div>
         )}
 
-        {messages.map((msg) => {
+        {messages.map((msg, idx) => {
           const approval = msg.runId ? approvalByRunId[msg.runId] : undefined;
+          const isLast = idx === messages.length - 1;
           return (
             <MessageBubble
               key={msg.id}
@@ -1973,6 +2132,8 @@ function ChatTab({
               onReject={approval ? () => rejectChatMutation.mutate(approval.id) : undefined}
               token={token ?? ''}
               agentKey={agent.key}
+              isLast={isLast}
+              onQuickReply={isLast ? (text) => triggerMutation.mutate(text) : undefined}
             />
           );
         })}
