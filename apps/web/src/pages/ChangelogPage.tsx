@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.70.2',
+    date: '2026-05-15',
+    entries: [
+      { tag: 'feat', scope: 'integrations', description: 'AI APIs tab in Integrations page. Configure OpenAI, Gemini, and DeepSeek API keys and models directly from Integrations without navigating to Settings. Provider sub-tabs with enabled indicator dots.' },
+    ],
+  },
+  {
     version: 'v4.70.1',
     date: '2026-05-15',
     entries: [
