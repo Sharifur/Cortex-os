@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import { db } from './client';
-import { users, agents } from './schema';
+import { users, agents, supportTickets } from './schema';
 import { eq, sql } from 'drizzle-orm';
 import * as bcrypt from 'bcrypt';
 
@@ -189,6 +189,115 @@ async function seed() {
     console.log(`Seeded ${rows.length} dummy inbox emails`);
   } else {
     console.log('Inbox emails already exist, skipping dummy seed');
+  }
+
+  // ── Support tickets ──────────────────────────────────────────
+  const existingTickets = await db.select().from(supportTickets).limit(1);
+  if (existingTickets.length === 0) {
+    const now = new Date();
+    const daysAgoD = (n: number) => new Date(now.getTime() - n * 86400_000);
+
+    await db.insert(supportTickets).values([
+      {
+        id: 'seed-ticket-001',
+        externalId: '1001',
+        crmUuid: 'aaaaaaaa-0001-0001-0001-000000000001',
+        ticketNo: '1001',
+        subject: 'Cannot login after password reset',
+        body: 'Hi, I reset my password yesterday but still cannot login. Getting "Invalid credentials" every time. My email is john@example.com. Please help urgently.',
+        userEmail: 'john@example.com',
+        contactName: 'John Smith',
+        priority: 'high',
+        status: 'open',
+        category: 'technical',
+        createdAt: daysAgoD(1),
+        updatedAt: daysAgoD(1),
+      },
+      {
+        id: 'seed-ticket-002',
+        externalId: '1002',
+        crmUuid: 'bbbbbbbb-0002-0002-0002-000000000002',
+        ticketNo: '1002',
+        subject: 'Request refund for wrong purchase',
+        body: 'I accidentally bought the Business plan instead of the Starter plan. I need a refund for the difference. Purchase was made 2 days ago. Order #XG-7821.',
+        userEmail: 'sara@designco.com',
+        contactName: 'Sara Lee',
+        priority: 'medium',
+        status: 'open',
+        category: 'billing',
+        createdAt: daysAgoD(2),
+        updatedAt: daysAgoD(2),
+      },
+      {
+        id: 'seed-ticket-003',
+        externalId: '1003',
+        crmUuid: 'cccccccc-0003-0003-0003-000000000003',
+        ticketNo: '1003',
+        subject: 'API rate limit error on bulk import',
+        body: 'We are getting 429 Too Many Requests when running bulk CSV import of 5000 contacts. This is blocking our migration. We need higher rate limits or a bulk endpoint. Technical details: using REST API v2, POST /api/contacts, 100 req/min.',
+        userEmail: 'dev@acmecorp.io',
+        contactName: 'Alex Dev',
+        priority: 'urgent',
+        status: 'escalated',
+        category: 'technical',
+        purchaseCode: '5357e850-1a3e-4989-bf83-71e089346034',
+        purchaseCodeStatus: 'verified',
+        createdAt: daysAgoD(3),
+        updatedAt: daysAgoD(3),
+      },
+      {
+        id: 'seed-ticket-004',
+        externalId: '1004',
+        crmUuid: 'dddddddd-0004-0004-0004-000000000004',
+        ticketNo: '1004',
+        subject: 'Feature request: dark mode for client portal',
+        body: 'Hello, I and my team love the product but we spend many hours in the client portal and dark mode would really help reduce eye strain. Any plans to add this? Happy to test a beta version.',
+        userEmail: 'mike@freelancehq.dev',
+        contactName: 'Mike Turner',
+        priority: 'low',
+        status: 'open',
+        category: 'feature',
+        createdAt: daysAgoD(5),
+        updatedAt: daysAgoD(5),
+      },
+      {
+        id: 'seed-ticket-005',
+        externalId: '1005',
+        crmUuid: 'eeeeeeee-0005-0005-0005-000000000005',
+        ticketNo: '1005',
+        subject: 'Add Ollama LLM [Customisation] [Helpnest]',
+        body: 'Xgenious input_name Prashant Battul Email pra021@yahoo.co.in Product Helpnest Query Type Customisation Purchase Code 5357e850-1a3e-4989-bf83-71e089346033 Subject Add Ollama LLM Description OpenAI tokens are expensive. I have a self-hosted Ollama LLM. Can we replace OpenAI with Ollama, or add an option to switch between the two LLM options?',
+        userEmail: 'pra021@yahoo.co.in',
+        contactName: 'Prashant Battul',
+        priority: 'medium',
+        status: 'replied',
+        category: 'technical',
+        purchaseCode: '5357e850-1a3e-4989-bf83-71e089346033',
+        purchaseCodeStatus: 'verified',
+        lastDraft: 'Thank you for your suggestion to integrate the self-hosted Ollama LLM into Helpnest. We understand the need for flexibility between OpenAI and Ollama options and will forward this request to our development team for consideration.',
+        repliedAt: daysAgoD(0),
+        createdAt: daysAgoD(1),
+        updatedAt: daysAgoD(0),
+      },
+      {
+        id: 'seed-ticket-006',
+        externalId: '1006',
+        crmUuid: 'ffffffff-0006-0006-0006-000000000006',
+        ticketNo: '1006',
+        subject: 'Invoice not received after payment',
+        body: 'I completed payment for the Pro plan 3 days ago (transaction ID: TXN-29831) but have not received the invoice email. Can you resend it to billing@mycompany.net? Also need the invoice to show company VAT number: GB123456789.',
+        userEmail: 'billing@mycompany.net',
+        contactName: 'Emma Wilson',
+        priority: 'medium',
+        status: 'closed',
+        category: 'billing',
+        createdAt: daysAgoD(7),
+        updatedAt: daysAgoD(6),
+      },
+    ]).onConflictDoNothing();
+    console.log('Seeded 6 dummy support tickets');
+  } else {
+    console.log('Support tickets already exist, skipping dummy seed');
   }
 
   process.exit(0);
