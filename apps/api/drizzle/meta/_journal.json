@@ -533,6 +533,13 @@
       "when": 1747958400002,
       "tag": "0075_design_studio_jobs",
       "breakpoints": true
+    },
+    {
+      "idx": 76,
+      "version": "6",
+      "when": 1747958400003,
+      "tag": "0076_rename_canva_agent",
+      "breakpoints": true
     }
   ]
 }
