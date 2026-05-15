@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.70.6',
+    date: '2026-05-15',
+    entries: [
+      { tag: 'feat', scope: 'linkedin', description: 'Docs tab on LinkedIn agent page — full setup guide (Unipile credentials, account sync, niche creation, config options, test run) plus tab guide, limits, and tips. Replaces the old Setup tab.' },
+    ],
+  },
+  {
     version: 'v4.70.5',
     date: '2026-05-15',
     entries: [
