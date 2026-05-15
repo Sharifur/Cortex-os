@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.71.4',
+    date: '2026-05-15',
+    entries: [
+      { tag: 'fix', scope: 'support', description: 'CRM reply endpoint corrected to POST /api/public-v1/support-ticket/agent-reply/{uuid}. agent_id is now required (returns error if not configured). All execute() paths and send-reply API route use crmUuid instead of numeric externalId.' },
+    ],
+  },
+  {
     version: 'v4.71.3',
     date: '2026-05-15',
     entries: [

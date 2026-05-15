@@ -370,6 +370,7 @@ export class SupportAgent implements IAgent, OnModuleInit {
           payload: {
             ticketId: ticket.id,
             crmTicketId: ticket.externalId ? Number(ticket.externalId) : null,
+            crmUuid: ticket.crmUuid ?? null,
             subject: ticket.subject,
             userEmail: ticket.userEmail,
             category: parsed.category,
@@ -402,8 +403,8 @@ export class SupportAgent implements IAgent, OnModuleInit {
     const p = action.payload as any;
 
     if (action.type === 'request_purchase_code') {
-      if (p.crmTicketId) {
-        const result = await this.postCrmReply(p.crmTicketId, p.draft);
+      if (p.crmUuid) {
+        const result = await this.postCrmReply(p.crmUuid, p.draft);
         if (!result.ok) {
           await this.telegram.sendMessage(`CRM reply FAILED (purchase code request): ${p.subject}\nError: ${result.error}`);
         }
@@ -428,8 +429,8 @@ export class SupportAgent implements IAgent, OnModuleInit {
     }
 
     if (action.type === 'request_server_access') {
-      if (p.crmTicketId) {
-        const result = await this.postCrmReply(p.crmTicketId, p.draft);
+      if (p.crmUuid) {
+        const result = await this.postCrmReply(p.crmUuid, p.draft);
         if (!result.ok) {
           await this.telegram.sendMessage(`CRM reply FAILED (server access request): ${p.subject}\nError: ${result.error}`);
         }
@@ -457,8 +458,8 @@ export class SupportAgent implements IAgent, OnModuleInit {
       const now = new Date();
       const isReply = action.type === 'post_reply';
 
-      if (isReply && p.crmTicketId) {
-        const result = await this.postCrmReply(p.crmTicketId, p.draft);
+      if (isReply && p.crmUuid) {
+        const result = await this.postCrmReply(p.crmUuid, p.draft);
         if (!result.ok) {
           // Save draft but do NOT mark as replied — CRM delivery failed
           if (p.ticketId) {
@@ -561,15 +562,15 @@ export class SupportAgent implements IAgent, OnModuleInit {
       },
       {
         name: 'crm_post_reply',
-        description: 'Post a reply to a CRM ticket by its numeric ID. Use only after approval is confirmed.',
+        description: 'Post a reply to a CRM ticket by its UUID. Use only after approval is confirmed.',
         inputSchema: {
           type: 'object',
-          properties: { id: { type: 'number' }, message: { type: 'string' } },
-          required: ['id', 'message'],
+          properties: { uuid: { type: 'string' }, message: { type: 'string' } },
+          required: ['uuid', 'message'],
         },
         handler: async (input) => {
-          await this.postCrmReply((input as any).id, (input as any).message);
-          return { ok: true };
+          const result = await this.postCrmReply((input as any).uuid, (input as any).message);
+          return result;
         },
       },
     ];
@@ -749,9 +750,8 @@ export class SupportAgent implements IAgent, OnModuleInit {
           const [ticket] = await this.db.db.select().from(supportTickets).where(eq(supportTickets.id, id));
           if (!ticket) throw new Error('Ticket not found');
           if (!ticket.lastDraft?.trim()) throw new Error('No draft to send — generate a draft first');
-          const crmId = ticket.externalId ? Number(ticket.externalId) : null;
-          if (!crmId || isNaN(crmId)) throw new Error('Ticket has no CRM ID — cannot post reply');
-          const result = await this.postCrmReply(crmId, ticket.lastDraft);
+          if (!ticket.crmUuid) throw new Error('Ticket has no CRM UUID — webhook may need to re-deliver it');
+          const result = await this.postCrmReply(ticket.crmUuid, ticket.lastDraft);
           if (!result.ok) throw new Error(result.error ?? 'CRM reply failed');
           await this.db.db.update(supportTickets).set({ status: 'replied', repliedAt: new Date(), updatedAt: new Date() }).where(eq(supportTickets.id, id));
           await this.writeTicketEvent({ ticketId: id, externalId: ticket.externalId, eventType: 'reply_sent', summary: `Reply sent via dashboard: ${ticket.lastDraft.slice(0, 120)}`, payload: { draft: ticket.lastDraft } });
@@ -1312,28 +1312,28 @@ export class SupportAgent implements IAgent, OnModuleInit {
     }
   }
 
-  private async postCrmReply(crmTicketId: number, message: string): Promise<{ ok: boolean; error?: string }> {
+  private async postCrmReply(crmUuid: string, message: string): Promise<{ ok: boolean; error?: string }> {
     try {
       const baseUrl = await this.settings.getDecrypted('support_crm_base_url');
       if (!baseUrl) return { ok: false, error: 'support_crm_base_url not configured' };
       const agentIdRaw = await this.settings.getDecrypted('support_agent_id');
-      const body: Record<string, unknown> = { description: message };
-      if (agentIdRaw) body.agent_id = Number(agentIdRaw);
-      const res = await fetch(`${baseUrl.replace(/\/$/, '')}/api/public-v1/support-ticket/reply/${crmTicketId}`, {
+      if (!agentIdRaw) return { ok: false, error: 'support_agent_id not configured in Settings' };
+      const body: Record<string, unknown> = { description: message, agent_id: Number(agentIdRaw) };
+      const res = await fetch(`${baseUrl.replace(/\/$/, '')}/api/public-v1/support-ticket/agent-reply/${crmUuid}`, {
         method: 'POST',
         headers: await this.crmHeaders(),
         body: JSON.stringify(body),
         signal: AbortSignal.timeout(10000),
       });
       if (res.ok) {
-        this.logger.log(`CRM reply posted for ticket #${crmTicketId}`);
+        this.logger.log(`CRM reply posted for ticket uuid=${crmUuid}`);
         return { ok: true };
       }
       const text = await res.text().catch(() => '');
-      this.logger.warn(`postCrmReply(${crmTicketId}) failed: HTTP ${res.status} — ${text}`);
+      this.logger.warn(`postCrmReply(${crmUuid}) failed: HTTP ${res.status} — ${text}`);
       return { ok: false, error: `HTTP ${res.status}: ${text.slice(0, 200)}` };
     } catch (err) {
-      this.logger.warn(`postCrmReply(${crmTicketId}) error: ${err}`);
+      this.logger.warn(`postCrmReply(${crmUuid}) error: ${err}`);
       return { ok: false, error: String(err) };
     }
   }
