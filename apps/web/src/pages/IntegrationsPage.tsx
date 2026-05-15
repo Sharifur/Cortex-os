@@ -24,7 +24,6 @@ interface SettingRow {
 
 const TABS = [
   { key: 'oauth', label: 'OAuth Apps', icon: <Link2 className="w-4 h-4" /> },
-  { key: 'ai_apis', label: 'AI APIs', icon: <Bot className="w-4 h-4" /> },
   { key: 'whatsapp', label: 'WhatsApp', icon: <MessageSquare className="w-4 h-4" /> },
   { key: 'linkedin', label: 'LinkedIn', icon: <Linkedin className="w-4 h-4" /> },
   { key: 'reddit', label: 'Reddit', icon: <Hash className="w-4 h-4" /> },
@@ -1443,62 +1442,6 @@ function OAuthAppsTab({ token }: { token: string }) {
   );
 }
 
-const AI_PROVIDER_TABS = [
-  { key: 'openai', label: 'OpenAI' },
-  { key: 'gemini', label: 'Gemini' },
-  { key: 'deepseek', label: 'DeepSeek' },
-];
-
-function AiApisTab({ rows, token }: { rows: SettingRow[]; token: string }) {
-  const [activeProvider, setActiveProvider] = useState('openai');
-
-  const enabledFor = (p: string): boolean => {
-    const r = rows.find((x) => x.key === `${p}_enabled`);
-    if (!r) return p !== 'gemini';
-    return r.value === 'true';
-  };
-
-  const providerRows = rows.filter((r) => r.provider === activeProvider);
-
-  return (
-    <div>
-      <div className="rounded-xl border border-border bg-card p-5 mb-4">
-        <div className="flex items-center gap-2 mb-1">
-          <Bot className="w-4 h-4 text-primary" />
-          <span className="text-sm font-semibold">AI Provider API Keys</span>
-        </div>
-        <p className="text-xs text-muted-foreground">
-          Configure API keys and models for each AI provider. Keys are encrypted at rest and never shown in plaintext.
-          Default provider and fallback chain are configured in{' '}
-          <a href="/settings" className="text-primary hover:underline">Settings &rarr; LLM</a>.
-        </p>
-      </div>
-
-      <div className="flex items-center gap-1 border border-border rounded-lg p-1 mb-4 bg-muted/30 w-fit">
-        {AI_PROVIDER_TABS.map((tab) => {
-          const on = enabledFor(tab.key);
-          return (
-            <button
-              key={tab.key}
-              onClick={() => setActiveProvider(tab.key)}
-              className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors inline-flex items-center gap-1.5 ${
-                activeProvider === tab.key
-                  ? 'bg-card text-foreground shadow-sm'
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              <span className={`w-1.5 h-1.5 rounded-full ${on ? 'bg-green-500' : 'bg-muted-foreground/40'}`} />
-              {tab.label}
-            </button>
-          );
-        })}
-      </div>
-
-      <FieldsCard rows={providerRows} token={token} />
-    </div>
-  );
-}
-
 export default function IntegrationsPage() {
   const token = useAuthStore((s) => s.token)!;
   const [activeTab, setActiveTab] = useState('oauth');
@@ -1563,7 +1506,6 @@ export default function IntegrationsPage() {
       {(activeTab === 'oauth' || (!isLoading && !isError)) && (
         <>
           {activeTab === 'oauth' && <OAuthAppsTab token={token} />}
-          {activeTab === 'ai_apis' && <AiApisTab rows={grouped['llm'] ?? []} token={token} />}
           {activeTab === 'whatsapp' && <WhatsAppTab rows={grouped['whatsapp'] ?? []} token={token} />}
           {activeTab === 'linkedin' && <LinkedInTab rows={grouped['linkedin'] ?? []} token={token} />}
           {activeTab === 'reddit' && <RedditTab rows={grouped['reddit'] ?? []} token={token} />}
