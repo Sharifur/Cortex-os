@@ -338,7 +338,7 @@ export default function SupportTicketDetailPage() {
   }
 
   return (
-    <div className="p-6 max-w-4xl mx-auto space-y-5">
+    <div className="p-6 max-w-[1400px] mx-auto space-y-4">
       {/* Back + header */}
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
@@ -371,287 +371,288 @@ export default function SupportTicketDetailPage() {
         </button>
       </div>
 
-      {/* Ticket header */}
-      <div className="rounded-xl border border-border bg-card px-5 py-4 space-y-3">
-        <div className="flex items-start justify-between gap-4">
-          <h1 className="text-base font-semibold leading-snug">{ticket.subject}</h1>
-          <div className="flex items-center gap-2 shrink-0 flex-wrap">
-            <Badge label={ticket.priority} styles={PRIORITY_STYLES[ticket.priority] ?? 'bg-slate-500/15 text-slate-400'} />
-            <Badge label={ticket.status} styles={STATUS_STYLES[ticket.status] ?? 'bg-slate-500/15 text-slate-400'} />
-            {ticket.purchaseCodeStatus && (
-              <Badge
-                label={`purchase: ${ticket.purchaseCodeStatus}`}
-                styles={PURCHASE_CODE_STATUS_STYLES[ticket.purchaseCodeStatus] ?? 'bg-slate-500/15 text-slate-400'}
-              />
-            )}
-          </div>
-        </div>
+      {/* Two-column layout */}
+      <div className="grid grid-cols-1 xl:grid-cols-[1fr_340px] gap-5 items-start">
 
-        <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
-          {ticket.contactName && (
-            <div className="flex items-center gap-1">
-              <User className="w-3 h-3" /> {ticket.contactName}
-            </div>
-          )}
-          <div className="flex items-center gap-1">
-            <Mail className="w-3 h-3" /> {ticket.userEmail}
-          </div>
-          {ticket.contactPhone && (
-            <div className="flex items-center gap-1">
-              <Phone className="w-3 h-3" /> {ticket.contactPhone}
-            </div>
-          )}
-          <div className="flex items-center gap-1">
-            <Clock className="w-3 h-3" /> Created {fmt(ticket.createdAt)}
-          </div>
-          {ticket.repliedAt && (
-            <div className="flex items-center gap-1 text-emerald-400">
-              <MessageSquare className="w-3 h-3" /> Replied {fmt(ticket.repliedAt)}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Ticket body */}
-      {ticket.body && (
-        <div className="rounded-xl border border-border bg-card px-5 py-4 space-y-2">
-          <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Ticket Body</p>
-          <p className="text-sm text-foreground whitespace-pre-wrap leading-relaxed">{ticket.body}</p>
-        </div>
-      )}
-
-      {/* AI Draft section — state-driven */}
-      {ticket.status === 'replied' ? (
-        <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-5 py-4 space-y-3">
-          <div className="flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-            <p className="text-sm font-semibold text-emerald-400">Reply Sent</p>
-            {ticket.repliedAt && (
-              <span className="text-xs text-muted-foreground">{fmt(ticket.repliedAt)}</span>
-            )}
-            <button
-              onClick={handleGenerateDraft}
-              disabled={generating}
-              className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
-            >
-              {generating ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
-              {generating ? 'Generating...' : 'Regenerate'}
-            </button>
-          </div>
-          {draftError && (
-            <div className="flex items-center gap-2 text-sm text-red-400">
-              <XCircle className="w-4 h-4 shrink-0" /> {draftError}
-            </div>
-          )}
-          {activeDraft && (
-            <div className="rounded-lg border border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground whitespace-pre-wrap leading-relaxed">
-              {activeDraft}
-            </div>
-          )}
-        </div>
-      ) : (
-        <>
-          {/* Step 1 — Generate draft */}
+        {/* ── Left: main content ── */}
+        <div className="space-y-4">
+          {/* Ticket header */}
           <div className="rounded-xl border border-border bg-card px-5 py-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">AI Draft Reply</p>
-                {activeDraft && (
-                  <p className="text-[11px] text-amber-400 mt-0.5">Draft saved — not sent yet</p>
+            <div className="flex items-start justify-between gap-4">
+              <h1 className="text-base font-semibold leading-snug">{ticket.subject}</h1>
+              <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                <Badge label={ticket.priority} styles={PRIORITY_STYLES[ticket.priority] ?? 'bg-slate-500/15 text-slate-400'} />
+                <Badge label={ticket.status} styles={STATUS_STYLES[ticket.status] ?? 'bg-slate-500/15 text-slate-400'} />
+                {ticket.purchaseCodeStatus && (
+                  <Badge
+                    label={`purchase: ${ticket.purchaseCodeStatus}`}
+                    styles={PURCHASE_CODE_STATUS_STYLES[ticket.purchaseCodeStatus] ?? 'bg-slate-500/15 text-slate-400'}
+                  />
                 )}
               </div>
-              <button
-                onClick={handleGenerateDraft}
-                disabled={generating}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border text-xs text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors disabled:opacity-50"
-              >
-                {generating ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
-                {generating ? 'Generating...' : activeDraft ? 'Regenerate Draft' : 'Generate Draft'}
-              </button>
             </div>
 
-            {draftError && (
-              <div className="flex items-center gap-2 text-sm text-red-400">
-                <XCircle className="w-4 h-4 shrink-0" /> {draftError}
+            <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
+              {ticket.contactName && (
+                <div className="flex items-center gap-1">
+                  <User className="w-3 h-3" /> {ticket.contactName}
+                </div>
+              )}
+              <div className="flex items-center gap-1">
+                <Mail className="w-3 h-3" /> {ticket.userEmail}
               </div>
-            )}
-            {draft && (
-              <div className="flex items-center gap-1.5 text-xs text-emerald-400">
-                <CheckCircle2 className="w-3.5 h-3.5" /> Draft generated and saved
+              {ticket.contactPhone && (
+                <div className="flex items-center gap-1">
+                  <Phone className="w-3 h-3" /> {ticket.contactPhone}
+                </div>
+              )}
+              <div className="flex items-center gap-1">
+                <Clock className="w-3 h-3" /> Created {fmt(ticket.createdAt)}
               </div>
-            )}
-
-            {activeDraft ? (
-              <div className="rounded-lg border border-border bg-muted/30 px-4 py-3 text-sm text-foreground whitespace-pre-wrap leading-relaxed">
-                {activeDraft}
-              </div>
-            ) : !generating && (
-              <p className="text-xs text-muted-foreground italic">No draft yet. Click Generate Draft to have the AI write a reply based on the ticket context.</p>
-            )}
+              {ticket.repliedAt && (
+                <div className="flex items-center gap-1 text-emerald-400">
+                  <MessageSquare className="w-3 h-3" /> Replied {fmt(ticket.repliedAt)}
+                </div>
+              )}
+            </div>
           </div>
 
-          {/* Step 2 — Send reply (only shown when a draft exists) */}
-          {activeDraft && (
-            <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-5 py-4">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <p className="text-sm font-semibold text-emerald-300">Ready to send?</p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    This will email the draft above to{' '}
-                    <span className="text-foreground">{ticket.userEmail}</span>{' '}
-                    and mark the ticket as replied.
-                  </p>
-                </div>
+          {/* Ticket body */}
+          {ticket.body && (
+            <div className="rounded-xl border border-border bg-card px-5 py-4 space-y-2">
+              <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Ticket Body</p>
+              <p className="text-sm text-foreground whitespace-pre-wrap leading-relaxed">{ticket.body}</p>
+            </div>
+          )}
+
+          {/* AI Draft section — state-driven */}
+          {ticket.status === 'replied' ? (
+            <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-5 py-4 space-y-3">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                <p className="text-sm font-semibold text-emerald-400">Reply Sent</p>
+                {ticket.repliedAt && (
+                  <span className="text-xs text-muted-foreground">{fmt(ticket.repliedAt)}</span>
+                )}
                 <button
-                  onClick={handleSendReply}
-                  disabled={sending}
-                  className="shrink-0 flex items-center gap-2 px-4 py-2 rounded-md bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  onClick={handleGenerateDraft}
+                  disabled={generating}
+                  className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
                 >
-                  {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-                  {sending ? 'Sending...' : 'Send Reply'}
+                  {generating ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
+                  {generating ? 'Generating...' : 'Regenerate'}
                 </button>
               </div>
-              {sendSuccess && (
-                <div className="flex items-center gap-1.5 text-xs text-emerald-400 mt-3">
-                  <CheckCircle2 className="w-3.5 h-3.5" /> Reply sent to customer
+              {draftError && (
+                <div className="flex items-center gap-2 text-sm text-red-400">
+                  <XCircle className="w-4 h-4 shrink-0" /> {draftError}
                 </div>
               )}
-              {sendError && (
-                <div className="flex items-center gap-2 text-sm text-red-400 mt-3">
-                  <XCircle className="w-4 h-4 shrink-0" /> {sendError}
+              {activeDraft && (
+                <div className="rounded-lg border border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground whitespace-pre-wrap leading-relaxed">
+                  {activeDraft}
                 </div>
               )}
             </div>
+          ) : (
+            <>
+              {/* Step 1 — Generate draft */}
+              <div className="rounded-xl border border-border bg-card px-5 py-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">AI Draft Reply</p>
+                    {activeDraft && (
+                      <p className="text-[11px] text-amber-400 mt-0.5">Draft saved — not sent yet</p>
+                    )}
+                  </div>
+                  <button
+                    onClick={handleGenerateDraft}
+                    disabled={generating}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border text-xs text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors disabled:opacity-50"
+                  >
+                    {generating ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
+                    {generating ? 'Generating...' : activeDraft ? 'Regenerate Draft' : 'Generate Draft'}
+                  </button>
+                </div>
+
+                {draftError && (
+                  <div className="flex items-center gap-2 text-sm text-red-400">
+                    <XCircle className="w-4 h-4 shrink-0" /> {draftError}
+                  </div>
+                )}
+                {draft && (
+                  <div className="flex items-center gap-1.5 text-xs text-emerald-400">
+                    <CheckCircle2 className="w-3.5 h-3.5" /> Draft generated and saved
+                  </div>
+                )}
+
+                {activeDraft ? (
+                  <div className="rounded-lg border border-border bg-muted/30 px-4 py-3 text-sm text-foreground whitespace-pre-wrap leading-relaxed">
+                    {activeDraft}
+                  </div>
+                ) : !generating && (
+                  <p className="text-xs text-muted-foreground italic">No draft yet. Click Generate Draft to have the AI write a reply based on the ticket context.</p>
+                )}
+              </div>
+
+              {/* Step 2 — Send reply (only shown when a draft exists) */}
+              {activeDraft && (
+                <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-5 py-4">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-sm font-semibold text-emerald-300">Ready to send?</p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        This will email the draft above to{' '}
+                        <span className="text-foreground">{ticket.userEmail}</span>{' '}
+                        and mark the ticket as replied.
+                      </p>
+                    </div>
+                    <button
+                      onClick={handleSendReply}
+                      disabled={sending}
+                      className="shrink-0 flex items-center gap-2 px-4 py-2 rounded-md bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                      {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                      {sending ? 'Sending...' : 'Send Reply'}
+                    </button>
+                  </div>
+                  {sendSuccess && (
+                    <div className="flex items-center gap-1.5 text-xs text-emerald-400 mt-3">
+                      <CheckCircle2 className="w-3.5 h-3.5" /> Reply sent to customer
+                    </div>
+                  )}
+                  {sendError && (
+                    <div className="flex items-center gap-2 text-sm text-red-400 mt-3">
+                      <XCircle className="w-4 h-4 shrink-0" /> {sendError}
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
           )}
-        </>
-      )}
 
-      {/* Train Agent section */}
-      <div className="rounded-xl border border-border bg-card px-5 py-4 space-y-3">
-        <div className="flex items-center justify-between">
-          <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Train Agent</p>
-          <button
-            onClick={() => { setTrainOpen(v => !v); setTrainSuccess(false); trainMutation.reset(); }}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border text-xs text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors"
-          >
-            <Brain className="w-3.5 h-3.5" />
-            {trainOpen ? 'Cancel' : 'Correct Agent'}
-          </button>
-        </div>
-
-        {trainOpen && (
-          <div className="space-y-3">
-            <p className="text-xs text-muted-foreground">
-              Teach the agent how to handle tickets like this. Your instruction will be reviewed via Telegram before being added to the knowledge base.
-            </p>
-
-            <div className="space-y-1.5">
-              <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Rule type</label>
-              <select
-                value={trainCategory}
-                onChange={(e) => setTrainCategory(e.target.value as typeof trainCategory)}
-                className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-              >
-                <option value="spam_filter">Spam Filter — auto-close tickets matching this pattern</option>
-                <option value="decision_rule">Decision Rule — route/escalate/skip similar tickets</option>
-                <option value="faq">FAQ — teach the agent a correct answer for this topic</option>
-                <option value="policy">Policy — enforce a business rule for this ticket type</option>
-              </select>
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Instruction</label>
-              <textarea
-                value={trainInstruction}
-                onChange={(e) => setTrainInstruction(e.target.value)}
-                placeholder={
-                  trainCategory === 'spam_filter'
-                    ? 'e.g. Tickets asking for free licenses or discount codes should be closed immediately with a brief polite decline.'
-                    : trainCategory === 'decision_rule'
-                    ? 'e.g. Tickets from users with an expired license should always be escalated to the owner, not auto-replied.'
-                    : trainCategory === 'faq'
-                    ? 'e.g. The correct answer is: refunds are available within 7 days via the Envato resolution center, not through us.'
-                    : 'e.g. We do not provide support for customization requests. Always reply with the customization policy link.'
-                }
-                rows={4}
-                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring resize-none"
-              />
-            </div>
-
-            {trainMutation.isError && (
-              <div className="flex items-center gap-2 text-sm text-red-400">
-                <XCircle className="w-4 h-4 shrink-0" />
-                {(trainMutation.error as Error).message}
-              </div>
-            )}
-
-            {trainSuccess && (
-              <div className="flex items-center gap-2 text-sm text-emerald-400">
-                <CheckCircle2 className="w-3.5 h-3.5" />
-                Proposal sent for Telegram approval
-              </div>
-            )}
-
-            {!trainSuccess && (
+          {/* Train Agent section */}
+          <div className="rounded-xl border border-border bg-card px-5 py-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Train Agent</p>
               <button
-                onClick={() => trainMutation.mutate({ category: trainCategory, instruction: trainInstruction })}
-                disabled={!trainInstruction.trim() || trainMutation.isPending}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                onClick={() => { setTrainOpen(v => !v); setTrainSuccess(false); trainMutation.reset(); }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border text-xs text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors"
               >
-                {trainMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Brain className="w-3.5 h-3.5" />}
-                {trainMutation.isPending ? 'Submitting...' : 'Submit for Approval'}
+                <Brain className="w-3.5 h-3.5" />
+                {trainOpen ? 'Cancel' : 'Correct Agent'}
               </button>
+            </div>
+
+            {trainOpen && (
+              <div className="space-y-3">
+                <p className="text-xs text-muted-foreground">
+                  Teach the agent how to handle tickets like this. Your instruction will be reviewed via Telegram before being added to the knowledge base.
+                </p>
+
+                <div className="space-y-1.5">
+                  <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Rule type</label>
+                  <select
+                    value={trainCategory}
+                    onChange={(e) => setTrainCategory(e.target.value as typeof trainCategory)}
+                    className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                  >
+                    <option value="spam_filter">Spam Filter — auto-close tickets matching this pattern</option>
+                    <option value="decision_rule">Decision Rule — route/escalate/skip similar tickets</option>
+                    <option value="faq">FAQ — teach the agent a correct answer for this topic</option>
+                    <option value="policy">Policy — enforce a business rule for this ticket type</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Instruction</label>
+                  <textarea
+                    value={trainInstruction}
+                    onChange={(e) => setTrainInstruction(e.target.value)}
+                    placeholder={
+                      trainCategory === 'spam_filter'
+                        ? 'e.g. Tickets asking for free licenses or discount codes should be closed immediately with a brief polite decline.'
+                        : trainCategory === 'decision_rule'
+                        ? 'e.g. Tickets from users with an expired license should always be escalated to the owner, not auto-replied.'
+                        : trainCategory === 'faq'
+                        ? 'e.g. The correct answer is: refunds are available within 7 days via the Envato resolution center, not through us.'
+                        : 'e.g. We do not provide support for customization requests. Always reply with the customization policy link.'
+                    }
+                    rows={4}
+                    className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring resize-none"
+                  />
+                </div>
+
+                {trainMutation.isError && (
+                  <div className="flex items-center gap-2 text-sm text-red-400">
+                    <XCircle className="w-4 h-4 shrink-0" />
+                    {(trainMutation.error as Error).message}
+                  </div>
+                )}
+
+                {trainSuccess && (
+                  <div className="flex items-center gap-2 text-sm text-emerald-400">
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    Proposal sent for Telegram approval
+                  </div>
+                )}
+
+                {!trainSuccess && (
+                  <button
+                    onClick={() => trainMutation.mutate({ category: trainCategory, instruction: trainInstruction })}
+                    disabled={!trainInstruction.trim() || trainMutation.isPending}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    {trainMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Brain className="w-3.5 h-3.5" />}
+                    {trainMutation.isPending ? 'Submitting...' : 'Submit for Approval'}
+                  </button>
+                )}
+              </div>
             )}
           </div>
-        )}
-      </div>
-
-      {/* CRM Actions */}
-      <div className="rounded-xl border border-border bg-card px-5 py-4 space-y-4">
-        <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
-          <Settings2 className="w-3.5 h-3.5" /> CRM Actions
-        </p>
-
-        {/* Priority */}
-        <div className="space-y-2">
-          <p className="text-xs font-medium text-muted-foreground">Change Priority</p>
-          {!ticket.crmUuid && (
-            <p className="text-[11px] text-yellow-400">CRM UUID not stored — ticket was ingested before UUID support. Re-open or re-deliver the webhook to enable this.</p>
-          )}
-          <div className="flex items-center gap-2">
-            <select
-              value={crmPriority}
-              onChange={(e) => setCrmPriority(e.target.value)}
-              disabled={!ticket.crmUuid}
-              className="rounded-md border border-border bg-background px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
-            >
-              <option value="">Select priority...</option>
-              <option value="0">0 — Low</option>
-              <option value="1">1 — Normal</option>
-              <option value="2">2 — Medium</option>
-              <option value="3">3 — High</option>
-              <option value="4">4 — Urgent</option>
-            </select>
-            <button
-              onClick={() => priorityMutation.mutate(Number(crmPriority))}
-              disabled={!crmPriority || priorityMutation.isPending || !ticket.crmUuid}
-              className="px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              {priorityMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Update'}
-            </button>
-          </div>
-          {priorityMutation.isError && <p className="text-xs text-red-400">{(priorityMutation.error as Error).message}</p>}
-          {priorityMutation.isSuccess && <p className="text-xs text-emerald-400 flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Priority updated</p>}
         </div>
 
-        {/* Status */}
-        <div className="space-y-2">
-          <p className="text-xs font-medium text-muted-foreground">Update Status</p>
-          <div className="flex items-start gap-2 flex-wrap">
+        {/* ── Right sidebar ── */}
+        <div className="space-y-4">
+          {/* Change Priority */}
+          <div className="rounded-xl border border-border bg-card px-4 py-4 space-y-3">
+            <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Change Priority</p>
+            {!ticket.crmUuid && (
+              <p className="text-[11px] text-yellow-400">CRM UUID not stored — re-deliver the webhook to enable this.</p>
+            )}
+            <div className="flex items-center gap-2">
+              <select
+                value={crmPriority}
+                onChange={(e) => setCrmPriority(e.target.value)}
+                disabled={!ticket.crmUuid}
+                className="flex-1 rounded-md border border-border bg-background px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
+              >
+                <option value="">Select priority...</option>
+                <option value="0">0 — Low</option>
+                <option value="1">1 — Normal</option>
+                <option value="2">2 — Medium</option>
+                <option value="3">3 — High</option>
+                <option value="4">4 — Urgent</option>
+              </select>
+              <button
+                onClick={() => priorityMutation.mutate(Number(crmPriority))}
+                disabled={!crmPriority || priorityMutation.isPending || !ticket.crmUuid}
+                className="px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {priorityMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Update'}
+              </button>
+            </div>
+            {priorityMutation.isError && <p className="text-xs text-red-400">{(priorityMutation.error as Error).message}</p>}
+            {priorityMutation.isSuccess && <p className="text-xs text-emerald-400 flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Priority updated</p>}
+          </div>
+
+          {/* Update Status */}
+          <div className="rounded-xl border border-border bg-card px-4 py-4 space-y-3">
+            <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Update Status</p>
             <select
               value={crmStatus}
               onChange={(e) => setCrmStatus(e.target.value)}
-              className="rounded-md border border-border bg-background px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
             >
               <option value="">Select status...</option>
               <option value="open">open</option>
@@ -659,94 +660,99 @@ export default function SupportTicketDetailPage() {
               <option value="resolved">resolved</option>
               <option value="closed">closed</option>
             </select>
-            <input
-              value={crmNotes}
-              onChange={(e) => setCrmNotes(e.target.value)}
-              placeholder="Resolution notes (optional)"
-              className="flex-1 min-w-0 rounded-md border border-border bg-background px-3 py-1.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring"
-            />
-            <button
-              onClick={() => statusMutation.mutate({ status: crmStatus, notes: crmNotes || undefined })}
-              disabled={!crmStatus || statusMutation.isPending}
-              className="px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              {statusMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Update'}
-            </button>
+            <div className="flex gap-2">
+              <input
+                value={crmNotes}
+                onChange={(e) => setCrmNotes(e.target.value)}
+                placeholder="Resolution notes (optional)"
+                className="flex-1 min-w-0 rounded-md border border-border bg-background px-3 py-1.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring"
+              />
+              <button
+                onClick={() => statusMutation.mutate({ status: crmStatus, notes: crmNotes || undefined })}
+                disabled={!crmStatus || statusMutation.isPending}
+                className="px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {statusMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Update'}
+              </button>
+            </div>
+            {statusMutation.isError && <p className="text-xs text-red-400">{(statusMutation.error as Error).message}</p>}
+            {statusMutation.isSuccess && <p className="text-xs text-emerald-400 flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Status updated</p>}
           </div>
-          {statusMutation.isError && <p className="text-xs text-red-400">{(statusMutation.error as Error).message}</p>}
-          {statusMutation.isSuccess && <p className="text-xs text-emerald-400 flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Status updated</p>}
-        </div>
 
-        {/* Note */}
-        <div className="space-y-2">
-          <p className="text-xs font-medium text-muted-foreground flex items-center gap-1"><StickyNote className="w-3.5 h-3.5" /> Add Internal Note</p>
-          {!ticket.crmUuid && (
-            <p className="text-[11px] text-yellow-400">CRM UUID required for notes.</p>
+          {/* Add Internal Note */}
+          <div className="rounded-xl border border-border bg-card px-4 py-4 space-y-3">
+            <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+              <StickyNote className="w-3.5 h-3.5" /> Add Internal Note
+            </p>
+            {!ticket.crmUuid && (
+              <p className="text-[11px] text-yellow-400">CRM UUID required for notes.</p>
+            )}
+            <div className="flex items-start gap-2">
+              <textarea
+                value={noteText}
+                onChange={(e) => setNoteText(e.target.value)}
+                placeholder="Internal note visible to agents only..."
+                rows={3}
+                disabled={!ticket.crmUuid}
+                className="flex-1 rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring resize-none disabled:opacity-50"
+              />
+              <button
+                onClick={() => noteMutation.mutate(noteText)}
+                disabled={!noteText.trim() || noteMutation.isPending || !ticket.crmUuid}
+                className="px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {noteMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Add'}
+              </button>
+            </div>
+            {noteMutation.isError && <p className="text-xs text-red-400">{(noteMutation.error as Error).message}</p>}
+            {noteMutation.isSuccess && <p className="text-xs text-emerald-400 flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Note added</p>}
+          </div>
+
+          {/* Purchase code */}
+          {ticket.purchaseCode && (
+            <div className="rounded-xl border border-border bg-card px-4 py-3 flex items-center gap-3">
+              {ticket.purchaseCodeStatus === 'verified' ? (
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+              ) : (
+                <AlertTriangle className="w-4 h-4 text-orange-400 shrink-0" />
+              )}
+              <div className="text-xs">
+                <span className="text-muted-foreground">Purchase code: </span>
+                <span className="font-mono text-foreground break-all">{ticket.purchaseCode}</span>
+                <span className="ml-2 text-muted-foreground">({ticket.purchaseCodeStatus})</span>
+              </div>
+            </div>
           )}
-          <div className="flex items-start gap-2">
-            <textarea
-              value={noteText}
-              onChange={(e) => setNoteText(e.target.value)}
-              placeholder="Internal note visible to agents only..."
-              rows={2}
-              disabled={!ticket.crmUuid}
-              className="flex-1 rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring resize-none disabled:opacity-50"
-            />
-            <button
-              onClick={() => noteMutation.mutate(noteText)}
-              disabled={!noteText.trim() || noteMutation.isPending || !ticket.crmUuid}
-              className="px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              {noteMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Add'}
-            </button>
+
+          {/* Activity Timeline */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Activity Timeline</p>
+              <button
+                onClick={() => refetchEvents()}
+                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <RefreshCw className="w-3 h-3" /> Refresh
+              </button>
+            </div>
+
+            {eventsLoading ? (
+              <div className="space-y-2">
+                {[0, 1, 2].map(i => <Skeleton key={i} className="h-12 w-full rounded-lg" />)}
+              </div>
+            ) : sortedEvents.length === 0 ? (
+              <div className="rounded-xl border border-border bg-card px-4 py-8 text-center text-sm text-muted-foreground">
+                No events recorded yet.
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {sortedEvents.map(e => <EventRow key={e.id} event={e} />)}
+              </div>
+            )}
           </div>
-          {noteMutation.isError && <p className="text-xs text-red-400">{(noteMutation.error as Error).message}</p>}
-          {noteMutation.isSuccess && <p className="text-xs text-emerald-400 flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Note added</p>}
         </div>
+
       </div>
-
-      {/* Events timeline */}
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Activity Timeline</p>
-          <button
-            onClick={() => refetchEvents()}
-            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-          >
-            <RefreshCw className="w-3 h-3" /> Refresh
-          </button>
-        </div>
-
-        {eventsLoading ? (
-          <div className="space-y-2">
-            {[0, 1, 2].map(i => <Skeleton key={i} className="h-12 w-full rounded-lg" />)}
-          </div>
-        ) : sortedEvents.length === 0 ? (
-          <div className="rounded-xl border border-border bg-card px-5 py-8 text-center text-sm text-muted-foreground">
-            No events recorded yet.
-          </div>
-        ) : (
-          <div className="space-y-2">
-            {sortedEvents.map(e => <EventRow key={e.id} event={e} />)}
-          </div>
-        )}
-      </div>
-
-      {/* Purchase code */}
-      {ticket.purchaseCode && (
-        <div className="rounded-xl border border-border bg-card px-5 py-3 flex items-center gap-3">
-          {ticket.purchaseCodeStatus === 'verified' ? (
-            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-          ) : (
-            <AlertTriangle className="w-4 h-4 text-orange-400 shrink-0" />
-          )}
-          <div className="text-xs">
-            <span className="text-muted-foreground">Purchase code: </span>
-            <span className="font-mono text-foreground">{ticket.purchaseCode}</span>
-            <span className="ml-2 text-muted-foreground">({ticket.purchaseCodeStatus})</span>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

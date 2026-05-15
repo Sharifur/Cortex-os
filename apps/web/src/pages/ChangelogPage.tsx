@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.71.5',
+    date: '2026-05-15',
+    entries: [
+      { tag: 'feat', scope: 'support', description: 'Ticket detail page redesigned with two-column layout. CRM Actions (Change Priority, Update Status, Add Internal Note) and Activity Timeline moved into a fixed right sidebar. Each CRM action is now its own card.' },
+    ],
+  },
+  {
     version: 'v4.71.4',
     date: '2026-05-15',
     entries: [
