@@ -823,6 +823,7 @@ export class CanvaAgent implements IAgent, OnModuleInit {
           if (runId) {
             await this.logSvc.info(runId, `All ${slideUrls.length} slides generated`, { event_type: 'post_upload_done', slide_urls: slideUrls }).catch(() => {});
           }
+          await this.designStudio.recordDnaRender({ slideUrls, topic, brand, formatId, slides }).catch(() => {});
           const msg = `${SLIDE_RENDER_STR}${JSON.stringify({ slideUrls })}`;
           return [{ type: 'notify_result', summary: 'Carousel auto-generated', payload: { message: msg }, riskLevel: 'low' }];
         } else {

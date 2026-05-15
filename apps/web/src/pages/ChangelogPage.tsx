@@ -20,6 +20,7 @@ const CHANGELOG: VersionBlock[] = [
     date: '2026-05-15',
     entries: [
       { tag: 'chore', scope: 'canva', description: 'Renamed agent from "Social Media Banner Design Agent" to "Social Media Banner Designer" in agent class, seed file, and DB migration.' },
+      { tag: 'fix', scope: 'canva', description: 'AI-generated carousel slides now appear in the Post Renders tab. Added recordDnaRender() to DesignStudioService which inserts a post_renders row (formatId: dna-carousel) after every DNA-path generation run. All three slide-generation paths in the canva agent call this. Post Renders tab shows "AI Carousel (training sample)" as the format label and hides PPTX/CSV/Text export links for DNA renders.' },
     ],
   },
   {
