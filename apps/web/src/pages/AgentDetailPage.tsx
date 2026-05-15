@@ -3647,6 +3647,114 @@ function Phase4SettingsTab({ agent, token, setupContent }: {
 }
 
 
+// ─── LinkedIn Account Card ────────────────────────────────────────────────────
+
+function AccountCard({ acc, onPatch }: { acc: any; onPatch: (body: Record<string, any>) => void }) {
+  const [limits, setLimits] = useState({
+    dailyConnectionsLimit: acc.dailyConnectionsLimit ?? '',
+    hourlyConnectionsLimit: acc.hourlyConnectionsLimit ?? '',
+    dailyCommentsLimit: acc.dailyCommentsLimit ?? '',
+    hourlyCommentsLimit: acc.hourlyCommentsLimit ?? '',
+    dailyDmsLimit: acc.dailyDmsLimit ?? '',
+    hourlyDmsLimit: acc.hourlyDmsLimit ?? '',
+  });
+  const [dirty, setDirty] = useState(false);
+
+  function handleLimitChange(key: string, value: string) {
+    setLimits(l => ({ ...l, [key]: value }));
+    setDirty(true);
+  }
+
+  function saveLimits() {
+    const body: Record<string, number | null> = {};
+    for (const [k, v] of Object.entries(limits)) {
+      body[k] = v === '' ? null : Number(v);
+    }
+    onPatch(body);
+    setDirty(false);
+  }
+
+  const ACTIONS = [
+    { enableKey: 'enableConnections', label: 'Connections', dailyKey: 'dailyConnectionsLimit', hourlyKey: 'hourlyConnectionsLimit' },
+    { enableKey: 'enableComments',   label: 'Feed comments', dailyKey: 'dailyCommentsLimit',    hourlyKey: 'hourlyCommentsLimit'    },
+    { enableKey: 'enableDMs',        label: 'DM outreach',  dailyKey: 'dailyDmsLimit',          hourlyKey: 'hourlyDmsLimit'         },
+  ] as const;
+
+  return (
+    <div className="rounded-lg border border-border bg-background/50 overflow-hidden">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-border/50">
+        <div>
+          <p className="text-sm font-medium">{acc.label}</p>
+          <p className="text-xs text-muted-foreground">{acc.unipileAccountId}</p>
+        </div>
+        <button
+          onClick={() => onPatch({ isActive: !acc.isActive })}
+          className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${acc.isActive ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20' : 'border-border bg-muted text-muted-foreground hover:bg-muted/80'}`}
+        >
+          {acc.isActive ? 'Active' : 'Inactive'}
+        </button>
+      </div>
+
+      <div className="grid grid-cols-3 divide-x divide-border/50 border-b border-border/50">
+        {ACTIONS.map(({ enableKey, label }) => {
+          const enabled = acc[enableKey] !== false;
+          return (
+            <button
+              key={enableKey}
+              onClick={() => onPatch({ [enableKey]: !enabled })}
+              className={`flex flex-col items-center gap-1 px-3 py-2.5 text-xs transition-colors ${enabled ? 'text-foreground hover:bg-muted/30' : 'text-muted-foreground hover:bg-muted/30'}`}
+            >
+              <span className={`w-7 h-3.5 rounded-full relative transition-colors ${enabled ? 'bg-primary' : 'bg-muted'}`}>
+                <span className={`absolute top-0.5 w-2.5 h-2.5 rounded-full bg-background shadow transition-all ${enabled ? 'left-[calc(100%-11px)]' : 'left-0.5'}`} />
+              </span>
+              <span>{label}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="px-4 py-3">
+        <div className="grid grid-cols-4 gap-x-3 gap-y-2 text-xs mb-3">
+          <div />
+          {ACTIONS.map(({ label }) => (
+            <p key={label} className="text-center text-muted-foreground font-medium truncate">{label}</p>
+          ))}
+          {(['Per day', 'Per hour'] as const).map(period => {
+            const isDay = period === 'Per day';
+            return (
+              <>
+                <p key={period} className="text-muted-foreground self-center">{period}</p>
+                {ACTIONS.map(({ dailyKey, hourlyKey, label }) => {
+                  const key = isDay ? dailyKey : hourlyKey;
+                  return (
+                    <input
+                      key={key}
+                      type="number"
+                      min={1}
+                      placeholder="—"
+                      value={limits[key]}
+                      onChange={e => handleLimitChange(key, e.target.value)}
+                      className="w-full rounded-md border border-input bg-background px-2 py-1 text-center text-xs"
+                    />
+                  );
+                })}
+              </>
+            );
+          })}
+        </div>
+        {dirty && (
+          <button
+            onClick={saveLimits}
+            className="text-xs px-3 py-1 rounded-md bg-primary text-primary-foreground hover:opacity-90"
+          >
+            Save limits
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── LinkedIn Settings Tab ────────────────────────────────────────────────────
 
 type LinkedInTab = 'accounts' | 'niches' | 'leads' | 'connections' | 'posts' | 'docs';
@@ -3765,41 +3873,7 @@ function LinkedInSettingsTab({ agent, token }: { agent: AgentDetail; token: stri
             ) : accounts.length === 0 ? null : (
               <div className="space-y-3">
                 {accounts.map((acc: any) => (
-                  <div key={acc.id} className="rounded-lg border border-border bg-background/50 overflow-hidden">
-                    <div className="flex items-center justify-between px-4 py-3 border-b border-border/50">
-                      <div>
-                        <p className="text-sm font-medium">{acc.label}</p>
-                        <p className="text-xs text-muted-foreground">{acc.unipileAccountId}</p>
-                      </div>
-                      <button
-                        onClick={() => patchAccountMutation.mutate({ id: acc.id, isActive: !acc.isActive })}
-                        className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${acc.isActive ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20' : 'border-border bg-muted text-muted-foreground hover:bg-muted/80'}`}
-                      >
-                        {acc.isActive ? 'Active' : 'Inactive'}
-                      </button>
-                    </div>
-                    <div className="grid grid-cols-3 divide-x divide-border/50">
-                      {([
-                        { key: 'enableConnections', label: 'Connections' },
-                        { key: 'enableComments', label: 'Feed comments' },
-                        { key: 'enableDMs', label: 'DM outreach' },
-                      ] as const).map(({ key, label }) => {
-                        const enabled = acc[key] !== false;
-                        return (
-                          <button
-                            key={key}
-                            onClick={() => patchAccountMutation.mutate({ id: acc.id, [key]: !enabled })}
-                            className={`flex flex-col items-center gap-1 px-3 py-2.5 text-xs transition-colors ${enabled ? 'text-foreground hover:bg-muted/30' : 'text-muted-foreground hover:bg-muted/30'}`}
-                          >
-                            <span className={`w-7 h-3.5 rounded-full relative transition-colors ${enabled ? 'bg-primary' : 'bg-muted'}`}>
-                              <span className={`absolute top-0.5 w-2.5 h-2.5 rounded-full bg-background shadow transition-all ${enabled ? 'left-[calc(100%-11px)]' : 'left-0.5'}`} />
-                            </span>
-                            <span>{label}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
+                  <AccountCard key={acc.id} acc={acc} onPatch={(body) => patchAccountMutation.mutate({ id: acc.id, ...body })} />
                 ))}
               </div>
             )}

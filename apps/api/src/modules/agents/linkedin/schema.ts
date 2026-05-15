@@ -13,6 +13,12 @@ export const linkedinAccounts = pgTable('linkedin_accounts', {
   maxConnectionsPerRun: integer('max_connections_per_run'),
   maxDMsPerRun: integer('max_dms_per_run'),
   maxCommentsPerRun: integer('max_comments_per_run'),
+  dailyConnectionsLimit: integer('daily_connections_limit'),
+  hourlyConnectionsLimit: integer('hourly_connections_limit'),
+  dailyCommentsLimit: integer('daily_comments_limit'),
+  hourlyCommentsLimit: integer('hourly_comments_limit'),
+  dailyDmsLimit: integer('daily_dms_limit'),
+  hourlyDmsLimit: integer('hourly_dms_limit'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 

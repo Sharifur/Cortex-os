@@ -187,6 +187,29 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
     return { success: true };
   }
 
+  // ─── Rate-limit helper ─────────────────────────────────────────────────────
+
+  private async accountQuota(
+    accountId: string,
+    dailyLimit: number | null | undefined,
+    hourlyLimit: number | null | undefined,
+    countFn: (since: Date) => Promise<number>,
+  ): Promise<number> {
+    const now = new Date();
+    const dayStart = new Date(now); dayStart.setHours(0, 0, 0, 0);
+    const hourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+    let remaining = 1000;
+    if (dailyLimit) {
+      const n = await countFn(dayStart);
+      remaining = Math.min(remaining, dailyLimit - n);
+    }
+    if (hourlyLimit) {
+      const n = await countFn(hourAgo);
+      remaining = Math.min(remaining, hourlyLimit - n);
+    }
+    return Math.max(0, remaining);
+  }
+
   // ─── Feed comments ─────────────────────────────────────────────────────────
 
   private async decideFeedComments(feedPosts: any[], accounts: any[], config: LinkedInConfig): Promise<ProposedAction[]> {
@@ -195,11 +218,14 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
     const commentingAccounts = accounts.filter(a => a.isActive && a.enableComments !== false);
     if (!commentingAccounts.length) return [];
 
-    const perAccountLimit = commentingAccounts.reduce<number | undefined>((acc, a) => {
-      if (a.maxCommentsPerRun == null) return acc;
-      return acc == null ? a.maxCommentsPerRun : acc + a.maxCommentsPerRun;
-    }, undefined);
-    const limit = perAccountLimit ?? config.maxCommentsPerRun;
+    const quotas = await Promise.all(commentingAccounts.map(a =>
+      this.accountQuota(a.id, a.dailyCommentsLimit, a.hourlyCommentsLimit, (since) =>
+        this.db.db.select({ id: linkedinPosts.id }).from(linkedinPosts)
+          .where(and(eq(linkedinPosts.accountId, a.id), gte(linkedinPosts.postedAt, since)))
+          .then(r => r.length),
+      ),
+    ));
+    const limit = Math.min(quotas.reduce((s, q) => s + q, 0), config.maxCommentsPerRun);
 
     const knownIds = await this.db.db
       .select({ externalId: linkedinPosts.externalId })
@@ -301,7 +327,19 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
           ),
         );
 
-      const remaining = niche.dailyConnectLimit - sentToday.length;
+      const nicheRemaining = niche.dailyConnectLimit - sentToday.length;
+      if (nicheRemaining <= 0) continue;
+
+      const accountQuota = await this.accountQuota(
+        account.id,
+        account.dailyConnectionsLimit,
+        account.hourlyConnectionsLimit,
+        (since) => this.db.db.select({ id: linkedinConnectionRequests.id }).from(linkedinConnectionRequests)
+          .where(and(eq(linkedinConnectionRequests.accountId, account.id), gte(linkedinConnectionRequests.createdAt, since)))
+          .then(r => r.length),
+      );
+
+      const remaining = Math.min(nicheRemaining, accountQuota);
       if (remaining <= 0) continue;
 
       const keywords = (niche.keywords ?? []).join(' ');
@@ -423,12 +461,17 @@ Score each profile 0.0–1.0 (1.0 = perfect match). Return JSON array only:
     const dmAccounts = accounts.filter(a => a.isActive && a.enableDMs !== false);
     if (!dmAccounts.length) return [];
 
+    const dmQuotas = await Promise.all(dmAccounts.map(a =>
+      this.accountQuota(a.id, a.dailyDmsLimit, a.hourlyDmsLimit, (since) =>
+        this.db.db.select({ id: linkedinLeads.id }).from(linkedinLeads)
+          .where(and(eq(linkedinLeads.accountId, a.id), gte(linkedinLeads.lastContactedAt, since)))
+          .then(r => r.length),
+      ),
+    ));
+    const dmLimit = Math.min(dmQuotas.reduce((s, q) => s + q, 0), config.maxDMsPerRun);
+    if (dmLimit <= 0) return [];
+
     const accountIds = dmAccounts.map(a => a.id);
-    const perAccountLimit = dmAccounts.reduce<number | undefined>((acc, a) => {
-      if (a.maxDMsPerRun == null) return acc;
-      return acc == null ? a.maxDMsPerRun : acc + a.maxDMsPerRun;
-    }, undefined);
-    const dmLimit = perAccountLimit ?? config.maxDMsPerRun;
 
     const leads = await this.db.db
       .select()

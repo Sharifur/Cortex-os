@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.70.9',
+    date: '2026-05-15',
+    entries: [
+      { tag: 'feat', scope: 'linkedin', description: 'Per-account daily and hourly rate limits for connections, feed comments, and DM outreach. Edit limits inline per account; agent enforces them at runtime to prevent spam. Migration 0079 adds the 6 limit columns.' },
+    ],
+  },
+  {
     version: 'v4.70.8',
     date: '2026-05-15',
     entries: [
