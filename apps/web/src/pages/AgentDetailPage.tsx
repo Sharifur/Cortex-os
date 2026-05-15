@@ -3676,9 +3676,13 @@ function LinkedInSettingsTab({ agent, token }: { agent: AgentDetail; token: stri
     queryFn: () => apiFetch(token, '/linkedin/posts'),
   });
 
+  const [syncResult, setSyncResult] = useState<{ synced: number } | null>(null);
   const syncMutation = useMutation({
     mutationFn: () => apiFetch(token, '/linkedin/accounts/sync', { method: 'POST' }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['linkedin-accounts'] }),
+    onSuccess: (data: any) => {
+      setSyncResult({ synced: data?.synced ?? 0 });
+      qc.invalidateQueries({ queryKey: ['linkedin-accounts'] });
+    },
   });
 
   const [newNiche, setNewNiche] = useState({ name: '', description: '', icpDescription: '', keywords: '', targetJobTitles: '', dailyConnectLimit: 5, accountId: '' });
@@ -3732,16 +3736,29 @@ function LinkedInSettingsTab({ agent, token }: { agent: AgentDetail; token: stri
       {tab === 'accounts' && (
         <div className="space-y-4">
           <div className="rounded-xl border border-border bg-card p-5">
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-semibold">LinkedIn Accounts</h3>
-              <Button size="sm" variant="outline" onClick={() => syncMutation.mutate()} disabled={syncMutation.isPending}>
+              <Button size="sm" variant="outline" onClick={() => { setSyncResult(null); syncMutation.mutate(); }} disabled={syncMutation.isPending}>
                 {syncMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
                 <span className="ml-1.5">Sync from Unipile</span>
               </Button>
             </div>
-            {accounts.length === 0 ? (
+            {syncMutation.isError && (
+              <p className="text-xs text-destructive mb-3">{(syncMutation.error as Error)?.message ?? 'Sync failed'}</p>
+            )}
+            {syncResult && syncResult.synced === 0 && accounts.length === 0 && (
+              <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-3 mb-3 text-xs text-amber-300">
+                No LinkedIn accounts found in Unipile. Go to{' '}
+                <a href="https://app.unipile.com" target="_blank" rel="noopener noreferrer" className="underline">app.unipile.com</a>
+                {' '}and connect your LinkedIn account first, then sync again.
+              </div>
+            )}
+            {syncResult && syncResult.synced > 0 && (
+              <p className="text-xs text-emerald-400 mb-3">{syncResult.synced} account{syncResult.synced !== 1 ? 's' : ''} synced.</p>
+            )}
+            {accounts.length === 0 && !syncResult ? (
               <p className="text-sm text-muted-foreground">No accounts synced yet. Click "Sync from Unipile" to import your connected LinkedIn accounts.</p>
-            ) : (
+            ) : accounts.length === 0 ? null : (
               <div className="space-y-2">
                 {accounts.map((acc: any) => (
                   <div key={acc.id} className="flex items-center justify-between p-3 rounded-lg border border-border bg-background/50">

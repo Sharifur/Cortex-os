@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.70.5',
+    date: '2026-05-15',
+    entries: [
+      { tag: 'fix', scope: 'linkedin', description: 'Sync from Unipile button now shows feedback: error message on failure, amber warning with link to app.unipile.com when 0 accounts found, green confirmation when accounts are synced.' },
+    ],
+  },
+  {
     version: 'v4.70.4',
     date: '2026-05-15',
     entries: [
