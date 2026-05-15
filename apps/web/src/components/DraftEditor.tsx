@@ -68,7 +68,7 @@ export function DraftEditor({ value, onChange, token }: DraftEditorProps) {
         .split('\n')
         .map((line) => `<p>${line || '<br>'}</p>`)
         .join('');
-      editor.commands.setContent(html, false);
+      editor.commands.setContent(html, { emitUpdate: false });
     }
   }, [editor, value]);
 
