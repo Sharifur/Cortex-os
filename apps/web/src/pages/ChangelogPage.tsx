@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.69.1',
+    date: '2026-05-15',
+    entries: [
+      { tag: 'feat', scope: 'agents', description: 'Agent name is now editable inline from the agent detail page header. Click the name to open an input field; press Enter or the check button to save, Escape or X to cancel. Saves via PATCH /agents/:key and re-fetches the agent.' },
+    ],
+  },
+  {
     version: 'v4.69.0',
     date: '2026-05-15',
     entries: [
