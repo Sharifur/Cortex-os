@@ -402,14 +402,17 @@ export class SupportAgent implements IAgent, OnModuleInit {
     const p = action.payload as any;
 
     if (action.type === 'request_purchase_code') {
+      if (p.crmTicketId) {
+        const result = await this.postCrmReply(p.crmTicketId, p.draft);
+        if (!result.ok) {
+          await this.telegram.sendMessage(`CRM reply FAILED (purchase code request): ${p.subject}\nError: ${result.error}`);
+        }
+      }
       if (p.ticketId) {
         await this.db.db
           .update(supportTickets)
           .set({ purchaseCodeStatus: 'requested', status: 'replied', repliedAt: new Date(), updatedAt: new Date() })
           .where(eq(supportTickets.id, p.ticketId));
-      }
-      if (p.crmTicketId) {
-        await this.postCrmReply(p.crmTicketId, p.draft);
       }
       await this.writeTicketEvent({
         ticketId: p.ticketId,
@@ -425,14 +428,17 @@ export class SupportAgent implements IAgent, OnModuleInit {
     }
 
     if (action.type === 'request_server_access') {
+      if (p.crmTicketId) {
+        const result = await this.postCrmReply(p.crmTicketId, p.draft);
+        if (!result.ok) {
+          await this.telegram.sendMessage(`CRM reply FAILED (server access request): ${p.subject}\nError: ${result.error}`);
+        }
+      }
       if (p.ticketId) {
         await this.db.db
           .update(supportTickets)
           .set({ status: 'replied', repliedAt: new Date(), updatedAt: new Date() })
           .where(eq(supportTickets.id, p.ticketId));
-      }
-      if (p.crmTicketId) {
-        await this.postCrmReply(p.crmTicketId, p.draft);
       }
       await this.writeTicketEvent({
         ticketId: p.ticketId,
@@ -451,22 +457,33 @@ export class SupportAgent implements IAgent, OnModuleInit {
       const now = new Date();
       const isReply = action.type === 'post_reply';
 
-      if (p.ticketId) {
-        await this.db.db
-          .update(supportTickets)
-          .set({
-            category: p.category,
-            priority: p.priority,
-            lastDraft: p.draft,
-            status: isReply ? 'replied' : 'escalated',
-            repliedAt: isReply ? now : null,
-            updatedAt: now,
-          })
-          .where(eq(supportTickets.id, p.ticketId));
-      }
-
       if (isReply && p.crmTicketId) {
-        await this.postCrmReply(p.crmTicketId, p.draft);
+        const result = await this.postCrmReply(p.crmTicketId, p.draft);
+        if (!result.ok) {
+          // Save draft but do NOT mark as replied — CRM delivery failed
+          if (p.ticketId) {
+            await this.db.db.update(supportTickets)
+              .set({ lastDraft: p.draft, category: p.category, priority: p.priority, updatedAt: now })
+              .where(eq(supportTickets.id, p.ticketId));
+          }
+          await this.writeTicketEvent({
+            ticketId: p.ticketId,
+            externalId: p.crmTicketId ? String(p.crmTicketId) : null,
+            eventType: 'reply_failed',
+            summary: `CRM reply failed for ticket #${p.crmTicketId}: ${result.error}`,
+            payload: { draft: p.draft, error: result.error },
+          });
+          await this.telegram.sendMessage(
+            `CRM reply FAILED: ${p.subject}\nFrom: ${p.userEmail}\nError: ${result.error}\n\nDraft saved — use Send Reply in the admin panel or check support_agent_id in Settings.`,
+          );
+          return { success: false, data: { error: result.error } };
+        }
+        // CRM confirmed — now mark as replied
+        if (p.ticketId) {
+          await this.db.db.update(supportTickets)
+            .set({ category: p.category, priority: p.priority, lastDraft: p.draft, status: 'replied', repliedAt: now, updatedAt: now })
+            .where(eq(supportTickets.id, p.ticketId));
+        }
         await this.writeTicketEvent({
           ticketId: p.ticketId,
           externalId: p.crmTicketId ? String(p.crmTicketId) : null,
@@ -474,19 +491,27 @@ export class SupportAgent implements IAgent, OnModuleInit {
           summary: `Reply posted to CRM for ticket #${p.crmTicketId}`,
           payload: { draft: p.draft, category: p.category, priority: p.priority },
         });
-      } else if (!isReply) {
+        await this.telegram.sendMessage(
+          `Replied: ${p.subject}\nFrom: ${p.userEmail}\n\nSent:\n${p.draft}`,
+        );
+      } else {
+        // Escalation or reply without CRM ID
+        if (p.ticketId) {
+          await this.db.db.update(supportTickets)
+            .set({ category: p.category, priority: p.priority, lastDraft: p.draft, status: isReply ? 'replied' : 'escalated', repliedAt: isReply ? now : null, updatedAt: now })
+            .where(eq(supportTickets.id, p.ticketId));
+        }
         await this.writeTicketEvent({
           ticketId: p.ticketId,
           externalId: p.crmTicketId ? String(p.crmTicketId) : null,
           eventType: 'escalated',
-          summary: 'Ticket escalated to owner',
+          summary: isReply ? 'Reply saved (no CRM ID)' : 'Ticket escalated to owner',
           payload: { draft: p.draft, priority: p.priority },
         });
+        await this.telegram.sendMessage(
+          `${isReply ? 'Draft saved (no CRM ID)' : 'Escalated'}: ${p.subject}\nFrom: ${p.userEmail}\n\nDraft:\n${p.draft}`,
+        );
       }
-
-      await this.telegram.sendMessage(
-        `${isReply ? 'Replied' : 'Escalated'}: ${p.subject}\nFrom: ${p.userEmail}\n\nDraft:\n${p.draft}`,
-      );
     }
 
     return { success: true, data: { ticketId: p.ticketId } };
@@ -726,7 +751,8 @@ export class SupportAgent implements IAgent, OnModuleInit {
           if (!ticket.lastDraft?.trim()) throw new Error('No draft to send — generate a draft first');
           const crmId = ticket.externalId ? Number(ticket.externalId) : null;
           if (!crmId || isNaN(crmId)) throw new Error('Ticket has no CRM ID — cannot post reply');
-          await this.postCrmReply(crmId, ticket.lastDraft);
+          const result = await this.postCrmReply(crmId, ticket.lastDraft);
+          if (!result.ok) throw new Error(result.error ?? 'CRM reply failed');
           await this.db.db.update(supportTickets).set({ status: 'replied', repliedAt: new Date(), updatedAt: new Date() }).where(eq(supportTickets.id, id));
           await this.writeTicketEvent({ ticketId: id, externalId: ticket.externalId, eventType: 'reply_sent', summary: `Reply sent via dashboard: ${ticket.lastDraft.slice(0, 120)}`, payload: { draft: ticket.lastDraft } });
           return { ok: true };
@@ -1286,27 +1312,29 @@ export class SupportAgent implements IAgent, OnModuleInit {
     }
   }
 
-  private async postCrmReply(crmTicketId: number, message: string): Promise<void> {
+  private async postCrmReply(crmTicketId: number, message: string): Promise<{ ok: boolean; error?: string }> {
     try {
       const baseUrl = await this.settings.getDecrypted('support_crm_base_url');
-      if (!baseUrl) {
-        this.logger.warn('support_crm_base_url not configured — skipping CRM reply');
-        return;
-      }
+      if (!baseUrl) return { ok: false, error: 'support_crm_base_url not configured' };
+      const agentIdRaw = await this.settings.getDecrypted('support_agent_id');
+      const body: Record<string, unknown> = { description: message };
+      if (agentIdRaw) body.agent_id = Number(agentIdRaw);
       const res = await fetch(`${baseUrl.replace(/\/$/, '')}/api/public-v1/support-ticket/reply/${crmTicketId}`, {
         method: 'POST',
         headers: await this.crmHeaders(),
-        body: JSON.stringify({ description: message }),
+        body: JSON.stringify(body),
         signal: AbortSignal.timeout(10000),
       });
       if (res.ok) {
         this.logger.log(`CRM reply posted for ticket #${crmTicketId}`);
-      } else {
-        const body = await res.text().catch(() => '');
-        this.logger.warn(`postCrmReply(${crmTicketId}) failed: HTTP ${res.status} — ${body}`);
+        return { ok: true };
       }
+      const text = await res.text().catch(() => '');
+      this.logger.warn(`postCrmReply(${crmTicketId}) failed: HTTP ${res.status} — ${text}`);
+      return { ok: false, error: `HTTP ${res.status}: ${text.slice(0, 200)}` };
     } catch (err) {
       this.logger.warn(`postCrmReply(${crmTicketId}) error: ${err}`);
+      return { ok: false, error: String(err) };
     }
   }
 

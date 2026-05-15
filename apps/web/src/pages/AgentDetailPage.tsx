@@ -3020,7 +3020,7 @@ function SupportSetupSubTab({ agent, token }: { agent: AgentDetail; token: strin
         <p>Telegram bot and owner chat ID must be configured in Settings (platform-wide). The CRM API key is issued from <span className="font-mono">crm.xgenious.com → Settings → Public API</span>.</p>
       </div>
 
-      <SetupStep n={1} title="Configure CRM API credentials" done={getSetting('support_crm_base_url')?.stored === true && getSetting('support_crm_api_key')?.stored === true}>
+      <SetupStep n={1} title="Configure CRM API credentials" done={getSetting('support_crm_base_url')?.stored === true && getSetting('support_crm_api_key')?.stored === true && getSetting('support_agent_id')?.stored === true}>
         <div className="space-y-3">
           <HrmSettingField
             label="CRM Base URL"
@@ -3039,6 +3039,19 @@ function SupportSetupSubTab({ agent, token }: { agent: AgentDetail; token: strin
             stored={getSetting('support_crm_api_key')?.stored}
             isSecret
           />
+          <HrmSettingField
+            label="Agent ID"
+            settingKey="support_agent_id"
+            placeholder="Numeric agent/operator ID from CRM (required for replies)"
+            token={token}
+            onSave={saveSetting}
+            stored={getSetting('support_agent_id')?.stored}
+          />
+          {!getSetting('support_agent_id')?.stored && (
+            <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-300">
+              Agent ID is required — without it all CRM replies will fail. Find it in crm.xgenious.com under your agent/operator profile.
+            </div>
+          )}
         </div>
       </SetupStep>
 

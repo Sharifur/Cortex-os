@@ -492,6 +492,13 @@ export const SETTING_DEFINITIONS: Record<string, SettingDefinition> = {
     isSecret: true,
     group: 'support',
   },
+  support_agent_id: {
+    label: 'Agent ID',
+    description: 'Numeric agent/operator ID from crm.xgenious.com. Required — replies will fail without this.',
+    isSecret: false,
+    group: 'support',
+    defaultValue: '',
+  },
 
   // Image Generation — general
   image_gen_provider: {

@@ -16,6 +16,15 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.71.3',
+    date: '2026-05-15',
+    entries: [
+      { tag: 'fix', scope: 'support', description: 'Root cause fix: CRM replies were silently failing because agent_id was missing from the POST body. postCrmReply now returns ok/error and includes agent_id. execute() only marks ticket as "replied" after confirmed CRM success — on failure the draft is saved, ticket stays open, and Telegram reports the error.' },
+      { tag: 'feat', scope: 'support', description: 'Agent ID setting added to support agent Setup tab (Step 1). Required for CRM replies. Shows an amber warning until configured.' },
+      { tag: 'fix', scope: 'support', description: 'Migration 0080: ensure support_ticket_events table exists on production (IF NOT EXISTS). Fixes DELETE /support/tickets/:id 500 error on prod.' },
+    ],
+  },
+  {
     version: 'v4.71.2',
     date: '2026-05-15',
     entries: [
