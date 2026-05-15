@@ -192,22 +192,12 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
   private async accountQuota(
     accountId: string,
     dailyLimit: number | null | undefined,
-    hourlyLimit: number | null | undefined,
     countFn: (since: Date) => Promise<number>,
   ): Promise<number> {
-    const now = new Date();
-    const dayStart = new Date(now); dayStart.setHours(0, 0, 0, 0);
-    const hourAgo = new Date(now.getTime() - 60 * 60 * 1000);
-    let remaining = 1000;
-    if (dailyLimit) {
-      const n = await countFn(dayStart);
-      remaining = Math.min(remaining, dailyLimit - n);
-    }
-    if (hourlyLimit) {
-      const n = await countFn(hourAgo);
-      remaining = Math.min(remaining, hourlyLimit - n);
-    }
-    return Math.max(0, remaining);
+    if (!dailyLimit) return 1000;
+    const dayStart = new Date(); dayStart.setHours(0, 0, 0, 0);
+    const n = await countFn(dayStart);
+    return Math.max(0, dailyLimit - n);
   }
 
   // ─── Feed comments ─────────────────────────────────────────────────────────
@@ -219,7 +209,7 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
     if (!commentingAccounts.length) return [];
 
     const quotas = await Promise.all(commentingAccounts.map(a =>
-      this.accountQuota(a.id, a.dailyCommentsLimit, a.hourlyCommentsLimit, (since) =>
+      this.accountQuota(a.id, a.dailyCommentsLimit, (since) =>
         this.db.db.select({ id: linkedinPosts.id }).from(linkedinPosts)
           .where(and(eq(linkedinPosts.accountId, a.id), gte(linkedinPosts.postedAt, since)))
           .then(r => r.length),
@@ -333,7 +323,6 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
       const accountQuota = await this.accountQuota(
         account.id,
         account.dailyConnectionsLimit,
-        account.hourlyConnectionsLimit,
         (since) => this.db.db.select({ id: linkedinConnectionRequests.id }).from(linkedinConnectionRequests)
           .where(and(eq(linkedinConnectionRequests.accountId, account.id), gte(linkedinConnectionRequests.createdAt, since)))
           .then(r => r.length),
@@ -462,7 +451,7 @@ Score each profile 0.0–1.0 (1.0 = perfect match). Return JSON array only:
     if (!dmAccounts.length) return [];
 
     const dmQuotas = await Promise.all(dmAccounts.map(a =>
-      this.accountQuota(a.id, a.dailyDmsLimit, a.hourlyDmsLimit, (since) =>
+      this.accountQuota(a.id, a.dailyDmsLimit, (since) =>
         this.db.db.select({ id: linkedinLeads.id }).from(linkedinLeads)
           .where(and(eq(linkedinLeads.accountId, a.id), gte(linkedinLeads.lastContactedAt, since)))
           .then(r => r.length),

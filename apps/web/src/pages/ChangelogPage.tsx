@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.71.0',
+    date: '2026-05-15',
+    entries: [
+      { tag: 'fix', scope: 'linkedin', description: 'Simplify per-account rate limits to per-day only. Removed hourly limit fields from UI and agent logic.' },
+    ],
+  },
+  {
     version: 'v4.70.9',
     date: '2026-05-15',
     entries: [

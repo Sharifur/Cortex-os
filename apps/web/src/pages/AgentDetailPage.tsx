@@ -3652,11 +3652,8 @@ function Phase4SettingsTab({ agent, token, setupContent }: {
 function AccountCard({ acc, onPatch }: { acc: any; onPatch: (body: Record<string, any>) => void }) {
   const [limits, setLimits] = useState({
     dailyConnectionsLimit: acc.dailyConnectionsLimit ?? '',
-    hourlyConnectionsLimit: acc.hourlyConnectionsLimit ?? '',
     dailyCommentsLimit: acc.dailyCommentsLimit ?? '',
-    hourlyCommentsLimit: acc.hourlyCommentsLimit ?? '',
     dailyDmsLimit: acc.dailyDmsLimit ?? '',
-    hourlyDmsLimit: acc.hourlyDmsLimit ?? '',
   });
   const [dirty, setDirty] = useState(false);
 
@@ -3675,9 +3672,9 @@ function AccountCard({ acc, onPatch }: { acc: any; onPatch: (body: Record<string
   }
 
   const ACTIONS = [
-    { enableKey: 'enableConnections', label: 'Connections', dailyKey: 'dailyConnectionsLimit', hourlyKey: 'hourlyConnectionsLimit' },
-    { enableKey: 'enableComments',   label: 'Feed comments', dailyKey: 'dailyCommentsLimit',    hourlyKey: 'hourlyCommentsLimit'    },
-    { enableKey: 'enableDMs',        label: 'DM outreach',  dailyKey: 'dailyDmsLimit',          hourlyKey: 'hourlyDmsLimit'         },
+    { enableKey: 'enableConnections', label: 'Connections', dailyKey: 'dailyConnectionsLimit' },
+    { enableKey: 'enableComments',   label: 'Feed comments', dailyKey: 'dailyCommentsLimit'   },
+    { enableKey: 'enableDMs',        label: 'DM outreach',  dailyKey: 'dailyDmsLimit'         },
   ] as const;
 
   return (
@@ -3714,33 +3711,20 @@ function AccountCard({ acc, onPatch }: { acc: any; onPatch: (body: Record<string
       </div>
 
       <div className="px-4 py-3">
-        <div className="grid grid-cols-4 gap-x-3 gap-y-2 text-xs mb-3">
-          <div />
-          {ACTIONS.map(({ label }) => (
-            <p key={label} className="text-center text-muted-foreground font-medium truncate">{label}</p>
+        <div className="grid grid-cols-3 gap-3 text-xs mb-3">
+          {ACTIONS.map(({ dailyKey, label }) => (
+            <div key={dailyKey}>
+              <label className="text-muted-foreground block mb-1">{label} / day</label>
+              <input
+                type="number"
+                min={1}
+                placeholder="—"
+                value={limits[dailyKey]}
+                onChange={e => handleLimitChange(dailyKey, e.target.value)}
+                className="w-full rounded-md border border-input bg-background px-2 py-1 text-center text-xs"
+              />
+            </div>
           ))}
-          {(['Per day', 'Per hour'] as const).map(period => {
-            const isDay = period === 'Per day';
-            return (
-              <>
-                <p key={period} className="text-muted-foreground self-center">{period}</p>
-                {ACTIONS.map(({ dailyKey, hourlyKey, label }) => {
-                  const key = isDay ? dailyKey : hourlyKey;
-                  return (
-                    <input
-                      key={key}
-                      type="number"
-                      min={1}
-                      placeholder="—"
-                      value={limits[key]}
-                      onChange={e => handleLimitChange(key, e.target.value)}
-                      className="w-full rounded-md border border-input bg-background px-2 py-1 text-center text-xs"
-                    />
-                  );
-                })}
-              </>
-            );
-          })}
         </div>
         {dirty && (
           <button
