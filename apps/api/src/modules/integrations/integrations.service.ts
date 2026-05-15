@@ -20,6 +20,7 @@ export class IntegrationsService {
 
   async test(key: string): Promise<TestResult> {
     switch (key) {
+      case 'unipile':   return this.testUnipile();
       case 'whatsapp': return this.testWhatsApp();
       case 'linkedin':  return this.testLinkedIn();
       case 'reddit':    return this.testReddit();
@@ -47,6 +48,26 @@ export class IntegrationsService {
       const data = await res.json() as any;
       if (!res.ok) return { ok: false, message: data?.error?.message ?? `HTTP ${res.status}` };
       return { ok: true, message: `${data.verified_name ?? ''} (${data.display_phone_number ?? phoneId})`.trim() };
+    } catch (err) {
+      return { ok: false, message: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  private async testUnipile(): Promise<TestResult> {
+    const [key, dsn] = await Promise.all([
+      this.settings.getDecrypted('unipile_api_key'),
+      this.settings.getDecrypted('unipile_dsn'),
+    ]);
+    if (!key || !dsn) return { ok: false, message: 'API Key and DSN are required' };
+    try {
+      const res = await fetch(`https://${dsn}/api/v1/me`, {
+        headers: { 'X-API-KEY': key },
+        signal: AbortSignal.timeout(8000),
+      });
+      const data = await res.json() as any;
+      if (!res.ok) return { ok: false, message: data?.message ?? `HTTP ${res.status}` };
+      const name = data.name ?? data.full_name ?? data.email ?? 'account';
+      return { ok: true, message: `Connected — ${name}` };
     } catch (err) {
       return { ok: false, message: err instanceof Error ? err.message : String(err) };
     }

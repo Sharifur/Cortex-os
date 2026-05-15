@@ -2,7 +2,7 @@ export interface SettingDefinition {
   label: string;
   description?: string;
   isSecret: boolean;
-  group: 'general' | 'llm' | 'telegram' | 'ses' | 'gmail' | 'whatsapp' | 'linkedin' | 'reddit' | 'license' | 'storage' | 'insight' | 'safety' | 'hr' | 'geoip' | 'support' | 'image' | 'canva';
+  group: 'general' | 'llm' | 'telegram' | 'ses' | 'gmail' | 'whatsapp' | 'linkedin' | 'reddit' | 'license' | 'storage' | 'insight' | 'safety' | 'hr' | 'geoip' | 'support' | 'image' | 'canva' | 'unipile';
   defaultValue?: string;
   provider?: 'openai' | 'gemini' | 'deepseek' | 'stability' | 'general';
   options?: Array<{ value: string; label: string; desc?: string }>;
@@ -219,15 +219,15 @@ export const SETTING_DEFINITIONS: Record<string, SettingDefinition> = {
   // LinkedIn — Unipile (preferred) or direct OAuth2
   unipile_api_key: {
     label: 'Unipile API Key',
-    description: 'From app.unipile.com → Settings → API Keys (preferred method)',
+    description: 'From app.unipile.com → Settings → API Keys',
     isSecret: true,
-    group: 'linkedin',
+    group: 'unipile',
   },
   unipile_dsn: {
     label: 'Unipile DSN',
-    description: 'Your account DSN from Unipile dashboard (e.g. api4.unipile.com:13444)',
+    description: 'Your account DSN from the Unipile dashboard (e.g. api4.unipile.com:13444)',
     isSecret: false,
-    group: 'linkedin',
+    group: 'unipile',
   },
   linkedin_access_token: {
     label: 'LinkedIn Access Token (fallback)',

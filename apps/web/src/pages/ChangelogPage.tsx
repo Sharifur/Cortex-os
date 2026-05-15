@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.70.2',
+    date: '2026-05-15',
+    entries: [
+      { tag: 'feat', scope: 'settings', description: 'Unipile tab in Settings page. Configure Unipile API Key and DSN with a Test Connection button. Fields moved out of the LinkedIn integration group into their own settings group.' },
+    ],
+  },
+  {
     version: 'v4.70.1',
     date: '2026-05-15',
     entries: [
