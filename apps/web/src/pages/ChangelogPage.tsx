@@ -16,6 +16,78 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.72.2',
+    date: '2026-05-15',
+    entries: [
+      { tag: 'fix', scope: 'support', description: 'Generate New Reply on replied tickets appends a separate new draft card below the sent reply — original sent text stays visible and read-only. New draft has Edit, Regenerate, and Send Reply buttons. Purchase code card expanded: shows buyer username, support status with days remaining, license key, and verification date sourced from the purchase_code_verified event payload.' },
+    ],
+  },
+  {
+    version: 'v4.72.1',
+    date: '2026-05-15',
+    entries: [
+      { tag: 'fix', scope: 'support', description: 'Replied tickets no longer show Edit or Regenerate buttons. Only a Generate New Reply button is shown. Edit/Regenerate remain available only for unsent drafts. Unsent draft edit mode now uses TipTap rich text editor instead of plain textarea.' },
+    ],
+  },
+  {
+    version: 'v4.72.0',
+    date: '2026-05-15',
+    entries: [
+      { tag: 'fix', scope: 'support', description: 'Draft editor blank on click: removed early null-return before TipTap initializes; toolbar always renders with Loading placeholder. Fixed broken useCallback/useEffect pattern replaced by initialised ref. Removed extendMarkToWordIfUnselected (TipTap v3-only). Image paste upload and all toolbar actions now work correctly.' },
+    ],
+  },
+  {
+    version: 'v4.71.9',
+    date: '2026-05-15',
+    entries: [
+      { tag: 'fix', scope: 'support', description: 'Draft editor: downgraded TipTap v3→v2 (stable API). Toolbar now visible with correct dark theme contrast. Added image paste-to-upload: pasted images are uploaded to R2 via POST /support/upload-image and inserted as inline images. Added @tiptap/extension-image.' },
+    ],
+  },
+  {
+    version: 'v4.71.8',
+    date: '2026-05-15',
+    entries: [
+      { tag: 'feat', scope: 'support', description: 'Draft reply editor upgraded to TipTap rich text: Bold, Italic, Underline, Bullet list, Numbered list, Link, Divider. Added Share Link button (copies direct ticket URL to clipboard).' },
+    ],
+  },
+  {
+    version: 'v4.71.7',
+    date: '2026-05-15',
+    entries: [
+      { tag: 'fix', scope: 'support', description: 'Activity Timeline: summary truncated to single line — full text + payload revealed on expand. Events sorted newest-first. Added webhook_received and decide_triggered event types. Added full color-coding for all event types.' },
+    ],
+  },
+  {
+    version: 'v4.71.6',
+    date: '2026-05-15',
+    entries: [
+      { tag: 'feat', scope: 'support', description: 'Editable AI draft: Edit button on any generated draft opens an inline textarea. Save Draft persists via PATCH /support/tickets/:id/draft and logs a manual_draft event. Cancel discards without saving.' },
+    ],
+  },
+  {
+    version: 'v4.71.5',
+    date: '2026-05-15',
+    entries: [
+      { tag: 'feat', scope: 'support', description: 'Ticket detail page redesigned with two-column layout. CRM Actions (Change Priority, Update Status, Add Internal Note) and Activity Timeline moved into a fixed right sidebar. Each CRM action is now its own card.' },
+    ],
+  },
+  {
+    version: 'v4.71.4',
+    date: '2026-05-15',
+    entries: [
+      { tag: 'fix', scope: 'support', description: 'CRM reply endpoint corrected to POST /api/public-v1/support-ticket/agent-reply/{uuid}. agent_id is now required (returns error if not configured). All execute() paths and send-reply API route use crmUuid instead of numeric externalId.' },
+    ],
+  },
+  {
+    version: 'v4.71.3',
+    date: '2026-05-15',
+    entries: [
+      { tag: 'fix', scope: 'support', description: 'Root cause fix: CRM replies were silently failing because agent_id was missing from the POST body. postCrmReply now returns ok/error and includes agent_id. execute() only marks ticket as "replied" after confirmed CRM success — on failure the draft is saved, ticket stays open, and Telegram reports the error.' },
+      { tag: 'feat', scope: 'support', description: 'Agent ID setting added to support agent Setup tab (Step 1). Required for CRM replies. Shows an amber warning until configured.' },
+      { tag: 'fix', scope: 'support', description: 'Migration 0080: ensure support_ticket_events table exists on production (IF NOT EXISTS). Fixes DELETE /support/tickets/:id 500 error on prod.' },
+    ],
+  },
+  {
     version: 'v4.71.2',
     date: '2026-05-15',
     entries: [

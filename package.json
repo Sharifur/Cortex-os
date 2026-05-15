@@ -1,12 +1,23 @@
 {
   "name": "cortex-os",
   "private": true,
-  "workspaces": ["apps/api", "apps/web"],
+  "workspaces": [
+    "apps/api",
+    "apps/web"
+  ],
   "scripts": {
     "dev:api": "npm run dev --workspace=apps/api",
     "dev:web": "npm run dev --workspace=apps/web",
     "build:widget": "npm run build:widget --workspace=apps/web",
     "build:api": "npm run build:widget && npm run build --workspace=apps/api",
     "build:web": "npm run build --workspace=apps/web"
+  },
+  "dependencies": {
+    "@tiptap/extension-image": "^2.27.2",
+    "@tiptap/extension-link": "^2.27.2",
+    "@tiptap/extension-underline": "^2.27.2",
+    "@tiptap/pm": "^2.27.2",
+    "@tiptap/react": "^2.27.2",
+    "@tiptap/starter-kit": "^2.27.2"
   }
 }
