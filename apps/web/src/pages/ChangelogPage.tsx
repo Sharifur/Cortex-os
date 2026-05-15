@@ -16,6 +16,15 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.69.0',
+    date: '2026-05-15',
+    entries: [
+      { tag: 'feat', scope: 'support', description: 'Support Ticket Detail page: Generate Draft and Send Reply are now two visually distinct steps. Generate Draft saves a preview (labeled "Draft saved — not sent yet"); Send Reply lives in a separate green panel describing exactly who will receive the email. Ticket status is never changed by generating a draft.' },
+      { tag: 'feat', scope: 'support', description: 'Support Tickets list page: added "Draft Ready" stat card (4th column) and per-row amber "draft ready" badge for tickets that have a saved draft but have not been replied to yet.' },
+      { tag: 'fix', scope: 'support', description: 'Replied ticket detail view now shows the reply timestamp and the sent draft in a green confirmation panel instead of the standard editable card.' },
+    ],
+  },
+  {
     version: 'v4.68.2',
     date: '2026-05-15',
     entries: [
