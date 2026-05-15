@@ -108,7 +108,7 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
     }
 
     const [commentActions, connectionActions, dmActions] = await Promise.all([
-      this.decideFeedComments(snap.feedPosts, snap.config),
+      this.decideFeedComments(snap.feedPosts, snap.accounts, snap.config),
       this.decideConnectionRequests(snap.accounts, snap.niches, snap.config),
       this.decideDMs(snap.accounts, snap.config),
     ]);
@@ -189,8 +189,17 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
 
   // ─── Feed comments ─────────────────────────────────────────────────────────
 
-  private async decideFeedComments(feedPosts: any[], config: LinkedInConfig): Promise<ProposedAction[]> {
+  private async decideFeedComments(feedPosts: any[], accounts: any[], config: LinkedInConfig): Promise<ProposedAction[]> {
     if (!feedPosts.length) return [];
+
+    const commentingAccounts = accounts.filter(a => a.isActive && a.enableComments !== false);
+    if (!commentingAccounts.length) return [];
+
+    const perAccountLimit = commentingAccounts.reduce<number | undefined>((acc, a) => {
+      if (a.maxCommentsPerRun == null) return acc;
+      return acc == null ? a.maxCommentsPerRun : acc + a.maxCommentsPerRun;
+    }, undefined);
+    const limit = perAccountLimit ?? config.maxCommentsPerRun;
 
     const knownIds = await this.db.db
       .select({ externalId: linkedinPosts.externalId })
@@ -200,7 +209,7 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
     const fresh = feedPosts
       .filter(p => !seenSet.has(p.id))
       .filter(p => config.targetTopics.some(t => p.content?.toLowerCase().includes(t.toLowerCase())))
-      .slice(0, config.maxCommentsPerRun);
+      .slice(0, limit);
 
     if (!fresh.length) return [];
 
@@ -279,7 +288,7 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
 
     for (const niche of niches) {
       const account = accounts.find(a => a.id === niche.accountId) ?? accounts[0];
-      if (!account) continue;
+      if (!account || account.enableConnections === false) continue;
 
       const sentToday = await this.db.db
         .select({ id: linkedinConnectionRequests.id })
@@ -411,7 +420,16 @@ Score each profile 0.0–1.0 (1.0 = perfect match). Return JSON array only:
   private async decideDMs(accounts: any[], config: LinkedInConfig): Promise<ProposedAction[]> {
     if (!accounts.length) return [];
 
-    const accountIds = accounts.map(a => a.id);
+    const dmAccounts = accounts.filter(a => a.isActive && a.enableDMs !== false);
+    if (!dmAccounts.length) return [];
+
+    const accountIds = dmAccounts.map(a => a.id);
+    const perAccountLimit = dmAccounts.reduce<number | undefined>((acc, a) => {
+      if (a.maxDMsPerRun == null) return acc;
+      return acc == null ? a.maxDMsPerRun : acc + a.maxDMsPerRun;
+    }, undefined);
+    const dmLimit = perAccountLimit ?? config.maxDMsPerRun;
+
     const leads = await this.db.db
       .select()
       .from(linkedinLeads)
@@ -422,7 +440,7 @@ Score each profile 0.0–1.0 (1.0 = perfect match). Return JSON array only:
           inArray(linkedinLeads.accountId, accountIds),
         ),
       )
-      .limit(config.maxDMsPerRun);
+      .limit(dmLimit);
 
     if (!leads.length) return [];
 

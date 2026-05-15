@@ -7,6 +7,12 @@ export const linkedinAccounts = pgTable('linkedin_accounts', {
   label: text('label').notNull(),
   profileUrl: text('profile_url'),
   isActive: boolean('is_active').notNull().default(true),
+  enableConnections: boolean('enable_connections').notNull().default(true),
+  enableComments: boolean('enable_comments').notNull().default(true),
+  enableDMs: boolean('enable_dms').notNull().default(true),
+  maxConnectionsPerRun: integer('max_connections_per_run'),
+  maxDMsPerRun: integer('max_dms_per_run'),
+  maxCommentsPerRun: integer('max_comments_per_run'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 

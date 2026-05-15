@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.70.8',
+    date: '2026-05-15',
+    entries: [
+      { tag: 'feat', scope: 'linkedin', description: 'Per-account action toggles in the Accounts tab. Each LinkedIn account now shows inline toggles for Connection requests, Feed comments, and DM outreach. Agent skips disabled actions per account. Migration 0078 adds enable_connections, enable_comments, enable_dms columns.' },
+    ],
+  },
+  {
     version: 'v4.70.7',
     date: '2026-05-15',
     entries: [

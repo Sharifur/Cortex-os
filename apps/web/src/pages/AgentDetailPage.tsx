@@ -3684,6 +3684,10 @@ function LinkedInSettingsTab({ agent, token }: { agent: AgentDetail; token: stri
       qc.invalidateQueries({ queryKey: ['linkedin-accounts'] });
     },
   });
+  const patchAccountMutation = useMutation({
+    mutationFn: ({ id, ...body }: any) => apiFetch(token, `/linkedin/accounts/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['linkedin-accounts'] }),
+  });
 
   const [newNiche, setNewNiche] = useState({ name: '', description: '', icpDescription: '', keywords: '', targetJobTitles: '', dailyConnectLimit: 5, accountId: '' });
   const createNicheMutation = useMutation({
@@ -3759,16 +3763,42 @@ function LinkedInSettingsTab({ agent, token }: { agent: AgentDetail; token: stri
             {accounts.length === 0 && !syncResult ? (
               <p className="text-sm text-muted-foreground">No accounts synced yet. Click "Sync from Unipile" to import your connected LinkedIn accounts.</p>
             ) : accounts.length === 0 ? null : (
-              <div className="space-y-2">
+              <div className="space-y-3">
                 {accounts.map((acc: any) => (
-                  <div key={acc.id} className="flex items-center justify-between p-3 rounded-lg border border-border bg-background/50">
-                    <div>
-                      <p className="text-sm font-medium">{acc.label}</p>
-                      <p className="text-xs text-muted-foreground">{acc.unipileAccountId}</p>
+                  <div key={acc.id} className="rounded-lg border border-border bg-background/50 overflow-hidden">
+                    <div className="flex items-center justify-between px-4 py-3 border-b border-border/50">
+                      <div>
+                        <p className="text-sm font-medium">{acc.label}</p>
+                        <p className="text-xs text-muted-foreground">{acc.unipileAccountId}</p>
+                      </div>
+                      <button
+                        onClick={() => patchAccountMutation.mutate({ id: acc.id, isActive: !acc.isActive })}
+                        className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${acc.isActive ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20' : 'border-border bg-muted text-muted-foreground hover:bg-muted/80'}`}
+                      >
+                        {acc.isActive ? 'Active' : 'Inactive'}
+                      </button>
                     </div>
-                    <span className={`text-xs px-2 py-0.5 rounded-full ${acc.isActive ? 'bg-emerald-500/15 text-emerald-300' : 'bg-muted text-muted-foreground'}`}>
-                      {acc.isActive ? 'Active' : 'Inactive'}
-                    </span>
+                    <div className="grid grid-cols-3 divide-x divide-border/50">
+                      {([
+                        { key: 'enableConnections', label: 'Connections' },
+                        { key: 'enableComments', label: 'Feed comments' },
+                        { key: 'enableDMs', label: 'DM outreach' },
+                      ] as const).map(({ key, label }) => {
+                        const enabled = acc[key] !== false;
+                        return (
+                          <button
+                            key={key}
+                            onClick={() => patchAccountMutation.mutate({ id: acc.id, [key]: !enabled })}
+                            className={`flex flex-col items-center gap-1 px-3 py-2.5 text-xs transition-colors ${enabled ? 'text-foreground hover:bg-muted/30' : 'text-muted-foreground hover:bg-muted/30'}`}
+                          >
+                            <span className={`w-7 h-3.5 rounded-full relative transition-colors ${enabled ? 'bg-primary' : 'bg-muted'}`}>
+                              <span className={`absolute top-0.5 w-2.5 h-2.5 rounded-full bg-background shadow transition-all ${enabled ? 'left-[calc(100%-11px)]' : 'left-0.5'}`} />
+                            </span>
+                            <span>{label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
                 ))}
               </div>
