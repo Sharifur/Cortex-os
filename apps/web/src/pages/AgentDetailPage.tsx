@@ -3994,16 +3994,16 @@ function LinkedInSettingsTab({ agent, token }: { agent: AgentDetail; token: stri
 
           {/* Overview */}
           <div className="rounded-xl border border-border bg-card p-5">
-            <h3 className="text-sm font-semibold mb-2">What this agent does</h3>
-            <p className="text-xs text-muted-foreground leading-relaxed">
-              Runs every 4 hours. Searches LinkedIn for people matching your niches, scores them with an LLM against your ICP, sends niche-targeted connection requests, drafts comments on relevant feed posts, and sends outreach DMs to accepted connections — all proposed via Telegram for approval before anything is sent.
+            <h3 className="text-sm font-semibold mb-1">What this agent does</h3>
+            <p className="text-xs text-muted-foreground leading-relaxed mb-3">
+              Runs every 4 hours. Searches LinkedIn for agency owners and freelancers, scores them with an LLM against your ICP, sends personalised connection requests, drafts comments on relevant feed posts, and sends outreach DMs to accepted connections — all proposed via Telegram before anything is sent.
             </p>
-            <div className="grid grid-cols-2 gap-2 mt-3">
+            <div className="grid grid-cols-2 gap-2">
               {[
                 ['Connection requests', 'Find + score leads → draft personalised note → Telegram approve → send'],
-                ['Feed comments', 'Scan feed for target topics → draft comment → Telegram approve → post'],
-                ['DM outreach', 'Accepted connections → draft DM → Telegram approve → send'],
-                ['Lead tracking', 'Leads, connection status, ICP scores stored and visible in Leads tab'],
+                ['Feed comments', 'Scan feed for agency/freelance topics → draft comment → Telegram approve → post'],
+                ['DM outreach', 'Accepted connections → draft Taskip pitch DM → Telegram approve → send'],
+                ['Lead tracking', 'Leads, ICP scores, connection status stored — visible in Leads tab'],
               ].map(([title, desc]) => (
                 <div key={title} className="rounded-lg border border-border bg-background/50 p-3">
                   <p className="text-xs font-medium mb-0.5">{title}</p>
@@ -4011,6 +4011,30 @@ function LinkedInSettingsTab({ agent, token }: { agent: AgentDetail; token: stri
                 </div>
               ))}
             </div>
+          </div>
+
+          {/* Multi-account strategy */}
+          <div className="rounded-xl border border-border bg-card p-5">
+            <h3 className="text-sm font-semibold mb-1">Multi-account strategy</h3>
+            <p className="text-xs text-muted-foreground mb-3">
+              Each LinkedIn account in Unipile can target a different audience. Connect multiple accounts and assign a dedicated niche to each — keeping outreach separate and personalised per segment.
+            </p>
+            <div className="space-y-2">
+              {[
+                ['Account A', 'Agency Owners', 'Targets digital/marketing/web agency owners with 2–20 employees looking to scale'],
+                ['Account B', 'Freelancers', 'Targets independent developers, designers, and consultants looking for client/project tools'],
+                ['Account C', 'Any other segment', 'e.g. SaaS founders, startup CTOs, e-commerce store owners — whatever fits your next campaign'],
+              ].map(([account, niche, desc]) => (
+                <div key={account} className="flex gap-3 p-3 rounded-lg border border-border bg-background/50">
+                  <div className="w-20 shrink-0">
+                    <p className="text-[11px] font-semibold text-primary">{account}</p>
+                    <p className="text-[11px] font-medium">{niche}</p>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">{desc}</p>
+                </div>
+              ))}
+            </div>
+            <p className="text-[11px] text-muted-foreground mt-3">Each niche in the <strong>Niches</strong> tab has an Account selector — assign one niche per account or mix freely.</p>
           </div>
 
           {/* Setup checklist */}

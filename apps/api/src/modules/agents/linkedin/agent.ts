@@ -42,10 +42,14 @@ interface LinkedInSnapshot {
 }
 
 const DEFAULT_CONFIG: LinkedInConfig = {
-  targetTopics: ['SaaS', 'productivity', 'startup', 'project management'],
+  targetTopics: [
+    'digital agency', 'marketing agency', 'web agency', 'agency growth',
+    'freelancing', 'freelance developer', 'freelance designer', 'independent consultant',
+    'client management', 'project management', 'scaling agency', 'SaaS tools for agencies',
+  ],
   maxCommentsPerRun: 3,
-  maxDMsPerRun: 3,
-  commentTone: 'professional, concise, adds value — never salesy',
+  maxDMsPerRun: 2,
+  commentTone: 'helpful, insight-driven — speaks to agency owners and freelancers, positions Taskip as a tool for scaling without adding headcount, never promotional',
   icpScoreThreshold: 0.65,
 };
 

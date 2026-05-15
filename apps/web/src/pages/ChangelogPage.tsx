@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.70.7',
+    date: '2026-05-15',
+    entries: [
+      { tag: 'feat', scope: 'linkedin', description: 'Optimize default config for agency owners and freelancers targeting Taskip.net — updated target topics, comment tone, and ICP threshold. Added multi-account strategy docs (Account A: agency owners, Account B: freelancers, Account C: other segments).' },
+    ],
+  },
+  {
     version: 'v4.70.6',
     date: '2026-05-15',
     entries: [
