@@ -511,21 +511,13 @@ export default function SupportTicketDetailPage() {
                   <span className="text-xs text-muted-foreground">{fmt(ticket.repliedAt)}</span>
                 )}
                 <div className="ml-auto flex items-center gap-2">
-                  {activeDraft && !editingDraft && (
-                    <button
-                      onClick={() => { setEditDraftText(activeDraft); setEditingDraft(true); setDraftError(null); }}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border text-xs text-muted-foreground hover:text-foreground transition-colors"
-                    >
-                      <Pencil className="w-3.5 h-3.5" /> Edit
-                    </button>
-                  )}
                   <button
                     onClick={handleGenerateDraft}
                     disabled={generating}
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
                   >
                     {generating ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
-                    {generating ? 'Generating...' : 'Regenerate'}
+                    {generating ? 'Generating...' : 'Generate New Reply'}
                   </button>
                 </div>
               </div>
@@ -535,31 +527,9 @@ export default function SupportTicketDetailPage() {
                 </div>
               )}
               {activeDraft && (
-                editingDraft ? (
-                  <div className="space-y-2">
-                    <DraftEditor value={editDraftText} onChange={setEditDraftText} token={token} />
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={handleSaveDraft}
-                        disabled={savingDraft || !editDraftText.trim()}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors"
-                      >
-                        {savingDraft ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
-                        {savingDraft ? 'Saving...' : 'Save Draft'}
-                      </button>
-                      <button
-                        onClick={() => { setEditingDraft(false); setDraftError(null); }}
-                        className="px-3 py-1.5 rounded-md border border-border text-xs text-muted-foreground hover:text-foreground transition-colors"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="rounded-lg border border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground whitespace-pre-wrap leading-relaxed">
-                    {activeDraft}
-                  </div>
-                )
+                <div className="rounded-lg border border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground whitespace-pre-wrap leading-relaxed">
+                  {activeDraft}
+                </div>
               )}
             </div>
           ) : (
@@ -607,12 +577,7 @@ export default function SupportTicketDetailPage() {
                 {activeDraft ? (
                   editingDraft ? (
                     <div className="space-y-2">
-                      <textarea
-                        value={editDraftText}
-                        onChange={(e) => setEditDraftText(e.target.value)}
-                        rows={8}
-                        className="w-full rounded-lg border border-border bg-background px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring resize-y"
-                      />
+                      <DraftEditor value={editDraftText} onChange={setEditDraftText} token={token} />
                       <div className="flex items-center gap-2">
                         <button
                           onClick={handleSaveDraft}

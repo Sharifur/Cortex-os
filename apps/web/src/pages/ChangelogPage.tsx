@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.72.1',
+    date: '2026-05-15',
+    entries: [
+      { tag: 'fix', scope: 'support', description: 'Replied tickets no longer show Edit or Regenerate buttons. Only a Generate New Reply button is shown. Edit/Regenerate remain available only for unsent drafts. Unsent draft edit mode now uses TipTap rich text editor instead of plain textarea.' },
+    ],
+  },
+  {
     version: 'v4.72.0',
     date: '2026-05-15',
     entries: [
