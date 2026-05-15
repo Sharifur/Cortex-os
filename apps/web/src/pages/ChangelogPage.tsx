@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.72.0',
+    date: '2026-05-15',
+    entries: [
+      { tag: 'fix', scope: 'support', description: 'Draft editor blank on click: removed early null-return before TipTap initializes; toolbar always renders with Loading placeholder. Fixed broken useCallback/useEffect pattern replaced by initialised ref. Removed extendMarkToWordIfUnselected (TipTap v3-only). Image paste upload and all toolbar actions now work correctly.' },
+    ],
+  },
+  {
     version: 'v4.71.9',
     date: '2026-05-15',
     entries: [

@@ -7,7 +7,7 @@ import {
   Bold, Italic, Underline as UnderlineIcon, List, ListOrdered,
   Link as LinkIcon, Unlink, Minus, ImageIcon, Loader2,
 } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 interface DraftEditorProps {
   value: string;
@@ -15,25 +15,21 @@ interface DraftEditorProps {
   token: string;
 }
 
-function ToolbarBtn({
-  onClick, active, title, disabled, children,
+function Btn({
+  onClick, active, title, children,
 }: {
   onClick: () => void;
   active?: boolean;
   title: string;
-  disabled?: boolean;
   children: React.ReactNode;
 }) {
   return (
     <button
       type="button"
       title={title}
-      disabled={disabled}
       onMouseDown={(e) => { e.preventDefault(); onClick(); }}
-      className={`p-1.5 rounded text-sm transition-colors disabled:opacity-40 ${
-        active
-          ? 'bg-primary/25 text-primary'
-          : 'text-slate-300 hover:text-white hover:bg-white/10'
+      className={`p-1.5 rounded transition-colors ${
+        active ? 'bg-primary/25 text-primary' : 'text-slate-300 hover:text-white hover:bg-white/10'
       }`}
     >
       {children}
@@ -42,31 +38,8 @@ function ToolbarBtn({
 }
 
 export function DraftEditor({ value, onChange, token }: DraftEditorProps) {
-  const [uploadingImage, setUploadingImage] = useState(false);
-
-  const uploadImageFile = useCallback(async (file: File): Promise<string | null> => {
-    return new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onload = async (e) => {
-        try {
-          setUploadingImage(true);
-          const base64 = (e.target?.result as string).split(',')[1];
-          const res = await fetch('/support/upload-image', {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ data: base64, filename: file.name, mimeType: file.type }),
-          });
-          const json = await res.json();
-          resolve(json.url ?? null);
-        } catch {
-          resolve(null);
-        } finally {
-          setUploadingImage(false);
-        }
-      };
-      reader.readAsDataURL(file);
-    });
-  }, [token]);
+  const [uploading, setUploading] = useState(false);
+  const initialised = useRef(false);
 
   const editor = useEditor({
     extensions: [
@@ -75,117 +48,137 @@ export function DraftEditor({ value, onChange, token }: DraftEditorProps) {
       Link.configure({ openOnClick: false, autolink: true }),
       Image.configure({ inline: false, allowBase64: false }),
     ],
-    content: value ? `<p>${value.replace(/\n/g, '</p><p>')}</p>` : '',
-    onUpdate({ editor }) {
-      onChange(editor.getText({ blockSeparator: '\n' }));
+    content: '',
+    onUpdate({ editor: e }) {
+      onChange(e.getText({ blockSeparator: '\n' }));
     },
     editorProps: {
       attributes: {
-        class: 'min-h-[160px] max-h-[400px] overflow-y-auto px-4 py-3 text-sm text-slate-100 focus:outline-none leading-relaxed',
-      },
-      handlePaste(view, event) {
-        const items = event.clipboardData?.items;
-        if (!items) return false;
-        for (const item of Array.from(items)) {
-          if (item.type.startsWith('image/')) {
-            event.preventDefault();
-            const file = item.getAsFile();
-            if (!file) return true;
-            uploadImageFile(file).then((url) => {
-              if (url) {
-                view.dispatch(
-                  view.state.tr.replaceSelectionWith(
-                    view.state.schema.nodes.image.create({ src: url, alt: file.name }),
-                  ),
-                );
-              }
-            });
-            return true;
-          }
-        }
-        return false;
+        class: 'min-h-[180px] max-h-[400px] overflow-y-auto px-4 py-3 text-sm text-slate-100 focus:outline-none leading-relaxed',
       },
     },
   });
 
-  // Sync when value changes externally (e.g. clicking Edit on a different draft)
-  const prevValue = useCallback(() => value, [value]);
+  // Set initial content once editor is ready
   useEffect(() => {
-    if (!editor || editor.isDestroyed) return;
-    const current = editor.getText({ blockSeparator: '\n' });
-    if (current !== value) {
-      editor.commands.setContent(value ? `<p>${value.replace(/\n/g, '</p><p>')}</p>` : '', false);
+    if (!editor || initialised.current) return;
+    initialised.current = true;
+    if (value) {
+      const html = value
+        .split('\n')
+        .map((line) => `<p>${line || '<br>'}</p>`)
+        .join('');
+      editor.commands.setContent(html, false);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [prevValue]);
+  }, [editor, value]);
 
-  const setLink = useCallback(() => {
+  // Handle image paste
+  useEffect(() => {
+    if (!editor) return;
+    const handler = (event: ClipboardEvent) => {
+      const items = event.clipboardData?.items;
+      if (!items) return;
+      for (const item of Array.from(items)) {
+        if (item.type.startsWith('image/')) {
+          event.preventDefault();
+          const file = item.getAsFile();
+          if (!file) return;
+          const reader = new FileReader();
+          reader.onload = async (e) => {
+            try {
+              setUploading(true);
+              const base64 = (e.target?.result as string).split(',')[1];
+              const res = await fetch('/support/upload-image', {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ data: base64, filename: file.name, mimeType: file.type }),
+              });
+              const json = await res.json();
+              if (json.url) {
+                editor.chain().focus().setImage({ src: json.url }).run();
+              }
+            } catch {
+              // ignore upload errors silently
+            } finally {
+              setUploading(false);
+            }
+          };
+          reader.readAsDataURL(file);
+          return;
+        }
+      }
+    };
+    const el = editor.view.dom;
+    el.addEventListener('paste', handler as EventListener);
+    return () => el.removeEventListener('paste', handler as EventListener);
+  }, [editor, token]);
+
+  function addLink() {
     if (!editor) return;
     const prev = editor.getAttributes('link').href ?? '';
     const url = window.prompt('URL', prev);
     if (url === null) return;
-    if (!url) { editor.chain().focus().extendMarkToWordIfUnselected().unsetLink().run(); return; }
-    editor.chain().focus().extendMarkToWordIfUnselected().setLink({ href: url }).run();
-  }, [editor]);
-
-  if (!editor) return null;
+    if (!url) {
+      editor.chain().focus().unsetLink().run();
+    } else {
+      editor.chain().focus().setLink({ href: url }).run();
+    }
+  }
 
   return (
     <div className="rounded-lg border border-border overflow-hidden focus-within:ring-1 focus-within:ring-ring">
-      {/* ── Toolbar ── */}
-      <div className="flex items-center gap-0.5 px-2 py-1.5 bg-[hsl(222_47%_16%)] border-b border-border flex-wrap">
-        <ToolbarBtn onClick={() => editor.chain().focus().toggleBold().run()} active={editor.isActive('bold')} title="Bold (Ctrl+B)">
+      {/* Toolbar — always visible */}
+      <div className="flex items-center gap-0.5 px-2 py-1.5 border-b border-border bg-card flex-wrap">
+        <Btn onClick={() => editor?.chain().focus().toggleBold().run()} active={!!editor?.isActive('bold')} title="Bold">
           <Bold className="w-3.5 h-3.5" />
-        </ToolbarBtn>
-        <ToolbarBtn onClick={() => editor.chain().focus().toggleItalic().run()} active={editor.isActive('italic')} title="Italic (Ctrl+I)">
+        </Btn>
+        <Btn onClick={() => editor?.chain().focus().toggleItalic().run()} active={!!editor?.isActive('italic')} title="Italic">
           <Italic className="w-3.5 h-3.5" />
-        </ToolbarBtn>
-        <ToolbarBtn onClick={() => editor.chain().focus().toggleUnderline().run()} active={editor.isActive('underline')} title="Underline (Ctrl+U)">
+        </Btn>
+        <Btn onClick={() => editor?.chain().focus().toggleUnderline().run()} active={!!editor?.isActive('underline')} title="Underline">
           <UnderlineIcon className="w-3.5 h-3.5" />
-        </ToolbarBtn>
+        </Btn>
 
         <span className="w-px h-4 bg-border mx-0.5" />
 
-        <ToolbarBtn onClick={() => editor.chain().focus().toggleBulletList().run()} active={editor.isActive('bulletList')} title="Bullet list">
+        <Btn onClick={() => editor?.chain().focus().toggleBulletList().run()} active={!!editor?.isActive('bulletList')} title="Bullet list">
           <List className="w-3.5 h-3.5" />
-        </ToolbarBtn>
-        <ToolbarBtn onClick={() => editor.chain().focus().toggleOrderedList().run()} active={editor.isActive('orderedList')} title="Numbered list">
+        </Btn>
+        <Btn onClick={() => editor?.chain().focus().toggleOrderedList().run()} active={!!editor?.isActive('orderedList')} title="Numbered list">
           <ListOrdered className="w-3.5 h-3.5" />
-        </ToolbarBtn>
+        </Btn>
 
         <span className="w-px h-4 bg-border mx-0.5" />
 
-        <ToolbarBtn onClick={setLink} active={editor.isActive('link')} title="Add link">
+        <Btn onClick={addLink} active={!!editor?.isActive('link')} title="Add link">
           <LinkIcon className="w-3.5 h-3.5" />
-        </ToolbarBtn>
-        {editor.isActive('link') && (
-          <ToolbarBtn onClick={() => editor.chain().focus().unsetLink().run()} title="Remove link">
+        </Btn>
+        {editor?.isActive('link') && (
+          <Btn onClick={() => editor.chain().focus().unsetLink().run()} title="Remove link">
             <Unlink className="w-3.5 h-3.5" />
-          </ToolbarBtn>
+          </Btn>
         )}
 
         <span className="w-px h-4 bg-border mx-0.5" />
 
-        <ToolbarBtn onClick={() => editor.chain().focus().setHorizontalRule().run()} title="Divider">
+        <Btn onClick={() => editor?.chain().focus().setHorizontalRule().run()} title="Horizontal rule">
           <Minus className="w-3.5 h-3.5" />
-        </ToolbarBtn>
+        </Btn>
 
-        {/* Image paste indicator */}
-        {uploadingImage && (
-          <span className="ml-auto flex items-center gap-1 text-[11px] text-muted-foreground">
-            <Loader2 className="w-3 h-3 animate-spin" /> Uploading image…
-          </span>
-        )}
-        {!uploadingImage && (
-          <span className="ml-auto flex items-center gap-1 text-[11px] text-muted-foreground">
-            <ImageIcon className="w-3 h-3" /> Paste image to upload
-          </span>
-        )}
+        <span className="ml-auto flex items-center gap-1 text-[11px] text-muted-foreground select-none">
+          {uploading
+            ? <><Loader2 className="w-3 h-3 animate-spin" /> Uploading…</>
+            : <><ImageIcon className="w-3 h-3" /> Paste image</>
+          }
+        </span>
       </div>
 
-      {/* ── Editor content ── */}
+      {/* Editor area */}
       <div className="bg-background">
-        <EditorContent editor={editor} />
+        {editor
+          ? <EditorContent editor={editor} />
+          : <div className="min-h-[180px] px-4 py-3 text-sm text-muted-foreground">Loading editor…</div>
+        }
       </div>
     </div>
   );
