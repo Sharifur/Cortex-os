@@ -167,7 +167,15 @@ export class DesignStudioService {
     const username = assetParams?.['username'];
     const handle = assetParams?.['social_handle'];
     const website = assetParams?.['website_url'];
-    const avatarUrl = assetParams?.['avatar_image'];
+    const avatarRaw = assetParams?.['avatar_image'];
+
+    // Convert base64 avatar to a File so it can be passed as a second input image
+    let avatarFile: Awaited<ReturnType<typeof toFile>> | null = null;
+    if (avatarRaw?.startsWith('data:')) {
+      const [header, b64] = avatarRaw.split(',');
+      const mimeType = (header.match(/:(.*?);/) ?? [])[1] ?? 'image/jpeg';
+      avatarFile = await toFile(Buffer.from(b64, 'base64'), 'avatar.jpg', { type: mimeType });
+    }
 
     const editPrompt = [
       `Replace only the headline text in this design with exactly: "${headline}"`,
@@ -175,7 +183,8 @@ export class DesignStudioService {
       hexColors ? `Maintain the exact color palette: ${hexColors}. Do not introduce other colors.` : '',
       'Do not add body paragraph text, subtitle, or any text other than the specified headline and labels.',
       !dna.hasAvatarZone ? 'Do not add any avatar or profile photo.' : '',
-      avatarUrl && !avatarUrl.startsWith('data:') ? `Use this image as the profile avatar: ${avatarUrl}` : '',
+      avatarFile ? 'Place the person\'s face from the second reference image exactly into the circular profile photo zone. Keep the face realistic and clearly recognizable — do not alter, stylize, or replace the face.' : '',
+      avatarRaw && !avatarRaw.startsWith('data:') ? `Use this image as the profile avatar: ${avatarRaw}` : '',
       username ? `Replace the author name with "${username}".` : '',
       handle ? `Replace the social handle with "${handle}".` : '',
       website ? `Replace the website label with "${website}".` : '',
@@ -188,11 +197,11 @@ export class DesignStudioService {
     const client = new OpenAI({ apiKey });
     const size = snapImageSize(dna);
 
-    this.logger.log(`Editing with gpt-image-1: size=${size} template=${id}`);
+    this.logger.log(`Editing with gpt-image-1: size=${size} template=${id} avatar=${avatarFile ? 'uploaded' : 'none'}`);
 
     const res = await client.images.edit({
       model: 'gpt-image-1',
-      image: imageFile,
+      image: avatarFile ? [imageFile, avatarFile] : imageFile,
       prompt: editPrompt.slice(0, 4000),
       size,
       n: 1,

@@ -303,7 +303,7 @@ export class CanvaAgent implements IAgent, OnModuleInit {
                 const { url } = await this.designStudio.generateAndSave(tplSlide.id, cs.headline, assetParams);
                 slideUrls.push(url);
                 if (runId) {
-                  await this.logSvc.info(runId, `Slide ${i + 1} ready (${Date.now() - t0}ms)`, { event_type: 'post_ai_slide_end', slide_index: i, duration_ms: Date.now() - t0, estimated_cost_usd: 0.19 }).catch(() => {});
+                  await this.logSvc.info(runId, `Slide ${i + 1} ready (${Date.now() - t0}ms)`, { event_type: 'post_ai_slide_end', slide_index: i, slide_url: url, duration_ms: Date.now() - t0, estimated_cost_usd: 0.19 }).catch(() => {});
                 }
               } catch (e) {
                 this.logger.warn(`Slide ${i + 1} failed: ${(e as Error).message}`);
@@ -355,7 +355,7 @@ export class CanvaAgent implements IAgent, OnModuleInit {
               const { url } = await this.designStudio.generateAndSave(tplSlide.id, cs.headline, assetParams);
               slideUrls.push(url);
               if (runId) {
-                await this.logSvc.info(runId, `Slide ${i + 1} ready (${Date.now() - t0}ms)`, { event_type: 'post_ai_slide_end', slide_index: i, duration_ms: Date.now() - t0, estimated_cost_usd: 0.19 }).catch(() => {});
+                await this.logSvc.info(runId, `Slide ${i + 1} ready (${Date.now() - t0}ms)`, { event_type: 'post_ai_slide_end', slide_index: i, slide_url: url, duration_ms: Date.now() - t0, estimated_cost_usd: 0.19 }).catch(() => {});
               }
             } catch (e) {
               this.logger.warn(`Auto-gen slide ${i + 1} failed: ${(e as Error).message}`);
@@ -809,7 +809,7 @@ export class CanvaAgent implements IAgent, OnModuleInit {
               const { url } = await this.designStudio.generateAndSave(tplSlide.id, cs.headline);
               slideUrls.push(url);
               if (runId) {
-                await this.logSvc.info(runId, `Slide ${i + 1} ready (${Date.now() - t0}ms)`, { event_type: 'post_ai_slide_end', slide_index: i, duration_ms: Date.now() - t0, estimated_cost_usd: 0.19 }).catch(() => {});
+                await this.logSvc.info(runId, `Slide ${i + 1} ready (${Date.now() - t0}ms)`, { event_type: 'post_ai_slide_end', slide_index: i, slide_url: url, duration_ms: Date.now() - t0, estimated_cost_usd: 0.19 }).catch(() => {});
               }
             } catch (e) {
               this.logger.warn(`Auto-gen slide ${i + 1} failed: ${(e as Error).message}`);

@@ -16,6 +16,15 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.68.0',
+    date: '2026-05-15',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'Uploaded avatar photo is now passed as a second input image to gpt-image-1 images.edit() API, so the model places the exact uploaded face into the circular profile photo zone instead of generating a generic one.' },
+      { tag: 'feat', scope: 'canva', description: 'Progressive slide reveal during generation: each slide appears in the activity bubble as soon as it is ready (from post_ai_slide_end log events with slide_url). Remaining slots show animated skeletons.' },
+      { tag: 'fix', scope: 'canva', description: 'Slide thumbnail hover icon (Image icon) was appearing on all thumbnails simultaneously when hovering the message bubble. Fixed by scoping SlideThumb to group/thumb + group-hover/thumb: named group, same pattern as the style picker fix.' },
+    ],
+  },
+  {
     version: 'v4.67.3',
     date: '2026-05-15',
     entries: [

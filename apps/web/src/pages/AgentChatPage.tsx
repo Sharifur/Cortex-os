@@ -768,13 +768,23 @@ function TypingBubble({ color }: { color: ReturnType<typeof agentColor> }) {
 
 // ─── Slide render progress bubble ────────────────────────────────────────────
 
+function SlideSkeleton({ n }: { n: number }) {
+  return (
+    <div className="aspect-square rounded-lg bg-muted/50 animate-pulse flex items-center justify-center">
+      <span className="text-[10px] text-muted-foreground/40">{n}</span>
+    </div>
+  );
+}
+
 function RenderProgressBubble({
   color, progress,
 }: {
   color: ReturnType<typeof agentColor>;
-  progress: { totalSlides: number; renderId: string; doneCount: number };
+  progress: { totalSlides: number; renderId: string; doneCount: number; slideUrls: string[] };
 }) {
-  const { totalSlides, renderId, doneCount } = progress;
+  const { totalSlides, renderId, doneCount, slideUrls } = progress;
+  const isDnaPath = renderId === 'dna';
+  const done = isDnaPath ? slideUrls.length : doneCount;
   return (
     <div className="flex items-end gap-2">
       <div className={`w-7 h-7 rounded-lg ${color.iconBg} flex items-center justify-center shrink-0`}>
@@ -782,20 +792,22 @@ function RenderProgressBubble({
       </div>
       <div className={`rounded-2xl rounded-bl-sm px-4 py-3 ${color.bubble} max-w-sm`}>
         <p className="text-xs text-muted-foreground mb-2.5">
-          Rendering slides — {doneCount}/{totalSlides}
+          Generating slides — {done}/{totalSlides}
         </p>
         <div className="grid grid-cols-3 gap-2">
           {Array.from({ length: totalSlides }).map((_, i) => {
             const n = i + 1;
+            if (isDnaPath) {
+              const url = slideUrls[i];
+              return url
+                ? <SlideThumb key={i} url={url} n={n} />
+                : <SlideSkeleton key={i} n={n} />;
+            }
             const isDone = n <= doneCount;
             const url = renderId ? `/posts/renders/${renderId}/slides/${n}/png` : null;
-            return isDone && url ? (
-              <SlideThumb key={i} url={url} n={n} />
-            ) : (
-              <div key={i} className="aspect-square rounded-lg bg-muted/50 animate-pulse flex items-center justify-center">
-                <span className="text-[10px] text-muted-foreground/40">{n}</span>
-              </div>
-            );
+            return isDone && url
+              ? <SlideThumb key={i} url={url} n={n} />
+              : <SlideSkeleton key={i} n={n} />;
           })}
         </div>
       </div>
@@ -945,7 +957,7 @@ function SlideThumb({ url, n, onClick }: { url: string; n: number; onClick?: () 
   const [loaded, setLoaded] = useState(false);
   return (
     <div
-      className="aspect-square rounded-lg overflow-hidden bg-muted/50 relative cursor-pointer group"
+      className="aspect-square rounded-lg overflow-hidden bg-muted/50 relative cursor-pointer group/thumb"
       onClick={onClick}
     >
       {!loaded && <div className="absolute inset-0 animate-pulse bg-muted/60" />}
@@ -955,8 +967,8 @@ function SlideThumb({ url, n, onClick }: { url: string; n: number; onClick?: () 
         className={`w-full h-full object-cover transition-opacity duration-300 ${loaded ? 'opacity-100' : 'opacity-0'}`}
         onLoad={() => setLoaded(true)}
       />
-      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
-        <Image className="w-4 h-4 text-white opacity-0 group-hover:opacity-80 transition-opacity" />
+      <div className="absolute inset-0 bg-black/0 group-hover/thumb:bg-black/20 transition-colors flex items-center justify-center">
+        <Image className="w-4 h-4 text-white opacity-0 group-hover/thumb:opacity-80 transition-opacity" />
       </div>
     </div>
   );
@@ -2249,16 +2261,20 @@ function ChatTab({
     let totalSlides = 0;
     let renderId = '';
     let doneCount = 0;
+    const slideUrls: string[] = [];
     for (const log of activeRunLogs.logs) {
       const meta = log.meta ?? {};
       if (meta['event_type'] === 'post_render_start') {
         totalSlides = Number(meta['slide_count']) || 0;
         renderId = String(meta['render_id'] ?? '');
       }
+      if (meta['event_type'] === 'post_ai_slide_end' && meta['slide_url']) {
+        slideUrls.push(String(meta['slide_url']));
+      }
       if (meta['event_type'] === 'post_render_slide_done') doneCount++;
     }
     if (!totalSlides) return null;
-    return { totalSlides, renderId, doneCount };
+    return { totalSlides, renderId, doneCount, slideUrls };
   }, [activeRunLogs]);
 
   const { isGeneratingSlides, generatingSlideCount } = useMemo(() => {
