@@ -768,13 +768,23 @@ function TypingBubble({ color }: { color: ReturnType<typeof agentColor> }) {
 
 // ─── Slide render progress bubble ────────────────────────────────────────────
 
+function SlideSkeleton({ n }: { n: number }) {
+  return (
+    <div className="aspect-square rounded-lg bg-muted/50 animate-pulse flex items-center justify-center">
+      <span className="text-[10px] text-muted-foreground/40">{n}</span>
+    </div>
+  );
+}
+
 function RenderProgressBubble({
   color, progress,
 }: {
   color: ReturnType<typeof agentColor>;
-  progress: { totalSlides: number; renderId: string; doneCount: number };
+  progress: { totalSlides: number; renderId: string; doneCount: number; slideUrls: string[] };
 }) {
-  const { totalSlides, renderId, doneCount } = progress;
+  const { totalSlides, renderId, doneCount, slideUrls } = progress;
+  const isDnaPath = renderId === 'dna';
+  const done = isDnaPath ? slideUrls.length : doneCount;
   return (
     <div className="flex items-end gap-2">
       <div className={`w-7 h-7 rounded-lg ${color.iconBg} flex items-center justify-center shrink-0`}>
@@ -782,20 +792,22 @@ function RenderProgressBubble({
       </div>
       <div className={`rounded-2xl rounded-bl-sm px-4 py-3 ${color.bubble} max-w-sm`}>
         <p className="text-xs text-muted-foreground mb-2.5">
-          Rendering slides — {doneCount}/{totalSlides}
+          Generating slides — {done}/{totalSlides}
         </p>
         <div className="grid grid-cols-3 gap-2">
           {Array.from({ length: totalSlides }).map((_, i) => {
             const n = i + 1;
+            if (isDnaPath) {
+              const url = slideUrls[i];
+              return url
+                ? <SlideThumb key={i} url={url} n={n} />
+                : <SlideSkeleton key={i} n={n} />;
+            }
             const isDone = n <= doneCount;
             const url = renderId ? `/posts/renders/${renderId}/slides/${n}/png` : null;
-            return isDone && url ? (
-              <SlideThumb key={i} url={url} n={n} />
-            ) : (
-              <div key={i} className="aspect-square rounded-lg bg-muted/50 animate-pulse flex items-center justify-center">
-                <span className="text-[10px] text-muted-foreground/40">{n}</span>
-              </div>
-            );
+            return isDone && url
+              ? <SlideThumb key={i} url={url} n={n} />
+              : <SlideSkeleton key={i} n={n} />;
           })}
         </div>
       </div>
@@ -945,7 +957,7 @@ function SlideThumb({ url, n, onClick }: { url: string; n: number; onClick?: () 
   const [loaded, setLoaded] = useState(false);
   return (
     <div
-      className="aspect-square rounded-lg overflow-hidden bg-muted/50 relative cursor-pointer group"
+      className="aspect-square rounded-lg overflow-hidden bg-muted/50 relative cursor-pointer group/thumb"
       onClick={onClick}
     >
       {!loaded && <div className="absolute inset-0 animate-pulse bg-muted/60" />}
@@ -955,8 +967,8 @@ function SlideThumb({ url, n, onClick }: { url: string; n: number; onClick?: () 
         className={`w-full h-full object-cover transition-opacity duration-300 ${loaded ? 'opacity-100' : 'opacity-0'}`}
         onLoad={() => setLoaded(true)}
       />
-      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
-        <Image className="w-4 h-4 text-white opacity-0 group-hover:opacity-80 transition-opacity" />
+      <div className="absolute inset-0 bg-black/0 group-hover/thumb:bg-black/20 transition-colors flex items-center justify-center">
+        <Image className="w-4 h-4 text-white opacity-0 group-hover/thumb:opacity-80 transition-opacity" />
       </div>
     </div>
   );
@@ -1085,6 +1097,48 @@ function parseStylePicker(content: string): { header: string; samples: StyleSamp
   } catch { return null; }
 }
 
+function extractNestedJson(content: string, marker: string): string | null {
+  const start = content.indexOf(marker);
+  if (start === -1) return null;
+  const jsonStart = start + marker.length;
+  if (content[jsonStart] !== '{') return null;
+  let depth = 0, i = jsonStart;
+  while (i < content.length) {
+    if (content[i] === '{') depth++;
+    else if (content[i] === '}') { depth--; if (depth === 0) return content.slice(jsonStart, i + 1); }
+    i++;
+  }
+  return null;
+}
+
+function assetParamsSummary(query: string): string | null {
+  if (!query.includes('[asset-params-all:')) return null;
+  const json = extractNestedJson(query, '[asset-params-all:');
+  if (!json) return null;
+  try {
+    const values = JSON.parse(json) as Record<string, string>;
+    const parts: string[] = [];
+    if (values['username']) parts.push(values['username']);
+    if (values['social_handle']) parts.push(values['social_handle']);
+    else if (values['twitter_handle']) parts.push(values['twitter_handle']);
+    if (values['website_url']) parts.push(values['website_url']);
+    const hasPhoto = !!values['avatar_image'];
+    if (hasPhoto) parts.push('[photo uploaded]');
+    return parts.length ? parts.join(' · ') : 'Details submitted';
+  } catch { return null; }
+}
+
+function parseExtraParamsGather(content: string): { needsImageUpload: boolean } | null {
+  if (!content.includes('[extra-params-gather:')) return null;
+  const json = extractNestedJson(content, '[extra-params-gather:');
+  if (!json) return { needsImageUpload: false };
+  try {
+    const state = JSON.parse(json) as { extraParams?: Array<{ type?: string }>; idx?: number };
+    const current = state.extraParams?.[state.idx ?? 0];
+    return { needsImageUpload: current?.type === 'image' };
+  } catch { return { needsImageUpload: false }; }
+}
+
 function parseContentConfirm(content: string): { body: string; slideCount: number } | null {
   if (!content.includes('[content-confirm]') || !content.includes('[pending:')) return null;
   const body = content
@@ -1094,6 +1148,109 @@ function parseContentConfirm(content: string): { body: string; slideCount: numbe
   const countMatch = content.match(/(\d+)\s+slides?\./i);
   const slideCount = countMatch ? parseInt(countMatch[1], 10) : 5;
   return { body, slideCount };
+}
+
+function AssetParamsCard({
+  content,
+  onSubmit,
+  color,
+}: {
+  content: string;
+  onSubmit: (text: string) => void;
+  color: ReturnType<typeof agentColor>;
+}) {
+  if (!content.includes('[extra-params-gather:')) return null;
+  const json = extractNestedJson(content, '[extra-params-gather:');
+  if (!json) return null;
+  let state: { extraParams: Array<{ key: string; description: string; example?: string; type?: string }>; collected?: Record<string, string> };
+  try { state = JSON.parse(json); } catch { return null; }
+
+  const { extraParams, collected: initialCollected } = state;
+  const [values, setValues] = useState<Record<string, string>>(initialCollected ?? {});
+  const [imagePreviews, setImagePreviews] = useState<Record<string, string>>({});
+  const [submitted, setSubmitted] = useState(false);
+
+  const displayText = content
+    .replace(/\[asset-upload-request\]/g, '')
+    .replace(/\[extra-params-gather:[\s\S]*$/, '')
+    .trim();
+
+  function readFile(file: File, key: string) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result as string;
+      const base64 = dataUrl.split(',')[1] ?? '';
+      setValues((prev) => ({ ...prev, [key]: `data:${file.type};base64,${base64}` }));
+      setImagePreviews((prev) => ({ ...prev, [key]: dataUrl }));
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function handleSubmit() {
+    if (submitted) return;
+    const filled = extraParams.every((p) => values[p.key]?.trim());
+    if (!filled) return;
+    setSubmitted(true);
+    onSubmit(`[asset-params-all:${JSON.stringify(values)}]`);
+  }
+
+  return (
+    <div className={`rounded-2xl px-4 py-3 ${color.bubble} text-foreground rounded-bl-sm space-y-3`}>
+      {displayText && (
+        <p className="text-sm leading-relaxed">{displayText}</p>
+      )}
+      <div className="space-y-3 pt-1">
+        {extraParams.map((param) => (
+          <div key={param.key} className="space-y-1">
+            <label className="text-xs font-medium text-muted-foreground">{param.description}</label>
+            {param.type === 'image' ? (
+              <div className="flex items-center gap-2 flex-wrap">
+                {imagePreviews[param.key] && (
+                  <img src={imagePreviews[param.key]} alt="preview" className="h-10 w-10 rounded-full object-cover border border-border shrink-0" />
+                )}
+                <label className={`cursor-pointer flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-border hover:bg-accent/50 transition-colors ${submitted ? 'pointer-events-none opacity-40' : ''}`}>
+                  <ImagePlus className="w-3.5 h-3.5" />
+                  {imagePreviews[param.key] ? 'Change' : 'Upload photo'}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => { const f = e.target.files?.[0]; if (f) readFile(f, param.key); e.target.value = ''; }}
+                  />
+                </label>
+                <span className="text-xs text-muted-foreground">or URL:</span>
+                <input
+                  type="text"
+                  placeholder={param.example ?? 'https://...'}
+                  value={imagePreviews[param.key] ? '' : (values[param.key] ?? '')}
+                  disabled={!!imagePreviews[param.key] || submitted}
+                  onChange={(e) => setValues((prev) => ({ ...prev, [param.key]: e.target.value }))}
+                  className="flex-1 min-w-0 text-xs bg-muted/40 border border-border rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-40"
+                />
+              </div>
+            ) : (
+              <input
+                type="text"
+                placeholder={param.example ?? ''}
+                value={values[param.key] ?? ''}
+                disabled={submitted}
+                onChange={(e) => setValues((prev) => ({ ...prev, [param.key]: e.target.value }))}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleSubmit(); }}
+                className="w-full text-xs bg-muted/40 border border-border rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-40"
+              />
+            )}
+          </div>
+        ))}
+        <button
+          onClick={handleSubmit}
+          disabled={submitted || !extraParams.every((p) => values[p.key]?.trim())}
+          className="w-full text-sm font-medium rounded-xl py-2 bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-40 disabled:pointer-events-none"
+        >
+          {submitted ? 'Generating slides…' : 'Continue'}
+        </button>
+      </div>
+    </div>
+  );
 }
 
 function QuickReplyCard({
@@ -1196,10 +1353,10 @@ function StylePickerCard({
         {/* Random option */}
         <button
           onClick={() => pick('0')}
-          className={`flex flex-col items-center gap-1.5 group transition-all ${selected ? 'opacity-40 pointer-events-none' : ''} ${selected === '0' ? '!opacity-100' : ''}`}
+          className={`flex flex-col items-center gap-1.5 group/card transition-all ${selected ? 'opacity-40 pointer-events-none' : ''} ${selected === '0' ? '!opacity-100' : ''}`}
         >
           <div style={{ width: W, height: H }} className={`rounded-xl border-2 flex items-center justify-center bg-muted/40 transition-colors ${
-            selected === '0' ? 'border-primary' : 'border-border group-hover:border-foreground/30'
+            selected === '0' ? 'border-primary' : 'border-border group-hover/card:border-foreground/30'
           }`}>
             <span className="text-2xl opacity-40">?</span>
           </div>
@@ -1210,7 +1367,7 @@ function StylePickerCard({
           <button
             key={s.num}
             onClick={() => pick(s.num)}
-            className={`flex flex-col items-center gap-1.5 group transition-all ${selected ? 'opacity-40 pointer-events-none' : ''} ${selected === s.num ? '!opacity-100' : ''}`}
+            className={`flex flex-col items-center gap-1.5 group/card transition-all ${selected ? 'opacity-40 pointer-events-none' : ''} ${selected === s.num ? '!opacity-100' : ''}`}
           >
             {/* Stacked card visual for carousel sets */}
             <div style={{ position: 'relative', width: W + 8, height: H + 8 }}>
@@ -1224,7 +1381,7 @@ function StylePickerCard({
               )}
               <div
                 className={`absolute rounded-xl border-2 overflow-hidden transition-colors ${
-                  selected === s.num ? 'border-primary' : 'border-border group-hover:border-foreground/30'
+                  selected === s.num ? 'border-primary' : 'border-border group-hover/card:border-foreground/30'
                 }`}
                 style={{ width: W, height: H, top: 0, left: 0 }}
               >
@@ -1362,6 +1519,21 @@ function MessageBubble({
             if (parseStylePicker(msg.content)) {
               return <StylePickerCard content={msg.content} onSubmit={onQuickReply} color={color} />;
             }
+            if (parseExtraParamsGather(msg.content)) {
+              return <AssetParamsCard content={msg.content} onSubmit={onQuickReply} color={color} />;
+            }
+          }
+          // Asset params form (non-last) — strip markers, show intro text only
+          if (!isUser && msg.content.includes('[extra-params-gather:')) {
+            const body = msg.content
+              .replace(/\[asset-upload-request\]/g, '')
+              .replace(/\[extra-params-gather:[\s\S]*$/, '')
+              .trim();
+            return (
+              <div className={`rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${color.bubble} text-foreground rounded-bl-sm`}>
+                <p>{body}</p>
+              </div>
+            );
           }
           // Content confirm (non-last — show as markdown without markers)
           if (!isUser && msg.content.includes('[content-confirm]')) {
@@ -1990,7 +2162,9 @@ function ChatTab({
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const supportsImages = agent.key === 'email_manager';
+  const lastAgentMsgContent = messages.filter((m) => m.role !== 'user').slice(-1)[0]?.content ?? '';
+  const extraParamState = parseExtraParamsGather(lastAgentMsgContent);
+  const supportsImages = agent.key === 'email_manager' || extraParamState?.needsImageUpload === true;
   // Prevents history query re-fetches from overwriting locally-appended messages.
   const historyApplied = useRef(false);
 
@@ -2087,16 +2261,20 @@ function ChatTab({
     let totalSlides = 0;
     let renderId = '';
     let doneCount = 0;
+    const slideUrls: string[] = [];
     for (const log of activeRunLogs.logs) {
       const meta = log.meta ?? {};
       if (meta['event_type'] === 'post_render_start') {
         totalSlides = Number(meta['slide_count']) || 0;
         renderId = String(meta['render_id'] ?? '');
       }
+      if (meta['event_type'] === 'post_ai_slide_end' && meta['slide_url']) {
+        slideUrls.push(String(meta['slide_url']));
+      }
       if (meta['event_type'] === 'post_render_slide_done') doneCount++;
     }
     if (!totalSlides) return null;
-    return { totalSlides, renderId, doneCount };
+    return { totalSlides, renderId, doneCount, slideUrls };
   }, [activeRunLogs]);
 
   const { isGeneratingSlides, generatingSlideCount } = useMemo(() => {
@@ -2166,7 +2344,12 @@ function ChatTab({
     mutationFn: async (query: string) => {
       const recent = messages.slice(-6);
       const historyCtx = recent.length
-        ? recent.map((m) => `${m.role === 'user' ? 'User' : 'Agent'}: ${m.content}`).join('\n')
+        ? recent.map((m) => {
+            let c = m.content;
+            c = c.replace(/data:[a-z/+]+;base64,[A-Za-z0-9+/=]{50,}/g, '[image]');
+            if (c.includes('[asset-params-all:')) c = assetParamsSummary(c) ?? 'Details submitted';
+            return `${m.role === 'user' ? 'User' : 'Agent'}: ${c}`;
+          }).join('\n')
         : undefined;
       const imagePayload = pastedImage
         ? { base64: pastedImage.base64, mimeType: pastedImage.mimeType }
@@ -2181,11 +2364,14 @@ function ChatTab({
       });
     },
     onMutate: async (query: string) => {
-      const imageLabel = pastedImage ? '\n[image attached]' : '';
+      const isAssetForm = query.includes('[asset-params-all:');
+      const displayContent = isAssetForm
+        ? (assetParamsSummary(query) ?? 'Details submitted')
+        : query + (pastedImage ? '\n[image attached]' : '');
       const userMsg: ConvMessage = {
         id: `u-${Date.now()}`,
         role: 'user',
-        content: query + imageLabel,
+        content: displayContent,
         runId: null,
         requiresApproval: false,
         createdAt: new Date().toISOString(),
@@ -2194,10 +2380,11 @@ function ChatTab({
       setPastedImage(null);
       setIsThinking(true);
 
-      // Save user message to backend
+      // Save user message to backend (never save raw base64 or internal markers)
+      const savedContent = isAssetForm ? displayContent : query;
       apiFetch(token, `/agents/${agent.key}/conversations/message`, {
         method: 'POST',
-        body: JSON.stringify({ conversationId: convId, role: 'user', content: query }),
+        body: JSON.stringify({ conversationId: convId, role: 'user', content: savedContent }),
       }).catch(() => {});
     },
     onSuccess: (run: { id: string }) => {
@@ -2220,7 +2407,8 @@ function ChatTab({
   });
 
   function handleSend() {
-    const rawQ = input.trim() || (pastedImage ? 'Draft a reply to this email.' : '');
+    const isAssetUpload = extraParamState?.needsImageUpload && pastedImage;
+    const rawQ = input.trim() || (isAssetUpload ? '[photo uploaded]' : pastedImage ? 'Draft a reply to this email.' : '');
     if (!rawQ || triggerMutation.isPending || isThinking) return;
     setInput('');
 
@@ -2470,7 +2658,7 @@ function ChatTab({
             <button onClick={() => setPastedImage(null)} className="text-muted-foreground hover:text-foreground p-1">
               <X className="w-3.5 h-3.5" />
             </button>
-            <span className="text-xs text-muted-foreground">Image attached — agent will read the email from it</span>
+            <span className="text-xs text-muted-foreground">{extraParamState?.needsImageUpload ? 'Photo attached — send to continue' : 'Image attached — agent will read the email from it'}</span>
           </div>
         )}
         <div className="flex gap-2 items-end">
@@ -2481,7 +2669,7 @@ function ChatTab({
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
                 disabled={isBusy}
-                title="Attach image of email"
+                title={extraParamState?.needsImageUpload ? 'Upload your photo' : 'Attach image of email'}
                 className="shrink-0 h-10 w-10 flex items-center justify-center rounded-xl border border-border text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors disabled:opacity-40"
               >
                 <ImagePlus className="w-4 h-4" />
@@ -2494,7 +2682,9 @@ function ChatTab({
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
-            placeholder={supportsImages
+            placeholder={extraParamState?.needsImageUpload
+              ? 'Upload your photo above, or paste an image URL here…'
+              : supportsImages
               ? `Paste a client email or type instructions… (Ctrl+V to paste screenshot)`
               : `Message ${agent.name}… (Enter to send, Shift+Enter for newline)`}
             rows={2}

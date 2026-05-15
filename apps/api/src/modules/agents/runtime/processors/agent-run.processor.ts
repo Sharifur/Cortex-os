@@ -17,7 +17,7 @@ import type { TaskNotifyEvent, AgentFailedEvent } from '../../../telegram/telegr
 
 const MAX_FOLLOWUPS = 5;
 
-@Processor(QUEUE_NAMES.AGENT_RUN, { autorun: false })
+@Processor(QUEUE_NAMES.AGENT_RUN, { autorun: false, lockDuration: 300000, maxStalledCount: 1 })
 export class AgentRunProcessor extends WorkerHost {
   private readonly logger = new Logger(AgentRunProcessor.name);
 

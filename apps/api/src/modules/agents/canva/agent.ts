@@ -52,6 +52,20 @@ const DEFAULT_CONFIG: CanvaConfig = {
   maxCostUsd: 5.0,
 };
 
+function extractNestedJson(text: string, marker: string): string | null {
+  const start = text.indexOf(marker);
+  if (start === -1) return null;
+  const jsonStart = start + marker.length;
+  if (text[jsonStart] !== '{') return null;
+  let depth = 0, i = jsonStart;
+  while (i < text.length) {
+    if (text[i] === '{') depth++;
+    else if (text[i] === '}') { depth--; if (depth === 0) return text.slice(jsonStart, i + 1); }
+    i++;
+  }
+  return null;
+}
+
 @Injectable()
 export class CanvaAgent implements IAgent, OnModuleInit {
   readonly key = 'canva';
@@ -98,7 +112,7 @@ export class CanvaAgent implements IAgent, OnModuleInit {
     if (payload?.source === 'chat' || (payload?.query && !taskMode)) {
       return {
         source: trigger,
-        snapshot: { mode: 'chat', query: payload.query ?? '', history: payload.history ?? '', sampleId: payload.sampleId ?? null, config, runId: run.id },
+        snapshot: { mode: 'chat', query: payload.query ?? '', history: payload.history ?? '', sampleId: payload.sampleId ?? null, config, runId: run.id, lastImageData: payload.imageData ?? null },
         followups: (run.context as AgentContext | null)?.followups ?? [],
       };
     }
@@ -126,7 +140,7 @@ export class CanvaAgent implements IAgent, OnModuleInit {
     const config: CanvaConfig = snap.config;
 
     if (snap.mode === 'chat') {
-      return this.decideChat(snap.query, config, snap.history, snap.sampleId ?? undefined, snap.runId ?? undefined);
+      return this.decideChat(snap.query, config, snap.history, snap.sampleId ?? undefined, snap.runId ?? undefined, snap.lastImageData ?? undefined);
     }
     if (snap.mode === 'design') {
       return this.decideDesign(snap.concept, config);
@@ -134,9 +148,17 @@ export class CanvaAgent implements IAgent, OnModuleInit {
     return this.decideCalendar(snap.month, config, snap.existingCount);
   }
 
-  private async decideChat(query: string, config: CanvaConfig, history?: string, sampleId?: string, runId?: string): Promise<ProposedAction[]> {
-    if (!query?.trim()) {
+  private async decideChat(query: string, config: CanvaConfig, history?: string, sampleId?: string, runId?: string, lastImageData?: { base64: string; mimeType: string } | null): Promise<ProposedAction[]> {
+    if (!query?.trim() && !lastImageData) {
       return [{ type: 'notify_result', summary: 'No query', payload: { message: 'What topic would you like to create a carousel about?' }, riskLevel: 'low' }];
+    }
+
+    let templateHeadlineWordCount: number | undefined;
+    if (sampleId) {
+      try {
+        const tpl = await this.designStudio.getTemplate(sampleId);
+        templateHeadlineWordCount = (tpl.spec as any)?.headlineWordCount;
+      } catch { /* template not found — ignore */ }
     }
 
     // Debug-only hard-coded trigger: "generate a <format-id> for brand <brand> about "..."
@@ -165,7 +187,7 @@ export class CanvaAgent implements IAgent, OnModuleInit {
       'energetic-colorful': 'Energetic colorful style — saturated backgrounds (yellow, coral, electric purple), white text, multiple overlapping shapes, bold decorations at every corner.',
     };
 
-    type DnaParam = { key: string; description: string; example?: string };
+    type DnaParam = { key: string; description: string; example?: string; type?: 'text' | 'image' };
     type StyleEntry = { num: string; id: string; title: string; thumb: string | null; fields?: string };
 
     // Group carousel sets — one representative tile per set (alphabetically first slide)
@@ -252,40 +274,88 @@ export class CanvaAgent implements IAgent, OnModuleInit {
 
     // STEP 3b (FORCED): extra params gathering (author name, handle, etc.) before auto-generating confirmed slides
     if (inExtraParamsGatherStep) {
-      const epMatch = lastAgentText.match(/\[extra-params-gather:(\{[\s\S]+?\})\]\s*$/);
-      if (epMatch) {
+      const epJson = extractNestedJson(lastAgentText, '[extra-params-gather:');
+      if (epJson) {
         try {
-          const ep = JSON.parse(epMatch[1]) as ExtraParamsGatherState;
-          const collected = { ...ep.collected, [ep.extraParams[ep.idx].key]: query.trim() };
+          const ep = JSON.parse(epJson) as ExtraParamsGatherState;
+
+          // Bulk form submission: all param values sent at once as [asset-params-all:{...}]
+          const bulkJson = extractNestedJson(query, '[asset-params-all:');
+          if (bulkJson) {
+            const bulkValues = JSON.parse(bulkJson) as Record<string, string>;
+            const allCollected = { ...ep.collected, ...bulkValues };
+            const slideUrls: string[] = [];
+            const assetParams: Record<string, string> = {};
+            for (const [k, v] of Object.entries(allCollected)) {
+              if (k !== 'topic') assetParams[k] = v;
+            }
+            if (runId) {
+              await this.logSvc.info(runId, `Generating ${ep.confirmedSlides.length} slides`, { event_type: 'post_render_start', slide_count: ep.confirmedSlides.length, render_id: 'dna' }).catch(() => {});
+            }
+            for (let i = 0; i < ep.confirmedSlides.length; i++) {
+              const cs = ep.confirmedSlides[i];
+              const tplSlide = ep.templateSlides[i % ep.templateSlides.length];
+              const t0 = Date.now();
+              if (runId) {
+                await this.logSvc.info(runId, `AI slide ${i + 1}/${ep.confirmedSlides.length}: "${cs.headline}"`, { event_type: 'post_ai_slide_start', slide_index: i }).catch(() => {});
+              }
+              try {
+                const { url } = await this.designStudio.generateAndSave(tplSlide.id, cs.headline, assetParams);
+                slideUrls.push(url);
+                if (runId) {
+                  await this.logSvc.info(runId, `Slide ${i + 1} ready (${Date.now() - t0}ms)`, { event_type: 'post_ai_slide_end', slide_index: i, slide_url: url, duration_ms: Date.now() - t0, estimated_cost_usd: 0.19 }).catch(() => {});
+                }
+              } catch (e) {
+                this.logger.warn(`Slide ${i + 1} failed: ${(e as Error).message}`);
+                if (runId) {
+                  await this.logSvc.warn(runId, `Slide ${i + 1} failed: ${(e as Error).message}`, { event_type: 'post_ai_slide_fallback', slide_index: i }).catch(() => {});
+                }
+              }
+            }
+            if (runId) {
+              await this.logSvc.info(runId, `All ${slideUrls.length} slides generated`, { event_type: 'post_upload_done', slide_urls: slideUrls }).catch(() => {});
+            }
+            return [{ type: 'notify_result', summary: 'Carousel auto-generated', payload: { message: `${SLIDE_RENDER_STR}${JSON.stringify({ slideUrls })}` }, riskLevel: 'low' }];
+          }
+
+          const currentParam = ep.extraParams[ep.idx];
+          // For image-type params, use the uploaded image data if available; fall back to URL text
+          const currentAnswer = (currentParam.type === 'image' && lastImageData)
+            ? `data:${lastImageData.mimeType};base64,${lastImageData.base64}`
+            : query.trim();
+          const collected = { ...ep.collected, [currentParam.key]: currentAnswer };
           const nextIdx = ep.idx + 1;
           if (nextIdx < ep.extraParams.length) {
             const next = ep.extraParams[nextIdx];
             const msg = [
               `Got it. ${next.description}?`,
               next.example ? `(e.g. ${next.example})` : '',
+              next.type === 'image' ? '[asset-upload-request]' : '',
               `[extra-params-gather:${JSON.stringify({ ...ep, collected, idx: nextIdx })}]`,
             ].filter(Boolean).join('\n');
             return [{ type: 'notify_result', summary: 'Extra param', payload: { message: msg }, riskLevel: 'low' }];
           }
-          // All extra params collected — auto-generate all confirmed slides
+          // All extra params collected — build assetParams and auto-generate slides
           const slideUrls: string[] = [];
-          const extraStr = Object.entries(collected).map(([k, v]) => `${k}: ${v}`).join(', ');
+          const assetParams: Record<string, string> = {};
+          for (const [k, v] of Object.entries(collected)) {
+            if (k !== 'topic') assetParams[k] = v;
+          }
           if (runId) {
             await this.logSvc.info(runId, `Generating ${ep.confirmedSlides.length} slides`, { event_type: 'post_render_start', slide_count: ep.confirmedSlides.length, render_id: 'dna' }).catch(() => {});
           }
           for (let i = 0; i < ep.confirmedSlides.length; i++) {
             const cs = ep.confirmedSlides[i];
             const tplSlide = ep.templateSlides[i % ep.templateSlides.length];
-            const prompt = [cs.headline, cs.body, extraStr].filter(Boolean).join(' | ');
             const t0 = Date.now();
             if (runId) {
               await this.logSvc.info(runId, `AI slide ${i + 1}/${ep.confirmedSlides.length}: "${cs.headline}"`, { event_type: 'post_ai_slide_start', slide_index: i }).catch(() => {});
             }
             try {
-              const { url } = await this.designStudio.generateAndSave(tplSlide.id, prompt);
+              const { url } = await this.designStudio.generateAndSave(tplSlide.id, cs.headline, assetParams);
               slideUrls.push(url);
               if (runId) {
-                await this.logSvc.info(runId, `Slide ${i + 1} ready (${Date.now() - t0}ms)`, { event_type: 'post_ai_slide_end', slide_index: i, duration_ms: Date.now() - t0, estimated_cost_usd: 0.19 }).catch(() => {});
+                await this.logSvc.info(runId, `Slide ${i + 1} ready (${Date.now() - t0}ms)`, { event_type: 'post_ai_slide_end', slide_index: i, slide_url: url, duration_ms: Date.now() - t0, estimated_cost_usd: 0.19 }).catch(() => {});
               }
             } catch (e) {
               this.logger.warn(`Auto-gen slide ${i + 1} failed: ${(e as Error).message}`);
@@ -386,7 +456,7 @@ export class CanvaAgent implements IAgent, OnModuleInit {
 
       return this.generateContentDraft(
         lpTopic, lpFormatId, lpBrand, 'bold-punchy', toneInstructions, config,
-        { slideCountOverride, templateId, templateSlides, extraParams },
+        { slideCountOverride, templateId, templateSlides, extraParams, headlineWordCount: templateHeadlineWordCount },
       );
     }
 
@@ -731,16 +801,15 @@ export class CanvaAgent implements IAgent, OnModuleInit {
           for (let i = 0; i < slides.length; i++) {
             const cs = slides[i];
             const tplSlide = pendingTemplateSlides[i % pendingTemplateSlides.length];
-            const prompt = [cs.headline, cs.body].filter(Boolean).join(' | ');
             const t0 = Date.now();
             if (runId) {
               await this.logSvc.info(runId, `AI slide ${i + 1}/${slides.length}: "${cs.headline}"`, { event_type: 'post_ai_slide_start', slide_index: i, slide_role: cs.slideLabel ?? 'content' }).catch(() => {});
             }
             try {
-              const { url } = await this.designStudio.generateAndSave(tplSlide.id, prompt);
+              const { url } = await this.designStudio.generateAndSave(tplSlide.id, cs.headline);
               slideUrls.push(url);
               if (runId) {
-                await this.logSvc.info(runId, `Slide ${i + 1} ready (${Date.now() - t0}ms)`, { event_type: 'post_ai_slide_end', slide_index: i, duration_ms: Date.now() - t0, estimated_cost_usd: 0.19 }).catch(() => {});
+                await this.logSvc.info(runId, `Slide ${i + 1} ready (${Date.now() - t0}ms)`, { event_type: 'post_ai_slide_end', slide_index: i, slide_url: url, duration_ms: Date.now() - t0, estimated_cost_usd: 0.19 }).catch(() => {});
               }
             } catch (e) {
               this.logger.warn(`Auto-gen slide ${i + 1} failed: ${(e as Error).message}`);
@@ -755,7 +824,6 @@ export class CanvaAgent implements IAgent, OnModuleInit {
           const msg = `${SLIDE_RENDER_STR}${JSON.stringify({ slideUrls })}`;
           return [{ type: 'notify_result', summary: 'Carousel auto-generated', payload: { message: msg }, riskLevel: 'low' }];
         } else {
-          const first = pendingExtraParams[0];
           const epState: ExtraParamsGatherState = {
             confirmedSlides: slides,
             templateSlides: pendingTemplateSlides,
@@ -763,12 +831,7 @@ export class CanvaAgent implements IAgent, OnModuleInit {
             collected: {},
             idx: 0,
           };
-          const msg = [
-            'Content confirmed. Just need a couple of details for the template:',
-            `${first.description}?`,
-            first.example ? `(e.g. ${first.example})` : '',
-            `[extra-params-gather:${JSON.stringify(epState)}]`,
-          ].filter(Boolean).join('\n');
+          const msg = `Content confirmed. A few details needed for your slides:\n[extra-params-gather:${JSON.stringify(epState)}]`;
           return [{ type: 'notify_result', summary: 'Extra params needed', payload: { message: msg }, riskLevel: 'low' }];
         }
       }
@@ -880,6 +943,7 @@ Be concise and practical. No filler. No emojis.`;
       templateId?: string;
       templateSlides?: Array<{ id: string; name: string }>;
       extraParams?: Array<{ key: string; description: string; example?: string }>;
+      headlineWordCount?: number;
     },
   ): Promise<ProposedAction[]> {
     const intentStr = toneInstructions[tone] ?? toneInstructions['bold-punchy'];
@@ -898,6 +962,10 @@ Be concise and practical. No filler. No emojis.`;
       'generic-checklist': 5,
     };
     const slideCount = templateInfo?.slideCountOverride ?? (slideCountMap[formatId] ?? 5);
+    const headlineWordCount = templateInfo?.headlineWordCount;
+    const headlineRule = headlineWordCount
+      ? `Headlines must be exactly ${headlineWordCount} words to visually fit the chosen template layout`
+      : 'Headlines max 8 words';
 
     const draftPrompt = `You are a social media copywriter for ${brandDesc}.
 
@@ -907,19 +975,19 @@ Visual tone: ${intentStr}
 Return ONLY valid JSON (no markdown):
 {
   "slides": [
-    { "slideLabel": "Cover", "headline": "hook headline max 8 words", "body": "" },
-    { "slideLabel": "Point 1", "headline": "...", "body": "1-2 sentences" },
-    { "slideLabel": "CTA", "headline": "call-to-action max 8 words", "body": "" }
+    { "slideLabel": "Cover", "headline": "hook headline", "body": "" },
+    { "slideLabel": "Point 1", "headline": "...", "body": "" },
+    { "slideLabel": "CTA", "headline": "call-to-action", "body": "" }
   ]
 }
 
 Rules:
 - Exactly ${slideCount} slides
 - First slide: powerful hook headline, leave body empty
-- Middle slides: one concrete idea per slide, specific and actionable
-- Last slide: CTA pointing to ${brand}
+- Middle slides: one concrete idea per slide, specific and actionable, leave body empty
+- Last slide: CTA pointing to ${brand}, leave body empty
 - No emojis
-- Headlines max 8 words`;
+- ${headlineRule}`;
 
     let slides: Array<{ slideLabel?: string; headline: string; body?: string }> = [];
     try {

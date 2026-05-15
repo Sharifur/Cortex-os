@@ -16,6 +16,57 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.68.0',
+    date: '2026-05-15',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'Uploaded avatar photo is now passed as a second input image to gpt-image-1 images.edit() API, so the model places the exact uploaded face into the circular profile photo zone instead of generating a generic one.' },
+      { tag: 'feat', scope: 'canva', description: 'Progressive slide reveal during generation: each slide appears in the activity bubble as soon as it is ready (from post_ai_slide_end log events with slide_url). Remaining slots show animated skeletons.' },
+      { tag: 'fix', scope: 'canva', description: 'Slide thumbnail hover icon (Image icon) was appearing on all thumbnails simultaneously when hovering the message bubble. Fixed by scoping SlideThumb to group/thumb + group-hover/thumb: named group, same pattern as the style picker fix.' },
+    ],
+  },
+  {
+    version: 'v4.67.3',
+    date: '2026-05-15',
+    entries: [
+      { tag: 'fix', scope: 'canva', description: 'Fixed 2M-token OpenAI error: the agent\'s [extra-params-gather:] regex was non-greedy and returned null on deeply nested JSON, causing the code to fall through to the general LLM handler which included the full [asset-params-all:] query (with base64 photo) in the prompt. Replaced both regexes with a balanced-brace extractor (extractNestedJson) so the bulk form submission is correctly parsed and routed.' },
+      { tag: 'fix', scope: 'canva', description: 'User message bubble no longer shows raw [asset-params-all:{...}] JSON after form submission. The display content is now a friendly summary (e.g. "Sharifur Rahman · @sharifur · taskip.net · [photo uploaded]") stored both in local state and persisted to the backend.' },
+      { tag: 'fix', scope: 'canva', description: 'History context passed to the LLM now strips base64 data URLs and sanitizes [asset-params-all:] markers to prevent future token overflows.' },
+    ],
+  },
+  {
+    version: 'v4.67.2',
+    date: '2026-05-15',
+    entries: [
+      { tag: 'fix', scope: 'canva', description: 'AssetParamsCard form was not rendering: the regex /\\{[\\s\\S]*?\\}/ is non-greedy and stops at the first closing brace inside nested JSON, causing JSON.parse to fail and the form to silently return null. Replaced with a balanced-brace extractor (extractNestedJson) that walks the string counting { and } to find the correct closing boundary.' },
+    ],
+  },
+  {
+    version: 'v4.67.1',
+    date: '2026-05-15',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'Asset collection for training-sample carousels now uses a proper inline form (AssetParamsCard) instead of sequential one-at-a-time chat prompts. Text params render as text inputs, image params render with an upload button + URL fallback. Submitting sends all values at once via [asset-params-all:] which the backend processes in a single pass to generate slides.' },
+      { tag: 'fix', scope: 'canva', description: 'JSON state marker ([extra-params-gather:...]) no longer leaks into the chat bubble. Non-last messages strip markers and show only the intro text.' },
+    ],
+  },
+  {
+    version: 'v4.67.0',
+    date: '2026-05-15',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'Training-sample carousel generation now uses images.edit() API instead of generate(), passing the original sample image as the base so DALL-E preserves exact background, colors, and decorative elements.' },
+      { tag: 'feat', scope: 'canva', description: 'DNA extraction now captures headlineWordCount, hasAvatarZone, and social param fields (username, social_handle, website_url). When a template has an avatar zone the agent asks the user to upload a profile photo; the upload button appears automatically in the chat input.' },
+      { tag: 'fix', scope: 'canva', description: 'Body text (cs.body) removed from DALL-E generation prompts — templates with headline-only layouts no longer receive body paragraph text that breaks the visual layout.' },
+      { tag: 'fix', scope: 'canva', description: 'Headline word count is now constrained to match the training sample (headlineWordCount from DNA), so generated text visually fits the template.' },
+      { tag: 'fix', scope: 'canva', description: 'BullMQ agent-run processor lockDuration increased to 300s to prevent stall-retries during long slide generation runs (7 slides x ~18s each was triggering 30s stall timeout).' },
+    ],
+  },
+  {
+    version: 'v4.66.7',
+    date: '2026-05-15',
+    entries: [
+      { tag: 'fix', scope: 'canva', description: 'Style picker hover border now highlights only the hovered card. Changed button group class to named group/card and updated group-hover: to group-hover/card: so the parent message bubble group does not bleed the hover state to all cards simultaneously.' },
+    ],
+  },
+  {
     version: 'v4.66.6',
     date: '2026-05-15',
     entries: [
