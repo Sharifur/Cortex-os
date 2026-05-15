@@ -60,14 +60,14 @@ export class IntegrationsService {
     ]);
     if (!key || !dsn) return { ok: false, message: 'API Key and DSN are required' };
     try {
-      const res = await fetch(`https://${dsn}/api/v1/me`, {
+      const res = await fetch(`https://${dsn}/api/v1/accounts`, {
         headers: { 'X-API-KEY': key },
         signal: AbortSignal.timeout(8000),
       });
       const data = await res.json() as any;
       if (!res.ok) return { ok: false, message: data?.message ?? `HTTP ${res.status}` };
-      const name = data.name ?? data.full_name ?? data.email ?? 'account';
-      return { ok: true, message: `Connected — ${name}` };
+      const count = Array.isArray(data?.items) ? data.items.length : (Array.isArray(data) ? data.length : 0);
+      return { ok: true, message: `Connected — ${count} account${count !== 1 ? 's' : ''} linked` };
     } catch (err) {
       return { ok: false, message: err instanceof Error ? err.message : String(err) };
     }
@@ -84,14 +84,14 @@ export class IntegrationsService {
 
     try {
       if (unipileKey && unipileDsn) {
-        const res = await fetch(`https://${unipileDsn}/api/v1/me`, {
+        const res = await fetch(`https://${unipileDsn}/api/v1/accounts`, {
           headers: { 'X-API-KEY': unipileKey },
           signal: AbortSignal.timeout(8000),
         });
         const data = await res.json() as any;
         if (!res.ok) return { ok: false, message: data?.message ?? `HTTP ${res.status}` };
-        const name = data.name ?? data.full_name ?? data.email ?? 'account';
-        return { ok: true, message: `Connected via Unipile — ${name}` };
+        const count = Array.isArray(data?.items) ? data.items.length : (Array.isArray(data) ? data.length : 0);
+        return { ok: true, message: `Connected via Unipile — ${count} account${count !== 1 ? 's' : ''} linked` };
       }
 
       const res = await fetch('https://api.linkedin.com/v2/me', {

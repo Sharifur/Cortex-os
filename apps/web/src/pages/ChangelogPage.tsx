@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.70.4',
+    date: '2026-05-15',
+    entries: [
+      { tag: 'fix', scope: 'integrations', description: 'Unipile test connection now calls /accounts instead of /api/v1/me (which does not exist). Returns count of linked accounts on success.' },
+    ],
+  },
+  {
     version: 'v4.70.3',
     date: '2026-05-15',
     entries: [
