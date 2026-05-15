@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.71.6',
+    date: '2026-05-15',
+    entries: [
+      { tag: 'feat', scope: 'support', description: 'Editable AI draft: Edit button on any generated draft opens an inline textarea. Save Draft persists via PATCH /support/tickets/:id/draft and logs a manual_draft event. Cancel discards without saving.' },
+    ],
+  },
+  {
     version: 'v4.71.5',
     date: '2026-05-15',
     entries: [

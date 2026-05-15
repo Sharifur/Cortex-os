@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft, Hash, Mail, User, Phone, Clock, MessageSquare,
   Wand2, RefreshCw, AlertTriangle, CheckCircle2, XCircle,
-  ChevronDown, ChevronUp, Trash2, Loader2, Brain, Settings2, StickyNote, Send,
+  ChevronDown, ChevronUp, Trash2, Loader2, Brain, Settings2, StickyNote, Send, Pencil,
 } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -150,6 +150,10 @@ export default function SupportTicketDetailPage() {
   const [sendError, setSendError] = useState<string | null>(null);
   const [sendSuccess, setSendSuccess] = useState(false);
 
+  const [editingDraft, setEditingDraft] = useState(false);
+  const [editDraftText, setEditDraftText] = useState('');
+  const [savingDraft, setSavingDraft] = useState(false);
+
   const [trainOpen, setTrainOpen] = useState(false);
   const [trainCategory, setTrainCategory] = useState<'spam_filter' | 'decision_rule' | 'faq' | 'policy'>('decision_rule');
   const [trainInstruction, setTrainInstruction] = useState('');
@@ -274,6 +278,7 @@ export default function SupportTicketDetailPage() {
         setDraftError(data.error);
       } else {
         setDraft(data.draft);
+        setEditingDraft(false);
         qc.invalidateQueries({ queryKey: ['support-ticket', id] });
         refetchEvents();
       }
@@ -307,6 +312,28 @@ export default function SupportTicketDetailPage() {
       setSendError((err as Error).message);
     } finally {
       setSending(false);
+    }
+  }
+
+  async function handleSaveDraft() {
+    if (!id) return;
+    setSavingDraft(true);
+    try {
+      const res = await fetch(`/support/tickets/${id}/draft`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ draft: editDraftText }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
+      setDraft(data.draft);
+      setEditingDraft(false);
+      qc.invalidateQueries({ queryKey: ['support-ticket', id] });
+      refetchEvents();
+    } catch (err) {
+      setDraftError((err as Error).message);
+    } finally {
+      setSavingDraft(false);
     }
   }
 
@@ -434,14 +461,24 @@ export default function SupportTicketDetailPage() {
                 {ticket.repliedAt && (
                   <span className="text-xs text-muted-foreground">{fmt(ticket.repliedAt)}</span>
                 )}
-                <button
-                  onClick={handleGenerateDraft}
-                  disabled={generating}
-                  className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
-                >
-                  {generating ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
-                  {generating ? 'Generating...' : 'Regenerate'}
-                </button>
+                <div className="ml-auto flex items-center gap-2">
+                  {activeDraft && !editingDraft && (
+                    <button
+                      onClick={() => { setEditDraftText(activeDraft); setEditingDraft(true); setDraftError(null); }}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border text-xs text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      <Pencil className="w-3.5 h-3.5" /> Edit
+                    </button>
+                  )}
+                  <button
+                    onClick={handleGenerateDraft}
+                    disabled={generating}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+                  >
+                    {generating ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
+                    {generating ? 'Generating...' : 'Regenerate'}
+                  </button>
+                </div>
               </div>
               {draftError && (
                 <div className="flex items-center gap-2 text-sm text-red-400">
@@ -449,9 +486,36 @@ export default function SupportTicketDetailPage() {
                 </div>
               )}
               {activeDraft && (
-                <div className="rounded-lg border border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground whitespace-pre-wrap leading-relaxed">
-                  {activeDraft}
-                </div>
+                editingDraft ? (
+                  <div className="space-y-2">
+                    <textarea
+                      value={editDraftText}
+                      onChange={(e) => setEditDraftText(e.target.value)}
+                      rows={8}
+                      className="w-full rounded-lg border border-border bg-background px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring resize-y"
+                    />
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={handleSaveDraft}
+                        disabled={savingDraft || !editDraftText.trim()}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors"
+                      >
+                        {savingDraft ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                        {savingDraft ? 'Saving...' : 'Save Draft'}
+                      </button>
+                      <button
+                        onClick={() => { setEditingDraft(false); setDraftError(null); }}
+                        className="px-3 py-1.5 rounded-md border border-border text-xs text-muted-foreground hover:text-foreground transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="rounded-lg border border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground whitespace-pre-wrap leading-relaxed">
+                    {activeDraft}
+                  </div>
+                )
               )}
             </div>
           ) : (
@@ -461,18 +525,28 @@ export default function SupportTicketDetailPage() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">AI Draft Reply</p>
-                    {activeDraft && (
+                    {activeDraft && !editingDraft && (
                       <p className="text-[11px] text-amber-400 mt-0.5">Draft saved — not sent yet</p>
                     )}
                   </div>
-                  <button
-                    onClick={handleGenerateDraft}
-                    disabled={generating}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border text-xs text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors disabled:opacity-50"
-                  >
-                    {generating ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
-                    {generating ? 'Generating...' : activeDraft ? 'Regenerate Draft' : 'Generate Draft'}
-                  </button>
+                  <div className="flex items-center gap-2">
+                    {activeDraft && !editingDraft && (
+                      <button
+                        onClick={() => { setEditDraftText(activeDraft); setEditingDraft(true); setDraftError(null); }}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border text-xs text-muted-foreground hover:text-foreground transition-colors"
+                      >
+                        <Pencil className="w-3.5 h-3.5" /> Edit
+                      </button>
+                    )}
+                    <button
+                      onClick={handleGenerateDraft}
+                      disabled={generating}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border text-xs text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors disabled:opacity-50"
+                    >
+                      {generating ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
+                      {generating ? 'Generating...' : activeDraft ? 'Regenerate Draft' : 'Generate Draft'}
+                    </button>
+                  </div>
                 </div>
 
                 {draftError && (
@@ -480,16 +554,43 @@ export default function SupportTicketDetailPage() {
                     <XCircle className="w-4 h-4 shrink-0" /> {draftError}
                   </div>
                 )}
-                {draft && (
+                {draft && !editingDraft && (
                   <div className="flex items-center gap-1.5 text-xs text-emerald-400">
                     <CheckCircle2 className="w-3.5 h-3.5" /> Draft generated and saved
                   </div>
                 )}
 
                 {activeDraft ? (
-                  <div className="rounded-lg border border-border bg-muted/30 px-4 py-3 text-sm text-foreground whitespace-pre-wrap leading-relaxed">
-                    {activeDraft}
-                  </div>
+                  editingDraft ? (
+                    <div className="space-y-2">
+                      <textarea
+                        value={editDraftText}
+                        onChange={(e) => setEditDraftText(e.target.value)}
+                        rows={8}
+                        className="w-full rounded-lg border border-border bg-background px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring resize-y"
+                      />
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={handleSaveDraft}
+                          disabled={savingDraft || !editDraftText.trim()}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors"
+                        >
+                          {savingDraft ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                          {savingDraft ? 'Saving...' : 'Save Draft'}
+                        </button>
+                        <button
+                          onClick={() => { setEditingDraft(false); setDraftError(null); }}
+                          className="px-3 py-1.5 rounded-md border border-border text-xs text-muted-foreground hover:text-foreground transition-colors"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="rounded-lg border border-border bg-muted/30 px-4 py-3 text-sm text-foreground whitespace-pre-wrap leading-relaxed">
+                      {activeDraft}
+                    </div>
+                  )
                 ) : !generating && (
                   <p className="text-xs text-muted-foreground italic">No draft yet. Click Generate Draft to have the AI write a reply based on the ticket context.</p>
                 )}

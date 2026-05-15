@@ -662,6 +662,27 @@ export class SupportAgent implements IAgent, OnModuleInit {
         handler: async (params) => this.generateDraftForTicket((params as any).id),
       },
       {
+        method: 'PATCH',
+        path: '/support/tickets/:id/draft',
+        requiresAuth: true,
+        handler: async (params) => {
+          const { id, draft } = params as any;
+          if (!draft?.trim()) throw new Error('draft is required');
+          await this.db.db
+            .update(supportTickets)
+            .set({ lastDraft: draft.trim(), updatedAt: new Date() })
+            .where(eq(supportTickets.id, id));
+          await this.writeTicketEvent({
+            ticketId: id,
+            externalId: null,
+            eventType: 'manual_draft',
+            summary: `Draft manually edited: ${draft.trim().slice(0, 120)}`,
+            payload: { draft: draft.trim() },
+          });
+          return { ok: true, draft: draft.trim() };
+        },
+      },
+      {
         method: 'DELETE',
         path: '/support/tickets/:id',
         requiresAuth: true,
