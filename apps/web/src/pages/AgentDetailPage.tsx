@@ -3672,9 +3672,9 @@ function AccountCard({ acc, onPatch }: { acc: any; onPatch: (body: Record<string
   }
 
   const ACTIONS = [
-    { enableKey: 'enableConnections', label: 'Connections', dailyKey: 'dailyConnectionsLimit' },
-    { enableKey: 'enableComments',   label: 'Feed comments', dailyKey: 'dailyCommentsLimit'   },
-    { enableKey: 'enableDMs',        label: 'DM outreach',  dailyKey: 'dailyDmsLimit'         },
+    { enableKey: 'enableConnections', label: 'Connections', dailyKey: 'dailyConnectionsLimit', defaultVal: 5  },
+    { enableKey: 'enableComments',   label: 'Feed comments', dailyKey: 'dailyCommentsLimit',   defaultVal: 10 },
+    { enableKey: 'enableDMs',        label: 'DM outreach',  dailyKey: 'dailyDmsLimit',         defaultVal: 5  },
   ] as const;
 
   return (
@@ -3712,13 +3712,13 @@ function AccountCard({ acc, onPatch }: { acc: any; onPatch: (body: Record<string
 
       <div className="px-4 py-3">
         <div className="grid grid-cols-3 gap-3 text-xs mb-3">
-          {ACTIONS.map(({ dailyKey, label }) => (
+          {ACTIONS.map(({ dailyKey, label, defaultVal }) => (
             <div key={dailyKey}>
               <label className="text-muted-foreground block mb-1">{label} / day</label>
               <input
                 type="number"
                 min={1}
-                placeholder="—"
+                placeholder={String(defaultVal)}
                 value={limits[dailyKey]}
                 onChange={e => handleLimitChange(dailyKey, e.target.value)}
                 className="w-full rounded-md border border-input bg-background px-2 py-1 text-center text-xs"
@@ -3741,7 +3741,7 @@ function AccountCard({ acc, onPatch }: { acc: any; onPatch: (body: Record<string
 
 // ─── LinkedIn Settings Tab ────────────────────────────────────────────────────
 
-type LinkedInTab = 'accounts' | 'niches' | 'leads' | 'connections' | 'posts' | 'docs';
+type LinkedInTab = 'accounts' | 'niches' | 'leads' | 'connections' | 'posts' | 'reports' | 'docs';
 
 function LinkedInSettingsTab({ agent, token }: { agent: AgentDetail; token: string }) {
   const [tab, setTab] = useState<LinkedInTab>('accounts');
@@ -3766,6 +3766,11 @@ function LinkedInSettingsTab({ agent, token }: { agent: AgentDetail; token: stri
   const { data: posts = [] } = useQuery<any[]>({
     queryKey: ['linkedin-posts'],
     queryFn: () => apiFetch(token, '/linkedin/posts'),
+  });
+  const { data: dailyReport = [] } = useQuery<any[]>({
+    queryKey: ['linkedin-reports-daily'],
+    queryFn: () => apiFetch(token, '/linkedin/reports/daily'),
+    enabled: tab === 'reports',
   });
 
   const [syncResult, setSyncResult] = useState<{ synced: number } | null>(null);
@@ -3798,6 +3803,7 @@ function LinkedInSettingsTab({ agent, token }: { agent: AgentDetail; token: stri
     { key: 'leads', label: 'Leads' },
     { key: 'connections', label: 'Connections' },
     { key: 'posts', label: 'Posts' },
+    { key: 'reports', label: 'Reports' },
     { key: 'docs', label: 'Docs' },
   ];
 
@@ -4072,6 +4078,47 @@ function LinkedInSettingsTab({ agent, token }: { agent: AgentDetail; token: stri
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {tab === 'reports' && (
+        <div className="rounded-xl border border-border bg-card p-5">
+          <h3 className="text-sm font-semibold mb-1">Daily activity — last 14 days</h3>
+          <p className="text-xs text-muted-foreground mb-4">Actions sent per account per day.</p>
+          {dailyReport.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No activity recorded yet.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-border">
+                    <th className="text-left py-2 pr-4 text-muted-foreground font-medium">Date</th>
+                    <th className="text-left py-2 pr-4 text-muted-foreground font-medium">Account</th>
+                    <th className="text-right py-2 pr-4 text-muted-foreground font-medium">Connections</th>
+                    <th className="text-right py-2 pr-4 text-muted-foreground font-medium">Comments</th>
+                    <th className="text-right py-2 text-muted-foreground font-medium">DMs</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {dailyReport.map((row: any, i: number) => (
+                    <tr key={i} className="border-b border-border/40 hover:bg-muted/20">
+                      <td className="py-2 pr-4 tabular-nums">{row.date}</td>
+                      <td className="py-2 pr-4 font-medium">{row.accountLabel}</td>
+                      <td className="py-2 pr-4 text-right tabular-nums">
+                        <span className={row.connections > 0 ? 'text-emerald-400' : 'text-muted-foreground'}>{row.connections}</span>
+                      </td>
+                      <td className="py-2 pr-4 text-right tabular-nums">
+                        <span className={row.comments > 0 ? 'text-blue-400' : 'text-muted-foreground'}>{row.comments}</span>
+                      </td>
+                      <td className="py-2 text-right tabular-nums">
+                        <span className={row.dms > 0 ? 'text-violet-400' : 'text-muted-foreground'}>{row.dms}</span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
         </div>

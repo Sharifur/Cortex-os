@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.71.1',
+    date: '2026-05-15',
+    entries: [
+      { tag: 'feat', scope: 'linkedin', description: 'Default daily limits: 5 connections, 10 comments, 5 DMs per account. Placeholders now show defaults. Added Reports tab with a 14-day daily activity table per account (connections, comments, DMs).' },
+    ],
+  },
+  {
     version: 'v4.71.0',
     date: '2026-05-15',
     entries: [

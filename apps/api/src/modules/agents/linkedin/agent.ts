@@ -192,12 +192,13 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
   private async accountQuota(
     accountId: string,
     dailyLimit: number | null | undefined,
+    fallback: number,
     countFn: (since: Date) => Promise<number>,
   ): Promise<number> {
-    if (!dailyLimit) return 1000;
+    const limit = dailyLimit ?? fallback;
     const dayStart = new Date(); dayStart.setHours(0, 0, 0, 0);
     const n = await countFn(dayStart);
-    return Math.max(0, dailyLimit - n);
+    return Math.max(0, limit - n);
   }
 
   // ─── Feed comments ─────────────────────────────────────────────────────────
@@ -209,7 +210,7 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
     if (!commentingAccounts.length) return [];
 
     const quotas = await Promise.all(commentingAccounts.map(a =>
-      this.accountQuota(a.id, a.dailyCommentsLimit, (since) =>
+      this.accountQuota(a.id, a.dailyCommentsLimit, 10, (since) =>
         this.db.db.select({ id: linkedinPosts.id }).from(linkedinPosts)
           .where(and(eq(linkedinPosts.accountId, a.id), gte(linkedinPosts.postedAt, since)))
           .then(r => r.length),
@@ -323,6 +324,7 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
       const accountQuota = await this.accountQuota(
         account.id,
         account.dailyConnectionsLimit,
+        5,
         (since) => this.db.db.select({ id: linkedinConnectionRequests.id }).from(linkedinConnectionRequests)
           .where(and(eq(linkedinConnectionRequests.accountId, account.id), gte(linkedinConnectionRequests.createdAt, since)))
           .then(r => r.length),
@@ -451,7 +453,7 @@ Score each profile 0.0–1.0 (1.0 = perfect match). Return JSON array only:
     if (!dmAccounts.length) return [];
 
     const dmQuotas = await Promise.all(dmAccounts.map(a =>
-      this.accountQuota(a.id, a.dailyDmsLimit, (since) =>
+      this.accountQuota(a.id, a.dailyDmsLimit, 5, (since) =>
         this.db.db.select({ id: linkedinLeads.id }).from(linkedinLeads)
           .where(and(eq(linkedinLeads.accountId, a.id), gte(linkedinLeads.lastContactedAt, since)))
           .then(r => r.length),
@@ -760,6 +762,51 @@ Score each profile 0.0–1.0 (1.0 = perfect match). Return JSON array only:
         handler: async () =>
           this.db.db.select().from(linkedinPosts)
             .orderBy(sql`${linkedinPosts.createdAt} DESC`).limit(100),
+      },
+      {
+        method: 'GET',
+        path: '/linkedin/reports/daily',
+        requiresAuth: true,
+        handler: async () => {
+          const since = new Date();
+          since.setDate(since.getDate() - 13);
+          since.setHours(0, 0, 0, 0);
+
+          const [accounts, connections, comments, dms] = await Promise.all([
+            this.db.db.select().from(linkedinAccounts),
+            this.db.db.select({ accountId: linkedinConnectionRequests.accountId, createdAt: linkedinConnectionRequests.createdAt })
+              .from(linkedinConnectionRequests).where(gte(linkedinConnectionRequests.createdAt, since)),
+            this.db.db.select({ accountId: linkedinPosts.accountId, createdAt: linkedinPosts.createdAt })
+              .from(linkedinPosts).where(gte(linkedinPosts.createdAt, since)),
+            this.db.db.select({ accountId: linkedinLeads.accountId, lastContactedAt: linkedinLeads.lastContactedAt })
+              .from(linkedinLeads)
+              .where(and(
+                gte(linkedinLeads.lastContactedAt, since),
+                inArray(linkedinLeads.status, ['dm_sent', 'replied', 'converted']),
+              )),
+          ]);
+
+          const dateKey = (d: Date) => d.toISOString().slice(0, 10);
+          const map: Record<string, Record<string, { connections: number; comments: number; dms: number }>> = {};
+          const entry = (aId: string, date: string) => {
+            if (!map[aId]) map[aId] = {};
+            if (!map[aId][date]) map[aId][date] = { connections: 0, comments: 0, dms: 0 };
+            return map[aId][date];
+          };
+
+          for (const r of connections) { if (r.accountId) entry(r.accountId, dateKey(r.createdAt)).connections++; }
+          for (const r of comments)    { if (r.accountId) entry(r.accountId, dateKey(r.createdAt)).comments++; }
+          for (const r of dms)         { if (r.accountId && r.lastContactedAt) entry(r.accountId, dateKey(r.lastContactedAt)).dms++; }
+
+          const accountMap = Object.fromEntries(accounts.map(a => [a.id, a.label]));
+          const rows: any[] = [];
+          for (const [accountId, dates] of Object.entries(map)) {
+            for (const [date, counts] of Object.entries(dates)) {
+              rows.push({ accountId, accountLabel: accountMap[accountId] ?? accountId, date, ...counts });
+            }
+          }
+          return rows.sort((a, b) => b.date.localeCompare(a.date) || a.accountLabel.localeCompare(b.accountLabel));
+        },
       },
       {
         method: 'POST',
