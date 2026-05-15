@@ -596,6 +596,7 @@ function CanvaTab({ rows, token }: { rows: SettingRow[]; token: string }) {
 }
 
 
+
 const IMAGE_PROVIDER_TABS = [
   { key: 'openai', label: 'OpenAI' },
   { key: 'stability', label: 'Stability AI' },

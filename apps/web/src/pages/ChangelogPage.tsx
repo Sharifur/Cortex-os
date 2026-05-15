@@ -16,6 +16,34 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.70.6',
+    date: '2026-05-15',
+    entries: [
+      { tag: 'feat', scope: 'linkedin', description: 'Docs tab on LinkedIn agent page — full setup guide (Unipile credentials, account sync, niche creation, config options, test run) plus tab guide, limits, and tips. Replaces the old Setup tab.' },
+    ],
+  },
+  {
+    version: 'v4.70.5',
+    date: '2026-05-15',
+    entries: [
+      { tag: 'fix', scope: 'linkedin', description: 'Sync from Unipile button now shows feedback: error message on failure, amber warning with link to app.unipile.com when 0 accounts found, green confirmation when accounts are synced.' },
+    ],
+  },
+  {
+    version: 'v4.70.4',
+    date: '2026-05-15',
+    entries: [
+      { tag: 'fix', scope: 'integrations', description: 'Unipile test connection now calls /accounts instead of /api/v1/me (which does not exist). Returns count of linked accounts on success.' },
+    ],
+  },
+  {
+    version: 'v4.70.3',
+    date: '2026-05-15',
+    entries: [
+      { tag: 'feat', scope: 'integrations', description: 'Unipile tab in Integrations page. Configure API Key and DSN with a Test Connection button and setup guide. Fields use their own settings group (unipile) separate from LinkedIn.' },
+    ],
+  },
+  {
     version: 'v4.70.1',
     date: '2026-05-15',
     entries: [

@@ -3649,7 +3649,7 @@ function Phase4SettingsTab({ agent, token, setupContent }: {
 
 // ─── LinkedIn Settings Tab ────────────────────────────────────────────────────
 
-type LinkedInTab = 'accounts' | 'niches' | 'leads' | 'connections' | 'posts' | 'setup';
+type LinkedInTab = 'accounts' | 'niches' | 'leads' | 'connections' | 'posts' | 'docs';
 
 function LinkedInSettingsTab({ agent, token }: { agent: AgentDetail; token: string }) {
   const [tab, setTab] = useState<LinkedInTab>('accounts');
@@ -3676,9 +3676,13 @@ function LinkedInSettingsTab({ agent, token }: { agent: AgentDetail; token: stri
     queryFn: () => apiFetch(token, '/linkedin/posts'),
   });
 
+  const [syncResult, setSyncResult] = useState<{ synced: number } | null>(null);
   const syncMutation = useMutation({
     mutationFn: () => apiFetch(token, '/linkedin/accounts/sync', { method: 'POST' }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['linkedin-accounts'] }),
+    onSuccess: (data: any) => {
+      setSyncResult({ synced: data?.synced ?? 0 });
+      qc.invalidateQueries({ queryKey: ['linkedin-accounts'] });
+    },
   });
 
   const [newNiche, setNewNiche] = useState({ name: '', description: '', icpDescription: '', keywords: '', targetJobTitles: '', dailyConnectLimit: 5, accountId: '' });
@@ -3698,7 +3702,7 @@ function LinkedInSettingsTab({ agent, token }: { agent: AgentDetail; token: stri
     { key: 'leads', label: 'Leads' },
     { key: 'connections', label: 'Connections' },
     { key: 'posts', label: 'Posts' },
-    { key: 'setup', label: 'Setup' },
+    { key: 'docs', label: 'Docs' },
   ];
 
   const STATUS_COLORS: Record<string, string> = {
@@ -3732,16 +3736,29 @@ function LinkedInSettingsTab({ agent, token }: { agent: AgentDetail; token: stri
       {tab === 'accounts' && (
         <div className="space-y-4">
           <div className="rounded-xl border border-border bg-card p-5">
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-semibold">LinkedIn Accounts</h3>
-              <Button size="sm" variant="outline" onClick={() => syncMutation.mutate()} disabled={syncMutation.isPending}>
+              <Button size="sm" variant="outline" onClick={() => { setSyncResult(null); syncMutation.mutate(); }} disabled={syncMutation.isPending}>
                 {syncMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
                 <span className="ml-1.5">Sync from Unipile</span>
               </Button>
             </div>
-            {accounts.length === 0 ? (
+            {syncMutation.isError && (
+              <p className="text-xs text-destructive mb-3">{(syncMutation.error as Error)?.message ?? 'Sync failed'}</p>
+            )}
+            {syncResult && syncResult.synced === 0 && accounts.length === 0 && (
+              <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-3 mb-3 text-xs text-amber-300">
+                No LinkedIn accounts found in Unipile. Go to{' '}
+                <a href="https://app.unipile.com" target="_blank" rel="noopener noreferrer" className="underline">app.unipile.com</a>
+                {' '}and connect your LinkedIn account first, then sync again.
+              </div>
+            )}
+            {syncResult && syncResult.synced > 0 && (
+              <p className="text-xs text-emerald-400 mb-3">{syncResult.synced} account{syncResult.synced !== 1 ? 's' : ''} synced.</p>
+            )}
+            {accounts.length === 0 && !syncResult ? (
               <p className="text-sm text-muted-foreground">No accounts synced yet. Click "Sync from Unipile" to import your connected LinkedIn accounts.</p>
-            ) : (
+            ) : accounts.length === 0 ? null : (
               <div className="space-y-2">
                 {accounts.map((acc: any) => (
                   <div key={acc.id} className="flex items-center justify-between p-3 rounded-lg border border-border bg-background/50">
@@ -3972,37 +3989,108 @@ function LinkedInSettingsTab({ agent, token }: { agent: AgentDetail; token: stri
         </div>
       )}
 
-      {tab === 'setup' && (
-        <div className="rounded-xl border border-border bg-card p-5">
-          <h3 className="text-sm font-semibold mb-1">LinkedIn AI Agent — Setup Checklist</h3>
-          <p className="text-xs text-muted-foreground mb-5">Scans LinkedIn feed every 4 hours, sends niche-targeted connection requests, drafts comments and outreach DMs — all requiring Telegram approval.</p>
-          <div className="space-y-5">
-            <SetupStep n={1} title="Connect LinkedIn via Unipile" done={agent.registered}>
-              <ol className="list-decimal list-inside space-y-0.5 ml-1">
-                <li>Sign up at <strong>unipile.com</strong> and connect your LinkedIn account(s)</li>
-                <li>Get your API Key and DSN from the Unipile dashboard</li>
-                <li>Add to Coolify env: <code className="bg-muted px-1 rounded">UNIPILE_API_KEY</code>, <code className="bg-muted px-1 rounded">UNIPILE_DSN</code></li>
-                <li>Go to the <strong>Accounts</strong> tab and click "Sync from Unipile"</li>
-              </ol>
-              <p className="mt-2 text-xs text-muted-foreground">Note: LLM, Telegram, and database are configured platform-wide.</p>
-            </SetupStep>
-            <SetupStep n={2} title="Create at least one niche" done={niches.length > 0}>
-              <p>Go to the <strong>Niches</strong> tab. Define your Ideal Customer Profile — this drives both connection targeting and DM personalization.</p>
-              <ul className="list-disc list-inside space-y-0.5 ml-1 mt-1 text-xs text-muted-foreground">
-                <li>Keywords: terms searched in LinkedIn to find candidates</li>
-                <li>Job titles: narrows the candidate pool</li>
-                <li>ICP description: prose block for LLM scoring (0–1 score, threshold 0.65)</li>
-                <li>Daily limit: max connection requests per day per niche (default 5)</li>
-              </ul>
-            </SetupStep>
-            <SetupStep n={3} title="Set target topics for feed comments" done={false}>
-              <p>In Config JSON set <code className="bg-muted px-1 rounded">targetTopics</code> (keywords to match feed posts) and <code className="bg-muted px-1 rounded">commentTone</code>.</p>
-            </SetupStep>
-            <SetupStep n={4} title="Enable and trigger a manual run" done={agent.enabled}>
-              <p>Enable the agent and trigger manually. The agent will search for niche candidates, score them, draft connection notes and feed comments — each requiring Telegram approval before sending.</p>
-              <p className="mt-1 text-xs text-muted-foreground">DMs are proposed only for leads with <code className="bg-muted px-1 rounded">connectionStatus = connected</code> — connection first, DM after acceptance.</p>
-            </SetupStep>
+      {tab === 'docs' && (
+        <div className="space-y-4">
+
+          {/* Overview */}
+          <div className="rounded-xl border border-border bg-card p-5">
+            <h3 className="text-sm font-semibold mb-2">What this agent does</h3>
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              Runs every 4 hours. Searches LinkedIn for people matching your niches, scores them with an LLM against your ICP, sends niche-targeted connection requests, drafts comments on relevant feed posts, and sends outreach DMs to accepted connections — all proposed via Telegram for approval before anything is sent.
+            </p>
+            <div className="grid grid-cols-2 gap-2 mt-3">
+              {[
+                ['Connection requests', 'Find + score leads → draft personalised note → Telegram approve → send'],
+                ['Feed comments', 'Scan feed for target topics → draft comment → Telegram approve → post'],
+                ['DM outreach', 'Accepted connections → draft DM → Telegram approve → send'],
+                ['Lead tracking', 'Leads, connection status, ICP scores stored and visible in Leads tab'],
+              ].map(([title, desc]) => (
+                <div key={title} className="rounded-lg border border-border bg-background/50 p-3">
+                  <p className="text-xs font-medium mb-0.5">{title}</p>
+                  <p className="text-[11px] text-muted-foreground">{desc}</p>
+                </div>
+              ))}
+            </div>
           </div>
+
+          {/* Setup checklist */}
+          <div className="rounded-xl border border-border bg-card p-5">
+            <h3 className="text-sm font-semibold mb-4">Setup checklist</h3>
+            <div className="space-y-5">
+              <SetupStep n={1} title="Configure Unipile API credentials" done={false}>
+                <ol className="list-decimal list-inside space-y-1 ml-1">
+                  <li>Sign up at <strong>app.unipile.com</strong> and connect your LinkedIn account(s) under <strong>Accounts</strong></li>
+                  <li>Go to <strong>Settings → API Keys</strong>, generate a key, and copy your <strong>DSN</strong> (e.g. <code className="bg-muted px-1 rounded">api33.unipile.com:16308</code>)</li>
+                  <li>In Cortex OS go to <strong>Integrations → Unipile</strong> and save the API Key and DSN</li>
+                  <li>Click <strong>Test connection</strong> to verify — it should show "Connected — N accounts linked"</li>
+                </ol>
+              </SetupStep>
+              <SetupStep n={2} title="Sync LinkedIn accounts" done={accounts.length > 0}>
+                <ol className="list-decimal list-inside space-y-1 ml-1">
+                  <li>Go to the <strong>Accounts</strong> tab above</li>
+                  <li>Click <strong>Sync from Unipile</strong> — your connected LinkedIn accounts will be imported</li>
+                  <li>Each account shows its Unipile ID and active/inactive status</li>
+                </ol>
+              </SetupStep>
+              <SetupStep n={3} title="Create at least one niche" done={niches.length > 0}>
+                <ol className="list-decimal list-inside space-y-1 ml-1">
+                  <li>Go to the <strong>Niches</strong> tab</li>
+                  <li>Fill in <strong>Name</strong> (internal label), <strong>Keywords</strong> (LinkedIn search terms, comma-separated), <strong>Target job titles</strong></li>
+                  <li>Write an <strong>ICP description</strong> — prose description of your ideal customer; the LLM scores each candidate 0–1 against this (threshold 0.65 by default)</li>
+                  <li>Set <strong>Daily connect limit</strong> (default 5 per niche per day) to stay within LinkedIn limits</li>
+                </ol>
+              </SetupStep>
+              <SetupStep n={4} title="Configure feed comment topics" done={false}>
+                <p>Open <strong>Agent Config</strong> (gear icon on this page) and set:</p>
+                <ul className="list-disc list-inside space-y-0.5 ml-1 mt-1">
+                  <li><code className="bg-muted px-1 rounded">targetTopics</code> — array of keywords to match feed posts (e.g. <code className="bg-muted px-1 rounded">["SaaS","productivity","startup"]</code>)</li>
+                  <li><code className="bg-muted px-1 rounded">commentTone</code> — style instruction for the LLM (e.g. <code className="bg-muted px-1 rounded">"professional, concise, adds value"</code>)</li>
+                  <li><code className="bg-muted px-1 rounded">maxCommentsPerRun</code> — how many comments to draft per 4-hour cycle (default 3)</li>
+                  <li><code className="bg-muted px-1 rounded">maxDMsPerRun</code> — max outreach DMs drafted per cycle (default 3)</li>
+                </ul>
+              </SetupStep>
+              <SetupStep n={5} title="Enable the agent and do a test run" done={agent.enabled}>
+                <ol className="list-decimal list-inside space-y-1 ml-1">
+                  <li>Toggle the agent to <strong>Enabled</strong> at the top of this page</li>
+                  <li>Click <strong>Run now</strong> (manual trigger) for the first test</li>
+                  <li>Watch for Telegram messages — approve or reject each proposed action</li>
+                  <li>Approved actions are executed immediately; rejected ones are logged and skipped</li>
+                </ol>
+              </SetupStep>
+            </div>
+          </div>
+
+          {/* Tab guide */}
+          <div className="rounded-xl border border-border bg-card p-5">
+            <h3 className="text-sm font-semibold mb-3">Tab guide</h3>
+            <div className="space-y-3">
+              {[
+                ['Accounts', 'Shows all LinkedIn accounts imported from Unipile. Use Sync to refresh. Each account is used as the sender for connections and DMs.'],
+                ['Niches', 'Define target audiences. Each niche has keywords (used to search LinkedIn), job title filters, an ICP description for LLM scoring, and a daily connection cap.'],
+                ['Leads', 'All people found and scored by the agent. Shows ICP score, connection status (none → pending → connected), and outreach status. Leads with connectionStatus = connected become eligible for DMs.'],
+                ['Connections', 'Tracks every connection request sent — status (pending / sent / accepted / declined), the personalised note, and when it was sent.'],
+                ['Posts', 'Feed posts the agent found and drafted comments for. Shows draft, approval status, and post timestamp.'],
+              ].map(([tab, desc]) => (
+                <div key={tab} className="flex gap-3">
+                  <span className="text-xs font-semibold text-primary w-24 shrink-0 pt-0.5">{tab}</span>
+                  <p className="text-xs text-muted-foreground">{desc}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Limits & tips */}
+          <div className="rounded-xl border border-border bg-card p-5">
+            <h3 className="text-sm font-semibold mb-3">Limits and tips</h3>
+            <ul className="space-y-1.5 text-xs text-muted-foreground list-disc list-inside">
+              <li>LinkedIn allows roughly 100–200 connection requests per week on a standard account — keep daily limits low (5–10 per niche)</li>
+              <li>ICP score threshold is 0.65 by default — raise it in config (<code className="bg-muted px-1 rounded">icpScoreThreshold</code>) to target only the best-fit leads</li>
+              <li>DMs are only proposed for people with <code className="bg-muted px-1 rounded">connectionStatus = connected</code> — the agent naturally gates outreach behind accepted connections</li>
+              <li>All actions require Telegram approval — nothing is sent automatically without your sign-off</li>
+              <li>The agent deduplicates leads by profile URL — running it multiple times on the same search won't create duplicate records</li>
+            </ul>
+          </div>
+
         </div>
       )}
 
