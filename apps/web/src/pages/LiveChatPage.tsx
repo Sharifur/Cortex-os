@@ -47,6 +47,9 @@ import {
   RefreshCw,
   Loader2,
   Search,
+  ShieldCheck,
+  ShieldX,
+  ShieldAlert,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -2538,6 +2541,7 @@ function SessionPane({
           onSelectSession={onSelectSession}
           onSetEmail={(email) => identifyMut.mutate(email)}
           identifyBusy={identifyMut.isPending}
+          token={token}
         />
       </aside>
 
@@ -2572,6 +2576,7 @@ function SessionPane({
             setVisitorSidebarOpen(false);
             onSelectSession?.(id);
           }}
+          token={token}
         />
       </aside>
     </div>
@@ -3099,6 +3104,116 @@ function formatBytes(b: number): string {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// License verification section
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface LicenseResult {
+  action: string;
+  summary: string;
+  supportIsActive: boolean;
+  supportDaysRemaining: number;
+  canExtend: boolean;
+  buyerUsername: string | null;
+  licenseKey: string | null;
+}
+
+const ACTION_STYLES: Record<string, { badge: string; icon: React.ReactNode }> = {
+  grant_support:                  { badge: 'bg-emerald-500/15 text-emerald-300', icon: <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" /> },
+  offer_support_renewal:          { badge: 'bg-yellow-500/15 text-yellow-300',  icon: <ShieldAlert className="w-3.5 h-3.5 text-yellow-400" /> },
+  support_extension_unavailable:  { badge: 'bg-orange-500/15 text-orange-300',  icon: <ShieldAlert className="w-3.5 h-3.5 text-orange-400" /> },
+  reject_buyer_mismatch:          { badge: 'bg-red-500/15 text-red-300',        icon: <ShieldX className="w-3.5 h-3.5 text-red-400" /> },
+  reject_invalid_code:            { badge: 'bg-red-500/15 text-red-300',        icon: <ShieldX className="w-3.5 h-3.5 text-red-400" /> },
+};
+
+function LicenseVerifySection({ sessionId, token }: { sessionId: string; token: string }) {
+  const [code, setCode] = useState('');
+  const [result, setResult] = useState<LicenseResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const mutation = useMutation({
+    mutationFn: async (purchaseCode: string) => {
+      const res = await fetch(`/agents/livechat/sessions/${sessionId}/verify-license`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ purchaseCode }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.message ?? `HTTP ${res.status}`);
+      return data as LicenseResult;
+    },
+    onSuccess: (data) => { setResult(data); setError(null); },
+    onError: (err) => { setError((err as Error).message); setResult(null); },
+  });
+
+  const style = result ? (ACTION_STYLES[result.action] ?? { badge: 'bg-slate-500/15 text-slate-400', icon: <ShieldAlert className="w-3.5 h-3.5 text-slate-400" /> }) : null;
+
+  return (
+    <Section title="License">
+      <div className="space-y-3">
+        <form
+          className="flex gap-2"
+          onSubmit={(e) => { e.preventDefault(); const trimmed = code.trim(); if (trimmed) mutation.mutate(trimmed); }}
+        >
+          <input
+            value={code}
+            onChange={(e) => { setCode(e.target.value); setResult(null); setError(null); }}
+            placeholder="Purchase code or XGENIOUS-..."
+            className="flex-1 min-w-0 text-xs bg-background border border-border rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/50"
+          />
+          <button
+            type="submit"
+            disabled={!code.trim() || mutation.isPending}
+            className="shrink-0 flex items-center gap-1 px-2.5 py-1.5 rounded bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors"
+          >
+            {mutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <ShieldCheck className="w-3 h-3" />}
+            {mutation.isPending ? 'Checking...' : 'Verify'}
+          </button>
+        </form>
+
+        {error && (
+          <p className="text-xs text-red-400 flex items-center gap-1"><XCircle className="w-3.5 h-3.5 shrink-0" />{error}</p>
+        )}
+
+        {result && style && (
+          <div className="rounded-lg border border-border bg-muted/20 p-3 space-y-2">
+            <div className="flex items-center gap-1.5">
+              {style.icon}
+              <span className={`text-[11px] font-medium px-1.5 py-0.5 rounded ${style.badge}`}>
+                {result.action.replace(/_/g, ' ')}
+              </span>
+            </div>
+            {result.summary && (
+              <p className="text-xs text-muted-foreground leading-relaxed">{result.summary}</p>
+            )}
+            <div className="space-y-1">
+              {result.buyerUsername && (
+                <div className="flex justify-between text-xs">
+                  <span className="text-muted-foreground">Buyer</span>
+                  <span className="font-medium">{result.buyerUsername}</span>
+                </div>
+              )}
+              {result.licenseKey && (
+                <div className="flex justify-between text-xs gap-2">
+                  <span className="text-muted-foreground shrink-0">License key</span>
+                  <span className="font-mono text-[10px] truncate">{result.licenseKey}</span>
+                </div>
+              )}
+              <div className="flex justify-between text-xs">
+                <span className="text-muted-foreground">Support</span>
+                <span className={result.supportIsActive ? 'text-emerald-400' : 'text-orange-400'}>
+                  {result.supportIsActive ? `Active · ${result.supportDaysRemaining}d left` : 'Expired'}
+                  {!result.supportIsActive && result.canExtend && ' · renewable'}
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </Section>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Right sidebar — Visitor card with collapsible sections
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -3110,6 +3225,7 @@ function VisitorSidebar({
   onSelectSession,
   onSetEmail,
   identifyBusy,
+  token,
 }: {
   visitor: Visitor | null;
   session: SessionRow;
@@ -3118,6 +3234,7 @@ function VisitorSidebar({
   onSelectSession?: (id: string) => void;
   onSetEmail?: (email: string) => void;
   identifyBusy?: boolean;
+  token: string;
 }) {
   const [revealIp, setRevealIp] = useState(false);
   const [editingEmail, setEditingEmail] = useState(false);
@@ -3269,6 +3386,9 @@ function VisitorSidebar({
           <Counter label="Pageviews" value={visitor?.totalPageviews ?? 0} />
         </div>
       </Section>
+
+      {/* License verification */}
+      <LicenseVerifySection sessionId={session.id} token={token} />
 
       {/* Last browsed pages */}
       <PageJourneySection visitorPk={session.visitorPk} />

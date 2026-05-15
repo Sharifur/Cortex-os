@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.70.1',
+    date: '2026-05-15',
+    entries: [
+      { tag: 'feat', scope: 'livechat', description: 'License verification in the visitor details sidebar. Enter a purchase code (UUID or XGENIOUS-XXXX format) and click Verify to check it against the license server. Shows action badge, buyer username, support status (active/expired + days remaining), and license key.' },
+    ],
+  },
+  {
     version: 'v4.70.0',
     date: '2026-05-15',
     entries: [
