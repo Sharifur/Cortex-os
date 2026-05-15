@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.71.9',
+    date: '2026-05-15',
+    entries: [
+      { tag: 'fix', scope: 'support', description: 'Draft editor: downgraded TipTap v3→v2 (stable API). Toolbar now visible with correct dark theme contrast. Added image paste-to-upload: pasted images are uploaded to R2 via POST /support/upload-image and inserted as inline images. Added @tiptap/extension-image.' },
+    ],
+  },
+  {
     version: 'v4.71.8',
     date: '2026-05-15',
     entries: [

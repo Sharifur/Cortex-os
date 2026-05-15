@@ -12,6 +12,7 @@ import { TelegramService } from '../../telegram/telegram.service';
 import { KnowledgeBaseService } from '../../knowledge-base/knowledge-base.service';
 import { PurchaseVerifyService } from '../purchase-verify/purchase-verify.service';
 import { SettingsService } from '../../settings/settings.service';
+import { StorageService } from '../../storage/storage.service';
 import { safeEqualString } from '../../../common/webhooks/verify';
 import type {
   IAgent,
@@ -106,6 +107,7 @@ export class SupportAgent implements IAgent, OnModuleInit {
     private kb: KnowledgeBaseService,
     private purchaseVerify: PurchaseVerifyService,
     private settings: SettingsService,
+    private storage: StorageService,
     private events: EventEmitter2,
   ) {}
 
@@ -694,6 +696,23 @@ export class SupportAgent implements IAgent, OnModuleInit {
         path: '/support/tickets/:id',
         requiresAuth: true,
         handler: async (params) => this.deleteTicket((params as any).id),
+      },
+      {
+        method: 'POST',
+        path: '/support/upload-image',
+        requiresAuth: true,
+        handler: async (params) => {
+          const { data, filename, mimeType } = params as any;
+          if (!data) throw new Error('data (base64) is required');
+          const buffer = Buffer.from(data, 'base64');
+          const stored = await this.storage.upload({
+            module: 'support/drafts',
+            body: buffer,
+            declaredMime: mimeType ?? 'image/png',
+            originalFilename: filename ?? `image.${(mimeType ?? 'image/png').split('/')[1] ?? 'png'}`,
+          });
+          return { url: stored.url };
+        },
       },
       {
         method: 'POST',

@@ -53,41 +53,51 @@
 }
 
 /* TipTap editor content styles */
-.tiptap {
+.ProseMirror {
   outline: none;
 }
-.tiptap ul {
+.ProseMirror ul {
   list-style-type: disc;
   padding-left: 1.25rem;
   margin: 0.25rem 0;
 }
-.tiptap ol {
+.ProseMirror ol {
   list-style-type: decimal;
   padding-left: 1.25rem;
   margin: 0.25rem 0;
 }
-.tiptap li {
+.ProseMirror li {
   margin: 0.1rem 0;
 }
-.tiptap strong {
+.ProseMirror strong {
   font-weight: 600;
 }
-.tiptap em {
+.ProseMirror em {
   font-style: italic;
 }
-.tiptap u {
+.ProseMirror u {
   text-decoration: underline;
 }
-.tiptap a {
+.ProseMirror a {
   color: hsl(var(--primary));
   text-decoration: underline;
   cursor: pointer;
 }
-.tiptap hr {
+.ProseMirror hr {
   border: none;
   border-top: 1px solid hsl(var(--border));
   margin: 0.5rem 0;
 }
-.tiptap p {
+.ProseMirror p {
   margin: 0.1rem 0;
+}
+.ProseMirror img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 0.375rem;
+  margin: 0.5rem 0;
+  display: block;
+}
+.ProseMirror img.ProseMirror-selectednode {
+  outline: 2px solid hsl(var(--primary));
 }

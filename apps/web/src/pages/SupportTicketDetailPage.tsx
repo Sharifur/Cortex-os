@@ -537,7 +537,7 @@ export default function SupportTicketDetailPage() {
               {activeDraft && (
                 editingDraft ? (
                   <div className="space-y-2">
-                    <DraftEditor value={editDraftText} onChange={setEditDraftText} />
+                    <DraftEditor value={editDraftText} onChange={setEditDraftText} token={token} />
                     <div className="flex items-center gap-2">
                       <button
                         onClick={handleSaveDraft}
