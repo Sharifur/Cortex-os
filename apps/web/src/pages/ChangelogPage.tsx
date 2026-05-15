@@ -16,6 +16,32 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.70.1',
+    date: '2026-05-15',
+    entries: [
+      { tag: 'feat', scope: 'livechat', description: 'License verification in the visitor details sidebar. Enter a purchase code (UUID or XGENIOUS-XXXX format) and click Verify to check it against the license server. Shows action badge, buyer username, support status (active/expired + days remaining), and license key.' },
+    ],
+  },
+  {
+    version: 'v4.70.0',
+    date: '2026-05-15',
+    entries: [
+      { tag: 'feat', scope: 'linkedin', description: 'LinkedIn AI Agent — full multi-account build. Connect multiple LinkedIn accounts via Unipile. Niche-based connection requests (5/day, ICP-scored by LLM). Feed comment drafting with dedup. DM outreach pipeline for connected leads. Frontend management UI with 6 tabs: Accounts, Niches, Leads, Connections, Posts, Setup.' },
+      { tag: 'feat', scope: 'linkedin', description: 'LinkedIn schema: new tables linkedin_accounts, linkedin_niches, linkedin_connection_requests. linkedin_leads and linkedin_posts extended with account/niche FK, ICP score fields, connection status.' },
+      { tag: 'fix', scope: 'support', description: 'post_reply and request_purchase_code actions no longer require Telegram approval — auto-execute immediately.' },
+      { tag: 'fix', scope: 'support', description: 'CRM webhook echo detection: if ticket status is already replied and repliedAt is within 90 seconds, skip reopening to prevent agent-reply → webhook → re-trigger loop.' },
+      { tag: 'fix', scope: 'taskip-internal', description: 'list_sent_emails tool now accepts optional recipient filter — queries by email address to avoid false no-emails-sent reports.' },
+      { tag: 'chore', scope: 'canva', description: 'Renamed Canva agent display name to Social Media Banner Designer.' },
+    ],
+  },
+  {
+    version: 'v4.69.2',
+    date: '2026-05-15',
+    entries: [
+      { tag: 'feat', scope: 'agents', description: 'Agent name is now editable inline on the Agents list page. Hover a card to reveal the pencil icon next to the name; click it to rename in-place without leaving the page.' },
+    ],
+  },
+  {
     version: 'v4.69.1',
     date: '2026-05-15',
     entries: [

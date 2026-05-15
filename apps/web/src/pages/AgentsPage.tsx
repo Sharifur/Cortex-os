@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, Link } from 'react-router-dom';
-import { Bot, Play, ToggleLeft, ToggleRight, MessageSquare, Pin, PinOff, Trash2 } from 'lucide-react';
+import { useState } from 'react';
+import { Bot, Play, ToggleLeft, ToggleRight, MessageSquare, Pin, PinOff, Trash2, Pencil, Check, X, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAuthStore } from '@/stores/authStore';
@@ -54,6 +55,21 @@ function AgentCard({ agent, token }: { agent: Agent; token: string }) {
   const navigate = useNavigate();
   const color = agentColor(agent.key);
 
+  const [editingName, setEditingName] = useState(false);
+  const [nameInput, setNameInput] = useState('');
+
+  const nameMutation = useMutation({
+    mutationFn: (name: string) =>
+      apiFetch(token, `/agents/${agent.key}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ name }),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['agents'] });
+      setEditingName(false);
+    },
+  });
+
   const toggleMutation = useMutation({
     mutationFn: () =>
       apiFetch(token, `/agents/${agent.key}`, {
@@ -95,12 +111,54 @@ function AgentCard({ agent, token }: { agent: Agent; token: string }) {
           <Bot className={`w-5 h-5 ${color.iconText}`} />
         </div>
         <div className="flex-1 min-w-0">
-          <button
-            onClick={() => navigate(`/agents/${agent.key}`)}
-            className="text-sm font-semibold hover:text-primary transition-colors text-left leading-snug line-clamp-1"
-          >
-            {agent.name}
-          </button>
+          {editingName ? (
+            <form
+              className="flex items-center gap-1.5"
+              onSubmit={(e) => {
+                e.preventDefault();
+                const trimmed = nameInput.trim();
+                if (trimmed) nameMutation.mutate(trimmed);
+              }}
+            >
+              <input
+                autoFocus
+                value={nameInput}
+                onChange={(e) => setNameInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Escape' && setEditingName(false)}
+                className="text-sm font-semibold bg-transparent border-b border-primary focus:outline-none w-full min-w-0"
+              />
+              <button
+                type="submit"
+                disabled={nameMutation.isPending || !nameInput.trim()}
+                className="shrink-0 text-emerald-400 hover:text-emerald-300 disabled:opacity-40 transition-colors"
+              >
+                {nameMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+              </button>
+              <button
+                type="button"
+                onClick={() => setEditingName(false)}
+                className="shrink-0 text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </form>
+          ) : (
+            <div className="group/name flex items-center gap-1.5">
+              <button
+                onClick={() => navigate(`/agents/${agent.key}`)}
+                className="text-sm font-semibold hover:text-primary transition-colors text-left leading-snug line-clamp-1"
+              >
+                {agent.name}
+              </button>
+              <button
+                onClick={(e) => { e.stopPropagation(); setNameInput(agent.name); setEditingName(true); }}
+                className="shrink-0 opacity-0 group-hover/name:opacity-100 transition-opacity text-muted-foreground hover:text-foreground"
+                title="Rename"
+              >
+                <Pencil className="w-3 h-3" />
+              </button>
+            </div>
+          )}
           <div className="flex items-center gap-1 mt-1 flex-wrap">
             <code className={`text-[10px] px-1.5 py-0.5 rounded ${color.badge} ${color.badgeText}`}>{agent.key}</code>
             {!agent.registered && (

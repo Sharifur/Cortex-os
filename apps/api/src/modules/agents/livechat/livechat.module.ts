@@ -26,6 +26,7 @@ import { LivechatEscalationService } from './livechat-escalation.service';
 import { LivechatMetricsService } from './livechat-metrics.service';
 import { SesModule } from '../../ses/ses.module';
 import { SettingsModule } from '../../settings/settings.module';
+import { PurchaseVerifyService } from '../purchase-verify/purchase-verify.service';
 
 @Module({
   imports: [AgentsModule, AuthModule, ContactsModule, LlmModule, KnowledgeBaseModule, SesModule, SettingsModule, JwtModule.register({})],
@@ -47,6 +48,7 @@ import { SettingsModule } from '../../settings/settings.module';
     LivechatIntentService,
     LivechatEscalationService,
     LivechatMetricsService,
+    PurchaseVerifyService,
   ],
   exports: [LivechatService, LivechatAgent, LivechatOriginCache, LivechatStreamService],
 })

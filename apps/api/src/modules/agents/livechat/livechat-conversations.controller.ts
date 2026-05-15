@@ -30,6 +30,7 @@ import { LivechatRateLimitService } from './livechat-rate-limit.service';
 import { SettingsService } from '../../settings/settings.service';
 import { SelfImprovementService } from '../../knowledge-base/self-improvement.service';
 import { LlmRouterService } from '../../llm/llm-router.service';
+import { PurchaseVerifyService } from '../purchase-verify/purchase-verify.service';
 
 @Controller('agents/livechat')
 @UseGuards(JwtAuthGuard)
@@ -45,6 +46,7 @@ export class LivechatConversationsController {
     private rateLimit: LivechatRateLimitService,
     private selfImprovement: SelfImprovementService,
     private llm: LlmRouterService,
+    private purchaseVerify: PurchaseVerifyService,
   ) {}
 
   @Get('operators')
@@ -353,6 +355,18 @@ export class LivechatConversationsController {
     this.stream.publishToOperators({ type: 'session_upserted', sessionId: id });
 
     return { ok: true, message: { id: msg.id, content, createdAt: msg.createdAt, attachments } };
+  }
+
+  @Post('sessions/:id/verify-license')
+  @HttpCode(HttpStatus.OK)
+  async verifyLicense(@Param('id') id: string, @Body() body: { purchaseCode: string }) {
+    const code = body?.purchaseCode?.trim();
+    if (!code) throw new BadRequestException('purchaseCode is required');
+    const session = await this.livechat.getSession(id);
+    if (!session) throw new NotFoundException(`Session not found: ${id}`);
+    const result = await this.purchaseVerify.verify(code);
+    if (!result) throw new InternalServerErrorException('License server not configured or unreachable');
+    return result;
   }
 
   @Get('debug/ip-lookup')

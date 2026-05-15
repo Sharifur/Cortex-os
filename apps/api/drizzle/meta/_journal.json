@@ -540,6 +540,13 @@
       "when": 1747958400003,
       "tag": "0076_rename_canva_agent",
       "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "6",
+      "when": 1748044800000,
+      "tag": "0077_linkedin_multi_account",
+      "breakpoints": true
     }
   ]
 }
