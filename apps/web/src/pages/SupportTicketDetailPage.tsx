@@ -63,21 +63,28 @@ const PURCHASE_CODE_STATUS_STYLES: Record<string, string> = {
 };
 
 const EVENT_TYPE_STYLES: Record<string, string> = {
-  reply_drafted:             'bg-violet-500/15 text-violet-300',
-  manual_draft:              'bg-violet-500/15 text-violet-300',
-  post_reply:                'bg-emerald-500/15 text-emerald-300',
-  escalate_to_owner:         'bg-orange-500/15 text-orange-300',
-  request_purchase_code:     'bg-yellow-500/15 text-yellow-300',
-  purchase_code_not_found:   'bg-yellow-500/15 text-yellow-300',
-  purchase_code_verified:    'bg-emerald-500/15 text-emerald-300',
-  purchase_code_invalid:     'bg-red-500/15 text-red-300',
-  purchase_code_expired:     'bg-orange-500/15 text-orange-300',
-  ticket_reopened:           'bg-sky-500/15 text-sky-300',
-  decide_error:              'bg-red-500/15 text-red-300',
-  priority_updated:          'bg-indigo-500/15 text-indigo-300',
-  status_updated:            'bg-teal-500/15 text-teal-300',
-  note_added:                'bg-slate-500/15 text-slate-300',
-  reply_sent:                'bg-emerald-500/15 text-emerald-300',
+  webhook_received:           'bg-sky-500/15 text-sky-300',
+  decide_triggered:           'bg-indigo-500/15 text-indigo-300',
+  reply_drafted:              'bg-violet-500/15 text-violet-300',
+  manual_draft:               'bg-violet-500/15 text-violet-300',
+  post_reply:                 'bg-emerald-500/15 text-emerald-300',
+  escalate_to_owner:          'bg-orange-500/15 text-orange-300',
+  request_purchase_code:      'bg-yellow-500/15 text-yellow-300',
+  purchase_code_not_found:    'bg-yellow-500/15 text-yellow-300',
+  purchase_code_verified:     'bg-emerald-500/15 text-emerald-300',
+  purchase_code_invalid:      'bg-red-500/15 text-red-300',
+  purchase_code_expired:      'bg-orange-500/15 text-orange-300',
+  ticket_reopened:            'bg-sky-500/15 text-sky-300',
+  customer_reply_received:    'bg-sky-500/15 text-sky-300',
+  agent_reply_received:       'bg-emerald-500/15 text-emerald-300',
+  decide_error:               'bg-red-500/15 text-red-300',
+  reply_failed:               'bg-red-500/15 text-red-300',
+  priority_updated:           'bg-indigo-500/15 text-indigo-300',
+  status_updated:             'bg-teal-500/15 text-teal-300',
+  note_added:                 'bg-slate-500/15 text-slate-300',
+  reply_sent:                 'bg-emerald-500/15 text-emerald-300',
+  purchase_code_requested:    'bg-yellow-500/15 text-yellow-300',
+  server_access_requested:    'bg-orange-500/15 text-orange-300',
 };
 
 function Badge({ label, styles }: { label: string; styles: string }) {
@@ -96,40 +103,62 @@ function fmt(iso: string | null) {
 
 function EventRow({ event }: { event: TicketEvent }) {
   const [open, setOpen] = useState(false);
-  const hasPayload = event.payload && Object.keys(event.payload).length > 0;
+  const hasDraft = !!(event.payload as any)?.draft;
+  const hasPayload = (event.payload && Object.keys(event.payload).length > 0) || !!event.error;
+  const isExpandable = hasPayload;
   const style = EVENT_TYPE_STYLES[event.eventType] ?? 'bg-slate-500/15 text-slate-400';
+
+  const summary = event.summary ?? '—';
+  // Truncate to ~80 chars for the collapsed row; show full text when expanded
+  const truncated = summary.length > 80 ? summary.slice(0, 80) + '…' : summary;
 
   return (
     <div className="border border-border rounded-lg bg-card overflow-hidden">
       <div
-        className={`flex items-start justify-between gap-3 px-4 py-3 ${hasPayload ? 'cursor-pointer hover:bg-accent/20' : ''}`}
-        onClick={() => hasPayload && setOpen(v => !v)}
+        className={`flex items-center gap-3 px-3 py-2.5 ${isExpandable ? 'cursor-pointer hover:bg-accent/20' : ''}`}
+        onClick={() => isExpandable && setOpen(v => !v)}
       >
-        <div className="flex items-start gap-3 min-w-0">
-          <div className="mt-0.5 shrink-0">
-            <Badge label={event.eventType.replace(/_/g, ' ')} styles={style} />
-          </div>
-          <p className="text-sm text-foreground leading-snug">{event.summary ?? '—'}</p>
+        {/* badge — fixed width */}
+        <div className="shrink-0">
+          <Badge label={event.eventType.replace(/_/g, ' ')} styles={style} />
         </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <span className="text-xs text-muted-foreground whitespace-nowrap">{fmt(event.createdAt)}</span>
-          {hasPayload && (open ? <ChevronUp className="w-3.5 h-3.5 text-muted-foreground" /> : <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />)}
+
+        {/* summary — single truncated line */}
+        <p className="flex-1 min-w-0 text-xs text-muted-foreground truncate">
+          {open ? summary : truncated}
+        </p>
+
+        {/* timestamp + chevron */}
+        <div className="flex items-center gap-1.5 shrink-0">
+          <span className="text-[11px] text-muted-foreground whitespace-nowrap">{fmt(event.createdAt)}</span>
+          {isExpandable && (open
+            ? <ChevronUp className="w-3 h-3 text-muted-foreground" />
+            : <ChevronDown className="w-3 h-3 text-muted-foreground" />
+          )}
         </div>
       </div>
-      {open && hasPayload && (
-        <div className="px-4 pb-3 border-t border-border bg-muted/20">
-          {(event.payload as any)?.draft ? (
-            <div className="pt-3 space-y-1">
-              <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Draft</p>
-              <p className="text-sm text-foreground whitespace-pre-wrap leading-relaxed">{(event.payload as any).draft}</p>
+
+      {open && (
+        <div className="px-3 pb-3 border-t border-border bg-muted/20 space-y-2">
+          {/* full summary if it was truncated */}
+          {summary.length > 80 && (
+            <p className="pt-2 text-xs text-foreground leading-relaxed">{summary}</p>
+          )}
+          {hasDraft && (
+            <div className="pt-1 space-y-1">
+              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Draft</p>
+              <p className="text-xs text-foreground whitespace-pre-wrap leading-relaxed max-h-48 overflow-y-auto rounded bg-background/50 px-2 py-1.5">
+                {(event.payload as any).draft}
+              </p>
             </div>
-          ) : (
-            <pre className="pt-3 text-xs text-muted-foreground overflow-x-auto whitespace-pre-wrap">
+          )}
+          {!hasDraft && event.payload && Object.keys(event.payload).length > 0 && (
+            <pre className="pt-1 text-[11px] text-muted-foreground overflow-x-auto whitespace-pre-wrap max-h-40 overflow-y-auto rounded bg-background/50 px-2 py-1.5">
               {JSON.stringify(event.payload, null, 2)}
             </pre>
           )}
           {event.error && (
-            <p className="mt-2 text-xs text-red-400">Error: {event.error}</p>
+            <p className="pt-1 text-xs text-red-400 font-medium">Error: {event.error}</p>
           )}
         </div>
       )}
@@ -338,7 +367,7 @@ export default function SupportTicketDetailPage() {
   }
 
   const sortedEvents = [...events].sort(
-    (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
   );
 
   const activeDraft = draft ?? ticket?.lastDraft;

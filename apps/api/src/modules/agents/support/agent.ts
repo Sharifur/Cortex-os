@@ -379,6 +379,13 @@ export class SupportAgent implements IAgent, OnModuleInit {
           },
           riskLevel: violation ? 'high' : actionType === 'escalate_to_owner' ? 'high' : 'medium',
         });
+        await this.writeTicketEvent({
+          ticketId: ticket.id,
+          externalId: ticket.externalId,
+          eventType: 'decide_triggered',
+          summary: `AI decided: ${actionType} — category: ${parsed.category}, priority: ${parsed.priority}${violation ? `, blocklist hit: "${violation}"` : ''}`,
+          payload: { actionType, category: parsed.category, priority: parsed.priority, violation: violation ?? null },
+        });
       } catch (err) {
         this.logger.warn(`Failed to process ticket ${ticket.id}: ${err}`);
         await this.writeTicketEvent({
@@ -1103,6 +1110,19 @@ export class SupportAgent implements IAgent, OnModuleInit {
     const status = row ? 'stored' : 'duplicate';
     if (row) {
       this.logger.log(`Ticket stored: internal id=${row.id} external=${ticket.id} priority=${priority}`);
+      await this.writeTicketEvent({
+        ticketId: row.id,
+        externalId: String(ticket.id),
+        eventType: 'webhook_received',
+        summary: `Webhook received — new ticket stored (event: ${event ?? 'none'}, priority: ${priority})`,
+        payload: {
+          event: event ?? null,
+          subject: ticket.subject,
+          userEmail: contact?.email ?? null,
+          priority,
+          crmUuid: ticket.uuid ?? null,
+        },
+      });
     } else {
       this.logger.warn(`Ticket #${ticket.id} already exists (onConflictDoNothing) — skipped`);
     }

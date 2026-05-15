@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.71.7',
+    date: '2026-05-15',
+    entries: [
+      { tag: 'fix', scope: 'support', description: 'Activity Timeline: summary truncated to single line — full text + payload revealed on expand. Events sorted newest-first. Added webhook_received and decide_triggered event types. Added full color-coding for all event types.' },
+    ],
+  },
+  {
     version: 'v4.71.6',
     date: '2026-05-15',
     entries: [
