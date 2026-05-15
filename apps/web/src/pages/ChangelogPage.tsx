@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.71.8',
+    date: '2026-05-15',
+    entries: [
+      { tag: 'feat', scope: 'support', description: 'Draft reply editor upgraded to TipTap rich text: Bold, Italic, Underline, Bullet list, Numbered list, Link, Divider. Added Share Link button (copies direct ticket URL to clipboard).' },
+    ],
+  },
+  {
     version: 'v4.71.7',
     date: '2026-05-15',
     entries: [

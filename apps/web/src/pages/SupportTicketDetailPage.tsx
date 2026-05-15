@@ -4,10 +4,11 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft, Hash, Mail, User, Phone, Clock, MessageSquare,
   Wand2, RefreshCw, AlertTriangle, CheckCircle2, XCircle,
-  ChevronDown, ChevronUp, Trash2, Loader2, Brain, Settings2, StickyNote, Send, Pencil,
+  ChevronDown, ChevronUp, Trash2, Loader2, Brain, Settings2, StickyNote, Send, Pencil, Link2,
 } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 import { Skeleton } from '@/components/ui/skeleton';
+import { DraftEditor } from '@/components/DraftEditor';
 
 interface SupportTicket {
   id: string;
@@ -182,6 +183,16 @@ export default function SupportTicketDetailPage() {
   const [editingDraft, setEditingDraft] = useState(false);
   const [editDraftText, setEditDraftText] = useState('');
   const [savingDraft, setSavingDraft] = useState(false);
+
+  const [linkCopied, setLinkCopied] = useState(false);
+
+  function handleCopyLink() {
+    const url = `${window.location.origin}/support/tickets/${id}`;
+    navigator.clipboard.writeText(url).then(() => {
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 2000);
+    });
+  }
 
   const [trainOpen, setTrainOpen] = useState(false);
   const [trainCategory, setTrainCategory] = useState<'spam_filter' | 'decision_rule' | 'faq' | 'policy'>('decision_rule');
@@ -411,20 +422,29 @@ export default function SupportTicketDetailPage() {
             {ticket.ticketNo ?? ticket.externalId ?? ticket.id}
           </div>
         </div>
-        <button
-          onClick={() => {
-            if (confirm('Delete this ticket and all its history? This cannot be undone.')) {
-              deleteMutation.mutate();
-            }
-          }}
-          disabled={deleteMutation.isPending}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-destructive/30 text-destructive text-xs hover:bg-destructive/5 hover:border-destructive/60 transition-colors disabled:opacity-50"
-        >
-          {deleteMutation.isPending
-            ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            : <Trash2 className="w-3.5 h-3.5" />}
-          Delete ticket
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleCopyLink}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border text-xs text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors"
+          >
+            <Link2 className="w-3.5 h-3.5" />
+            {linkCopied ? 'Copied!' : 'Share link'}
+          </button>
+          <button
+            onClick={() => {
+              if (confirm('Delete this ticket and all its history? This cannot be undone.')) {
+                deleteMutation.mutate();
+              }
+            }}
+            disabled={deleteMutation.isPending}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-destructive/30 text-destructive text-xs hover:bg-destructive/5 hover:border-destructive/60 transition-colors disabled:opacity-50"
+          >
+            {deleteMutation.isPending
+              ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              : <Trash2 className="w-3.5 h-3.5" />}
+            Delete ticket
+          </button>
+        </div>
       </div>
 
       {/* Two-column layout */}
@@ -517,12 +537,7 @@ export default function SupportTicketDetailPage() {
               {activeDraft && (
                 editingDraft ? (
                   <div className="space-y-2">
-                    <textarea
-                      value={editDraftText}
-                      onChange={(e) => setEditDraftText(e.target.value)}
-                      rows={8}
-                      className="w-full rounded-lg border border-border bg-background px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring resize-y"
-                    />
+                    <DraftEditor value={editDraftText} onChange={setEditDraftText} />
                     <div className="flex items-center gap-2">
                       <button
                         onClick={handleSaveDraft}
