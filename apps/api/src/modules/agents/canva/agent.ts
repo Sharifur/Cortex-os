@@ -264,6 +264,46 @@ export class CanvaAgent implements IAgent, OnModuleInit {
       if (epMatch) {
         try {
           const ep = JSON.parse(epMatch[1]) as ExtraParamsGatherState;
+
+          // Bulk form submission: all param values sent at once as [asset-params-all:{...}]
+          const bulkMatch = query.match(/\[asset-params-all:(\{[\s\S]+?\})\]/);
+          if (bulkMatch) {
+            const bulkValues = JSON.parse(bulkMatch[1]) as Record<string, string>;
+            const allCollected = { ...ep.collected, ...bulkValues };
+            const slideUrls: string[] = [];
+            const assetParams: Record<string, string> = {};
+            for (const [k, v] of Object.entries(allCollected)) {
+              if (k !== 'topic') assetParams[k] = v;
+            }
+            if (runId) {
+              await this.logSvc.info(runId, `Generating ${ep.confirmedSlides.length} slides`, { event_type: 'post_render_start', slide_count: ep.confirmedSlides.length, render_id: 'dna' }).catch(() => {});
+            }
+            for (let i = 0; i < ep.confirmedSlides.length; i++) {
+              const cs = ep.confirmedSlides[i];
+              const tplSlide = ep.templateSlides[i % ep.templateSlides.length];
+              const t0 = Date.now();
+              if (runId) {
+                await this.logSvc.info(runId, `AI slide ${i + 1}/${ep.confirmedSlides.length}: "${cs.headline}"`, { event_type: 'post_ai_slide_start', slide_index: i }).catch(() => {});
+              }
+              try {
+                const { url } = await this.designStudio.generateAndSave(tplSlide.id, cs.headline, assetParams);
+                slideUrls.push(url);
+                if (runId) {
+                  await this.logSvc.info(runId, `Slide ${i + 1} ready (${Date.now() - t0}ms)`, { event_type: 'post_ai_slide_end', slide_index: i, duration_ms: Date.now() - t0, estimated_cost_usd: 0.19 }).catch(() => {});
+                }
+              } catch (e) {
+                this.logger.warn(`Slide ${i + 1} failed: ${(e as Error).message}`);
+                if (runId) {
+                  await this.logSvc.warn(runId, `Slide ${i + 1} failed: ${(e as Error).message}`, { event_type: 'post_ai_slide_fallback', slide_index: i }).catch(() => {});
+                }
+              }
+            }
+            if (runId) {
+              await this.logSvc.info(runId, `All ${slideUrls.length} slides generated`, { event_type: 'post_upload_done', slide_urls: slideUrls }).catch(() => {});
+            }
+            return [{ type: 'notify_result', summary: 'Carousel auto-generated', payload: { message: `${SLIDE_RENDER_STR}${JSON.stringify({ slideUrls })}` }, riskLevel: 'low' }];
+          }
+
           const currentParam = ep.extraParams[ep.idx];
           // For image-type params, use the uploaded image data if available; fall back to URL text
           const currentAnswer = (currentParam.type === 'image' && lastImageData)
@@ -770,7 +810,6 @@ export class CanvaAgent implements IAgent, OnModuleInit {
           const msg = `${SLIDE_RENDER_STR}${JSON.stringify({ slideUrls })}`;
           return [{ type: 'notify_result', summary: 'Carousel auto-generated', payload: { message: msg }, riskLevel: 'low' }];
         } else {
-          const first = pendingExtraParams[0];
           const epState: ExtraParamsGatherState = {
             confirmedSlides: slides,
             templateSlides: pendingTemplateSlides,
@@ -778,12 +817,7 @@ export class CanvaAgent implements IAgent, OnModuleInit {
             collected: {},
             idx: 0,
           };
-          const msg = [
-            'Content confirmed. Just need a couple of details for the template:',
-            `${first.description}?`,
-            first.example ? `(e.g. ${first.example})` : '',
-            `[extra-params-gather:${JSON.stringify(epState)}]`,
-          ].filter(Boolean).join('\n');
+          const msg = `Content confirmed. A few details needed for your slides:\n[extra-params-gather:${JSON.stringify(epState)}]`;
           return [{ type: 'notify_result', summary: 'Extra params needed', payload: { message: msg }, riskLevel: 'low' }];
         }
       }

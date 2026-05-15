@@ -1106,6 +1106,108 @@ function parseContentConfirm(content: string): { body: string; slideCount: numbe
   return { body, slideCount };
 }
 
+function AssetParamsCard({
+  content,
+  onSubmit,
+  color,
+}: {
+  content: string;
+  onSubmit: (text: string) => void;
+  color: ReturnType<typeof agentColor>;
+}) {
+  const match = content.match(/\[extra-params-gather:(\{[\s\S]*?\})\]/);
+  if (!match) return null;
+  let state: { extraParams: Array<{ key: string; description: string; example?: string; type?: string }>; collected?: Record<string, string> };
+  try { state = JSON.parse(match[1]); } catch { return null; }
+
+  const { extraParams, collected: initialCollected } = state;
+  const [values, setValues] = useState<Record<string, string>>(initialCollected ?? {});
+  const [imagePreviews, setImagePreviews] = useState<Record<string, string>>({});
+  const [submitted, setSubmitted] = useState(false);
+
+  const displayText = content
+    .replace(/\[asset-upload-request\]/g, '')
+    .replace(/\[extra-params-gather:[\s\S]*$/, '')
+    .trim();
+
+  function readFile(file: File, key: string) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result as string;
+      const base64 = dataUrl.split(',')[1] ?? '';
+      setValues((prev) => ({ ...prev, [key]: `data:${file.type};base64,${base64}` }));
+      setImagePreviews((prev) => ({ ...prev, [key]: dataUrl }));
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function handleSubmit() {
+    if (submitted) return;
+    const filled = extraParams.every((p) => values[p.key]?.trim());
+    if (!filled) return;
+    setSubmitted(true);
+    onSubmit(`[asset-params-all:${JSON.stringify(values)}]`);
+  }
+
+  return (
+    <div className={`rounded-2xl px-4 py-3 ${color.bubble} text-foreground rounded-bl-sm space-y-3`}>
+      {displayText && (
+        <p className="text-sm leading-relaxed">{displayText}</p>
+      )}
+      <div className="space-y-3 pt-1">
+        {extraParams.map((param) => (
+          <div key={param.key} className="space-y-1">
+            <label className="text-xs font-medium text-muted-foreground">{param.description}</label>
+            {param.type === 'image' ? (
+              <div className="flex items-center gap-2 flex-wrap">
+                {imagePreviews[param.key] && (
+                  <img src={imagePreviews[param.key]} alt="preview" className="h-10 w-10 rounded-full object-cover border border-border shrink-0" />
+                )}
+                <label className={`cursor-pointer flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-border hover:bg-accent/50 transition-colors ${submitted ? 'pointer-events-none opacity-40' : ''}`}>
+                  <ImagePlus className="w-3.5 h-3.5" />
+                  {imagePreviews[param.key] ? 'Change' : 'Upload photo'}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => { const f = e.target.files?.[0]; if (f) readFile(f, param.key); e.target.value = ''; }}
+                  />
+                </label>
+                <span className="text-xs text-muted-foreground">or URL:</span>
+                <input
+                  type="text"
+                  placeholder={param.example ?? 'https://...'}
+                  value={imagePreviews[param.key] ? '' : (values[param.key] ?? '')}
+                  disabled={!!imagePreviews[param.key] || submitted}
+                  onChange={(e) => setValues((prev) => ({ ...prev, [param.key]: e.target.value }))}
+                  className="flex-1 min-w-0 text-xs bg-muted/40 border border-border rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-40"
+                />
+              </div>
+            ) : (
+              <input
+                type="text"
+                placeholder={param.example ?? ''}
+                value={values[param.key] ?? ''}
+                disabled={submitted}
+                onChange={(e) => setValues((prev) => ({ ...prev, [param.key]: e.target.value }))}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleSubmit(); }}
+                className="w-full text-xs bg-muted/40 border border-border rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-40"
+              />
+            )}
+          </div>
+        ))}
+        <button
+          onClick={handleSubmit}
+          disabled={submitted || !extraParams.every((p) => values[p.key]?.trim())}
+          className="w-full text-sm font-medium rounded-xl py-2 bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-40 disabled:pointer-events-none"
+        >
+          {submitted ? 'Generating slides…' : 'Continue'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function QuickReplyCard({
   content,
   onSubmit,
@@ -1372,6 +1474,21 @@ function MessageBubble({
             if (parseStylePicker(msg.content)) {
               return <StylePickerCard content={msg.content} onSubmit={onQuickReply} color={color} />;
             }
+            if (parseExtraParamsGather(msg.content)) {
+              return <AssetParamsCard content={msg.content} onSubmit={onQuickReply} color={color} />;
+            }
+          }
+          // Asset params form (non-last) — strip markers, show intro text only
+          if (!isUser && msg.content.includes('[extra-params-gather:')) {
+            const body = msg.content
+              .replace(/\[asset-upload-request\]/g, '')
+              .replace(/\[extra-params-gather:[\s\S]*$/, '')
+              .trim();
+            return (
+              <div className={`rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${color.bubble} text-foreground rounded-bl-sm`}>
+                <p>{body}</p>
+              </div>
+            );
           }
           // Content confirm (non-last — show as markdown without markers)
           if (!isUser && msg.content.includes('[content-confirm]')) {

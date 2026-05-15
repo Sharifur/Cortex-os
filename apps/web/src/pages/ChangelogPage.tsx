@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.67.1',
+    date: '2026-05-15',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'Asset collection for training-sample carousels now uses a proper inline form (AssetParamsCard) instead of sequential one-at-a-time chat prompts. Text params render as text inputs, image params render with an upload button + URL fallback. Submitting sends all values at once via [asset-params-all:] which the backend processes in a single pass to generate slides.' },
+      { tag: 'fix', scope: 'canva', description: 'JSON state marker ([extra-params-gather:...]) no longer leaks into the chat bubble. Non-last messages strip markers and show only the intro text.' },
+    ],
+  },
+  {
     version: 'v4.67.0',
     date: '2026-05-15',
     entries: [
