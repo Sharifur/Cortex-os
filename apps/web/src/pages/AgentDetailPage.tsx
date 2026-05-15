@@ -9,7 +9,7 @@ import {
   Bug, AlertTriangle, AlertCircle,
   Plus, Loader2, RefreshCw, Radio,
   CalendarClock, Zap, RotateCcw, ListTodo, ExternalLink,
-  ImageIcon, Upload, ChevronLeft, X, Copy, Check, Download,
+  ImageIcon, Upload, ChevronLeft, X, Copy, Check, Download, Pencil,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -5671,8 +5671,24 @@ function WebhookLogsTab({ token }: { token: string }) {
 export default function AgentDetailPage() {
   const { key } = useParams<{ key: string }>();
   const token = useAuthStore((s) => s.token)!;
+  const qc = useQueryClient();
   const [activeTab, setActiveTab] = useState<'runs' | 'settings' | 'webhooks'>('runs');
   const color = agentColor(key!);
+
+  const [editingName, setEditingName] = useState(false);
+  const [nameInput, setNameInput] = useState('');
+
+  const nameMutation = useMutation({
+    mutationFn: (name: string) =>
+      apiFetch(token, `/agents/${key}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ name }),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['agent', key] });
+      setEditingName(false);
+    },
+  });
 
   const { data: agent, isLoading, isError } = useQuery<AgentDetail>({
     queryKey: ['agent', key],
@@ -5707,7 +5723,47 @@ export default function AgentDetailPage() {
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
-                <h1 className="text-xl font-semibold">{agent.name}</h1>
+                {editingName ? (
+                  <form
+                    className="flex items-center gap-2"
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      const trimmed = nameInput.trim();
+                      if (trimmed) nameMutation.mutate(trimmed);
+                    }}
+                  >
+                    <input
+                      autoFocus
+                      value={nameInput}
+                      onChange={(e) => setNameInput(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Escape' && setEditingName(false)}
+                      className="text-xl font-semibold bg-transparent border-b border-primary focus:outline-none min-w-[12rem]"
+                    />
+                    <button
+                      type="submit"
+                      disabled={nameMutation.isPending || !nameInput.trim()}
+                      className="p-1 text-emerald-400 hover:text-emerald-300 disabled:opacity-40 transition-colors"
+                    >
+                      {nameMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditingName(false)}
+                      className="p-1 text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </form>
+                ) : (
+                  <button
+                    onClick={() => { setNameInput(agent.name); setEditingName(true); }}
+                    className="group/name flex items-center gap-1.5"
+                    title="Click to rename"
+                  >
+                    <h1 className="text-xl font-semibold">{agent.name}</h1>
+                    <Pencil className="w-3.5 h-3.5 text-muted-foreground opacity-0 group-hover/name:opacity-100 transition-opacity" />
+                  </button>
+                )}
                 <code className={`text-xs px-1.5 py-0.5 rounded ${color.badge} ${color.badgeText}`}>{agent.key}</code>
                 {!agent.registered && (
                   <span className="text-xs bg-yellow-500/10 text-yellow-500 px-1.5 py-0.5 rounded">unregistered</span>
