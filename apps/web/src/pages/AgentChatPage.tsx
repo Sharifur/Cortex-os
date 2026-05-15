@@ -1085,14 +1085,29 @@ function parseStylePicker(content: string): { header: string; samples: StyleSamp
   } catch { return null; }
 }
 
+function extractNestedJson(content: string, marker: string): string | null {
+  const start = content.indexOf(marker);
+  if (start === -1) return null;
+  const jsonStart = start + marker.length;
+  if (content[jsonStart] !== '{') return null;
+  let depth = 0, i = jsonStart;
+  while (i < content.length) {
+    if (content[i] === '{') depth++;
+    else if (content[i] === '}') { depth--; if (depth === 0) return content.slice(jsonStart, i + 1); }
+    i++;
+  }
+  return null;
+}
+
 function parseExtraParamsGather(content: string): { needsImageUpload: boolean } | null {
-  const match = content.match(/\[extra-params-gather:(\{[\s\S]*?\})\]/);
-  if (!match) return null;
+  if (!content.includes('[extra-params-gather:')) return null;
+  const json = extractNestedJson(content, '[extra-params-gather:');
+  if (!json) return { needsImageUpload: false };
   try {
-    const state = JSON.parse(match[1]) as { extraParams?: Array<{ type?: string }>; idx?: number };
+    const state = JSON.parse(json) as { extraParams?: Array<{ type?: string }>; idx?: number };
     const current = state.extraParams?.[state.idx ?? 0];
     return { needsImageUpload: current?.type === 'image' };
-  } catch { return null; }
+  } catch { return { needsImageUpload: false }; }
 }
 
 function parseContentConfirm(content: string): { body: string; slideCount: number } | null {
@@ -1115,10 +1130,11 @@ function AssetParamsCard({
   onSubmit: (text: string) => void;
   color: ReturnType<typeof agentColor>;
 }) {
-  const match = content.match(/\[extra-params-gather:(\{[\s\S]*?\})\]/);
-  if (!match) return null;
+  if (!content.includes('[extra-params-gather:')) return null;
+  const json = extractNestedJson(content, '[extra-params-gather:');
+  if (!json) return null;
   let state: { extraParams: Array<{ key: string; description: string; example?: string; type?: string }>; collected?: Record<string, string> };
-  try { state = JSON.parse(match[1]); } catch { return null; }
+  try { state = JSON.parse(json); } catch { return null; }
 
   const { extraParams, collected: initialCollected } = state;
   const [values, setValues] = useState<Record<string, string>>(initialCollected ?? {});

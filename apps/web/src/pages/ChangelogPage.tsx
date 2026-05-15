@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.67.2',
+    date: '2026-05-15',
+    entries: [
+      { tag: 'fix', scope: 'canva', description: 'AssetParamsCard form was not rendering: the regex /\\{[\\s\\S]*?\\}/ is non-greedy and stops at the first closing brace inside nested JSON, causing JSON.parse to fail and the form to silently return null. Replaced with a balanced-brace extractor (extractNestedJson) that walks the string counting { and } to find the correct closing boundary.' },
+    ],
+  },
+  {
     version: 'v4.67.1',
     date: '2026-05-15',
     entries: [
