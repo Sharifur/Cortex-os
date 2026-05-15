@@ -2555,33 +2555,7 @@ function SettingsTab({ agent, token }: { agent: AgentDetail; token: string }) {
     } />
   );
 
-  if (agent.key === 'linkedin') return (
-    <Phase4SettingsTab agent={agent} token={token} setupContent={
-      <Phase4SetupSubTab
-        agent={agent}
-        title="LinkedIn AI Agent — Setup Checklist"
-        description="Scans your LinkedIn feed every 4 hours, drafts comments on relevant posts, and prepares outreach DMs — all requiring your approval before posting."
-        steps={<>
-          <SetupStep n={1} title="Connect LinkedIn via Unipile (recommended)" done={agent.registered}>
-            <p>Unipile provides a unified API for LinkedIn actions without needing direct OAuth approval.</p>
-            <ol className="list-decimal list-inside space-y-0.5 ml-1 mt-1">
-              <li>Sign up at <strong>unipile.com</strong> and connect your LinkedIn account</li>
-              <li>Get your API Key and DSN from the dashboard</li>
-              <li>Add to Coolify: <code className="bg-muted px-1 rounded">UNIPILE_API_KEY</code>, <code className="bg-muted px-1 rounded">UNIPILE_DSN</code></li>
-            </ol>
-            <p className="mt-2 font-medium text-foreground/70">Alternative — LinkedIn OAuth2 directly:</p>
-            <p className="mt-0.5">Set <code className="bg-muted px-1 rounded">LINKEDIN_ACCESS_TOKEN</code> in Coolify env (requires LinkedIn Developer App with r_liteprofile + w_member_social scopes).</p>
-          </SetupStep>
-          <SetupStep n={2} title="Set target topics and tone" done={false}>
-            <p>In Config JSON set <code className="bg-muted px-1 rounded">targetTopics</code> (array of keywords to match posts) and <code className="bg-muted px-1 rounded">commentTone</code>.</p>
-          </SetupStep>
-          <SetupStep n={3} title="Enable and test" done={agent.enabled}>
-            <p>Enable and trigger manually. The agent will draft comments for relevant posts and send them to Telegram for approval.</p>
-          </SetupStep>
-        </>}
-      />
-    } />
-  );
+  if (agent.key === 'linkedin') return <LinkedInSettingsTab agent={agent} token={token} />;
 
   if (agent.key === 'reddit') return (
     <Phase4SettingsTab agent={agent} token={token} setupContent={
@@ -3672,6 +3646,370 @@ function Phase4SettingsTab({ agent, token, setupContent }: {
   );
 }
 
+
+// ─── LinkedIn Settings Tab ────────────────────────────────────────────────────
+
+type LinkedInTab = 'accounts' | 'niches' | 'leads' | 'connections' | 'posts' | 'setup';
+
+function LinkedInSettingsTab({ agent, token }: { agent: AgentDetail; token: string }) {
+  const [tab, setTab] = useState<LinkedInTab>('accounts');
+  const qc = useQueryClient();
+
+  const { data: accounts = [] } = useQuery<any[]>({
+    queryKey: ['linkedin-accounts'],
+    queryFn: () => apiFetch(token, '/linkedin/accounts'),
+  });
+  const { data: niches = [], refetch: refetchNiches } = useQuery<any[]>({
+    queryKey: ['linkedin-niches'],
+    queryFn: () => apiFetch(token, '/linkedin/niches'),
+  });
+  const { data: leads = [] } = useQuery<any[]>({
+    queryKey: ['linkedin-leads'],
+    queryFn: () => apiFetch(token, '/linkedin/leads'),
+  });
+  const { data: connections = [] } = useQuery<any[]>({
+    queryKey: ['linkedin-connections'],
+    queryFn: () => apiFetch(token, '/linkedin/connection-requests'),
+  });
+  const { data: posts = [] } = useQuery<any[]>({
+    queryKey: ['linkedin-posts'],
+    queryFn: () => apiFetch(token, '/linkedin/posts'),
+  });
+
+  const syncMutation = useMutation({
+    mutationFn: () => apiFetch(token, '/linkedin/accounts/sync', { method: 'POST' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['linkedin-accounts'] }),
+  });
+
+  const [newNiche, setNewNiche] = useState({ name: '', description: '', icpDescription: '', keywords: '', targetJobTitles: '', dailyConnectLimit: 5, accountId: '' });
+  const createNicheMutation = useMutation({
+    mutationFn: (data: any) => apiFetch(token, '/linkedin/niches', { method: 'POST', body: JSON.stringify(data) }),
+    onSuccess: () => { refetchNiches(); setNewNiche({ name: '', description: '', icpDescription: '', keywords: '', targetJobTitles: '', dailyConnectLimit: 5, accountId: '' }); },
+  });
+
+  const deleteNicheMutation = useMutation({
+    mutationFn: (id: string) => apiFetch(token, `/linkedin/niches/${id}`, { method: 'DELETE' }),
+    onSuccess: () => refetchNiches(),
+  });
+
+  const TABS: { key: LinkedInTab; label: string }[] = [
+    { key: 'accounts', label: 'Accounts' },
+    { key: 'niches', label: 'Niches' },
+    { key: 'leads', label: 'Leads' },
+    { key: 'connections', label: 'Connections' },
+    { key: 'posts', label: 'Posts' },
+    { key: 'setup', label: 'Setup' },
+  ];
+
+  const STATUS_COLORS: Record<string, string> = {
+    pending: 'bg-yellow-500/15 text-yellow-300',
+    sent: 'bg-blue-500/15 text-blue-300',
+    accepted: 'bg-emerald-500/15 text-emerald-300',
+    declined: 'bg-red-500/15 text-red-300',
+    failed: 'bg-red-500/15 text-red-300',
+    new: 'bg-sky-500/15 text-sky-300',
+    dm_sent: 'bg-violet-500/15 text-violet-300',
+    connected: 'bg-emerald-500/15 text-emerald-300',
+    none: 'bg-muted text-muted-foreground',
+    posted: 'bg-emerald-500/15 text-emerald-300',
+    skipped: 'bg-muted text-muted-foreground',
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex gap-1 flex-wrap">
+        {TABS.map(t => (
+          <button
+            key={t.key}
+            onClick={() => setTab(t.key)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${tab === t.key ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'}`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'accounts' && (
+        <div className="space-y-4">
+          <div className="rounded-xl border border-border bg-card p-5">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-semibold">LinkedIn Accounts</h3>
+              <Button size="sm" variant="outline" onClick={() => syncMutation.mutate()} disabled={syncMutation.isPending}>
+                {syncMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                <span className="ml-1.5">Sync from Unipile</span>
+              </Button>
+            </div>
+            {accounts.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No accounts synced yet. Click "Sync from Unipile" to import your connected LinkedIn accounts.</p>
+            ) : (
+              <div className="space-y-2">
+                {accounts.map((acc: any) => (
+                  <div key={acc.id} className="flex items-center justify-between p-3 rounded-lg border border-border bg-background/50">
+                    <div>
+                      <p className="text-sm font-medium">{acc.label}</p>
+                      <p className="text-xs text-muted-foreground">{acc.unipileAccountId}</p>
+                    </div>
+                    <span className={`text-xs px-2 py-0.5 rounded-full ${acc.isActive ? 'bg-emerald-500/15 text-emerald-300' : 'bg-muted text-muted-foreground'}`}>
+                      {acc.isActive ? 'Active' : 'Inactive'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {tab === 'niches' && (
+        <div className="space-y-4">
+          <div className="rounded-xl border border-border bg-card p-5">
+            <h3 className="text-sm font-semibold mb-4">Add Niche</h3>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs text-muted-foreground block mb-1">Account</label>
+                <select
+                  value={newNiche.accountId}
+                  onChange={e => setNewNiche(n => ({ ...n, accountId: e.target.value }))}
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                >
+                  <option value="">Select account</option>
+                  {accounts.map((a: any) => <option key={a.id} value={a.id}>{a.label}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground block mb-1">Niche name</label>
+                <Input value={newNiche.name} onChange={e => setNewNiche(n => ({ ...n, name: e.target.value }))} placeholder="e.g. SaaS Founders" className="text-sm" />
+              </div>
+              <div className="col-span-2">
+                <label className="text-xs text-muted-foreground block mb-1">ICP description (used for LLM scoring)</label>
+                <textarea
+                  value={newNiche.icpDescription}
+                  onChange={e => setNewNiche(n => ({ ...n, icpDescription: e.target.value }))}
+                  placeholder="Describe your ideal customer: role, company size, pain points, goals..."
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm min-h-[80px] resize-none"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground block mb-1">Keywords (comma-separated)</label>
+                <Input value={newNiche.keywords} onChange={e => setNewNiche(n => ({ ...n, keywords: e.target.value }))} placeholder="saas, founder, startup" className="text-sm" />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground block mb-1">Target job titles (comma-separated)</label>
+                <Input value={newNiche.targetJobTitles} onChange={e => setNewNiche(n => ({ ...n, targetJobTitles: e.target.value }))} placeholder="CEO, Founder, Head of Product" className="text-sm" />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground block mb-1">Daily connection limit</label>
+                <Input type="number" min={1} max={20} value={newNiche.dailyConnectLimit} onChange={e => setNewNiche(n => ({ ...n, dailyConnectLimit: Number(e.target.value) }))} className="text-sm" />
+              </div>
+            </div>
+            <Button
+              size="sm"
+              className="mt-4"
+              disabled={!newNiche.name || !newNiche.accountId || createNicheMutation.isPending}
+              onClick={() => createNicheMutation.mutate({
+                accountId: newNiche.accountId,
+                name: newNiche.name,
+                icpDescription: newNiche.icpDescription || null,
+                keywords: newNiche.keywords.split(',').map(s => s.trim()).filter(Boolean),
+                targetJobTitles: newNiche.targetJobTitles.split(',').map(s => s.trim()).filter(Boolean),
+                dailyConnectLimit: newNiche.dailyConnectLimit,
+              })}
+            >
+              {createNicheMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> : <Plus className="w-3.5 h-3.5 mr-1.5" />}
+              Add Niche
+            </Button>
+          </div>
+
+          {niches.length > 0 && (
+            <div className="rounded-xl border border-border bg-card p-5">
+              <h3 className="text-sm font-semibold mb-4">Active Niches</h3>
+              <div className="space-y-3">
+                {niches.map((n: any) => (
+                  <div key={n.id} className="p-3 rounded-lg border border-border bg-background/50">
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium">{n.name}</p>
+                        <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{n.icpDescription ?? n.description ?? '—'}</p>
+                        <div className="flex flex-wrap gap-1.5 mt-2">
+                          {(n.keywords ?? []).map((kw: string) => (
+                            <span key={kw} className="text-xs bg-muted px-1.5 py-0.5 rounded">{kw}</span>
+                          ))}
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-1.5">{n.dailyConnectLimit} connections/day</p>
+                      </div>
+                      <button
+                        onClick={() => deleteNicheMutation.mutate(n.id)}
+                        className="ml-3 text-muted-foreground hover:text-red-400 transition-colors"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {tab === 'leads' && (
+        <div className="rounded-xl border border-border bg-card p-5">
+          <h3 className="text-sm font-semibold mb-4">Leads ({leads.length})</h3>
+          {leads.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No leads yet. The agent will populate leads automatically from the niche search pipeline.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border text-left">
+                    <th className="pb-2 pr-4 text-xs font-medium text-muted-foreground">Name</th>
+                    <th className="pb-2 pr-4 text-xs font-medium text-muted-foreground">Headline</th>
+                    <th className="pb-2 pr-4 text-xs font-medium text-muted-foreground">Connection</th>
+                    <th className="pb-2 pr-4 text-xs font-medium text-muted-foreground">Status</th>
+                    <th className="pb-2 pr-4 text-xs font-medium text-muted-foreground">ICP Score</th>
+                    <th className="pb-2 text-xs font-medium text-muted-foreground">Reason</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {leads.map((l: any) => (
+                    <tr key={l.id}>
+                      <td className="py-2.5 pr-4">
+                        <a href={l.profileUrl} target="_blank" rel="noreferrer" className="font-medium hover:text-primary transition-colors">
+                          {l.name ?? '—'}
+                        </a>
+                      </td>
+                      <td className="py-2.5 pr-4 text-muted-foreground max-w-[200px] truncate">{l.headline ?? '—'}</td>
+                      <td className="py-2.5 pr-4">
+                        <span className={`text-xs px-1.5 py-0.5 rounded-full ${STATUS_COLORS[l.connectionStatus] ?? 'bg-muted text-muted-foreground'}`}>
+                          {l.connectionStatus}
+                        </span>
+                      </td>
+                      <td className="py-2.5 pr-4">
+                        <span className={`text-xs px-1.5 py-0.5 rounded-full ${STATUS_COLORS[l.status] ?? 'bg-muted text-muted-foreground'}`}>
+                          {l.status}
+                        </span>
+                      </td>
+                      <td className="py-2.5 pr-4 text-muted-foreground">{l.icpScore != null ? (l.icpScore * 100).toFixed(0) + '%' : '—'}</td>
+                      <td className="py-2.5 text-xs text-muted-foreground max-w-[250px] truncate">{l.icpReason ?? '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {tab === 'connections' && (
+        <div className="rounded-xl border border-border bg-card p-5">
+          <h3 className="text-sm font-semibold mb-4">Connection Requests ({connections.length})</h3>
+          {connections.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No connection requests sent yet. The agent will propose these on each 4h cycle once niches are configured.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border text-left">
+                    <th className="pb-2 pr-4 text-xs font-medium text-muted-foreground">Name</th>
+                    <th className="pb-2 pr-4 text-xs font-medium text-muted-foreground">Headline</th>
+                    <th className="pb-2 pr-4 text-xs font-medium text-muted-foreground">Status</th>
+                    <th className="pb-2 pr-4 text-xs font-medium text-muted-foreground">ICP Score</th>
+                    <th className="pb-2 pr-4 text-xs font-medium text-muted-foreground">Note sent</th>
+                    <th className="pb-2 text-xs font-medium text-muted-foreground">Date</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {connections.map((c: any) => (
+                    <tr key={c.id}>
+                      <td className="py-2.5 pr-4">
+                        <a href={c.profileUrl ?? '#'} target="_blank" rel="noreferrer" className="font-medium hover:text-primary transition-colors">
+                          {c.profileName}
+                        </a>
+                      </td>
+                      <td className="py-2.5 pr-4 text-muted-foreground max-w-[180px] truncate">{c.profileHeadline ?? '—'}</td>
+                      <td className="py-2.5 pr-4">
+                        <span className={`text-xs px-1.5 py-0.5 rounded-full ${STATUS_COLORS[c.status] ?? 'bg-muted text-muted-foreground'}`}>
+                          {c.status}
+                        </span>
+                      </td>
+                      <td className="py-2.5 pr-4 text-muted-foreground">{c.icpScore != null ? (c.icpScore * 100).toFixed(0) + '%' : '—'}</td>
+                      <td className="py-2.5 pr-4 text-xs text-muted-foreground max-w-[200px] truncate">{c.noteSent ?? '—'}</td>
+                      <td className="py-2.5 text-xs text-muted-foreground">{c.createdAt ? new Date(c.createdAt).toLocaleDateString() : '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {tab === 'posts' && (
+        <div className="rounded-xl border border-border bg-card p-5">
+          <h3 className="text-sm font-semibold mb-4">Feed Posts Engaged ({posts.length})</h3>
+          {posts.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No posts tracked yet.</p>
+          ) : (
+            <div className="space-y-3">
+              {posts.map((p: any) => (
+                <div key={p.id} className="p-3 rounded-lg border border-border bg-background/50">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-medium text-muted-foreground">{p.authorName ?? '—'}</p>
+                      <p className="text-sm mt-0.5 line-clamp-2">{p.content?.slice(0, 200)}</p>
+                      {p.draftComment && (
+                        <p className="text-xs text-primary mt-1.5 italic">"{p.draftComment.slice(0, 150)}"</p>
+                      )}
+                    </div>
+                    <span className={`shrink-0 text-xs px-1.5 py-0.5 rounded-full ${STATUS_COLORS[p.status] ?? 'bg-muted text-muted-foreground'}`}>
+                      {p.status}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {tab === 'setup' && (
+        <div className="rounded-xl border border-border bg-card p-5">
+          <h3 className="text-sm font-semibold mb-1">LinkedIn AI Agent — Setup Checklist</h3>
+          <p className="text-xs text-muted-foreground mb-5">Scans LinkedIn feed every 4 hours, sends niche-targeted connection requests, drafts comments and outreach DMs — all requiring Telegram approval.</p>
+          <div className="space-y-5">
+            <SetupStep n={1} title="Connect LinkedIn via Unipile" done={agent.registered}>
+              <ol className="list-decimal list-inside space-y-0.5 ml-1">
+                <li>Sign up at <strong>unipile.com</strong> and connect your LinkedIn account(s)</li>
+                <li>Get your API Key and DSN from the Unipile dashboard</li>
+                <li>Add to Coolify env: <code className="bg-muted px-1 rounded">UNIPILE_API_KEY</code>, <code className="bg-muted px-1 rounded">UNIPILE_DSN</code></li>
+                <li>Go to the <strong>Accounts</strong> tab and click "Sync from Unipile"</li>
+              </ol>
+              <p className="mt-2 text-xs text-muted-foreground">Note: LLM, Telegram, and database are configured platform-wide.</p>
+            </SetupStep>
+            <SetupStep n={2} title="Create at least one niche" done={niches.length > 0}>
+              <p>Go to the <strong>Niches</strong> tab. Define your Ideal Customer Profile — this drives both connection targeting and DM personalization.</p>
+              <ul className="list-disc list-inside space-y-0.5 ml-1 mt-1 text-xs text-muted-foreground">
+                <li>Keywords: terms searched in LinkedIn to find candidates</li>
+                <li>Job titles: narrows the candidate pool</li>
+                <li>ICP description: prose block for LLM scoring (0–1 score, threshold 0.65)</li>
+                <li>Daily limit: max connection requests per day per niche (default 5)</li>
+              </ul>
+            </SetupStep>
+            <SetupStep n={3} title="Set target topics for feed comments" done={false}>
+              <p>In Config JSON set <code className="bg-muted px-1 rounded">targetTopics</code> (keywords to match feed posts) and <code className="bg-muted px-1 rounded">commentTone</code>.</p>
+            </SetupStep>
+            <SetupStep n={4} title="Enable and trigger a manual run" done={agent.enabled}>
+              <p>Enable the agent and trigger manually. The agent will search for niche candidates, score them, draft connection notes and feed comments — each requiring Telegram approval before sending.</p>
+              <p className="mt-1 text-xs text-muted-foreground">DMs are proposed only for leads with <code className="bg-muted px-1 rounded">connectionStatus = connected</code> — connection first, DM after acceptance.</p>
+            </SetupStep>
+          </div>
+        </div>
+      )}
+
+      <Phase4GeneralSubTab agent={agent} token={token} />
+    </div>
+  );
+}
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
