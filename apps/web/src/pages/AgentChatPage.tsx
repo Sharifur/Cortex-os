@@ -1196,10 +1196,10 @@ function StylePickerCard({
         {/* Random option */}
         <button
           onClick={() => pick('0')}
-          className={`flex flex-col items-center gap-1.5 group transition-all ${selected ? 'opacity-40 pointer-events-none' : ''} ${selected === '0' ? '!opacity-100' : ''}`}
+          className={`flex flex-col items-center gap-1.5 group/card transition-all ${selected ? 'opacity-40 pointer-events-none' : ''} ${selected === '0' ? '!opacity-100' : ''}`}
         >
           <div style={{ width: W, height: H }} className={`rounded-xl border-2 flex items-center justify-center bg-muted/40 transition-colors ${
-            selected === '0' ? 'border-primary' : 'border-border group-hover:border-foreground/30'
+            selected === '0' ? 'border-primary' : 'border-border group-hover/card:border-foreground/30'
           }`}>
             <span className="text-2xl opacity-40">?</span>
           </div>
@@ -1210,7 +1210,7 @@ function StylePickerCard({
           <button
             key={s.num}
             onClick={() => pick(s.num)}
-            className={`flex flex-col items-center gap-1.5 group transition-all ${selected ? 'opacity-40 pointer-events-none' : ''} ${selected === s.num ? '!opacity-100' : ''}`}
+            className={`flex flex-col items-center gap-1.5 group/card transition-all ${selected ? 'opacity-40 pointer-events-none' : ''} ${selected === s.num ? '!opacity-100' : ''}`}
           >
             {/* Stacked card visual for carousel sets */}
             <div style={{ position: 'relative', width: W + 8, height: H + 8 }}>
@@ -1224,7 +1224,7 @@ function StylePickerCard({
               )}
               <div
                 className={`absolute rounded-xl border-2 overflow-hidden transition-colors ${
-                  selected === s.num ? 'border-primary' : 'border-border group-hover:border-foreground/30'
+                  selected === s.num ? 'border-primary' : 'border-border group-hover/card:border-foreground/30'
                 }`}
                 style={{ width: W, height: H, top: 0, left: 0 }}
               >

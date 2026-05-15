@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.66.7',
+    date: '2026-05-15',
+    entries: [
+      { tag: 'fix', scope: 'canva', description: 'Style picker hover border now highlights only the hovered card. Changed button group class to named group/card and updated group-hover: to group-hover/card: so the parent message bubble group does not bleed the hover state to all cards simultaneously.' },
+    ],
+  },
+  {
     version: 'v4.66.6',
     date: '2026-05-15',
     entries: [
