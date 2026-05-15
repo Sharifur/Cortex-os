@@ -420,78 +420,111 @@ export default function SupportTicketDetailPage() {
         </div>
       )}
 
-      {/* AI Draft section */}
-      <div className="rounded-xl border border-border bg-card px-5 py-4 space-y-3">
-        <div className="flex items-center justify-between">
-          <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
-            {activeDraft ? (ticket.status === 'replied' ? 'Reply Sent' : 'Draft Reply') : 'AI Draft Reply'}
-          </p>
+      {/* AI Draft section — state-driven */}
+      {ticket.status === 'replied' ? (
+        <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-5 py-4 space-y-3">
           <div className="flex items-center gap-2">
-            {activeDraft && ticket.status !== 'replied' && (
-              <button
-                onClick={handleSendReply}
-                disabled={sending}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-emerald-600 text-white text-xs font-medium hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              >
-                {sending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
-                {sending ? 'Sending...' : 'Send Reply'}
-              </button>
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            <p className="text-sm font-semibold text-emerald-400">Reply Sent</p>
+            {ticket.repliedAt && (
+              <span className="text-xs text-muted-foreground">{fmt(ticket.repliedAt)}</span>
             )}
             <button
               onClick={handleGenerateDraft}
               disabled={generating}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
             >
-              {generating ? (
-                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-              ) : (
-                <Wand2 className="w-3.5 h-3.5" />
-              )}
-              {generating ? 'Generating...' : activeDraft ? 'Regenerate Draft' : 'Generate Draft'}
+              {generating ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
+              {generating ? 'Generating...' : 'Regenerate'}
             </button>
           </div>
+          {draftError && (
+            <div className="flex items-center gap-2 text-sm text-red-400">
+              <XCircle className="w-4 h-4 shrink-0" /> {draftError}
+            </div>
+          )}
+          {activeDraft && (
+            <div className="rounded-lg border border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground whitespace-pre-wrap leading-relaxed">
+              {activeDraft}
+            </div>
+          )}
         </div>
+      ) : (
+        <>
+          {/* Step 1 — Generate draft */}
+          <div className="rounded-xl border border-border bg-card px-5 py-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">AI Draft Reply</p>
+                {activeDraft && (
+                  <p className="text-[11px] text-amber-400 mt-0.5">Draft saved — not sent yet</p>
+                )}
+              </div>
+              <button
+                onClick={handleGenerateDraft}
+                disabled={generating}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border text-xs text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors disabled:opacity-50"
+              >
+                {generating ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
+                {generating ? 'Generating...' : activeDraft ? 'Regenerate Draft' : 'Generate Draft'}
+              </button>
+            </div>
 
-        {draftError && (
-          <div className="flex items-center gap-2 text-sm text-red-400">
-            <XCircle className="w-4 h-4 shrink-0" />
-            {draftError}
-          </div>
-        )}
+            {draftError && (
+              <div className="flex items-center gap-2 text-sm text-red-400">
+                <XCircle className="w-4 h-4 shrink-0" /> {draftError}
+              </div>
+            )}
+            {draft && (
+              <div className="flex items-center gap-1.5 text-xs text-emerald-400">
+                <CheckCircle2 className="w-3.5 h-3.5" /> Draft generated and saved
+              </div>
+            )}
 
-        {draft && (
-          <div className="flex items-center gap-1.5 text-xs text-emerald-400">
-            <CheckCircle2 className="w-3.5 h-3.5" />
-            Draft generated and saved
+            {activeDraft ? (
+              <div className="rounded-lg border border-border bg-muted/30 px-4 py-3 text-sm text-foreground whitespace-pre-wrap leading-relaxed">
+                {activeDraft}
+              </div>
+            ) : !generating && (
+              <p className="text-xs text-muted-foreground italic">No draft yet. Click Generate Draft to have the AI write a reply based on the ticket context.</p>
+            )}
           </div>
-        )}
-        {sendSuccess && (
-          <div className="flex items-center gap-1.5 text-xs text-emerald-400">
-            <CheckCircle2 className="w-3.5 h-3.5" />
-            Reply sent to customer
-          </div>
-        )}
-        {sendError && (
-          <div className="flex items-center gap-2 text-sm text-red-400">
-            <XCircle className="w-4 h-4 shrink-0" />
-            {sendError}
-          </div>
-        )}
 
-        {activeDraft ? (
-          <div className="rounded-lg border border-border bg-muted/30 px-4 py-3 text-sm text-foreground whitespace-pre-wrap leading-relaxed">
-            {activeDraft}
-          </div>
-        ) : !generating && (
-          <p className="text-xs text-muted-foreground italic">No draft yet. Click Generate Draft to have the AI write a reply.</p>
-        )}
-
-        {ticket.status !== 'replied' && ticket.status !== 'escalated' && (
-          <p className="text-[11px] text-muted-foreground">
-            Generating a draft saves it to the ticket and queues an approval request on the next agent run.
-          </p>
-        )}
-      </div>
+          {/* Step 2 — Send reply (only shown when a draft exists) */}
+          {activeDraft && (
+            <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-5 py-4">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-sm font-semibold text-emerald-300">Ready to send?</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    This will email the draft above to{' '}
+                    <span className="text-foreground">{ticket.userEmail}</span>{' '}
+                    and mark the ticket as replied.
+                  </p>
+                </div>
+                <button
+                  onClick={handleSendReply}
+                  disabled={sending}
+                  className="shrink-0 flex items-center gap-2 px-4 py-2 rounded-md bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                  {sending ? 'Sending...' : 'Send Reply'}
+                </button>
+              </div>
+              {sendSuccess && (
+                <div className="flex items-center gap-1.5 text-xs text-emerald-400 mt-3">
+                  <CheckCircle2 className="w-3.5 h-3.5" /> Reply sent to customer
+                </div>
+              )}
+              {sendError && (
+                <div className="flex items-center gap-2 text-sm text-red-400 mt-3">
+                  <XCircle className="w-4 h-4 shrink-0" /> {sendError}
+                </div>
+              )}
+            </div>
+          )}
+        </>
+      )}
 
       {/* Train Agent section */}
       <div className="rounded-xl border border-border bg-card px-5 py-4 space-y-3">

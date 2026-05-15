@@ -76,9 +76,14 @@ function TicketRow({ t, onDelete, deleting }: { t: SupportTicket; onDelete: (id:
       </td>
       <td className="py-3 px-3 max-w-[260px]">
         <p className="text-sm font-medium truncate">{t.subject}</p>
-        {t.category && (
-          <Badge label={t.category} styles={CATEGORY_STYLES[t.category] ?? 'bg-slate-500/15 text-slate-400'} />
-        )}
+        <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+          {t.category && (
+            <Badge label={t.category} styles={CATEGORY_STYLES[t.category] ?? 'bg-slate-500/15 text-slate-400'} />
+          )}
+          {t.lastDraft && t.status !== 'replied' && (
+            <Badge label="draft ready" styles="bg-amber-500/15 text-amber-300" />
+          )}
+        </div>
       </td>
       <td className="py-3 px-3">
         <div className="flex flex-col gap-0.5">
@@ -189,9 +194,10 @@ export default function SupportTicketsPage() {
   const tickets = data?.data ?? [];
 
   const counts = {
-    open:      tickets.filter(t => t.status === 'open').length,
-    replied:   tickets.filter(t => t.status === 'replied').length,
-    escalated: tickets.filter(t => t.status === 'escalated').length,
+    open:       tickets.filter(t => t.status === 'open').length,
+    replied:    tickets.filter(t => t.status === 'replied').length,
+    escalated:  tickets.filter(t => t.status === 'escalated').length,
+    draftReady: tickets.filter(t => !!t.lastDraft && t.status !== 'replied').length,
   };
 
   return (
@@ -216,7 +222,7 @@ export default function SupportTicketsPage() {
       </div>
 
       {/* Stats strip */}
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-4 gap-3">
         <div className="rounded-xl border border-border bg-card px-4 py-3">
           <p className="text-xs text-muted-foreground mb-1">Open</p>
           <p className="text-2xl font-bold text-blue-400">{counts.open}</p>
@@ -231,6 +237,10 @@ export default function SupportTicketsPage() {
             <p className="text-2xl font-bold text-orange-400">{counts.escalated}</p>
           </div>
           {counts.escalated > 0 && <AlertTriangle className="w-4 h-4 text-orange-400 mt-1" />}
+        </div>
+        <div className="rounded-xl border border-border bg-card px-4 py-3">
+          <p className="text-xs text-muted-foreground mb-1">Draft Ready</p>
+          <p className="text-2xl font-bold text-amber-400">{counts.draftReady}</p>
         </div>
       </div>
 

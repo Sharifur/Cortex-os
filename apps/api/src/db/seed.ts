@@ -19,7 +19,7 @@ const AGENT_SEEDS = [
   },
   {
     key: 'canva',
-    name: 'Social Media Banner Design Agent',
+    name: 'Social Media Banner Designer',
     description: 'Generates a 30-idea monthly content calendar on the 1st of each month and creates Canva designs for approved ideas.',
     enabled: false,
     config: {

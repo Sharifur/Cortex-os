@@ -16,6 +16,31 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.69.0',
+    date: '2026-05-15',
+    entries: [
+      { tag: 'feat', scope: 'support', description: 'Support Ticket Detail page: Generate Draft and Send Reply are now two visually distinct steps. Generate Draft saves a preview (labeled "Draft saved — not sent yet"); Send Reply lives in a separate green panel describing exactly who will receive the email. Ticket status is never changed by generating a draft.' },
+      { tag: 'feat', scope: 'support', description: 'Support Tickets list page: added "Draft Ready" stat card (4th column) and per-row amber "draft ready" badge for tickets that have a saved draft but have not been replied to yet.' },
+      { tag: 'fix', scope: 'support', description: 'Replied ticket detail view now shows the reply timestamp and the sent draft in a green confirmation panel instead of the standard editable card.' },
+    ],
+  },
+  {
+    version: 'v4.68.2',
+    date: '2026-05-15',
+    entries: [
+      { tag: 'chore', scope: 'canva', description: 'Renamed agent from "Social Media Banner Design Agent" to "Social Media Banner Designer" in agent class, seed file, and DB migration.' },
+      { tag: 'fix', scope: 'canva', description: 'AI-generated carousel slides now appear in the Post Renders tab. Added recordDnaRender() to DesignStudioService which inserts a post_renders row (formatId: dna-carousel) after every DNA-path generation run. All three slide-generation paths in the canva agent call this. Post Renders tab shows "AI Carousel (training sample)" as the format label and hides PPTX/CSV/Text export links for DNA renders.' },
+    ],
+  },
+  {
+    version: 'v4.68.1',
+    date: '2026-05-15',
+    entries: [
+      { tag: 'fix', scope: 'canva', description: 'Slide lightbox no longer fills the full screen height. Image is now constrained to calc(100vh - 160px), leaving an 80px gap on top and bottom so the toolbar and hint text are always visible.' },
+      { tag: 'chore', description: 'Added docs/16-design-studio.md covering the full Design Studio system: DNA extraction, DesignDNA schema, asset collection form, gpt-image-1 edit pipeline, chat state machine markers, progressive slide reveal, and activity log events.' },
+    ],
+  },
+  {
     version: 'v4.68.0',
     date: '2026-05-15',
     entries: [

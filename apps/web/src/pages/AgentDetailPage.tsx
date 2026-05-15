@@ -3912,14 +3912,14 @@ function PostRendersTab({ token }: { token: string }) {
           <div key={r.id} className="bg-card border border-border rounded-xl p-4 space-y-3">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium">{r.formatId}</p>
-                <p className="text-xs text-muted-foreground">{r.brand} {r.topic ? `— ${r.topic}` : ''}</p>
+                <p className="text-sm font-medium">{r.formatId === 'dna-carousel' ? 'AI Carousel (training sample)' : r.formatId}</p>
+                <p className="text-xs text-muted-foreground">{r.brand !== 'dna' ? r.brand : ''}{r.topic ? ` — ${r.topic}` : ''}</p>
               </div>
               <div className="flex items-center gap-2">
                 <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${r.status === 'approved' ? 'bg-green-100 text-green-700' : r.status === 'rejected' ? 'bg-muted text-muted-foreground' : 'bg-amber-100 text-amber-700'}`}>{r.status}</span>
-                <a href={apiHref(`/posts/renders/${r.id}/pptx`)} className="text-xs text-primary underline">PPTX</a>
-                <a href={apiHref(`/posts/renders/${r.id}/canva-csv`)} className="text-xs text-primary underline">CSV</a>
-                <a href={apiHref(`/posts/renders/${r.id}/text-export`)} className="text-xs text-primary underline">Text</a>
+                {r.formatId !== 'dna-carousel' && <a href={apiHref(`/posts/renders/${r.id}/pptx`)} className="text-xs text-primary underline">PPTX</a>}
+                {r.formatId !== 'dna-carousel' && <a href={apiHref(`/posts/renders/${r.id}/canva-csv`)} className="text-xs text-primary underline">CSV</a>}
+                {r.formatId !== 'dna-carousel' && <a href={apiHref(`/posts/renders/${r.id}/text-export`)} className="text-xs text-primary underline">Text</a>}
                 <button
                   onClick={() => handleDelete(r.id)}
                   disabled={deletingId === r.id}

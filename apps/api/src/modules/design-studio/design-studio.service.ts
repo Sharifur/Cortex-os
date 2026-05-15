@@ -12,6 +12,7 @@ import { LlmRouterService } from '../llm/llm-router.service';
 import { SettingsService } from '../settings/settings.service';
 import { QUEUE_NAMES } from '../../common/queue/queue.constants';
 import { designStudioTemplates, designStudioJobs } from './schema';
+import { postRenders } from '../post-render/schema';
 import type { DesignStudioJobData } from './design-studio.processor';
 import type { DesignDNA } from './design-studio.processor';
 
@@ -225,6 +226,24 @@ export class DesignStudioService {
   async getRender(renderId: string): Promise<Buffer> {
     const file = path.join(DNA_RENDERS_DIR, `${renderId}.png`);
     return fs.readFile(file);
+  }
+
+  async recordDnaRender(params: {
+    slideUrls: string[];
+    topic?: string;
+    brand?: string;
+    formatId?: string;
+    slides?: Array<{ headline: string; body?: string }>;
+  }): Promise<void> {
+    await this.db.db.insert(postRenders).values({
+      id: createId(),
+      formatId: params.formatId ?? 'dna-carousel',
+      brand: params.brand ?? 'dna',
+      topic: params.topic ?? '',
+      filledContent: params.slides ?? [],
+      slideUrls: params.slideUrls,
+      status: 'draft',
+    });
   }
 
   // ─── Templates CRUD ──────────────────────────────────────────────────────────

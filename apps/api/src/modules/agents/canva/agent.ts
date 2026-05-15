@@ -69,7 +69,7 @@ function extractNestedJson(text: string, marker: string): string | null {
 @Injectable()
 export class CanvaAgent implements IAgent, OnModuleInit {
   readonly key = 'canva';
-  readonly name = 'Social Media Banner Design Agent';
+  readonly name = 'Social Media Banner Designer';
   private readonly logger = new Logger(CanvaAgent.name);
 
   constructor(
@@ -315,6 +315,7 @@ export class CanvaAgent implements IAgent, OnModuleInit {
             if (runId) {
               await this.logSvc.info(runId, `All ${slideUrls.length} slides generated`, { event_type: 'post_upload_done', slide_urls: slideUrls }).catch(() => {});
             }
+            await this.designStudio.recordDnaRender({ slideUrls, topic: allCollected['topic'], brand: config.brands?.[0], slides: ep.confirmedSlides }).catch(() => {});
             return [{ type: 'notify_result', summary: 'Carousel auto-generated', payload: { message: `${SLIDE_RENDER_STR}${JSON.stringify({ slideUrls })}` }, riskLevel: 'low' }];
           }
 
@@ -367,6 +368,7 @@ export class CanvaAgent implements IAgent, OnModuleInit {
           if (runId) {
             await this.logSvc.info(runId, `All ${slideUrls.length} slides generated`, { event_type: 'post_upload_done', slide_urls: slideUrls }).catch(() => {});
           }
+          await this.designStudio.recordDnaRender({ slideUrls, topic: ep.collected['topic'], brand: config.brands?.[0], slides: ep.confirmedSlides }).catch(() => {});
           const msg = `${SLIDE_RENDER_STR}${JSON.stringify({ slideUrls })}`;
           return [{ type: 'notify_result', summary: 'Carousel auto-generated', payload: { message: msg }, riskLevel: 'low' }];
         } catch { /* fall through */ }
@@ -821,6 +823,7 @@ export class CanvaAgent implements IAgent, OnModuleInit {
           if (runId) {
             await this.logSvc.info(runId, `All ${slideUrls.length} slides generated`, { event_type: 'post_upload_done', slide_urls: slideUrls }).catch(() => {});
           }
+          await this.designStudio.recordDnaRender({ slideUrls, topic, brand, formatId, slides }).catch(() => {});
           const msg = `${SLIDE_RENDER_STR}${JSON.stringify({ slideUrls })}`;
           return [{ type: 'notify_result', summary: 'Carousel auto-generated', payload: { message: msg }, riskLevel: 'low' }];
         } else {
