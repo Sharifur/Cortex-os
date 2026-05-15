@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Settings, Save, Trash2, Eye, EyeOff, Key, Zap, UserCircle, Loader2, Globe, BriefcaseBusiness, Image, Link2, CheckCircle2, XCircle, FlaskConical } from 'lucide-react';
+import { Settings, Save, Trash2, Eye, EyeOff, Key, Zap, UserCircle, Loader2, Globe, BriefcaseBusiness, Image } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -595,69 +595,6 @@ function CanvaTab({ rows, token }: { rows: SettingRow[]; token: string }) {
   );
 }
 
-interface TestResult { ok: boolean; message: string; }
-
-function UnipileTab({ rows, token }: { rows: SettingRow[]; token: string }) {
-  const [testResult, setTestResult] = useState<TestResult | null>(null);
-  const [testing, setTesting] = useState(false);
-
-  async function runTest() {
-    setTesting(true);
-    setTestResult(null);
-    try {
-      const res = await fetch('/integrations/unipile/test', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data: TestResult = await res.json();
-      setTestResult(data);
-    } catch {
-      setTestResult({ ok: false, message: 'Request failed — check server logs' });
-    } finally {
-      setTesting(false);
-    }
-  }
-
-  return (
-    <div className="rounded-xl border border-border bg-card mb-6">
-      <div className="px-5 py-3 border-b border-border flex items-center gap-2">
-        <Link2 className="w-4 h-4 text-primary" />
-        <span className="text-sm font-semibold">Unipile</span>
-        <span className="text-xs text-muted-foreground ml-1">LinkedIn automation via Unipile API</span>
-      </div>
-      <div className="px-5">
-        {rows.map((s) => <SettingField key={s.key} setting={s} token={token} />)}
-      </div>
-      <div className="px-5 pb-4 pt-2 flex items-center gap-3 flex-wrap">
-        <button
-          onClick={runTest}
-          disabled={testing}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-border rounded-lg text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors disabled:opacity-50"
-        >
-          {testing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FlaskConical className="w-3.5 h-3.5" />}
-          {testing ? 'Testing...' : 'Test connection'}
-        </button>
-        {testResult && (
-          <span className={`flex items-center gap-1.5 text-sm font-medium ${testResult.ok ? 'text-green-400' : 'text-red-400'}`}>
-            {testResult.ok
-              ? <CheckCircle2 className="w-4 h-4 shrink-0" />
-              : <XCircle className="w-4 h-4 shrink-0" />}
-            {testResult.message}
-          </span>
-        )}
-      </div>
-      <div className="px-5 pb-4">
-        <p className="text-xs text-muted-foreground">
-          Get your API Key and DSN from{' '}
-          <a href="https://app.unipile.com" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
-            app.unipile.com
-          </a>{' '}
-          → Settings → API Keys.
-        </p>
-      </div>
-    </div>
-  );
-}
 
 
 const IMAGE_PROVIDER_TABS = [
@@ -895,7 +832,6 @@ export default function SettingsPage() {
           <GeneralTab rows={grouped['general'] ?? []} token={token} />
           <LlmTab rows={grouped['llm'] ?? []} token={token} />
           <ImageTab rows={grouped['image'] ?? []} token={token} />
-          <UnipileTab rows={grouped['unipile'] ?? []} token={token} />
           <HrTab rows={grouped['hr'] ?? []} token={token} />
           <CanvaTab rows={grouped['canva'] ?? []} token={token} />
         </>

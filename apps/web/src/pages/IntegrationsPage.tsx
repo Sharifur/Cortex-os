@@ -24,6 +24,7 @@ interface SettingRow {
 
 const TABS = [
   { key: 'oauth', label: 'OAuth Apps', icon: <Link2 className="w-4 h-4" /> },
+  { key: 'unipile', label: 'Unipile', icon: <Link2 className="w-4 h-4" /> },
   { key: 'whatsapp', label: 'WhatsApp', icon: <MessageSquare className="w-4 h-4" /> },
   { key: 'linkedin', label: 'LinkedIn', icon: <Linkedin className="w-4 h-4" /> },
   { key: 'reddit', label: 'Reddit', icon: <Hash className="w-4 h-4" /> },
@@ -1442,6 +1443,42 @@ function OAuthAppsTab({ token }: { token: string }) {
   );
 }
 
+function UnipileTab({ rows, token }: { rows: SettingRow[]; token: string }) {
+  return (
+    <IntegrationLayout
+      integrationKey="unipile"
+      rows={rows}
+      token={token}
+      docs={
+        <>
+          <h2 className="text-sm font-semibold mb-4">Setup Guide</h2>
+          <div className="space-y-4">
+            <SetupStep n={1} title="Create a Unipile account">
+              <p>Go to <a href="https://app.unipile.com" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">app.unipile.com</a> and sign up.</p>
+              <p>Connect your LinkedIn (and other) accounts under <strong>Accounts</strong>.</p>
+            </SetupStep>
+            <SetupStep n={2} title="Get your API Key and DSN">
+              <p>In Unipile, go to <strong>Settings → API Keys</strong>.</p>
+              <p>Generate a new API key and copy your account <strong>DSN</strong> (e.g. <code className="bg-muted px-1 rounded">api4.unipile.com:13444</code>).</p>
+            </SetupStep>
+            <SetupStep n={3} title="Paste the credentials here">
+              <p>Enter the <strong>API Key</strong> and <strong>DSN</strong> in the Settings tab above, then click <strong>Test connection</strong> to verify.</p>
+            </SetupStep>
+          </div>
+          <a
+            href="https://docs.unipile.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 text-xs text-primary hover:underline mt-4"
+          >
+            Unipile docs <ExternalLink className="w-3 h-3" />
+          </a>
+        </>
+      }
+    />
+  );
+}
+
 export default function IntegrationsPage() {
   const token = useAuthStore((s) => s.token)!;
   const [activeTab, setActiveTab] = useState('oauth');
@@ -1506,6 +1543,7 @@ export default function IntegrationsPage() {
       {(activeTab === 'oauth' || (!isLoading && !isError)) && (
         <>
           {activeTab === 'oauth' && <OAuthAppsTab token={token} />}
+          {activeTab === 'unipile' && <UnipileTab rows={grouped['unipile'] ?? []} token={token} />}
           {activeTab === 'whatsapp' && <WhatsAppTab rows={grouped['whatsapp'] ?? []} token={token} />}
           {activeTab === 'linkedin' && <LinkedInTab rows={grouped['linkedin'] ?? []} token={token} />}
           {activeTab === 'reddit' && <RedditTab rows={grouped['reddit'] ?? []} token={token} />}

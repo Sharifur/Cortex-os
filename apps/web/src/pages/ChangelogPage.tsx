@@ -16,10 +16,10 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
-    version: 'v4.70.2',
+    version: 'v4.70.3',
     date: '2026-05-15',
     entries: [
-      { tag: 'feat', scope: 'settings', description: 'Unipile tab in Settings page. Configure Unipile API Key and DSN with a Test Connection button. Fields moved out of the LinkedIn integration group into their own settings group.' },
+      { tag: 'feat', scope: 'integrations', description: 'Unipile tab in Integrations page. Configure API Key and DSN with a Test Connection button and setup guide. Fields use their own settings group (unipile) separate from LinkedIn.' },
     ],
   },
   {
