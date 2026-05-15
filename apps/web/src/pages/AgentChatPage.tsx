@@ -927,11 +927,12 @@ function SlideLightbox({
         </button>
 
         {/* image */}
-        <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-0 flex items-center justify-center">
           <img
             src={url}
             alt={`Slide ${n}`}
-            className="w-full rounded-2xl shadow-2xl ring-1 ring-white/10"
+            className="rounded-2xl shadow-2xl ring-1 ring-white/10 max-w-full"
+            style={{ maxHeight: 'calc(100vh - 160px)' }}
           />
         </div>
 

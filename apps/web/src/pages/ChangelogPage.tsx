@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.68.1',
+    date: '2026-05-15',
+    entries: [
+      { tag: 'fix', scope: 'canva', description: 'Slide lightbox no longer fills the full screen height. Image is now constrained to calc(100vh - 160px), leaving an 80px gap on top and bottom so the toolbar and hint text are always visible.' },
+      { tag: 'chore', description: 'Added docs/16-design-studio.md covering the full Design Studio system: DNA extraction, DesignDNA schema, asset collection form, gpt-image-1 edit pipeline, chat state machine markers, progressive slide reveal, and activity log events.' },
+    ],
+  },
+  {
     version: 'v4.68.0',
     date: '2026-05-15',
     entries: [
