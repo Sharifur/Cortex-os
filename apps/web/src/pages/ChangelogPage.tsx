@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.72.2',
+    date: '2026-05-15',
+    entries: [
+      { tag: 'fix', scope: 'support', description: 'Generate New Reply on replied tickets appends a separate new draft card below the sent reply — original sent text stays visible and read-only. New draft has Edit, Regenerate, and Send Reply buttons. Purchase code card expanded: shows buyer username, support status with days remaining, license key, and verification date sourced from the purchase_code_verified event payload.' },
+    ],
+  },
+  {
     version: 'v4.72.1',
     date: '2026-05-15',
     entries: [

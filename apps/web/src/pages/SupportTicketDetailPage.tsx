@@ -180,6 +180,9 @@ export default function SupportTicketDetailPage() {
   const [sendError, setSendError] = useState<string | null>(null);
   const [sendSuccess, setSendSuccess] = useState(false);
 
+  // Captures the original sent reply text so it stays visible after generating a new draft
+  const [originalSentDraft, setOriginalSentDraft] = useState<string | null>(null);
+
   const [editingDraft, setEditingDraft] = useState(false);
   const [editDraftText, setEditDraftText] = useState('');
   const [savingDraft, setSavingDraft] = useState(false);
@@ -377,11 +380,27 @@ export default function SupportTicketDetailPage() {
     }
   }
 
+  // Capture the sent reply text once so it stays visible after a new draft is generated
+  if (ticket?.status === 'replied' && ticket.lastDraft && originalSentDraft === null && draft === null) {
+    setOriginalSentDraft(ticket.lastDraft);
+  }
+
   const sortedEvents = [...events].sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
   );
 
   const activeDraft = draft ?? ticket?.lastDraft;
+
+  // Pull purchase verification details from the most recent verify event
+  const purchaseVerifyEvent = sortedEvents.find(
+    e => e.eventType === 'purchase_code_verified' || e.eventType === 'purchase_code_expired' || e.eventType === 'purchase_code_invalid',
+  );
+  const pvPayload = purchaseVerifyEvent?.payload as {
+    buyerUsername?: string | null;
+    supportIsActive?: boolean;
+    supportDaysRemaining?: number;
+    licenseKey?: string | null;
+  } | null | undefined;
 
   if (ticketLoading) {
     return (
@@ -503,35 +522,126 @@ export default function SupportTicketDetailPage() {
 
           {/* AI Draft section — state-driven */}
           {ticket.status === 'replied' ? (
-            <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-5 py-4 space-y-3">
-              <div className="flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                <p className="text-sm font-semibold text-emerald-400">Reply Sent</p>
-                {ticket.repliedAt && (
-                  <span className="text-xs text-muted-foreground">{fmt(ticket.repliedAt)}</span>
+            <>
+              {/* Sent reply — always read-only */}
+              <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-5 py-4 space-y-3">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <p className="text-sm font-semibold text-emerald-400">Reply Sent</p>
+                  {ticket.repliedAt && (
+                    <span className="text-xs text-muted-foreground">{fmt(ticket.repliedAt)}</span>
+                  )}
+                  <div className="ml-auto">
+                    <button
+                      onClick={handleGenerateDraft}
+                      disabled={generating}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+                    >
+                      {generating ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
+                      {generating ? 'Generating...' : 'Generate New Reply'}
+                    </button>
+                  </div>
+                </div>
+                {(originalSentDraft ?? ticket.lastDraft) && (
+                  <div className="rounded-lg border border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground whitespace-pre-wrap leading-relaxed">
+                    {originalSentDraft ?? ticket.lastDraft}
+                  </div>
                 )}
-                <div className="ml-auto flex items-center gap-2">
-                  <button
-                    onClick={handleGenerateDraft}
-                    disabled={generating}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
-                  >
-                    {generating ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
-                    {generating ? 'Generating...' : 'Generate New Reply'}
-                  </button>
-                </div>
               </div>
-              {draftError && (
-                <div className="flex items-center gap-2 text-sm text-red-400">
-                  <XCircle className="w-4 h-4 shrink-0" /> {draftError}
+
+              {/* New draft — separate card, only shown after Generate New Reply */}
+              {draft && (
+                <div className="rounded-xl border border-border bg-card px-5 py-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">New Draft Reply</p>
+                      {!editingDraft && <p className="text-[11px] text-amber-400 mt-0.5">Not sent yet</p>}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {!editingDraft && (
+                        <button
+                          onClick={() => { setEditDraftText(draft); setEditingDraft(true); setDraftError(null); }}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border text-xs text-muted-foreground hover:text-foreground transition-colors"
+                        >
+                          <Pencil className="w-3.5 h-3.5" /> Edit
+                        </button>
+                      )}
+                      <button
+                        onClick={handleGenerateDraft}
+                        disabled={generating}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border text-xs text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors disabled:opacity-50"
+                      >
+                        {generating ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                        {generating ? 'Generating...' : 'Regenerate'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {draftError && (
+                    <div className="flex items-center gap-2 text-sm text-red-400">
+                      <XCircle className="w-4 h-4 shrink-0" /> {draftError}
+                    </div>
+                  )}
+
+                  {editingDraft ? (
+                    <div className="space-y-2">
+                      <DraftEditor value={editDraftText} onChange={setEditDraftText} token={token} />
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={handleSaveDraft}
+                          disabled={savingDraft || !editDraftText.trim()}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors"
+                        >
+                          {savingDraft ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                          {savingDraft ? 'Saving...' : 'Save Draft'}
+                        </button>
+                        <button
+                          onClick={() => { setEditingDraft(false); setDraftError(null); }}
+                          className="px-3 py-1.5 rounded-md border border-border text-xs text-muted-foreground hover:text-foreground transition-colors"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="rounded-lg border border-border bg-muted/30 px-4 py-3 text-sm text-foreground whitespace-pre-wrap leading-relaxed">
+                      {draft}
+                    </div>
+                  )}
+
+                  <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-4 py-3">
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <p className="text-sm font-semibold text-emerald-300">Ready to send?</p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          This will email the draft above to{' '}
+                          <span className="text-foreground">{ticket.userEmail}</span>{' '}
+                          and mark the ticket as replied.
+                        </p>
+                      </div>
+                      <button
+                        onClick={handleSendReply}
+                        disabled={sending}
+                        className="shrink-0 flex items-center gap-2 px-4 py-2 rounded-md bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      >
+                        {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                        {sending ? 'Sending...' : 'Send Reply'}
+                      </button>
+                    </div>
+                    {sendSuccess && (
+                      <div className="flex items-center gap-1.5 text-xs text-emerald-400 mt-3">
+                        <CheckCircle2 className="w-3.5 h-3.5" /> Reply sent to customer
+                      </div>
+                    )}
+                    {sendError && (
+                      <div className="flex items-center gap-2 text-sm text-red-400 mt-3">
+                        <XCircle className="w-4 h-4 shrink-0" /> {sendError}
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
-              {activeDraft && (
-                <div className="rounded-lg border border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground whitespace-pre-wrap leading-relaxed">
-                  {activeDraft}
-                </div>
-              )}
-            </div>
+            </>
           ) : (
             <>
               {/* Step 1 — Generate draft */}
@@ -820,16 +930,55 @@ export default function SupportTicketDetailPage() {
 
           {/* Purchase code */}
           {ticket.purchaseCode && (
-            <div className="rounded-xl border border-border bg-card px-4 py-3 flex items-center gap-3">
-              {ticket.purchaseCodeStatus === 'verified' ? (
-                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-              ) : (
-                <AlertTriangle className="w-4 h-4 text-orange-400 shrink-0" />
-              )}
-              <div className="text-xs">
-                <span className="text-muted-foreground">Purchase code: </span>
-                <span className="font-mono text-foreground break-all">{ticket.purchaseCode}</span>
-                <span className="ml-2 text-muted-foreground">({ticket.purchaseCodeStatus})</span>
+            <div className="rounded-xl border border-border bg-card px-4 py-4 space-y-3">
+              <div className="flex items-center gap-2">
+                {ticket.purchaseCodeStatus === 'verified' ? (
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                ) : ticket.purchaseCodeStatus === 'invalid' ? (
+                  <XCircle className="w-4 h-4 text-red-400 shrink-0" />
+                ) : (
+                  <AlertTriangle className="w-4 h-4 text-orange-400 shrink-0" />
+                )}
+                <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Purchase Code</p>
+                {ticket.purchaseCodeStatus && (
+                  <span className={`ml-auto text-[11px] font-medium px-2 py-0.5 rounded ${PURCHASE_CODE_STATUS_STYLES[ticket.purchaseCodeStatus] ?? 'bg-slate-500/15 text-slate-400'}`}>
+                    {ticket.purchaseCodeStatus}
+                  </span>
+                )}
+              </div>
+              <div className="space-y-1.5 text-xs">
+                <div className="flex items-start gap-2">
+                  <span className="text-muted-foreground w-28 shrink-0">Code</span>
+                  <span className="font-mono text-foreground break-all">{ticket.purchaseCode}</span>
+                </div>
+                {pvPayload?.buyerUsername && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-muted-foreground w-28 shrink-0">Buyer</span>
+                    <span className="text-foreground">{pvPayload.buyerUsername}</span>
+                  </div>
+                )}
+                {pvPayload?.supportIsActive !== undefined && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-muted-foreground w-28 shrink-0">Support</span>
+                    <span className={pvPayload.supportIsActive ? 'text-emerald-400' : 'text-orange-400'}>
+                      {pvPayload.supportIsActive
+                        ? `Active — ${pvPayload.supportDaysRemaining} day${pvPayload.supportDaysRemaining !== 1 ? 's' : ''} remaining`
+                        : 'Expired'}
+                    </span>
+                  </div>
+                )}
+                {pvPayload?.licenseKey && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-muted-foreground w-28 shrink-0">License key</span>
+                    <span className="font-mono text-foreground">{pvPayload.licenseKey}</span>
+                  </div>
+                )}
+                {purchaseVerifyEvent && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-muted-foreground w-28 shrink-0">Verified</span>
+                    <span className="text-muted-foreground">{fmt(purchaseVerifyEvent.createdAt)}</span>
+                  </div>
+                )}
               </div>
             </div>
           )}
