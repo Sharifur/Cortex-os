@@ -3741,7 +3741,7 @@ function AccountCard({ acc, onPatch }: { acc: any; onPatch: (body: Record<string
 
 // ─── LinkedIn Settings Tab ────────────────────────────────────────────────────
 
-type LinkedInTab = 'accounts' | 'niches' | 'leads' | 'connections' | 'posts' | 'reports' | 'docs';
+type LinkedInTab = 'accounts' | 'niches' | 'leads' | 'connections' | 'posts' | 'reports' | 'docs' | 'config';
 
 function LinkedInSettingsTab({ agent, token }: { agent: AgentDetail; token: string }) {
   const [tab, setTab] = useState<LinkedInTab>('accounts');
@@ -3804,6 +3804,7 @@ function LinkedInSettingsTab({ agent, token }: { agent: AgentDetail; token: stri
     { key: 'connections', label: 'Connections' },
     { key: 'posts', label: 'Posts' },
     { key: 'reports', label: 'Reports' },
+    { key: 'config', label: 'Config' },
     { key: 'docs', label: 'Docs' },
   ];
 
@@ -4253,7 +4254,7 @@ function LinkedInSettingsTab({ agent, token }: { agent: AgentDetail; token: stri
         </div>
       )}
 
-      <Phase4GeneralSubTab agent={agent} token={token} />
+      {tab === 'config' && <Phase4GeneralSubTab agent={agent} token={token} />}
     </div>
   );
 }

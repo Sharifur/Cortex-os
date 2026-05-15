@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.71.2',
+    date: '2026-05-15',
+    entries: [
+      { tag: 'fix', scope: 'linkedin', description: 'Agent Info, LLM, Config JSON, and Manual Trigger moved into a dedicated Config tab instead of appearing at the bottom of every tab.' },
+    ],
+  },
+  {
     version: 'v4.71.1',
     date: '2026-05-15',
     entries: [
