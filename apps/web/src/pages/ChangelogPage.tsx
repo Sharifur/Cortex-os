@@ -16,6 +16,17 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.67.0',
+    date: '2026-05-15',
+    entries: [
+      { tag: 'feat', scope: 'canva', description: 'Training-sample carousel generation now uses images.edit() API instead of generate(), passing the original sample image as the base so DALL-E preserves exact background, colors, and decorative elements.' },
+      { tag: 'feat', scope: 'canva', description: 'DNA extraction now captures headlineWordCount, hasAvatarZone, and social param fields (username, social_handle, website_url). When a template has an avatar zone the agent asks the user to upload a profile photo; the upload button appears automatically in the chat input.' },
+      { tag: 'fix', scope: 'canva', description: 'Body text (cs.body) removed from DALL-E generation prompts — templates with headline-only layouts no longer receive body paragraph text that breaks the visual layout.' },
+      { tag: 'fix', scope: 'canva', description: 'Headline word count is now constrained to match the training sample (headlineWordCount from DNA), so generated text visually fits the template.' },
+      { tag: 'fix', scope: 'canva', description: 'BullMQ agent-run processor lockDuration increased to 300s to prevent stall-retries during long slide generation runs (7 slides x ~18s each was triggering 30s stall timeout).' },
+    ],
+  },
+  {
     version: 'v4.66.7',
     date: '2026-05-15',
     entries: [

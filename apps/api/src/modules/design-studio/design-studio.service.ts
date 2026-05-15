@@ -3,7 +3,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { eq, sql } from 'drizzle-orm';
 import { createId } from '@paralleldrive/cuid2';
-import OpenAI from 'openai';
+import OpenAI, { toFile } from 'openai';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
@@ -144,10 +144,69 @@ export class DesignStudioService {
     return Buffer.from(b64, 'base64');
   }
 
+  // ─── Generate via edit (uses training sample image as base) ─────────────────
+
+  async generateEdit(id: string, headline: string, assetParams?: Record<string, string>): Promise<Buffer> {
+    const [template] = await this.db.db
+      .select()
+      .from(designStudioTemplates)
+      .where(eq(designStudioTemplates.id, id))
+      .limit(1);
+
+    if (!template) throw new NotFoundException(`Template ${id} not found`);
+
+    const dna = template.spec as unknown as DesignDNA;
+    const previewData = template.previewData;
+    if (!previewData) throw new Error('Template has no preview image — re-upload to enable edit mode');
+
+    const base64 = previewData.includes(',') ? previewData.split(',')[1] : previewData;
+    const imageBuffer = Buffer.from(base64, 'base64');
+    const imageFile = await toFile(imageBuffer, 'template.png', { type: 'image/png' });
+
+    const hexColors = dna.colors?.length ? dna.colors.slice(0, 3).join(', ') : null;
+    const username = assetParams?.['username'];
+    const handle = assetParams?.['social_handle'];
+    const website = assetParams?.['website_url'];
+    const avatarUrl = assetParams?.['avatar_image'];
+
+    const editPrompt = [
+      `Replace only the headline text in this design with exactly: "${headline}"`,
+      'Preserve the exact background color, font weight, font style, decorative elements, graphic accents, and overall composition.',
+      hexColors ? `Maintain the exact color palette: ${hexColors}. Do not introduce other colors.` : '',
+      'Do not add body paragraph text, subtitle, or any text other than the specified headline and labels.',
+      !dna.hasAvatarZone ? 'Do not add any avatar or profile photo.' : '',
+      avatarUrl && !avatarUrl.startsWith('data:') ? `Use this image as the profile avatar: ${avatarUrl}` : '',
+      username ? `Replace the author name with "${username}".` : '',
+      handle ? `Replace the social handle with "${handle}".` : '',
+      website ? `Replace the website label with "${website}".` : '',
+      'Do not change any non-text visual element, background pattern, or decorative graphic.',
+    ].filter(Boolean).join(' ');
+
+    const apiKey = await this.settings.getDecrypted('openai_api_key');
+    if (!apiKey) throw new Error('openai_api_key not configured in Settings');
+
+    const client = new OpenAI({ apiKey });
+    const size = snapImageSize(dna);
+
+    this.logger.log(`Editing with gpt-image-1: size=${size} template=${id}`);
+
+    const res = await client.images.edit({
+      model: 'gpt-image-1',
+      image: imageFile,
+      prompt: editPrompt.slice(0, 4000),
+      size,
+      n: 1,
+    } as any);
+
+    const b64 = res.data?.[0]?.b64_json;
+    if (!b64) throw new Error('Image edit returned no data');
+    return Buffer.from(b64, 'base64');
+  }
+
   // ─── Generate + save ─────────────────────────────────────────────────────────
 
-  async generateAndSave(id: string, userPrompt: string): Promise<{ renderId: string; url: string }> {
-    const png = await this.generate(id, userPrompt);
+  async generateAndSave(id: string, headline: string, assetParams?: Record<string, string>): Promise<{ renderId: string; url: string }> {
+    const png = await this.generateEdit(id, headline, assetParams);
     const renderId = createId();
     await fs.mkdir(DNA_RENDERS_DIR, { recursive: true });
     await fs.writeFile(path.join(DNA_RENDERS_DIR, `${renderId}.png`), png);

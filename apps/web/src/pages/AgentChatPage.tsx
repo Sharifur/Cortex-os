@@ -1085,6 +1085,16 @@ function parseStylePicker(content: string): { header: string; samples: StyleSamp
   } catch { return null; }
 }
 
+function parseExtraParamsGather(content: string): { needsImageUpload: boolean } | null {
+  const match = content.match(/\[extra-params-gather:(\{[\s\S]*?\})\]/);
+  if (!match) return null;
+  try {
+    const state = JSON.parse(match[1]) as { extraParams?: Array<{ type?: string }>; idx?: number };
+    const current = state.extraParams?.[state.idx ?? 0];
+    return { needsImageUpload: current?.type === 'image' };
+  } catch { return null; }
+}
+
 function parseContentConfirm(content: string): { body: string; slideCount: number } | null {
   if (!content.includes('[content-confirm]') || !content.includes('[pending:')) return null;
   const body = content
@@ -1990,7 +2000,9 @@ function ChatTab({
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const supportsImages = agent.key === 'email_manager';
+  const lastAgentMsgContent = messages.filter((m) => m.role !== 'user').slice(-1)[0]?.content ?? '';
+  const extraParamState = parseExtraParamsGather(lastAgentMsgContent);
+  const supportsImages = agent.key === 'email_manager' || extraParamState?.needsImageUpload === true;
   // Prevents history query re-fetches from overwriting locally-appended messages.
   const historyApplied = useRef(false);
 
@@ -2220,7 +2232,8 @@ function ChatTab({
   });
 
   function handleSend() {
-    const rawQ = input.trim() || (pastedImage ? 'Draft a reply to this email.' : '');
+    const isAssetUpload = extraParamState?.needsImageUpload && pastedImage;
+    const rawQ = input.trim() || (isAssetUpload ? '[photo uploaded]' : pastedImage ? 'Draft a reply to this email.' : '');
     if (!rawQ || triggerMutation.isPending || isThinking) return;
     setInput('');
 
@@ -2470,7 +2483,7 @@ function ChatTab({
             <button onClick={() => setPastedImage(null)} className="text-muted-foreground hover:text-foreground p-1">
               <X className="w-3.5 h-3.5" />
             </button>
-            <span className="text-xs text-muted-foreground">Image attached — agent will read the email from it</span>
+            <span className="text-xs text-muted-foreground">{extraParamState?.needsImageUpload ? 'Photo attached — send to continue' : 'Image attached — agent will read the email from it'}</span>
           </div>
         )}
         <div className="flex gap-2 items-end">
@@ -2481,7 +2494,7 @@ function ChatTab({
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
                 disabled={isBusy}
-                title="Attach image of email"
+                title={extraParamState?.needsImageUpload ? 'Upload your photo' : 'Attach image of email'}
                 className="shrink-0 h-10 w-10 flex items-center justify-center rounded-xl border border-border text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors disabled:opacity-40"
               >
                 <ImagePlus className="w-4 h-4" />
@@ -2494,7 +2507,9 @@ function ChatTab({
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
-            placeholder={supportsImages
+            placeholder={extraParamState?.needsImageUpload
+              ? 'Upload your photo above, or paste an image URL here…'
+              : supportsImages
               ? `Paste a client email or type instructions… (Ctrl+V to paste screenshot)`
               : `Message ${agent.name}… (Enter to send, Shift+Enter for newline)`}
             rows={2}
