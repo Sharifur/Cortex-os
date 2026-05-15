@@ -52,6 +52,20 @@ const DEFAULT_CONFIG: CanvaConfig = {
   maxCostUsd: 5.0,
 };
 
+function extractNestedJson(text: string, marker: string): string | null {
+  const start = text.indexOf(marker);
+  if (start === -1) return null;
+  const jsonStart = start + marker.length;
+  if (text[jsonStart] !== '{') return null;
+  let depth = 0, i = jsonStart;
+  while (i < text.length) {
+    if (text[i] === '{') depth++;
+    else if (text[i] === '}') { depth--; if (depth === 0) return text.slice(jsonStart, i + 1); }
+    i++;
+  }
+  return null;
+}
+
 @Injectable()
 export class CanvaAgent implements IAgent, OnModuleInit {
   readonly key = 'canva';
@@ -260,15 +274,15 @@ export class CanvaAgent implements IAgent, OnModuleInit {
 
     // STEP 3b (FORCED): extra params gathering (author name, handle, etc.) before auto-generating confirmed slides
     if (inExtraParamsGatherStep) {
-      const epMatch = lastAgentText.match(/\[extra-params-gather:(\{[\s\S]+?\})\]\s*$/);
-      if (epMatch) {
+      const epJson = extractNestedJson(lastAgentText, '[extra-params-gather:');
+      if (epJson) {
         try {
-          const ep = JSON.parse(epMatch[1]) as ExtraParamsGatherState;
+          const ep = JSON.parse(epJson) as ExtraParamsGatherState;
 
           // Bulk form submission: all param values sent at once as [asset-params-all:{...}]
-          const bulkMatch = query.match(/\[asset-params-all:(\{[\s\S]+?\})\]/);
-          if (bulkMatch) {
-            const bulkValues = JSON.parse(bulkMatch[1]) as Record<string, string>;
+          const bulkJson = extractNestedJson(query, '[asset-params-all:');
+          if (bulkJson) {
+            const bulkValues = JSON.parse(bulkJson) as Record<string, string>;
             const allCollected = { ...ep.collected, ...bulkValues };
             const slideUrls: string[] = [];
             const assetParams: Record<string, string> = {};

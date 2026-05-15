@@ -1099,6 +1099,23 @@ function extractNestedJson(content: string, marker: string): string | null {
   return null;
 }
 
+function assetParamsSummary(query: string): string | null {
+  if (!query.includes('[asset-params-all:')) return null;
+  const json = extractNestedJson(query, '[asset-params-all:');
+  if (!json) return null;
+  try {
+    const values = JSON.parse(json) as Record<string, string>;
+    const parts: string[] = [];
+    if (values['username']) parts.push(values['username']);
+    if (values['social_handle']) parts.push(values['social_handle']);
+    else if (values['twitter_handle']) parts.push(values['twitter_handle']);
+    if (values['website_url']) parts.push(values['website_url']);
+    const hasPhoto = !!values['avatar_image'];
+    if (hasPhoto) parts.push('[photo uploaded]');
+    return parts.length ? parts.join(' · ') : 'Details submitted';
+  } catch { return null; }
+}
+
 function parseExtraParamsGather(content: string): { needsImageUpload: boolean } | null {
   if (!content.includes('[extra-params-gather:')) return null;
   const json = extractNestedJson(content, '[extra-params-gather:');
@@ -2311,7 +2328,12 @@ function ChatTab({
     mutationFn: async (query: string) => {
       const recent = messages.slice(-6);
       const historyCtx = recent.length
-        ? recent.map((m) => `${m.role === 'user' ? 'User' : 'Agent'}: ${m.content}`).join('\n')
+        ? recent.map((m) => {
+            let c = m.content;
+            c = c.replace(/data:[a-z/+]+;base64,[A-Za-z0-9+/=]{50,}/g, '[image]');
+            if (c.includes('[asset-params-all:')) c = assetParamsSummary(c) ?? 'Details submitted';
+            return `${m.role === 'user' ? 'User' : 'Agent'}: ${c}`;
+          }).join('\n')
         : undefined;
       const imagePayload = pastedImage
         ? { base64: pastedImage.base64, mimeType: pastedImage.mimeType }
@@ -2326,11 +2348,14 @@ function ChatTab({
       });
     },
     onMutate: async (query: string) => {
-      const imageLabel = pastedImage ? '\n[image attached]' : '';
+      const isAssetForm = query.includes('[asset-params-all:');
+      const displayContent = isAssetForm
+        ? (assetParamsSummary(query) ?? 'Details submitted')
+        : query + (pastedImage ? '\n[image attached]' : '');
       const userMsg: ConvMessage = {
         id: `u-${Date.now()}`,
         role: 'user',
-        content: query + imageLabel,
+        content: displayContent,
         runId: null,
         requiresApproval: false,
         createdAt: new Date().toISOString(),
@@ -2339,10 +2364,11 @@ function ChatTab({
       setPastedImage(null);
       setIsThinking(true);
 
-      // Save user message to backend
+      // Save user message to backend (never save raw base64 or internal markers)
+      const savedContent = isAssetForm ? displayContent : query;
       apiFetch(token, `/agents/${agent.key}/conversations/message`, {
         method: 'POST',
-        body: JSON.stringify({ conversationId: convId, role: 'user', content: query }),
+        body: JSON.stringify({ conversationId: convId, role: 'user', content: savedContent }),
       }).catch(() => {});
     },
     onSuccess: (run: { id: string }) => {

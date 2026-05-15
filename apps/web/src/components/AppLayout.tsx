@@ -337,7 +337,7 @@ function Sidebar({
           <>
             <Bot className="w-5 h-5 text-primary shrink-0" />
             <span className="font-semibold text-sm">Cortex OS</span>
-            <span className="text-muted-foreground text-xs">v4.67.2</span>
+            <span className="text-muted-foreground text-xs">v4.67.3</span>
             {onToggleCollapse && (
               <button
                 onClick={onToggleCollapse}
@@ -539,7 +539,7 @@ export default function AppLayout() {
           <div className="flex items-center gap-2">
             <Bot className="w-5 h-5 text-primary" />
             <span className="font-semibold text-sm">Cortex OS</span>
-            <span className="text-muted-foreground text-xs">v4.67.2</span>
+            <span className="text-muted-foreground text-xs">v4.67.3</span>
           </div>
           <button
             onClick={() => setDrawerOpen(false)}

@@ -16,6 +16,15 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.67.3',
+    date: '2026-05-15',
+    entries: [
+      { tag: 'fix', scope: 'canva', description: 'Fixed 2M-token OpenAI error: the agent\'s [extra-params-gather:] regex was non-greedy and returned null on deeply nested JSON, causing the code to fall through to the general LLM handler which included the full [asset-params-all:] query (with base64 photo) in the prompt. Replaced both regexes with a balanced-brace extractor (extractNestedJson) so the bulk form submission is correctly parsed and routed.' },
+      { tag: 'fix', scope: 'canva', description: 'User message bubble no longer shows raw [asset-params-all:{...}] JSON after form submission. The display content is now a friendly summary (e.g. "Sharifur Rahman · @sharifur · taskip.net · [photo uploaded]") stored both in local state and persisted to the backend.' },
+      { tag: 'fix', scope: 'canva', description: 'History context passed to the LLM now strips base64 data URLs and sanitizes [asset-params-all:] markers to prevent future token overflows.' },
+    ],
+  },
+  {
     version: 'v4.67.2',
     date: '2026-05-15',
     entries: [
