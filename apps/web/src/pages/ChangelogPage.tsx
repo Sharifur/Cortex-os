@@ -16,6 +16,48 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.71.2',
+    date: '2026-05-15',
+    entries: [
+      { tag: 'fix', scope: 'linkedin', description: 'Agent Info, LLM, Config JSON, and Manual Trigger moved into a dedicated Config tab instead of appearing at the bottom of every tab.' },
+    ],
+  },
+  {
+    version: 'v4.71.1',
+    date: '2026-05-15',
+    entries: [
+      { tag: 'feat', scope: 'linkedin', description: 'Default daily limits: 5 connections, 10 comments, 5 DMs per account. Placeholders now show defaults. Added Reports tab with a 14-day daily activity table per account (connections, comments, DMs).' },
+    ],
+  },
+  {
+    version: 'v4.71.0',
+    date: '2026-05-15',
+    entries: [
+      { tag: 'fix', scope: 'linkedin', description: 'Simplify per-account rate limits to per-day only. Removed hourly limit fields from UI and agent logic.' },
+    ],
+  },
+  {
+    version: 'v4.70.9',
+    date: '2026-05-15',
+    entries: [
+      { tag: 'feat', scope: 'linkedin', description: 'Per-account daily and hourly rate limits for connections, feed comments, and DM outreach. Edit limits inline per account; agent enforces them at runtime to prevent spam. Migration 0079 adds the 6 limit columns.' },
+    ],
+  },
+  {
+    version: 'v4.70.8',
+    date: '2026-05-15',
+    entries: [
+      { tag: 'feat', scope: 'linkedin', description: 'Per-account action toggles in the Accounts tab. Each LinkedIn account now shows inline toggles for Connection requests, Feed comments, and DM outreach. Agent skips disabled actions per account. Migration 0078 adds enable_connections, enable_comments, enable_dms columns.' },
+    ],
+  },
+  {
+    version: 'v4.70.7',
+    date: '2026-05-15',
+    entries: [
+      { tag: 'feat', scope: 'linkedin', description: 'Optimize default config for agency owners and freelancers targeting Taskip.net — updated target topics, comment tone, and ICP threshold. Added multi-account strategy docs (Account A: agency owners, Account B: freelancers, Account C: other segments).' },
+    ],
+  },
+  {
     version: 'v4.70.6',
     date: '2026-05-15',
     entries: [

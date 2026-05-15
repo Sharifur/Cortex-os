@@ -547,6 +547,20 @@
       "when": 1748044800000,
       "tag": "0077_linkedin_multi_account",
       "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "6",
+      "when": 1748131200000,
+      "tag": "0078_linkedin_account_actions",
+      "breakpoints": true
+    },
+    {
+      "idx": 79,
+      "version": "6",
+      "when": 1748217600000,
+      "tag": "0079_linkedin_account_rate_limits",
+      "breakpoints": true
     }
   ]
 }
