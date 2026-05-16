@@ -5503,24 +5503,36 @@ function DnaTemplateCard({ template, onDelete, deleting, compact }: {
   compact?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [imgLoaded, setImgLoaded] = useState(false);
+  const [imgError, setImgError] = useState(false);
   const params: any[] = Array.isArray(template.parameters) ? template.parameters : [];
   const slideName = template.name.includes('/') ? template.name.split('/').slice(1).join('/') : template.name;
+  // Always route through API proxy — works for R2 private buckets and base64
+  const previewSrc = `/design-studio/templates/${template.id}/preview`;
+  const sizeClass = compact ? 'w-[80px] h-[80px]' : 'w-full aspect-square';
 
   return (
     <>
       <div className={`relative group ${compact ? 'w-[80px]' : ''}`}>
         <button onClick={() => setExpanded(true)} className={`focus:outline-none ${compact ? 'w-[80px] h-[80px]' : 'w-full'}`}>
-          {template.previewData ? (
-            <img
-              src={template.previewData}
-              alt={slideName}
-              className={`object-cover rounded-lg border border-border group-hover:border-primary/60 transition-colors ${compact ? 'w-[80px] h-[80px]' : 'w-full aspect-square'}`}
-            />
-          ) : (
-            <div className={`rounded-lg bg-muted border border-border flex items-center justify-center ${compact ? 'w-[80px] h-[80px]' : 'w-full aspect-square'}`}>
-              <span className="text-[10px] text-muted-foreground">No preview</span>
-            </div>
-          )}
+          <div className={`relative rounded-lg overflow-hidden border border-border group-hover:border-primary/60 transition-colors ${sizeClass}`}>
+            {!imgLoaded && !imgError && (
+              <Skeleton className="absolute inset-0 rounded-lg" />
+            )}
+            {imgError ? (
+              <div className="absolute inset-0 bg-muted flex items-center justify-center">
+                <span className="text-[10px] text-muted-foreground">No preview</span>
+              </div>
+            ) : (
+              <img
+                src={previewSrc}
+                alt={slideName}
+                className={`object-cover w-full h-full transition-opacity duration-200 ${imgLoaded ? 'opacity-100' : 'opacity-0'}`}
+                onLoad={() => setImgLoaded(true)}
+                onError={() => { setImgError(true); setImgLoaded(true); }}
+              />
+            )}
+          </div>
           {!compact && (
             <p className="text-xs text-muted-foreground mt-1 truncate text-left">{slideName}</p>
           )}
@@ -5549,11 +5561,9 @@ function DnaTemplateCard({ template, onDelete, deleting, compact }: {
               </button>
             </div>
             <div className="flex">
-              {template.previewData && (
-                <div className="w-48 shrink-0 border-r border-border bg-muted/30 flex items-center justify-center p-3">
-                  <img src={template.previewData} alt="" className="max-w-full max-h-48 object-contain rounded-lg" />
-                </div>
-              )}
+              <div className="w-48 shrink-0 border-r border-border bg-muted/30 flex items-center justify-center p-3">
+                <img src={previewSrc} alt="" className="max-w-full max-h-48 object-contain rounded-lg" />
+              </div>
               <div className="flex-1 p-4 space-y-3 overflow-y-auto max-h-64">
                 {params.length > 0 ? (
                   <div>

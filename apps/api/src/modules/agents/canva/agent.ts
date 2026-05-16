@@ -1516,6 +1516,18 @@ Return ONLY a JSON array (no markdown):
           if (!row) { (reply as any).code(404).send({ error: 'not found' }); return; }
           const imgPath = row.thumbnailPath ?? row.filePath;
           if (!imgPath) { (reply as any).code(404).send({ error: 'no image' }); return; }
+
+          // R2 URL — proxy through API so browser never needs direct R2 access
+          if (imgPath.startsWith('http://') || imgPath.startsWith('https://')) {
+            const r2Res = await fetch(imgPath);
+            if (!r2Res.ok) { (reply as any).code(404).send({ error: 'file not found' }); return; }
+            const bytes = Buffer.from(await r2Res.arrayBuffer());
+            const ct = r2Res.headers.get('content-type') ?? 'image/png';
+            (reply as any).header('Content-Type', ct).send(bytes);
+            return;
+          }
+
+          // Local filesystem path (dev environment)
           const { readFile } = await import('fs/promises');
           try {
             const bytes = await readFile(imgPath);

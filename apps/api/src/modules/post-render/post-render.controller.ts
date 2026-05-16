@@ -78,7 +78,7 @@ export class PostRenderController {
     }
   }
 
-  // ─── Local slide PNG (no R2 configured) ──────────────────────────────────────
+  // ─── Slide PNG — proxies R2 or falls back to local filesystem ───────────────
 
   @Get('renders/:id/slides/:n/png')
   async serveLocalSlidePng(
@@ -86,12 +86,30 @@ export class PostRenderController {
     @Param('n') n: string,
     @Res() reply: FastifyReply,
   ) {
+    // Try DB first — if the stored URL is an R2 URL, proxy it through the API
+    const render = await this.renderer.getById(id).catch(() => null);
+    const slideIndex = parseInt(n, 10) - 1;
+    const storedUrl = render?.slideUrls?.[slideIndex];
+
+    if (storedUrl && (storedUrl.startsWith('http://') || storedUrl.startsWith('https://'))) {
+      try {
+        const r2Res = await fetch(storedUrl);
+        if (r2Res.ok) {
+          const bytes = Buffer.from(await r2Res.arrayBuffer());
+          const ct = r2Res.headers.get('content-type') ?? 'image/png';
+          reply.header('Content-Type', ct).header('Cache-Control', 'public, max-age=3600').send(bytes);
+          return;
+        }
+      } catch { /* fall through to local */ }
+    }
+
+    // Fallback: local filesystem (dev environment or storage not configured)
     const localFile = path.join(os.homedir(), 'Designs', 'AI-Agent', 'Renders', id, `slide-${n}.png`);
     try {
       const bytes = await fs.readFile(localFile);
       reply.header('Content-Type', 'image/png').send(bytes);
     } catch {
-      reply.code(404).send({ error: 'slide not found locally' });
+      reply.code(404).send({ error: 'slide not found' });
     }
   }
 

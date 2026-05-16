@@ -48,6 +48,30 @@ interface PostRender {
   createdAt: string;
 }
 
+function SlideImg({ renderId, slideIndex, className }: { renderId: string; slideIndex: number; className: string }) {
+  const [loaded, setLoaded] = useState(false);
+  const [error, setError] = useState(false);
+  const src = `/posts/renders/${renderId}/slides/${slideIndex + 1}/png`;
+  return (
+    <div className={`relative bg-muted ${className}`}>
+      {!loaded && !error && <div className="absolute inset-0 animate-pulse bg-muted-foreground/10 rounded-lg" />}
+      {error ? (
+        <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-muted">
+          <Image className="w-4 h-4 text-muted-foreground/30" />
+        </div>
+      ) : (
+        <img
+          src={src}
+          alt={`Slide ${slideIndex + 1}`}
+          className={`w-full h-full object-cover transition-opacity duration-200 ${loaded ? 'opacity-100' : 'opacity-0'}`}
+          onLoad={() => setLoaded(true)}
+          onError={() => { setError(true); setLoaded(true); }}
+        />
+      )}
+    </div>
+  );
+}
+
 function RenderRow({ render, token, onStatusChange }: { render: PostRender; token: string; onStatusChange: () => void }) {
   const [expanded, setExpanded] = useState(false);
 
@@ -71,8 +95,8 @@ function RenderRow({ render, token, onStatusChange }: { render: PostRender; toke
       <div className="flex items-center gap-3 px-4 py-3">
         {/* Slide thumbnails — first two */}
         <div className="flex gap-1 shrink-0">
-          {render.slideUrls.slice(0, 2).map((url, i) => (
-            <img key={i} src={url} alt={`slide ${i + 1}`} className="w-10 h-10 object-cover rounded-lg border border-border" />
+          {render.slideUrls.slice(0, 2).map((_, i) => (
+            <SlideImg key={i} renderId={render.id} slideIndex={i} className="w-10 h-10 rounded-lg border border-border overflow-hidden" />
           ))}
           {render.slideUrls.length > 2 && (
             <div className="w-10 h-10 rounded-lg border border-border bg-muted flex items-center justify-center text-[10px] text-muted-foreground font-medium">
@@ -129,14 +153,10 @@ function RenderRow({ render, token, onStatusChange }: { render: PostRender; toke
           {/* Slide grid */}
           {render.slideUrls.length > 0 && (
             <div className="flex gap-2 overflow-x-auto pb-1">
-              {render.slideUrls.map((url, i) => (
-                <a key={i} href={url} target="_blank" rel="noreferrer" className="shrink-0">
-                  <img
-                    src={url}
-                    alt={`Slide ${i + 1}`}
-                    className="h-32 w-32 object-cover rounded-xl border border-border hover:border-primary transition-colors"
-                  />
-                  <p className="text-[10px] text-muted-foreground text-center mt-1">{i + 1}</p>
+              {render.slideUrls.map((_, i) => (
+                <a key={i} href={`/posts/renders/${render.id}/slides/${i + 1}/png`} target="_blank" rel="noreferrer" className="shrink-0">
+                  <SlideImg renderId={render.id} slideIndex={i} className="h-32 w-32 rounded-xl border border-border hover:border-primary transition-colors overflow-hidden" />
+                  <p className="text-[10px] text-muted-foreground text-center mt-1">Slide {i + 1}</p>
                 </a>
               ))}
             </div>

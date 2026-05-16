@@ -16,6 +16,39 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.78.8',
+    date: '2026-05-16',
+    entries: [
+      { tag: 'fix', scope: 'canva', description: 'Post Renders slide images now load via GET /posts/renders/:id/slides/:n/png proxy instead of raw R2 URLs. The endpoint looks up the stored URL from DB and proxies from R2 server-side, so browser never needs direct R2 access.' },
+      { tag: 'feat', scope: 'canva', description: 'Slide thumbnails in Post Renders show a skeleton pulse while loading and an image placeholder on error, same as template cards.' },
+    ],
+  },
+  {
+    version: 'v4.78.7',
+    date: '2026-05-16',
+    entries: [
+      { tag: 'fix', scope: 'canva', description: 'DnaTemplateCard now uses /design-studio/templates/:id/preview as img src (API proxy) instead of template.previewData directly. Fixes broken thumbnails for R2-hosted templates where the raw URL is private or signed URLs have expired.' },
+      { tag: 'feat', scope: 'canva', description: 'Template cards show a skeleton while the image is loading, then fade in. On error shows "No preview" placeholder instead of broken image icon.' },
+    ],
+  },
+  {
+    version: 'v4.78.6',
+    date: '2026-05-16',
+    entries: [
+      { tag: 'fix', scope: 'canva', description: 'Template preview endpoint now proxies R2 URLs through the API instead of redirecting. Fixes broken layout picker thumbnails when R2 bucket is private or signed URLs have expired.' },
+      { tag: 'fix', scope: 'canva', description: 'Candidate thumbnail save now uploads to R2 when configured and returns the public URL. On production the DB stores the R2 URL; locally it falls back to the filesystem path.' },
+      { tag: 'fix', scope: 'canva', description: 'GET /canva/thumbnail/:id now proxies R2 URLs through the API if thumbnailPath is a URL. Previously always attempted readFile() which fails on production for remote-generated thumbnails.' },
+    ],
+  },
+  {
+    version: 'v4.78.5',
+    date: '2026-05-16',
+    entries: [
+      { tag: 'fix', scope: 'linkedin', description: 'Feed now fetched via Unipile native GET /posts (returns internal post IDs) instead of Voyager proxy (returns activity URNs). Native IDs work directly with the comment API — fixes 422 "Post cannot be found" on every comment attempt. Voyager feed kept as fallback if native returns empty.' },
+      { tag: 'fix', scope: 'linkedin', description: 'Comment service now tries native Unipile API first (path 1), Voyager proxy second. Previously the order was reversed, so the working path was only reached after the fast-failing path.' },
+    ],
+  },
+  {
     version: 'v4.78.4',
     date: '2026-05-16',
     entries: [
