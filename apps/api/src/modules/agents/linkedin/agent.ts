@@ -7,6 +7,7 @@ import {
 } from './schema';
 import { LinkedInService } from './linkedin.service';
 import { AgentRegistryService } from '../runtime/agent-registry.service';
+import { AgentLogService } from '../runtime/agent-log.service';
 import { LlmRouterService } from '../../llm/llm-router.service';
 import { TelegramService } from '../../telegram/telegram.service';
 import { KnowledgeBaseService } from '../../knowledge-base/knowledge-base.service';
@@ -39,6 +40,7 @@ interface LinkedInSnapshot {
   niches: any[];
   taskMode?: boolean;
   instructions?: string;
+  runId?: string;
 }
 
 const DEFAULT_CONFIG: LinkedInConfig = {
@@ -66,6 +68,7 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
     private li: LinkedInService,
     private registry: AgentRegistryService,
     private kb: KnowledgeBaseService,
+    private logSvc: AgentLogService,
   ) {}
 
   onModuleInit() {
@@ -86,18 +89,30 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
     if (payload?._taskId) {
       return {
         source: trigger,
-        snapshot: { taskMode: true, instructions: (payload.instructions as string) ?? '', config, feedPosts: [], accounts: [], niches: [] },
+        snapshot: { taskMode: true, instructions: (payload.instructions as string) ?? '', config, feedPosts: [], accounts: [], niches: [], runId: run.id },
         followups: [],
       };
     }
 
-    const [feedPosts, accounts, niches] = await Promise.all([
-      this.li.getFeedPosts(20),
+    const [accounts, niches] = await Promise.all([
       this.db.db.select().from(linkedinAccounts).where(eq(linkedinAccounts.isActive, true)),
       this.db.db.select().from(linkedinNiches).where(eq(linkedinNiches.isActive, true)),
     ]);
 
-    return { source: trigger, snapshot: { feedPosts, config, accounts, niches }, followups: [] };
+    const primaryAccountId = accounts[0]?.unipileAccountId;
+    const feedResult = await this.li.getFeedWithDiagnostics(20, primaryAccountId);
+    const feedPosts = feedResult.posts;
+    await this.logSvc.info(run.id, `LinkedIn context`, {
+      accounts: accounts.length,
+      primaryAccountId: primaryAccountId ?? null,
+      feedPosts: feedPosts.length,
+      niches: niches.length,
+      unipileStatus: feedResult.status,
+      unipileError: feedResult.error,
+      unipileRaw: feedResult.raw,
+    });
+
+    return { source: trigger, snapshot: { feedPosts, config, accounts, niches, runId: run.id }, followups: [] };
   }
 
   async decide(ctx: AgentContext): Promise<ProposedAction[]> {
@@ -108,7 +123,7 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
     }
 
     const [commentActions, connectionActions, dmActions] = await Promise.all([
-      this.decideFeedComments(snap.feedPosts, snap.accounts, snap.config),
+      this.decideFeedComments(snap.feedPosts, snap.accounts, snap.niches, snap.config, snap.runId ?? ''),
       this.decideConnectionRequests(snap.accounts, snap.niches, snap.config),
       this.decideDMs(snap.accounts, snap.config),
     ]);
@@ -203,11 +218,17 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
 
   // ─── Feed comments ─────────────────────────────────────────────────────────
 
-  private async decideFeedComments(feedPosts: any[], accounts: any[], config: LinkedInConfig): Promise<ProposedAction[]> {
-    if (!feedPosts.length) return [];
+  private async decideFeedComments(feedPosts: any[], accounts: any[], niches: any[], config: LinkedInConfig, runId: string): Promise<ProposedAction[]> {
+    if (!feedPosts.length) {
+      await this.logSvc.warn(runId, 'Feed comments: no posts returned from Unipile — check Unipile API key and DSN in Settings');
+      return [];
+    }
 
     const commentingAccounts = accounts.filter(a => a.isActive && a.enableComments !== false);
-    if (!commentingAccounts.length) return [];
+    if (!commentingAccounts.length) {
+      await this.logSvc.warn(runId, 'Feed comments: no accounts have comments enabled');
+      return [];
+    }
 
     const quotas = await Promise.all(commentingAccounts.map(a =>
       this.accountQuota(a.id, a.dailyCommentsLimit, 10, (since) =>
@@ -223,12 +244,30 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
       .from(linkedinPosts);
     const seenSet = new Set(knownIds.map(r => r.externalId));
 
-    const fresh = feedPosts
-      .filter(p => !seenSet.has(p.id))
-      .filter(p => config.targetTopics.some(t => p.content?.toLowerCase().includes(t.toLowerCase())))
+    const nicheKeywords = niches.flatMap(n => n.keywords ?? []);
+    const allTopics = [...config.targetTopics, ...nicheKeywords];
+
+    const unseen = feedPosts.filter(p => !seenSet.has(p.id));
+
+    const fresh = unseen
+      .filter(p => !allTopics.length || allTopics.some(t => p.content?.toLowerCase().includes(t.toLowerCase())))
       .slice(0, limit);
 
-    if (!fresh.length) return [];
+    await this.logSvc.info(runId, 'Feed comments filter', {
+      feedPosts: feedPosts.length,
+      commentingAccounts: commentingAccounts.length,
+      quotaLimit: limit,
+      alreadySeen: feedPosts.length - unseen.length,
+      unseenPosts: unseen.length,
+      afterTopicFilter: fresh.length,
+      topics: allTopics,
+      sampleUnseenContent: unseen[0]?.content?.slice(0, 120) ?? null,
+    });
+
+    if (!fresh.length) {
+      await this.logSvc.warn(runId, `Feed comments: 0 posts matched keywords. Topics: [${allTopics.join(', ')}]. Sample unseen post: "${unseen[0]?.content?.slice(0, 120) ?? 'none'}"`);
+      return [];
+    }
 
     const [alwaysOn, samples, blocklist, rejections] = await Promise.all([
       this.kb.getAlwaysOnContext(this.key),

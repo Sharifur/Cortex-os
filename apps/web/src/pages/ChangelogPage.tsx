@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.73.1',
+    date: '2026-05-16',
+    entries: [
+      { tag: 'feat', scope: 'runs', description: 'Run detail page now shows Retry button (failed runs) and Run Again button (all runs) — triggers a fresh MANUAL run for the same agent and navigates to the new run detail page.' },
+      { tag: 'feat', scope: 'linkedin', description: 'LinkedIn agent: 35 prebuilt niche templates added across SaaS Founders, MVP Dev, Web Dev Agencies, Freelance Dev, and Digital Agencies categories with a searchable template browser in the Niches tab.' },
+    ],
+  },
+  {
     version: 'v4.73.0',
     date: '2026-05-16',
     entries: [
