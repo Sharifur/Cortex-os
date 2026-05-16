@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.78.1',
+    date: '2026-05-16',
+    entries: [
+      { tag: 'feat', scope: 'linkedin', description: '11 pre-built DM sequence templates across 5 categories: Product Outreach (Taskip Agency, SaaS Pain-first, Product Launch), Partnership (exploration, agency-freelancer), Recruitment (tech role, passive nurture), Consulting (lead gen, audit offer), Content & Creator (collaboration, newsletter cross-promo). Each template pre-fills name, goal, and all steps with ready-to-use LLM instructions.' },
+      { tag: 'feat', scope: 'linkedin', description: 'DM Sequences tab: From template button opens templates panel with category filter. New sequence button opens blank form. Template picker also accessible inside the editor via Use template button.' },
+    ],
+  },
+  {
     version: 'v4.78.0',
     date: '2026-05-16',
     entries: [

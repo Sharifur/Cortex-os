@@ -20,6 +20,7 @@ import { agentColor } from '@/lib/agent-colors';
 import { getAgentSuggestions } from '@/lib/agentTaskSuggestions';
 import { isGreetingExact } from '@/lib/greetings';
 import { NICHE_TEMPLATES, NICHE_CATEGORIES, type NicheTemplate } from '@/lib/linkedinNicheTemplates';
+import { DM_SEQUENCE_TEMPLATES, DM_SEQUENCE_CATEGORIES, type DmSequenceTemplate } from '@/lib/linkedinDmSequenceTemplates';
 
 interface AgentDetail {
   id: string;
@@ -3986,11 +3987,24 @@ function DmSequencesTab({ sequences, accounts, token, onRefresh }: {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [showTemplates, setShowTemplates] = useState(false);
+  const [templateCategory, setTemplateCategory] = useState(DM_SEQUENCE_CATEGORIES[0]);
+
+  function applyTemplate(tpl: DmSequenceTemplate) {
+    setEditing(e => e ? { ...e, name: tpl.name, goal: tpl.goal, steps: tpl.steps } : {
+      accountId: '',
+      name: tpl.name,
+      goal: tpl.goal,
+      steps: tpl.steps,
+    });
+    setShowTemplates(false);
+  }
 
   function openNew() {
     setEditing(BLANK_SEQ());
     setEditingId(null);
     setSaveError(null);
+    setShowTemplates(false);
   }
 
   function openEdit(seq: any) {
@@ -4065,12 +4079,59 @@ function DmSequencesTab({ sequences, accounts, token, onRefresh }: {
   const accountMap = Object.fromEntries(accounts.map((a: any) => [a.id, a.label]));
 
   if (editing) {
+    const filteredTemplates = DM_SEQUENCE_TEMPLATES.filter(t => t.category === templateCategory);
+
     return (
       <div className="rounded-xl border border-border bg-card p-5 space-y-5">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-semibold">{editingId ? 'Edit sequence' : 'New DM sequence'}</h3>
-          <button onClick={() => setEditing(null)} className="text-xs text-muted-foreground hover:text-foreground">Cancel</button>
+          <div className="flex items-center gap-2">
+            {!editingId && (
+              <button
+                onClick={() => setShowTemplates(t => !t)}
+                className={`text-xs px-2.5 py-1 rounded-md border transition-colors ${showTemplates ? 'border-primary text-primary bg-primary/10' : 'border-border text-muted-foreground hover:text-foreground hover:bg-muted/30'}`}
+              >
+                {showTemplates ? 'Hide templates' : 'Use template'}
+              </button>
+            )}
+            <button onClick={() => { setEditing(null); setShowTemplates(false); }} className="text-xs text-muted-foreground hover:text-foreground">Cancel</button>
+          </div>
         </div>
+
+        {showTemplates && (
+          <div className="rounded-lg border border-border bg-muted/20 p-4 space-y-3">
+            <div className="flex gap-1.5 flex-wrap">
+              {DM_SEQUENCE_CATEGORIES.map(cat => (
+                <button
+                  key={cat}
+                  onClick={() => setTemplateCategory(cat)}
+                  className={`text-[10px] px-2.5 py-1 rounded-full border transition-colors ${templateCategory === cat ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:bg-muted/40'}`}
+                >
+                  {cat}
+                </button>
+              ))}
+            </div>
+            <div className="grid grid-cols-1 gap-2 max-h-72 overflow-y-auto pr-1">
+              {filteredTemplates.map((tpl, i) => (
+                <button
+                  key={i}
+                  onClick={() => applyTemplate(tpl)}
+                  className="text-left rounded-lg border border-border bg-background/60 hover:border-primary/50 hover:bg-primary/5 p-3 transition-colors"
+                >
+                  <p className="text-xs font-medium">{tpl.name}</p>
+                  <p className="text-[10px] text-muted-foreground mt-0.5 line-clamp-2">{tpl.goal}</p>
+                  <div className="flex gap-1.5 mt-1.5 flex-wrap">
+                    {tpl.steps.map((s, si) => (
+                      <span key={si} className="text-[9px] bg-muted px-1.5 py-0.5 rounded text-muted-foreground">
+                        Step {s.stepNumber}{si > 0 ? ` +${s.delayDays}d` : ' immediate'}
+                      </span>
+                    ))}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="grid grid-cols-2 gap-3">
           <div>
@@ -4176,9 +4237,17 @@ function DmSequencesTab({ sequences, accounts, token, onRefresh }: {
           <h3 className="text-sm font-semibold">DM Sequences</h3>
           <p className="text-xs text-muted-foreground mt-0.5">Each account runs its own sequence. Leads progress through steps automatically based on delay.</p>
         </div>
-        <button onClick={openNew} className="text-xs px-3 py-1.5 rounded-md bg-primary text-primary-foreground hover:opacity-90">
-          New sequence
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => { openNew(); setShowTemplates(true); }}
+            className="text-xs px-3 py-1.5 rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-muted/30"
+          >
+            From template
+          </button>
+          <button onClick={openNew} className="text-xs px-3 py-1.5 rounded-md bg-primary text-primary-foreground hover:opacity-90">
+            New sequence
+          </button>
+        </div>
       </div>
 
       {sequences.length === 0 ? (
