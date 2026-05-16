@@ -344,16 +344,29 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
       if (p.leadId) {
         const nextStep: number = (p.nextDmStep ?? 0) + 1;
         const exhausted = p.totalSteps && nextStep >= p.totalSteps;
-        const leadUpdate: Record<string, any> = {
-          lastContactedAt: new Date(),
-          dmStep: nextStep,
-          status: exhausted ? 'dm_exhausted' : 'dm_sent',
-        };
-        if (p.sequenceId) leadUpdate['dmSequenceId'] = p.sequenceId;
-        await this.db.db
-          .update(linkedinLeads)
-          .set(leadUpdate)
-          .where(eq(linkedinLeads.id, p.leadId));
+        try {
+          const leadUpdate: Record<string, any> = {
+            lastContactedAt: new Date(),
+            dmStep: nextStep,
+            status: exhausted ? 'dm_exhausted' : 'dm_sent',
+          };
+          if (p.sequenceId) leadUpdate['dmSequenceId'] = p.sequenceId;
+          await this.db.db
+            .update(linkedinLeads)
+            .set(leadUpdate)
+            .where(eq(linkedinLeads.id, p.leadId));
+        } catch (updateErr: any) {
+          // Migration 0082 may not have run yet — fall back to basic update
+          if (String(updateErr?.message).includes('dm_step') || String(updateErr?.message).includes('dm_sequence_id')) {
+            await this.db.db
+              .update(linkedinLeads)
+              .set({ lastContactedAt: new Date(), status: 'dm_sent' })
+              .where(eq(linkedinLeads.id, p.leadId));
+            this.logger.warn(`send_dm: dm_step column missing — run migration 0082. Basic lead update applied.`);
+          } else {
+            throw updateErr;
+          }
+        }
       }
       const stepLabel = p.nextDmStep ? ` (step ${p.nextDmStep}/${p.totalSteps ?? '?'})` : '';
       await this.telegram.sendMessage(`LinkedIn DM sent to ${p.name ?? p.profileId}${stepLabel}:\n${p.message.slice(0, 200)}`);
