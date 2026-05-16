@@ -855,33 +855,60 @@ Rules:
       const now = new Date();
 
       // Step 1 candidates: connected leads not yet contacted
-      const freshLeads = await this.db.db
-        .select()
-        .from(linkedinLeads)
-        .where(
-          and(
-            eq(linkedinLeads.accountId, account.id),
-            eq(linkedinLeads.connectionStatus, 'connected'),
-            eq(linkedinLeads.dmStep, 0),
-            eq(linkedinLeads.status, 'new'),
-          ),
-        )
-        .limit(dmLimit - actions.length);
+      // NOTE: falls back to status-only query if migration 0082 (dm_step column) not yet applied
+      let freshLeads: any[] = [];
+      try {
+        freshLeads = await this.db.db
+          .select()
+          .from(linkedinLeads)
+          .where(
+            and(
+              eq(linkedinLeads.accountId, account.id),
+              eq(linkedinLeads.connectionStatus, 'connected'),
+              eq(linkedinLeads.dmStep, 0),
+              eq(linkedinLeads.status, 'new'),
+            ),
+          )
+          .limit(dmLimit - actions.length);
+      } catch (colErr: any) {
+        if (String(colErr?.message).includes('dm_step') || String(colErr?.message).includes('dm_sequence_id')) {
+          await this.logSvc.warn(runId, 'DMs: migration 0082 not yet applied (dm_step column missing). Restart the API server to run migrations, then DM sequences will work. Falling back to status-based lead query.');
+          freshLeads = await this.db.db
+            .select()
+            .from(linkedinLeads)
+            .where(
+              and(
+                eq(linkedinLeads.accountId, account.id),
+                eq(linkedinLeads.connectionStatus, 'connected'),
+                eq(linkedinLeads.status, 'new'),
+              ),
+            )
+            .limit(dmLimit - actions.length);
+        } else {
+          throw colErr;
+        }
+      }
 
       // Follow-up candidates: leads mid-sequence whose delay has elapsed
-      const allLeadsInSequence = await this.db.db
-        .select()
-        .from(linkedinLeads)
-        .where(
-          and(
-            eq(linkedinLeads.accountId, account.id),
-            eq(linkedinLeads.connectionStatus, 'connected'),
-            eq(linkedinLeads.dmSequenceId, sequence.id),
-          ),
-        );
+      let allLeadsInSequence: any[] = [];
+      try {
+        allLeadsInSequence = await this.db.db
+          .select()
+          .from(linkedinLeads)
+          .where(
+            and(
+              eq(linkedinLeads.accountId, account.id),
+              eq(linkedinLeads.connectionStatus, 'connected'),
+              eq(linkedinLeads.dmSequenceId, sequence.id),
+            ),
+          );
+      } catch {
+        // dm_sequence_id column not yet available — skip follow-up step
+        allLeadsInSequence = [];
+      }
 
       const followupLeads = allLeadsInSequence.filter(lead => {
-        if (lead.dmStep === 0 || lead.dmStep >= steps.length) return false;
+        if (!lead.dmStep || lead.dmStep === 0 || lead.dmStep >= steps.length) return false;
         const nextStep = steps[lead.dmStep]; // 0-indexed; dmStep=1 means step 1 sent, next is steps[1]
         if (!nextStep) return false;
         const delayMs = nextStep.delayDays * 24 * 60 * 60 * 1000;
@@ -1443,6 +1470,37 @@ Rules:
             .orderBy(sql`${writingSamples.createdAt} DESC`)
             .limit(50);
           return samples;
+        },
+      },
+
+      // ─── Migration helper ────────────────────────────────────────────────────
+      {
+        method: 'POST',
+        path: '/linkedin/apply-migration-0082',
+        requiresAuth: true,
+        handler: async () => {
+          try {
+            await this.db.db.execute(sql`
+              CREATE TABLE IF NOT EXISTS linkedin_dm_sequences (
+                id text PRIMARY KEY,
+                account_id text NOT NULL REFERENCES linkedin_accounts(id) ON DELETE CASCADE,
+                name text NOT NULL,
+                goal text,
+                steps jsonb NOT NULL DEFAULT '[]',
+                is_active boolean NOT NULL DEFAULT true,
+                created_at timestamp NOT NULL DEFAULT NOW()
+              )
+            `);
+            await this.db.db.execute(sql`
+              ALTER TABLE linkedin_leads ADD COLUMN IF NOT EXISTS dm_step integer NOT NULL DEFAULT 0
+            `);
+            await this.db.db.execute(sql`
+              ALTER TABLE linkedin_leads ADD COLUMN IF NOT EXISTS dm_sequence_id text REFERENCES linkedin_dm_sequences(id)
+            `);
+            return { ok: true, message: 'Migration 0082 applied successfully' };
+          } catch (err) {
+            return { ok: false, error: (err as Error).message };
+          }
         },
       },
 
