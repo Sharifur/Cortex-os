@@ -578,7 +578,13 @@ Rules:
 
         actions.push({
           type: 'send_connection_request',
-          summary: `Connect with ${profile.first_name} ${profile.last_name} (${niche.name}, score: ${score.score.toFixed(2)}): "${note.slice(0, 60)}"`,
+          summary: [
+            `Connect with ${profile.first_name} ${profile.last_name}`,
+            profile.profile_url ?? null,
+            profile.headline ? `Role: ${profile.headline}` : null,
+            `Niche: ${niche.name} | ICP score: ${score.score.toFixed(2)}`,
+            `Note: "${note.slice(0, 100)}"`,
+          ].filter(Boolean).join('\n'),
           payload: {
             requestId: req.id,
             accountId: account.unipileAccountId,
@@ -700,9 +706,17 @@ Rules:
         message = await this.selfCritique(message, alwaysOn.find(e => e.entryType === 'voice_profile')?.content, blocklist);
         const violation = blocklist.find(b => message.toLowerCase().includes(b.toLowerCase()));
 
+        const profileLink = lead.profileUrl ?? (lead.profileId ? `https://www.linkedin.com/in/${lead.profileId}` : null);
+        const summaryLines = [
+          `DM to ${lead.name ?? 'unknown'}`,
+          profileLink ? profileLink : null,
+          lead.headline ? `Role: ${lead.headline}` : null,
+          `Message: "${message.slice(0, 120)}"`,
+        ].filter(Boolean).join('\n');
+
         actions.push({
           type: 'send_dm',
-          summary: `DM to ${lead.name ?? lead.profileUrl}: "${message.slice(0, 80)}"`,
+          summary: summaryLines,
           payload: {
             leadId: lead.id,
             profileId: lead.profileId ?? lead.profileUrl,

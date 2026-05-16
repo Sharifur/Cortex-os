@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.76.1',
+    date: '2026-05-16',
+    entries: [
+      { tag: 'fix', scope: 'linkedin', description: 'DM proposal Telegram message now includes LinkedIn profile URL and Role (headline) so proposals are identifiable without opening LinkedIn separately.' },
+      { tag: 'fix', scope: 'linkedin', description: 'Connection request proposal Telegram message now includes profile URL, Role, niche name, ICP score, and note preview on separate lines.' },
+    ],
+  },
+  {
     version: 'v4.76.0',
     date: '2026-05-16',
     entries: [
