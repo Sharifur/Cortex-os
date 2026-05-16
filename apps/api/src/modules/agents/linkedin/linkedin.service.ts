@@ -138,7 +138,8 @@ export class LinkedInService {
             el?.entityUrn ??
             el?.id ??
             '';
-          return { id: urn || `post_${Math.random()}`, authorName, content, url: '' };
+          const url = urn ? `https://www.linkedin.com/feed/update/${encodeURIComponent(urn)}/` : '';
+          return { id: urn || `post_${Math.random()}`, authorName, content, url };
         })
         .filter(p => p.content?.trim());
 

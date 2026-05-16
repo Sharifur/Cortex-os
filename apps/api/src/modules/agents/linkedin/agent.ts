@@ -313,10 +313,21 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
           draftComment: comment,
         }).onConflictDoNothing();
 
+        const postSnippet = post.content.slice(0, 200).trim();
+        const postUrl = post.url || '';
+        const summary = [
+          `Comment on ${post.authorName}'s post:`,
+          '',
+          `"${postSnippet}${post.content.length > 200 ? '...' : ''}"`,
+          postUrl ? postUrl : null,
+          '',
+          `Proposed comment: "${comment.slice(0, 120)}"`,
+        ].filter(l => l !== null).join('\n');
+
         actions.push({
           type: 'post_comment',
-          summary: `Comment on ${post.authorName}'s post: "${comment.slice(0, 80)}"`,
-          payload: { postId: post.id, authorName: post.authorName, comment },
+          summary,
+          payload: { postId: post.id, authorName: post.authorName, comment, postUrl },
           riskLevel: violation ? 'high' : 'medium',
         });
       } catch (err) {
