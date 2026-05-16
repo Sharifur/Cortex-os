@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.73.0',
+    date: '2026-05-16',
+    entries: [
+      { tag: 'fix', scope: 'canva', description: 'Carousel template upload switched from base64 JSON to multipart form data — fixes infinite Uploading state in production caused by Traefik buffering large JSON bodies. AbortController timeout (90s) added to prevent silent hangs. Upload errors now surface to the user instead of being silently ignored. Multipart file limit raised to 20 slides.' },
+    ],
+  },
+  {
     version: 'v4.72.2',
     date: '2026-05-15',
     entries: [

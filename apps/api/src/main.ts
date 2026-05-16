@@ -84,7 +84,7 @@ async function bootstrap() {
   // (cast: @fastify/multipart's TypeProvider augmentation conflicts with the
   // base FastifyInstance generic params; runtime behavior is correct.)
   await fastify.register(multipart as never, {
-    limits: { fileSize: 10 * 1024 * 1024, files: 5 },
+    limits: { fileSize: 10 * 1024 * 1024, files: 20 },
   });
 
   fastify.addHook('onSend', async (_req: unknown, reply: { header: (k: string, v: string) => unknown }, payload: unknown) => {

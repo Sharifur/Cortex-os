@@ -4560,14 +4560,6 @@ function PostRendersTab({ token }: { token: string }) {
   );
 }
 
-function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve((reader.result as string).split(',')[1]);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-}
 
 function CarouselSetCard({ setName, slides, onDeleteSlide, deletingId }: {
   setName: string;
@@ -4814,6 +4806,7 @@ function DesignSamplesTab({ token }: { token: string }) {
   const [isDragOver, setIsDragOver] = useState(false);
   const [carouselStaging, setCarouselStaging] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -4855,46 +4848,47 @@ function DesignSamplesTab({ token }: { token: string }) {
     return () => stopPolling();
   }, [token]);
 
-  async function uploadIndividual(files: File[]) {
+  async function uploadBatch(fieldNames: string[], files: File[]) {
     setUploading(true);
+    setUploadError(null);
+    const ctrl = new AbortController();
+    const timeout = setTimeout(() => ctrl.abort(), 90_000);
     try {
-      const items = await Promise.all(files.map(async (f) => ({
-        name: f.name.replace(/\.[^.]+$/, ''),
-        imageBase64: await fileToBase64(f),
-        mimeType: f.type,
-      })));
-      await apiFetch(token, '/design-studio/import-batch', {
+      const form = new FormData();
+      files.forEach((f, i) => form.append(fieldNames[i], f, f.name));
+      const res = await fetch('/design-studio/import-batch', {
         method: 'POST',
-        body: JSON.stringify({ items }),
+        headers: { Authorization: `Bearer ${token}` },
+        body: form,
+        signal: ctrl.signal,
       });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data?.error ?? data?.message ?? `Upload failed (${res.status})`);
+      }
       await loadAll();
       startPolling();
-    } catch { /* ignore */ } finally {
+    } catch (err: any) {
+      const msg = err?.name === 'AbortError' ? 'Upload timed out — the payload may be too large for the server.' : (err?.message ?? 'Upload failed.');
+      setUploadError(msg);
+    } finally {
+      clearTimeout(timeout);
       setUploading(false);
     }
   }
 
+  async function uploadIndividual(files: File[]) {
+    const names = files.map((f) => f.name.replace(/\.[^.]+$/, ''));
+    await uploadBatch(names, files);
+  }
+
   async function uploadCarousel(files: File[]) {
     if (files.length < 2) return;
-    setUploading(true);
     const rawName = files[0].name.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' ').trim() || 'carousel';
     const uid = Date.now().toString(36).slice(-5);
     const setName = `${rawName}-${uid}`;
-    try {
-      const items = await Promise.all(files.map(async (f, i) => ({
-        name: `${setName}/slide-${i + 1}`,
-        imageBase64: await fileToBase64(f),
-        mimeType: f.type,
-      })));
-      await apiFetch(token, '/design-studio/import-batch', {
-        method: 'POST',
-        body: JSON.stringify({ items }),
-      });
-      await loadAll();
-      startPolling();
-    } catch { /* ignore */ } finally {
-      setUploading(false);
-    }
+    const names = files.map((_, i) => `${setName}/slide-${i + 1}`);
+    await uploadBatch(names, files);
   }
 
   async function deleteTemplate(id: string) {
@@ -5033,17 +5027,22 @@ function DesignSamplesTab({ token }: { token: string }) {
                     </div>
                   ))}
                 </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => void uploadCarousel(carouselStaging).then(() => setCarouselStaging([]))}
-                    disabled={carouselStaging.length < 2 || uploading}
-                    className="px-4 py-1.5 bg-primary text-primary-foreground rounded-lg text-sm font-medium disabled:opacity-50"
-                  >
-                    {uploading ? 'Uploading...' : `Upload ${carouselStaging.length}-slide set`}
-                  </button>
-                  <button onClick={() => setCarouselStaging([])} className="text-xs text-muted-foreground hover:text-foreground">
-                    Clear
-                  </button>
+                <div className="flex flex-col gap-1">
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => void uploadCarousel(carouselStaging).then(() => setCarouselStaging([]))}
+                      disabled={carouselStaging.length < 2 || uploading}
+                      className="px-4 py-1.5 bg-primary text-primary-foreground rounded-lg text-sm font-medium disabled:opacity-50"
+                    >
+                      {uploading ? 'Uploading...' : `Upload ${carouselStaging.length}-slide set`}
+                    </button>
+                    <button onClick={() => { setCarouselStaging([]); setUploadError(null); }} className="text-xs text-muted-foreground hover:text-foreground">
+                      Clear
+                    </button>
+                  </div>
+                  {uploadError && (
+                    <p className="text-xs text-red-500">{uploadError}</p>
+                  )}
                 </div>
               </div>
             )}
