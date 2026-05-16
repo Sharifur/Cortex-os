@@ -849,6 +849,25 @@ Score each profile 0.0–1.0 (1.0 = perfect match). Return JSON array only:
       },
       {
         method: 'GET',
+        path: '/linkedin/debug/posts',
+        requiresAuth: true,
+        handler: async (params) => {
+          const accountId = (params as any).accountId as string | undefined;
+          const { unipileKey, unipileDsn } = await this.li.getCredentials();
+          if (!unipileKey || !unipileDsn) return { error: 'Unipile not configured' };
+          const id = accountId ?? (await this.db.db.select().from(linkedinAccounts).limit(1))[0]?.unipileAccountId;
+          if (!id) return { error: 'No account found' };
+          const res = await fetch(`https://${unipileDsn}/api/v1/posts?account_id=${encodeURIComponent(id)}&limit=5`, {
+            headers: { 'X-API-KEY': unipileKey, 'Content-Type': 'application/json' },
+          });
+          const raw = await res.text();
+          let parsed: any = null;
+          try { parsed = JSON.parse(raw); } catch { /* ignore */ }
+          return { status: res.status, accountId: id, raw: raw.slice(0, 2000), parsed };
+        },
+      },
+      {
+        method: 'GET',
         path: '/linkedin/reports/daily',
         requiresAuth: true,
         handler: async () => {

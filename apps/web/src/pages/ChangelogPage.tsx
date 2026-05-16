@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.73.2',
+    date: '2026-05-16',
+    entries: [
+      { tag: 'fix', scope: 'linkedin', description: 'postComment reverted to Unipile native API (POST /posts/{id}/comments) — requires native post IDs from GET /posts, not LinkedIn URNs from Voyager proxy. Debug endpoint GET /linkedin/debug/posts added to inspect Unipile raw post response and verify ID compatibility.' },
+      { tag: 'chore', scope: 'docs', description: 'linkedin-agent.md created: full reference for Unipile endpoints, post ID compatibility rules, comment flow, dedup logic, rate limiting, debug endpoints, and troubleshooting table. Added to CLAUDE.md doc index.' },
+    ],
+  },
+  {
     version: 'v4.73.1',
     date: '2026-05-16',
     entries: [
