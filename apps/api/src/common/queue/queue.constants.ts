@@ -7,6 +7,7 @@ export const QUEUE_NAMES = {
   APPROVAL_SWEEP: 'approval-sweep',
   TASK_SWEEP: 'task-sweep',
   DESIGN_STUDIO: 'design-studio',
+  LINKEDIN_CRON: 'linkedin-cron',
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];

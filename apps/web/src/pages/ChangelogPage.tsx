@@ -16,6 +16,15 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.73.5',
+    date: '2026-05-16',
+    entries: [
+      { tag: 'feat', scope: 'linkedin', description: 'Action-isolated runs: each trigger (comments, connections, DMs) runs as a separate job with actionType in the payload. decide() only runs the requested decider. Feed is only fetched for comment runs.' },
+      { tag: 'feat', scope: 'linkedin', description: 'Staggered BullMQ cron schedule: comments at 09:23, connections at 11:41, DMs at 14:17 daily — registered via LinkedInCronProcessor on startup, old repeatable jobs cleared on each restart to apply schedule changes.' },
+      { tag: 'feat', scope: 'linkedin', description: 'Manual action buttons added to Accounts tab: Run Comments, Run Connections, Run DMs — each fires a MANUAL run with the specific actionType and navigates to the run detail page.' },
+    ],
+  },
+  {
     version: 'v4.73.4',
     date: '2026-05-16',
     entries: [

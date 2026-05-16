@@ -47,6 +47,7 @@ export interface TriggerSpec {
   type: TriggerType;
   cron?: string;
   webhookPath?: string;
+  payload?: Record<string, unknown>;
 }
 
 export interface AgentApiRoute {

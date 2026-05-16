@@ -34,6 +34,8 @@ interface LinkedInConfig {
   llm?: { provider?: string; model?: string };
 }
 
+type LinkedInActionType = 'comments' | 'connections' | 'dms' | 'all';
+
 interface LinkedInSnapshot {
   feedPosts: any[];
   config: LinkedInConfig;
@@ -42,6 +44,7 @@ interface LinkedInSnapshot {
   taskMode?: boolean;
   instructions?: string;
   runId?: string;
+  actionType: LinkedInActionType;
 }
 
 const DEFAULT_CONFIG: LinkedInConfig = {
@@ -79,7 +82,10 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
 
   triggers(): TriggerSpec[] {
     return [
-      { type: 'CRON', cron: '0 9 * * *' },
+      // Staggered daily schedule — each action runs independently, hours apart
+      { type: 'CRON', cron: '23 9 * * *',  payload: { actionType: 'comments' } },
+      { type: 'CRON', cron: '41 11 * * *', payload: { actionType: 'connections' } },
+      { type: 'CRON', cron: '17 14 * * *', payload: { actionType: 'dms' } },
       { type: 'MANUAL' },
     ];
   }
@@ -91,10 +97,12 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
     if (payload?._taskId) {
       return {
         source: trigger,
-        snapshot: { taskMode: true, instructions: (payload.instructions as string) ?? '', config, feedPosts: [], accounts: [], niches: [], runId: run.id },
+        snapshot: { taskMode: true, instructions: (payload.instructions as string) ?? '', config, feedPosts: [], accounts: [], niches: [], runId: run.id, actionType: 'all' },
         followups: [],
       };
     }
+
+    const actionType = (payload?.actionType as LinkedInActionType | undefined) ?? 'all';
 
     const [accounts, niches] = await Promise.all([
       this.db.db.select().from(linkedinAccounts).where(eq(linkedinAccounts.isActive, true)),
@@ -103,8 +111,9 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
 
     const primaryAccountId = accounts[0]?.unipileAccountId;
 
+    // Only fetch feed when the run will actually process comments
     let feedPosts: any[] = [];
-    if (primaryAccountId) {
+    if ((actionType === 'comments' || actionType === 'all') && primaryAccountId) {
       const voyagerResult = await this.li.getFeedWithDiagnostics(20, primaryAccountId);
       feedPosts = voyagerResult.posts;
       await this.logSvc.info(run.id, 'LinkedIn feed', {
@@ -115,14 +124,14 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
       });
     }
 
-    await this.logSvc.info(run.id, 'LinkedIn context', {
+    await this.logSvc.info(run.id, `LinkedIn context [action: ${actionType}]`, {
       accounts: accounts.length,
       primaryAccountId: primaryAccountId ?? null,
       feedPosts: feedPosts.length,
       niches: niches.length,
     });
 
-    return { source: trigger, snapshot: { feedPosts, config, accounts, niches, runId: run.id }, followups: [] };
+    return { source: trigger, snapshot: { feedPosts, config, accounts, niches, runId: run.id, actionType }, followups: [] };
   }
 
   async decide(ctx: AgentContext): Promise<ProposedAction[]> {
@@ -132,14 +141,22 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
       return this.decideTaskMode(snap.config, snap.instructions ?? '', followupNote);
     }
 
+    const at = snap.actionType ?? 'all';
+
     const [commentActions, connectionActions, dmActions] = await Promise.all([
-      this.decideFeedComments(snap.feedPosts, snap.accounts, snap.niches, snap.config, snap.runId ?? ''),
-      this.decideConnectionRequests(snap.accounts, snap.niches, snap.config),
-      this.decideDMs(snap.accounts, snap.config),
+      at === 'comments' || at === 'all'
+        ? this.decideFeedComments(snap.feedPosts, snap.accounts, snap.niches, snap.config, snap.runId ?? '')
+        : Promise.resolve([]),
+      at === 'connections' || at === 'all'
+        ? this.decideConnectionRequests(snap.accounts, snap.niches, snap.config)
+        : Promise.resolve([]),
+      at === 'dms' || at === 'all'
+        ? this.decideDMs(snap.accounts, snap.config)
+        : Promise.resolve([]),
     ]);
 
     const all = [...commentActions, ...connectionActions, ...dmActions];
-    return all.length ? all : [{ type: 'noop', summary: 'No actionable items.', payload: {}, riskLevel: 'low' }];
+    return all.length ? all : [{ type: 'noop', summary: `No actionable items for action: ${at}`, payload: {}, riskLevel: 'low' }];
   }
 
   requiresApproval(action: ProposedAction): boolean {

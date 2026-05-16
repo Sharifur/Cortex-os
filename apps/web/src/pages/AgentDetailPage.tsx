@@ -3857,6 +3857,7 @@ function LinkedInSettingsTab({ agent, token }: { agent: AgentDetail; token: stri
     refetchInterval: 60_000,
   });
 
+  const navigate = useNavigate();
   const [syncResult, setSyncResult] = useState<{ synced: number } | null>(null);
   const syncMutation = useMutation({
     mutationFn: () => apiFetch(token, '/linkedin/accounts/sync', { method: 'POST' }),
@@ -3865,6 +3866,21 @@ function LinkedInSettingsTab({ agent, token }: { agent: AgentDetail; token: stri
       qc.invalidateQueries({ queryKey: ['linkedin-accounts'] });
     },
   });
+
+  const [runningAction, setRunningAction] = useState<string | null>(null);
+  const triggerAction = async (actionType: 'comments' | 'connections' | 'dms') => {
+    setRunningAction(actionType);
+    try {
+      const run = await apiFetch(token, `/agents/${agent.key}/trigger`, {
+        method: 'POST',
+        body: JSON.stringify({ triggerType: 'MANUAL', payload: { actionType } }),
+      });
+      navigate(`/runs/${(run as any).id}`);
+    } finally {
+      setRunningAction(null);
+    }
+  };
+
   const patchAccountMutation = useMutation({
     mutationFn: ({ id, ...body }: any) => apiFetch(token, `/linkedin/accounts/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['linkedin-accounts'] }),
@@ -3946,6 +3962,35 @@ function LinkedInSettingsTab({ agent, token }: { agent: AgentDetail; token: stri
 
       {tab === 'accounts' && (
         <div className="space-y-4">
+
+          {/* Manual action triggers */}
+          <div className="rounded-xl border border-border bg-card p-4">
+            <p className="text-xs font-medium text-muted-foreground mb-3">Run individual action now — each fires independently, same Telegram approval flow</p>
+            <div className="grid grid-cols-3 gap-2">
+              {([
+                { actionType: 'comments' as const,    label: 'Run Comments',    desc: 'Scan feed + draft 3 comments' },
+                { actionType: 'connections' as const, label: 'Run Connections', desc: 'Search people + send up to 3 invites' },
+                { actionType: 'dms' as const,         label: 'Run DMs',         desc: 'Message up to 3 connected leads' },
+              ]).map(({ actionType, label, desc }) => (
+                <button
+                  key={actionType}
+                  onClick={() => triggerAction(actionType)}
+                  disabled={!!runningAction || !agent.enabled}
+                  className="flex flex-col gap-0.5 rounded-lg border border-border bg-background/50 px-3 py-2.5 text-left text-xs transition-colors hover:bg-muted/30 disabled:opacity-50"
+                >
+                  <span className="font-medium flex items-center gap-1.5">
+                    {runningAction === actionType && <span className="inline-block w-2.5 h-2.5 rounded-full bg-primary animate-pulse" />}
+                    {label}
+                  </span>
+                  <span className="text-muted-foreground">{desc}</span>
+                </button>
+              ))}
+            </div>
+            {!agent.enabled && (
+              <p className="text-xs text-amber-400 mt-2">Enable the agent in the General tab before running.</p>
+            )}
+          </div>
+
           <div className="rounded-xl border border-border bg-card p-5">
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-semibold">LinkedIn Accounts</h3>
