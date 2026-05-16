@@ -72,6 +72,32 @@ export class LinkedInService {
     }
   }
 
+  // ─── Native posts (Unipile-stored, have native IDs usable for commenting) ──
+
+  async getNativeFeedPosts(accountId: string, limit = 20): Promise<{ posts: LinkedInPost[]; raw: string | null; status: number | null }> {
+    const { unipileKey, unipileDsn } = await this.getCredentials();
+    if (!unipileKey || !unipileDsn) return { posts: [], raw: 'not configured', status: null };
+    try {
+      const res = await fetch(
+        `${this.unipileBase(unipileDsn)}/posts?account_id=${encodeURIComponent(accountId)}&limit=${limit}`,
+        { headers: this.unipileHeaders(unipileKey) },
+      );
+      const raw = await res.text();
+      if (!res.ok) return { posts: [], raw: raw.slice(0, 400), status: res.status };
+      const data = JSON.parse(raw) as any;
+      const items: any[] = data.items ?? data.posts ?? data.data ?? [];
+      const posts = items.map((p: any) => ({
+        id: p.id ?? p.provider_id ?? '',
+        authorName: p.author?.name ?? p.author?.display_name ?? p.author_name ?? 'Unknown',
+        content: p.text ?? p.content ?? p.body ?? '',
+        url: p.url ?? p.provider_id ? `https://www.linkedin.com/feed/update/${p.provider_id}/` : '',
+      })).filter(p => p.content?.trim() && p.id);
+      return { posts, raw: posts.length === 0 ? raw.slice(0, 600) : null, status: res.status };
+    } catch (err) {
+      return { posts: [], raw: (err as Error).message, status: null };
+    }
+  }
+
   // ─── Feed ──────────────────────────────────────────────────────────────────
   // Correct: POST /api/v1/linkedin (raw Voyager proxy)
   // Docs: https://developer.unipile.com/reference/linkedincontroller_getrawdata
@@ -261,9 +287,8 @@ export class LinkedInService {
   }
 
   // ─── Comments ──────────────────────────────────────────────────────────────
-  // Unipile's /posts/{id}/comments requires a Unipile-native post ID.
-  // Since we fetch feed via raw Voyager proxy (LinkedIn URNs), we must also
-  // comment via the raw Voyager proxy — POST to LinkedIn's socialActions endpoint.
+  // POST /api/v1/posts/{post_id}/comments  body: { account_id, text }
+  // post_id must be a Unipile-native post ID (from GET /posts), not a LinkedIn URN.
 
   async postComment(postId: string, comment: string, accountId?: string): Promise<void> {
     const { unipileKey, unipileDsn } = await this.getCredentials();
@@ -272,17 +297,10 @@ export class LinkedInService {
       return;
     }
     if (!accountId) throw new Error('account_id is required for posting comments');
-
-    const voyagerUrl = `https://www.linkedin.com/voyager/api/feed/socialActions/${postId}/comments`;
-    const res = await fetch(`${this.unipileBase(unipileDsn)}/linkedin`, {
+    const res = await fetch(`${this.unipileBase(unipileDsn)}/posts/${postId}/comments`, {
       method: 'POST',
       headers: this.unipileHeaders(unipileKey),
-      body: JSON.stringify({
-        account_id: accountId,
-        request_url: voyagerUrl,
-        method: 'POST',
-        request_body: { text: { text: comment } },
-      }),
+      body: JSON.stringify({ account_id: accountId, text: comment }),
     });
     const raw = await res.text();
     if (!res.ok) throw new Error(`Unipile comment failed: ${raw.slice(0, 400)}`);

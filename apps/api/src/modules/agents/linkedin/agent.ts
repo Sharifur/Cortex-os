@@ -100,16 +100,42 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
     ]);
 
     const primaryAccountId = accounts[0]?.unipileAccountId;
-    const feedResult = await this.li.getFeedWithDiagnostics(20, primaryAccountId);
-    const feedPosts = feedResult.posts;
+
+    // Try native posts first — these have Unipile-native IDs required for the comment API.
+    // Fall back to raw Voyager proxy if native returns nothing.
+    let feedPosts: any[] = [];
+    let feedSource = 'none';
+
+    if (primaryAccountId) {
+      const nativeResult = await this.li.getNativeFeedPosts(primaryAccountId, 20);
+      await this.logSvc.info(run.id, 'LinkedIn native posts probe', {
+        status: nativeResult.status,
+        posts: nativeResult.posts.length,
+        raw: nativeResult.raw,
+      });
+
+      if (nativeResult.posts.length > 0) {
+        feedPosts = nativeResult.posts;
+        feedSource = 'native';
+      } else {
+        const voyagerResult = await this.li.getFeedWithDiagnostics(20, primaryAccountId);
+        feedPosts = voyagerResult.posts;
+        feedSource = 'voyager';
+        await this.logSvc.info(run.id, 'LinkedIn voyager feed fallback', {
+          status: voyagerResult.status,
+          posts: voyagerResult.posts.length,
+          error: voyagerResult.error,
+          raw: voyagerResult.raw,
+        });
+      }
+    }
+
     await this.logSvc.info(run.id, `LinkedIn context`, {
       accounts: accounts.length,
       primaryAccountId: primaryAccountId ?? null,
       feedPosts: feedPosts.length,
+      feedSource,
       niches: niches.length,
-      unipileStatus: feedResult.status,
-      unipileError: feedResult.error,
-      unipileRaw: feedResult.raw,
     });
 
     return { source: trigger, snapshot: { feedPosts, config, accounts, niches, runId: run.id }, followups: [] };
