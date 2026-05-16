@@ -48,7 +48,7 @@ export class LinkedInCommentService {
         body: JSON.stringify({
           account_id: accountId,
           method: 'POST',
-          request_url: `https://www.linkedin.com/voyager/api/socialactions/${encodeURIComponent(postId)}/comments`,
+          request_url: `https://www.linkedin.com/voyager/api/feed/socialactions/${encodeURIComponent(postId)}/comments`,
           body: { message: { attributes: [], text: comment } },
         }),
       });

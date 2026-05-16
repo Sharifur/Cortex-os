@@ -89,7 +89,7 @@ export const linkedinPosts = pgTable('linkedin_posts', {
   authorName: text('author_name'),
   content: text('content').notNull(),
   draftComment: text('draft_comment'),
-  status: text('status').notNull().default('pending'), // pending | approved | posted | skipped
+  status: text('status').notNull().default('pending'), // pending | approved | posted | skipped | failed
   postedAt: timestamp('posted_at'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });

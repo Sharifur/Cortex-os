@@ -302,12 +302,22 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
     const p = action.payload as any;
 
     if (action.type === 'post_comment') {
-      await this.liComment.postComment(p.postId, p.comment, p.accountId);
-      await this.db.db
-        .update(linkedinPosts)
-        .set({ status: 'posted', postedAt: new Date(), accountId: p.dbAccountId ?? null })
-        .where(eq(linkedinPosts.externalId, p.postId));
-      await this.telegram.sendMessage(`LinkedIn comment posted on ${p.authorName}'s post:\n${p.comment}`);
+      try {
+        await this.liComment.postComment(p.postId, p.comment, p.accountId);
+        await this.db.db
+          .update(linkedinPosts)
+          .set({ status: 'posted', postedAt: new Date(), accountId: p.dbAccountId ?? null })
+          .where(eq(linkedinPosts.externalId, p.postId));
+        await this.telegram.sendMessage(`LinkedIn comment posted on ${p.authorName}'s post:\n${p.comment}`);
+      } catch (err) {
+        const msg = (err as Error).message;
+        this.logger.warn(`post_comment skipped for ${p.postId}: ${msg}`);
+        await this.db.db
+          .update(linkedinPosts)
+          .set({ status: 'failed' })
+          .where(eq(linkedinPosts.externalId, p.postId));
+        return { success: false, error: msg };
+      }
       return { success: true, data: { postId: p.postId } };
     }
 

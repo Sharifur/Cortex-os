@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.78.2',
+    date: '2026-05-16',
+    entries: [
+      { tag: 'fix', scope: 'linkedin', description: 'Comment posting failures are now non-fatal: if a post cannot be commented on (Unipile 422 / post not found), the post is marked failed in the DB and the run continues instead of crashing the entire execution.' },
+      { tag: 'fix', scope: 'linkedin', description: 'Voyager proxy comment URL corrected: changed socialactions/ to feed/socialactions/ to match LinkedIn internal API path for commenting on feed posts.' },
+    ],
+  },
+  {
     version: 'v4.78.1',
     date: '2026-05-16',
     entries: [
