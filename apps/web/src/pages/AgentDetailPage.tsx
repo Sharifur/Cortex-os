@@ -323,6 +323,17 @@ function RunsTab({ agentKey, token }: { agentKey: string; token: string }) {
 
   return (
     <div className="rounded-xl border border-border bg-card overflow-hidden">
+      <div className="flex items-center justify-between px-4 sm:px-5 py-3 border-b border-border">
+        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Run history</span>
+        <button
+          onClick={() => retryMutation.mutate()}
+          disabled={retryMutation.isPending}
+          className="flex items-center gap-1.5 text-xs bg-primary/10 text-primary border border-primary/20 px-3 py-1.5 rounded-lg hover:bg-primary/20 transition-colors disabled:opacity-50"
+        >
+          <Play className={`w-3.5 h-3.5 ${retryMutation.isPending ? 'animate-spin' : ''}`} />
+          {retryMutation.isPending ? 'Starting…' : 'Run now'}
+        </button>
+      </div>
       <div className="divide-y divide-border">
         {runs.map((run) => {
           const isExpanded = expandedId === run.id;
