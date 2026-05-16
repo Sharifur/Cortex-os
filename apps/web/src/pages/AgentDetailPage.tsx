@@ -3881,6 +3881,21 @@ function LinkedInSettingsTab({ agent, token }: { agent: AgentDetail; token: stri
     }
   };
 
+  const [trainStatus, setTrainStatus] = useState<{ saved: number; total: number; error?: string } | null>(null);
+  const [isTraining, setIsTraining] = useState(false);
+  const trainPersona = async () => {
+    setIsTraining(true);
+    setTrainStatus(null);
+    try {
+      const result = await apiFetch(token, '/linkedin/persona/train', { method: 'POST', body: JSON.stringify({}) }) as any;
+      setTrainStatus({ saved: result.saved ?? 0, total: result.total ?? 0, error: result.error });
+    } catch (err) {
+      setTrainStatus({ saved: 0, total: 0, error: (err as Error).message });
+    } finally {
+      setIsTraining(false);
+    }
+  };
+
   const patchAccountMutation = useMutation({
     mutationFn: ({ id, ...body }: any) => apiFetch(token, `/linkedin/accounts/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['linkedin-accounts'] }),
@@ -3988,6 +4003,31 @@ function LinkedInSettingsTab({ agent, token }: { agent: AgentDetail; token: stri
             </div>
             {!agent.enabled && (
               <p className="text-xs text-amber-400 mt-2">Enable the agent in the General tab before running.</p>
+            )}
+          </div>
+
+          {/* Persona training */}
+          <div className="rounded-xl border border-border bg-card p-4">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-sm font-medium mb-0.5">AI Persona Training</p>
+                <p className="text-xs text-muted-foreground">Fetch your recent LinkedIn posts and save them as writing samples so the AI learns your natural tone for comments and DMs.</p>
+              </div>
+              <button
+                onClick={trainPersona}
+                disabled={isTraining}
+                className="shrink-0 text-xs px-3 py-1.5 rounded-lg border border-border bg-background/50 hover:bg-muted/30 transition-colors disabled:opacity-50 flex items-center gap-1.5"
+              >
+                {isTraining && <span className="inline-block w-2 h-2 rounded-full bg-primary animate-pulse" />}
+                {isTraining ? 'Fetching...' : 'Train from my posts'}
+              </button>
+            </div>
+            {trainStatus && (
+              <div className={`mt-3 rounded-lg px-3 py-2 text-xs ${trainStatus.error ? 'bg-destructive/10 text-destructive' : 'bg-emerald-500/10 text-emerald-300'}`}>
+                {trainStatus.error
+                  ? trainStatus.error
+                  : `${trainStatus.saved} post${trainStatus.saved !== 1 ? 's' : ''} saved as writing samples (${trainStatus.total} found on profile). AI will use these for tone on next run.`}
+              </div>
             )}
           </div>
 

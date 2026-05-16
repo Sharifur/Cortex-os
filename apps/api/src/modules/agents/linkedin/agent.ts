@@ -2,6 +2,7 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { eq, and, gte, inArray, sql } from 'drizzle-orm';
 import { DbService } from '../../../db/db.service';
 import { agents } from '../../../db/schema';
+import { writingSamples } from '../../knowledge-base/schema';
 import {
   linkedinPosts, linkedinLeads, linkedinAccounts, linkedinNiches, linkedinConnectionRequests,
 } from './schema';
@@ -176,7 +177,7 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
         .update(linkedinPosts)
         .set({ status: 'posted', postedAt: new Date(), accountId: p.dbAccountId ?? null })
         .where(eq(linkedinPosts.externalId, p.postId));
-      await this.telegram.sendMessage(`LinkedIn comment posted on ${p.authorName}'s post:\n"${p.comment}"`);
+      await this.telegram.sendMessage(`LinkedIn comment posted on ${p.authorName}'s post:\n${p.comment}`);
       return { success: true, data: { postId: p.postId } };
     }
 
@@ -216,7 +217,7 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
           .set({ status: 'dm_sent', lastContactedAt: new Date() })
           .where(eq(linkedinLeads.id, p.leadId));
       }
-      await this.telegram.sendMessage(`LinkedIn DM sent to ${p.name ?? p.profileId}:\n"${p.message.slice(0, 200)}"`);
+      await this.telegram.sendMessage(`LinkedIn DM sent to ${p.name ?? p.profileId}:\n${p.message.slice(0, 200)}`);
       return { success: true };
     }
 
@@ -323,7 +324,15 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
           negativeSamples: samples.filter(s => s.polarity === 'negative'),
           rejections,
         });
-        const defaultSystem = `You are writing a LinkedIn comment. Tone: ${config.commentTone}. Write 1-2 sentences max. No emojis. No self-promotion. Respond with just the comment text.`;
+        const defaultSystem = `You write LinkedIn comments. Tone: ${config.commentTone}.
+Rules:
+- 1-2 short sentences only
+- Use simple everyday words — write like a real person, not a marketer
+- Never start with "Great post!", "Love this!", "So true!" or any generic opener
+- No emojis. No self-promotion. No corporate speak
+- Sound like someone who actually read the post and has a genuine take
+- Do NOT wrap your reply in quotes
+- Return only the comment text`;
         const response = await this.llm.complete({
           messages: [
             { role: 'system', content: (template?.system ?? defaultSystem) + kbBlock },
@@ -334,7 +343,7 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
           maxTokens: 120,
         });
 
-        let comment = response.content.trim();
+        let comment = response.content.trim().replace(/^["'`“”]+|["'`“”]+$/g, '').trim();
         if (!comment) continue;
         comment = await this.selfCritique(comment, alwaysOn.find(e => e.entryType === 'voice_profile')?.content, blocklist);
         const violation = blocklist.find(b => comment.toLowerCase().includes(b.toLowerCase()));
@@ -480,7 +489,14 @@ Score each profile 0.0–1.0 (1.0 = perfect match). Return JSON array only:
           messages: [
             {
               role: 'system',
-              content: `Write a LinkedIn connection request note. Max 280 characters. Genuine, not salesy. Reference their work. Voice: ${voiceProfile || 'professional and direct'}. Return only the note text.`,
+              content: `Write a LinkedIn connection request note. Max 280 characters.
+Rules:
+- Sound like a real person, not a sales pitch
+- Mention something specific about their role or what they do
+- Simple, plain words — no jargon, no "synergy", no "reaching out"
+- Voice: ${voiceProfile || 'direct and genuine'}
+- Do NOT wrap your reply in quotes
+- Return only the note text`,
             },
             {
               role: 'user',
@@ -490,7 +506,7 @@ Score each profile 0.0–1.0 (1.0 = perfect match). Return JSON array only:
           agentKey: this.key,
           maxTokens: 80,
         });
-        const note = noteRes.content.trim().slice(0, 280);
+        const note = noteRes.content.trim().replace(/^["'`""]+|["'`""]+$/g, '').trim().slice(0, 280);
 
         const [req] = await this.db.db.insert(linkedinConnectionRequests).values({
           accountId: account.id,
@@ -599,7 +615,15 @@ Score each profile 0.0–1.0 (1.0 = perfect match). Return JSON array only:
           messages: [
             {
               role: 'system',
-              content: `Write a brief, genuine LinkedIn DM to a connected prospect. 2-3 sentences. No templates. Reference their role. One soft CTA.${kbBlock}`,
+              content: `Write a short LinkedIn DM to a new connection. Keep it real and friendly — like a message from an actual person, not a sales template.
+Rules:
+- 2-3 short sentences max
+- Simple words, easy to read
+- Reference something specific about their role or background
+- End with one soft, natural question or invite (not a hard CTA)
+- No corporate speak, no buzzwords, no "I wanted to reach out"
+- Do NOT wrap your reply in quotes
+- Return only the message text${kbBlock}`,
             },
             {
               role: 'user',
@@ -610,7 +634,7 @@ Score each profile 0.0–1.0 (1.0 = perfect match). Return JSON array only:
           maxTokens: 150,
         });
 
-        let message = response.content.trim();
+        let message = response.content.trim().replace(/^["'`""]+|["'`""]+$/g, '').trim();
         if (!message) continue;
         message = await this.selfCritique(message, alwaysOn.find(e => e.entryType === 'voice_profile')?.content, blocklist);
         const violation = blocklist.find(b => message.toLowerCase().includes(b.toLowerCase()));
@@ -948,6 +972,49 @@ Score each profile 0.0–1.0 (1.0 = perfect match). Return JSON array only:
             maxTokens: 120,
           });
           return { draft: response.content.trim() };
+        },
+      },
+      {
+        method: 'POST',
+        path: '/linkedin/persona/train',
+        requiresAuth: true,
+        handler: async (body) => {
+          const accountId = (body as any).accountId as string | undefined;
+          const [accounts] = accountId
+            ? await this.db.db.select().from(linkedinAccounts).where(eq(linkedinAccounts.unipileAccountId, accountId)).limit(1).then(r => [r[0]])
+            : await this.db.db.select().from(linkedinAccounts).where(eq(linkedinAccounts.isActive, true)).limit(1).then(r => [r[0]]);
+
+          if (!accounts?.unipileAccountId) return { error: 'No active LinkedIn account found' };
+
+          const posts = await this.li.fetchOwnPosts(accounts.unipileAccountId);
+          if (!posts.length) return { saved: 0, note: 'No recent posts found on your profile' };
+
+          let saved = 0;
+          for (const post of posts) {
+            if (!post.trim() || post.length < 30) continue;
+            await this.db.db.insert(writingSamples).values({
+              context: 'LinkedIn persona — own post',
+              sampleText: post.slice(0, 2000),
+              polarity: 'positive',
+              agentKeys: this.key,
+            }).onConflictDoNothing();
+            saved++;
+          }
+          return { saved, total: posts.length };
+        },
+      },
+      {
+        method: 'GET',
+        path: '/linkedin/persona/samples',
+        requiresAuth: true,
+        handler: async () => {
+          const samples = await this.db.db
+            .select()
+            .from(writingSamples)
+            .where(eq(writingSamples.agentKeys, this.key))
+            .orderBy(sql`${writingSamples.createdAt} DESC`)
+            .limit(50);
+          return samples;
         },
       },
     ];

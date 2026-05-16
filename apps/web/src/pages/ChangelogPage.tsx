@@ -16,6 +16,15 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.74.0',
+    date: '2026-05-16',
+    entries: [
+      { tag: 'fix', scope: 'linkedin', description: 'Strip leading/trailing quotes from LLM-generated comments, DMs, and connection notes so text never appears with double-quotes on LinkedIn. execute() notifications also no longer wrap comment/DM text in quotes.' },
+      { tag: 'feat', scope: 'linkedin', description: 'More human system prompts for comments, DMs, and connection notes: simple words, no corporate speak, no generic openers, explicit instruction to not wrap output in quotes.' },
+      { tag: 'feat', scope: 'linkedin', description: 'Persona training: POST /linkedin/persona/train fetches own recent LinkedIn posts via Unipile Voyager proxy and saves them as writing samples (agentKeys=linkedin, polarity=positive) so the AI learns the account owner\'s tone. GET /linkedin/persona/samples lists stored samples. UI button on Accounts tab triggers training and shows result count.' },
+    ],
+  },
+  {
     version: 'v4.73.6',
     date: '2026-05-16',
     entries: [

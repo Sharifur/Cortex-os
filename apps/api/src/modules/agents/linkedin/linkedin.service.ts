@@ -332,6 +332,69 @@ export class LinkedInService {
     if (!res.ok) throw new Error(`Unipile DM failed: ${await res.text()}`);
   }
 
+  // ─── Own profile posts (persona training) ──────────────────────────────────
+  // Uses Voyager proxy to fetch recent posts authored by this account.
+  // Falls back to empty array if the endpoint is unavailable.
+
+  async fetchOwnPosts(accountId: string): Promise<string[]> {
+    const { unipileKey, unipileDsn } = await this.getCredentials();
+    if (!unipileKey || !unipileDsn) return [];
+    try {
+      // Step 1: get own public identifier via /voyager/api/me
+      const meRes = await fetch(`${this.unipileBase(unipileDsn)}/linkedin`, {
+        method: 'POST',
+        headers: this.unipileHeaders(unipileKey),
+        body: JSON.stringify({
+          account_id: accountId,
+          request_url: 'https://www.linkedin.com/voyager/api/me',
+        }),
+      });
+      let publicId: string | null = null;
+      if (meRes.ok) {
+        const meData = await meRes.json() as any;
+        const profile = meData?.data ?? meData;
+        publicId =
+          profile?.miniProfile?.publicIdentifier ??
+          profile?.publicIdentifier ??
+          profile?.data?.me?.profile?.miniProfile?.publicIdentifier ??
+          null;
+      }
+
+      // Step 2: fetch recent profile updates (SHARES = own posts)
+      const updatesUrl = publicId
+        ? `https://www.linkedin.com/voyager/api/identity/profiles/${publicId}/updates?type=SHARES&start=0&count=20`
+        : `https://www.linkedin.com/voyager/api/identity/profiles/me/updates?type=SHARES&start=0&count=20`;
+
+      const updatesRes = await fetch(`${this.unipileBase(unipileDsn)}/linkedin`, {
+        method: 'POST',
+        headers: this.unipileHeaders(unipileKey),
+        body: JSON.stringify({ account_id: accountId, request_url: updatesUrl }),
+      });
+      if (!updatesRes.ok) return [];
+
+      const raw = await updatesRes.json() as any;
+      const voyager = raw?.data ?? raw;
+      const elements: any[] = voyager?.elements ?? voyager?.feedUpdates ?? [];
+
+      const texts: string[] = [];
+      for (const el of elements) {
+        const update = el?.updateV2 ?? el?.update ?? el;
+        const text =
+          update?.commentary?.text?.text ??
+          update?.commentary?.text ??
+          update?.specificContent?.['com.linkedin.ugc.ShareContent']?.shareCommentary?.text ??
+          el?.commentary?.text?.text ??
+          el?.text?.text ??
+          '';
+        if (text?.trim()) texts.push(text.trim());
+      }
+      return texts;
+    } catch (err) {
+      this.logger.warn(`fetchOwnPosts error: ${(err as Error).message}`);
+      return [];
+    }
+  }
+
   // ─── Posts ─────────────────────────────────────────────────────────────────
   // Correct: POST /api/v1/posts?account_id=X  { text }
   // Docs: https://developer.unipile.com/docs/posts-and-comments
