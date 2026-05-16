@@ -287,39 +287,53 @@ export class LinkedInService {
   }
 
   // ─── Comments ──────────────────────────────────────────────────────────────
-  // Unipile-specific LinkedIn action endpoint — same pattern as /linkedin/search.
-  // Accepts LinkedIn activity URNs directly without needing a Unipile-native post ID.
+  // Unipile cannot comment on posts fetched via raw Voyager proxy — their comment
+  // API requires posts to be stored in their own system.
+  // Direct LinkedIn OAuth API is the only reliable approach for commenting on
+  // arbitrary feed posts identified by activity URNs.
 
-  async postComment(postId: string, comment: string, accountId?: string): Promise<void> {
-    const { unipileKey, unipileDsn } = await this.getCredentials();
-    if (!unipileKey || !unipileDsn) {
-      this.logger.warn('LinkedIn not configured — skipping comment');
-      return;
+  async postComment(postId: string, comment: string, _accountId?: string): Promise<void> {
+    const { linkedinToken } = await this.getCredentials();
+
+    if (!linkedinToken) {
+      throw new Error(
+        'linkedin_access_token is required for posting comments. ' +
+        'Add it in Settings → LinkedIn access token.',
+      );
     }
-    if (!accountId) throw new Error('account_id is required for posting comments');
 
-    // Try Unipile's LinkedIn-specific comment action endpoint first
+    // Resolve the person URN for the actor field
+    const meRes = await fetch('https://api.linkedin.com/v2/me', {
+      headers: {
+        Authorization: `Bearer ${linkedinToken}`,
+        'X-Restli-Protocol-Version': '2.0.0',
+      },
+    });
+    if (!meRes.ok) {
+      throw new Error(`LinkedIn /me failed (${meRes.status}) — token may be expired`);
+    }
+    const me = await meRes.json() as { id: string };
+    const actorUrn = `urn:li:person:${me.id}`;
+
+    // Post comment via LinkedIn v2 socialActions API
     const res = await fetch(
-      `${this.unipileBase(unipileDsn)}/linkedin/comments?account_id=${encodeURIComponent(accountId)}`,
+      `https://api.linkedin.com/v2/socialActions/${encodeURIComponent(postId)}/comments`,
       {
         method: 'POST',
-        headers: this.unipileHeaders(unipileKey),
-        body: JSON.stringify({ post_id: postId, text: comment }),
+        headers: {
+          Authorization: `Bearer ${linkedinToken}`,
+          'Content-Type': 'application/json',
+          'X-Restli-Protocol-Version': '2.0.0',
+        },
+        body: JSON.stringify({
+          actor: actorUrn,
+          message: { text: comment },
+        }),
       },
     );
-    const raw = await res.text();
-    if (res.status === 404) {
-      // Endpoint doesn't exist — fall back to native posts API
-      const res2 = await fetch(`${this.unipileBase(unipileDsn)}/posts/${postId}/comments`, {
-        method: 'POST',
-        headers: this.unipileHeaders(unipileKey),
-        body: JSON.stringify({ account_id: accountId, text: comment }),
-      });
-      const raw2 = await res2.text();
-      if (!res2.ok) throw new Error(`Unipile comment failed: ${raw2.slice(0, 400)}`);
-      return;
+    if (!res.ok) {
+      throw new Error(`LinkedIn comment failed (${res.status}): ${(await res.text()).slice(0, 300)}`);
     }
-    if (!res.ok) throw new Error(`Unipile comment failed: ${raw.slice(0, 400)}`);
   }
 
   // ─── DMs ───────────────────────────────────────────────────────────────────
