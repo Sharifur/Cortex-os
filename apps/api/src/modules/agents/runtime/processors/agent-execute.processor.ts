@@ -1,9 +1,10 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Job } from 'bullmq';
 import { eq } from 'drizzle-orm';
 import { DbService } from '../../../../db/db.service';
-import { agentRuns, tasks as tasksTable } from '../../../../db/schema';
+import { agentRuns, agents, tasks as tasksTable } from '../../../../db/schema';
 import { AgentRegistryService } from '../agent-registry.service';
 import { AgentLogService } from '../agent-log.service';
 import { QUEUE_NAMES } from '../../../../common/queue/queue.constants';
@@ -22,6 +23,7 @@ export class AgentExecuteProcessor extends WorkerHost {
     private db: DbService,
     private registry: AgentRegistryService,
     private logSvc: AgentLogService,
+    private events: EventEmitter2,
   ) {
     super();
   }
@@ -76,6 +78,19 @@ export class AgentExecuteProcessor extends WorkerHost {
         .set({ status: 'FAILED', error: message, finishedAt: new Date() })
         .where(eq(agentRuns.id, runId));
       await this.logSvc.error(runId, `Execute failed: ${message}`);
+
+      const [agentRow] = await this.db.db
+        .select({ name: agents.name })
+        .from(agents)
+        .innerJoin(agentRuns, eq(agentRuns.agentId, agents.id))
+        .where(eq(agentRuns.id, runId));
+      this.events.emit('agent.failed', {
+        agentKey,
+        agentName: agentRow?.name ?? agentKey,
+        runId,
+        error: `${action.type}: ${message}`,
+      });
+
       throw err;
     }
   }

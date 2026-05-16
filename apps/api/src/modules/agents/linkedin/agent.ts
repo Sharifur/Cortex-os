@@ -278,6 +278,8 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
     const template = await this.kb.getPromptTemplate(this.key);
     const actions: ProposedAction[] = [];
 
+    const defaultAccount = commentingAccounts[0];
+
     for (const post of fresh) {
       try {
         const references = await this.kb.searchEntries(post.content?.slice(0, 300) ?? '', this.key, 3);
@@ -327,7 +329,13 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
         actions.push({
           type: 'post_comment',
           summary,
-          payload: { postId: post.id, authorName: post.authorName, comment, postUrl },
+          payload: {
+            postId: post.id,
+            authorName: post.authorName,
+            comment,
+            postUrl,
+            accountId: defaultAccount?.unipileAccountId ?? null,
+          },
           riskLevel: violation ? 'high' : 'medium',
         });
       } catch (err) {

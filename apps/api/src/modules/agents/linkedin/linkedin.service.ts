@@ -138,10 +138,11 @@ export class LinkedInService {
             el?.entityUrn ??
             el?.id ??
             '';
-          // Extract urn:li:activity:XXXXX from compound fsd_update URNs
+          // Extract urn:li:activity:XXXXX from compound fsd_update URNs.
+          // Use the clean activity URN as the post ID — Unipile comment API requires it.
           const activityUrn = urn.match(/urn:li:activity:\d+/)?.[0] ?? urn;
           const url = activityUrn.startsWith('urn:li:') ? `https://www.linkedin.com/feed/update/${activityUrn}/` : '';
-          return { id: urn || `post_${Math.random()}`, authorName, content, url };
+          return { id: activityUrn || `post_${Math.random()}`, authorName, content, url };
         })
         .filter(p => p.content?.trim());
 
