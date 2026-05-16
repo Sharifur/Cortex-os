@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.78.3',
+    date: '2026-05-16',
+    entries: [
+      { tag: 'fix', scope: 'telegram', description: 'Approval callbacks are now environment-scoped via APP_ENV env var (defaults to "local"). Callback data embeds env prefix (e.g. approval:prod:id:approve) so local and production never consume each other\'s Telegram callbacks when sharing the same bot token.' },
+    ],
+  },
+  {
     version: 'v4.78.2',
     date: '2026-05-16',
     entries: [

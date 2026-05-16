@@ -49,6 +49,7 @@ const ROUTABLE_AGENTS = [
 @Injectable()
 export class TelegramService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(TelegramService.name);
+  private readonly appEnv = process.env.APP_ENV ?? 'local';
   private bot: Bot | null = null;
   private ownerChatId: string | null = null;
 
@@ -127,16 +128,18 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
 
     const text = this.buildApprovalText(event.agentName, event.action, event.runId);
     const isConnection = event.action.type === 'send_connection_request';
+    const env = this.appEnv;
+    const id = event.approvalId;
     const keyboard = isConnection
       ? new InlineKeyboard()
-          .text('Approve + note', `approval:${event.approvalId}:approve`)
-          .text('Approve (no note)', `approval:${event.approvalId}:approve_no_note`)
+          .text('Approve + note', `approval:${env}:${id}:approve`)
+          .text('Approve (no note)', `approval:${env}:${id}:approve_no_note`)
           .row()
-          .text('Reject', `approval:${event.approvalId}:reject`)
+          .text('Reject', `approval:${env}:${id}:reject`)
       : new InlineKeyboard()
-          .text('Approve', `approval:${event.approvalId}:approve`)
-          .text('Reject', `approval:${event.approvalId}:reject`)
-          .text('Follow up', `approval:${event.approvalId}:followup`);
+          .text('Approve', `approval:${env}:${id}:approve`)
+          .text('Reject', `approval:${env}:${id}:reject`)
+          .text('Follow up', `approval:${env}:${id}:followup`);
 
     try {
       const sent = await this.bot.api.sendMessage(this.ownerChatId, text, {
@@ -188,8 +191,8 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     if (!this.bot || !this.ownerChatId) return;
 
     const keyboard = new InlineKeyboard()
-      .text('Add to KB', `kbproposal:${event.proposalId}:approve`)
-      .text('Skip', `kbproposal:${event.proposalId}:reject`);
+      .text('Add to KB', `kbproposal:${this.appEnv}:${event.proposalId}:approve`)
+      .text('Skip', `kbproposal:${this.appEnv}:${event.proposalId}:reject`);
 
     try {
       await this.bot.api.sendMessage(this.ownerChatId, event.text, { reply_markup: keyboard });
@@ -323,7 +326,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
 
     // Connection request: approve without note
     this.bot.callbackQuery(
-      /^approval:([^:]+):approve_no_note$/,
+      new RegExp(`^approval:${this.appEnv}:([^:]+):approve_no_note$`),
       async (ctx) => {
         const fromId = ctx.from?.id ? String(ctx.from.id) : null;
         if (!this.isOwner(fromId)) {
@@ -343,9 +346,9 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       },
     );
 
-    // Inline keyboard callbacks: approval:<id>:<action>
+    // Inline keyboard callbacks: approval:<env>:<id>:<action>
     this.bot.callbackQuery(
-      /^approval:([^:]+):(approve|reject|followup)$/,
+      new RegExp(`^approval:${this.appEnv}:([^:]+):(approve|reject|followup)$`),
       async (ctx) => {
         const fromId = ctx.from?.id ? String(ctx.from.id) : null;
         if (!this.isOwner(fromId)) {
@@ -363,8 +366,8 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
             await ctx.reply('Approved.');
           } else if (action === 'reject') {
             const keyboard = new InlineKeyboard()
-              .text('Reject silently', `reject:${approvalId}:silent`)
-              .text('Reject + reason', `reject:${approvalId}:reason`);
+              .text('Reject silently', `reject:${this.appEnv}:${approvalId}:silent`)
+              .text('Reject + reason', `reject:${this.appEnv}:${approvalId}:reason`);
             await this.safeEditMarkup(ctx, keyboard);
           } else if (action === 'followup') {
             const prompt = await ctx.api.sendMessage(
@@ -387,7 +390,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
 
     // Rejection sub-action: silent or reason
     this.bot.callbackQuery(
-      /^reject:([^:]+):(silent|reason)$/,
+      new RegExp(`^reject:${this.appEnv}:([^:]+):(silent|reason)$`),
       async (ctx) => {
         const fromId = ctx.from?.id ? String(ctx.from.id) : null;
         if (!this.isOwner(fromId)) {
@@ -424,7 +427,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
 
     // KB proposal callbacks
     this.bot.callbackQuery(
-      /^kbproposal:([^:]+):(approve|reject)$/,
+      new RegExp(`^kbproposal:${this.appEnv}:([^:]+):(approve|reject)$`),
       async (ctx) => {
         const fromId = ctx.from?.id ? String(ctx.from.id) : null;
         if (!this.isOwner(fromId)) {
