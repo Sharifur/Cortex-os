@@ -287,8 +287,8 @@ export class LinkedInService {
   }
 
   // ─── Comments ──────────────────────────────────────────────────────────────
-  // POST /api/v1/posts/{post_id}/comments  body: { account_id, text }
-  // post_id must be a Unipile-native post ID (from GET /posts), not a LinkedIn URN.
+  // Unipile-specific LinkedIn action endpoint — same pattern as /linkedin/search.
+  // Accepts LinkedIn activity URNs directly without needing a Unipile-native post ID.
 
   async postComment(postId: string, comment: string, accountId?: string): Promise<void> {
     const { unipileKey, unipileDsn } = await this.getCredentials();
@@ -297,12 +297,28 @@ export class LinkedInService {
       return;
     }
     if (!accountId) throw new Error('account_id is required for posting comments');
-    const res = await fetch(`${this.unipileBase(unipileDsn)}/posts/${postId}/comments`, {
-      method: 'POST',
-      headers: this.unipileHeaders(unipileKey),
-      body: JSON.stringify({ account_id: accountId, text: comment }),
-    });
+
+    // Try Unipile's LinkedIn-specific comment action endpoint first
+    const res = await fetch(
+      `${this.unipileBase(unipileDsn)}/linkedin/comments?account_id=${encodeURIComponent(accountId)}`,
+      {
+        method: 'POST',
+        headers: this.unipileHeaders(unipileKey),
+        body: JSON.stringify({ post_id: postId, text: comment }),
+      },
+    );
     const raw = await res.text();
+    if (res.status === 404) {
+      // Endpoint doesn't exist — fall back to native posts API
+      const res2 = await fetch(`${this.unipileBase(unipileDsn)}/posts/${postId}/comments`, {
+        method: 'POST',
+        headers: this.unipileHeaders(unipileKey),
+        body: JSON.stringify({ account_id: accountId, text: comment }),
+      });
+      const raw2 = await res2.text();
+      if (!res2.ok) throw new Error(`Unipile comment failed: ${raw2.slice(0, 400)}`);
+      return;
+    }
     if (!res.ok) throw new Error(`Unipile comment failed: ${raw.slice(0, 400)}`);
   }
 
