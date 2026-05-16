@@ -16,6 +16,16 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.77.0',
+    date: '2026-05-16',
+    entries: [
+      { tag: 'feat', scope: 'linkedin', description: 'Post categorization: each feed post is classified (job_new, hiring, success_milestone, design_creative, question, insight, personal_story, product_launch, event, other) before generating a comment. The LLM receives category-specific rules — e.g. job_new prevents any product pitch, design_creative requires engaging with the visual aspect, question requires directly answering.' },
+      { tag: 'feat', scope: 'linkedin', description: 'Post-generation category validation: after comment generation, a blocklist of disallowed phrases per category is checked. Comments containing product pitch language on job/personal posts are skipped and logged rather than sent for approval.' },
+      { tag: 'feat', scope: 'linkedin', description: 'Post category label shown in Telegram comment proposal: "Comment on [name]s post [design_creative]:" so you can see context before approving.' },
+      { tag: 'feat', scope: 'linkedin', description: 'Connection requests: Telegram approval shows Approve + note / Approve (no note) buttons. Approve without note sends a clean connection request with no message. approve_no_note strips payload.note before queuing execute.' },
+    ],
+  },
+  {
     version: 'v4.76.1',
     date: '2026-05-16',
     entries: [

@@ -25,15 +25,17 @@ export class LinkedInConnectionService {
    * Send a LinkedIn connection request via Unipile.
    * Docs: https://developer.unipile.com/docs/invite-users
    */
-  async sendConnectionRequest(accountId: string, profileId: string, note: string): Promise<void> {
+  async sendConnectionRequest(accountId: string, profileId: string, note?: string | null): Promise<void> {
     const { unipileKey, unipileDsn } = await this.getCredentials();
     if (!unipileKey || !unipileDsn) throw new Error('Unipile not configured');
 
-    this.logger.log(`sendConnectionRequest: profileId=${profileId} accountId=${accountId}`);
+    this.logger.log(`sendConnectionRequest: profileId=${profileId} accountId=${accountId} withNote=${!!note}`);
+    const body: Record<string, any> = { account_id: accountId, provider_id: profileId };
+    if (note?.trim()) body['message'] = note.trim();
     const res = await fetch(`${this.unipileBase(unipileDsn)}/users/invite`, {
       method: 'POST',
       headers: this.unipileHeaders(unipileKey),
-      body: JSON.stringify({ account_id: accountId, provider_id: profileId, message: note }),
+      body: JSON.stringify(body),
     });
     if (!res.ok) {
       const raw = await res.text();

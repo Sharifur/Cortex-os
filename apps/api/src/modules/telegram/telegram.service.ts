@@ -126,10 +126,17 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     if (!this.bot || !this.ownerChatId) return;
 
     const text = this.buildApprovalText(event.agentName, event.action, event.runId);
-    const keyboard = new InlineKeyboard()
-      .text('Approve', `approval:${event.approvalId}:approve`)
-      .text('Reject', `approval:${event.approvalId}:reject`)
-      .text('Follow up', `approval:${event.approvalId}:followup`);
+    const isConnection = event.action.type === 'send_connection_request';
+    const keyboard = isConnection
+      ? new InlineKeyboard()
+          .text('Approve + note', `approval:${event.approvalId}:approve`)
+          .text('Approve (no note)', `approval:${event.approvalId}:approve_no_note`)
+          .row()
+          .text('Reject', `approval:${event.approvalId}:reject`)
+      : new InlineKeyboard()
+          .text('Approve', `approval:${event.approvalId}:approve`)
+          .text('Reject', `approval:${event.approvalId}:reject`)
+          .text('Follow up', `approval:${event.approvalId}:followup`);
 
     try {
       const sent = await this.bot.api.sendMessage(this.ownerChatId, text, {
@@ -313,6 +320,28 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       const original = ctx.msg?.text ?? '';
       await ctx.editMessageText(`${original}\n\n${res.reply}`);
     });
+
+    // Connection request: approve without note
+    this.bot.callbackQuery(
+      /^approval:([^:]+):approve_no_note$/,
+      async (ctx) => {
+        const fromId = ctx.from?.id ? String(ctx.from.id) : null;
+        if (!this.isOwner(fromId)) {
+          await ctx.answerCallbackQuery({ text: 'Unauthorized' });
+          return;
+        }
+        const [, approvalId] = ctx.match!;
+        await ctx.answerCallbackQuery();
+        try {
+          await this.approvalSvc.approveNoNote(approvalId);
+          await this.safeEditMarkup(ctx, { inline_keyboard: [] });
+          await ctx.reply('Approved (no note).');
+        } catch (err) {
+          this.logger.error(`approve_no_note failed for ${approvalId}: ${err}`);
+          await ctx.reply(`Action failed: ${(err as Error).message}`);
+        }
+      },
+    );
 
     // Inline keyboard callbacks: approval:<id>:<action>
     this.bot.callbackQuery(

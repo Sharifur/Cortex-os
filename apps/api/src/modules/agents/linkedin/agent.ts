@@ -51,6 +51,129 @@ interface LinkedInSnapshot {
   actionType: LinkedInActionType;
 }
 
+// ─── Post Category System ─────────────────────────────────────────────────────
+
+type PostCategory =
+  | 'job_new'          // "Excited to join..." — person announcing a new role
+  | 'hiring'           // "We're hiring..." — company/person recruiting
+  | 'success_milestone'// "We just hit X users / $X revenue..."
+  | 'design_creative'  // Sharing a design, UI screenshot, visual work
+  | 'question'         // Asking for advice, opinions, or a poll
+  | 'insight'          // Sharing a lesson, framework, hot take, opinion
+  | 'personal_story'   // Career journey, personal reflection, life event
+  | 'product_launch'   // Launching or announcing a product/feature
+  | 'event'            // Webinar, conference, virtual event
+  | 'other';
+
+function classifyPost(content: string): PostCategory {
+  const t = content.toLowerCase();
+
+  const matchesAny = (terms: string[]) => terms.some(k => t.includes(k));
+
+  if (matchesAny(['excited to join', "i'm joining", "i've joined", 'thrilled to announce i', 'starting my new role', 'first day at', 'new chapter', 'new position at', 'new role at']))
+    return 'job_new';
+
+  if (matchesAny(["we're hiring", 'we are hiring', "i'm hiring", 'looking for a', 'open role', 'job opening', 'apply now', 'join our team', 'seeking a', 'we have an opening']))
+    return 'hiring';
+
+  if (matchesAny(['just hit', 'just crossed', 'we reached', 'milestone', 'users', 'mrr', 'revenue', 'customers', '1k', '10k', '100k', '1m', 'sold out', 'launched and']))
+    return 'success_milestone';
+
+  if (matchesAny(['product launch', 'announcing', 'we just launched', 'now available', 'introducing', 'releasing', 'ship', 'beta is live', 'go live']))
+    return 'product_launch';
+
+  if (matchesAny(['webinar', 'conference', 'event', 'meetup', 'summit', 'workshop', 'register', 'rsvp', 'join us on', 'join us for']))
+    return 'event';
+
+  if (matchesAny(['designed', 'redesigned', 'ui', 'ux', 'design', 'figma', 'mockup', 'wireframe', 'visual', 'illustration', 'branding', 'color palette', 'typography']))
+    return 'design_creative';
+
+  if (matchesAny(['what do you think', 'thoughts?', 'agree?', 'disagree?', 'your experience', 'poll:', 'question:', 'asking', "what's your", 'how do you', 'anyone else']))
+    return 'question';
+
+  if (matchesAny(['i learned', "here's what", 'lesson:', 'unpopular opinion', 'hot take', 'truth:', 'reality:', 'mistake i made', 'i used to', 'stop doing', 'start doing', 'tip:', 'framework']))
+    return 'insight';
+
+  if (matchesAny(['my journey', 'my story', 'personal', 'vulnerable', 'i want to share', 'two years ago', 'a year ago', 'looking back', 'gratitude', 'grateful', 'burnout', 'mental health']))
+    return 'personal_story';
+
+  return 'other';
+}
+
+const CATEGORY_COMMENT_RULES: Record<PostCategory, string> = {
+  job_new: `This is a new job announcement. Rules for this category:
+- Congratulate warmly and specifically (mention the company or role if visible)
+- Do NOT pitch any product or service
+- Do NOT ask generic questions like "what will you be working on?" — they just told you
+- Keep it to 1 sentence, warm and personal`,
+
+  hiring: `This is a hiring post. Rules for this category:
+- Acknowledge what they are looking for
+- You may reference your product only if the role directly involves it (e.g. hiring a dev tool user)
+- Do NOT pitch your product or redirect the conversation
+- Keep it brief and supportive`,
+
+  success_milestone: `This is a milestone or success announcement. Rules for this category:
+- Celebrate genuinely — be specific about what you find impressive
+- Do NOT pitch your product or claim credit
+- Do NOT use generic phrases like "Congrats!" alone — add something specific
+- 1-2 sentences max`,
+
+  design_creative: `This is a design or creative post. Rules for this category:
+- Comment on the visual or creative aspect specifically
+- Reference what you notice from the description (style, approach, problem solved)
+- Do NOT pitch any product
+- Avoid generic "Looks great!" — say WHY it works`,
+
+  question: `This is a question or poll post. Rules for this category:
+- Answer the question directly if you have relevant insight
+- Add your own short perspective or experience
+- Do NOT start with "Great question!"
+- 1-2 sentences — direct and useful`,
+
+  insight: `This is a thought-leadership or insight post. Rules for this category:
+- Engage with the idea — agree, respectfully challenge, or extend it with your own take
+- You may briefly reference a related experience
+- Do NOT just validate — add something substantive
+- 1-2 sentences`,
+
+  personal_story: `This is a personal story or reflection. Rules for this category:
+- Respond on a human level — empathy first
+- Do NOT pitch any product
+- Do NOT give unsolicited advice
+- 1 short sentence that acknowledges what they shared`,
+
+  product_launch: `This is a product launch or feature announcement. Rules for this category:
+- Congratulate and ask one specific genuine question about the product
+- Do NOT compare to or mention your own product
+- Do NOT say "I'd love to collaborate" or redirect to yourself
+- 1-2 sentences`,
+
+  event: `This is an event announcement. Rules for this category:
+- Express genuine interest or ask about one specific aspect of the event
+- Do NOT redirect to your own product or event
+- Keep it brief`,
+
+  other: `Rules for this post:
+- Give a genuine, specific reaction based on what was actually written
+- Do NOT start with generic openers like "Great post!" or "So true!"
+- No self-promotion. 1-2 sentences`,
+};
+
+const CATEGORY_VALIDATION_PHRASES: Partial<Record<PostCategory, string[]>> = {
+  job_new: ['our product', 'check out', 'try', 'visit', 'sign up', 'join our', 'book a demo', 'free trial'],
+  hiring: [],
+  success_milestone: ['our product', 'check out', 'try our', 'we can help', 'book a demo'],
+  personal_story: ['our product', 'check out', 'try our', 'we can help', 'book a demo', 'by the way'],
+};
+
+function validateCommentForCategory(comment: string, category: PostCategory): string | null {
+  const blocked = CATEGORY_VALIDATION_PHRASES[category] ?? [];
+  const lower = comment.toLowerCase();
+  const found = blocked.find(p => lower.includes(p));
+  return found ? `Contains disallowed phrase for ${category}: "${found}"` : null;
+}
+
 const DEFAULT_CONFIG: LinkedInConfig = {
   targetTopics: [
     'digital agency', 'marketing agency', 'web agency', 'agency growth',
@@ -321,6 +444,9 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
 
     for (const post of fresh) {
       try {
+        const category = classifyPost(post.content ?? '');
+        const categoryRules = CATEGORY_COMMENT_RULES[category];
+
         const references = await this.kb.searchEntries(post.content?.slice(0, 300) ?? '', this.key, 3);
         const kbBlock = this.kb.buildKbPromptBlock({
           voiceProfile: alwaysOn.find(e => e.entryType === 'voice_profile') ?? null,
@@ -332,27 +458,36 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
           rejections,
         });
         const defaultSystem = `You write LinkedIn comments. Tone: ${config.commentTone}.
-Rules:
-- 1-2 short sentences only
+
+${categoryRules}
+
+General rules (apply to all categories):
 - Use simple everyday words — write like a real person, not a marketer
-- Never start with "Great post!", "Love this!", "So true!" or any generic opener
-- No emojis. No self-promotion. No corporate speak
+- Never start with “Great post!”, “Love this!”, “So true!”, “Congratulations!” alone
+- No emojis. No corporate speak
 - Sound like someone who actually read the post and has a genuine take
 - Do NOT wrap your reply in quotes
 - Return only the comment text`;
         const response = await this.llm.complete({
           messages: [
             { role: 'system', content: (template?.system ?? defaultSystem) + kbBlock },
-            { role: 'user', content: `Post by ${post.authorName}:\n\n${post.content.slice(0, 600)}` },
+            { role: 'user', content: `Post type: ${category}\nPost by ${post.authorName}:\n\n${post.content.slice(0, 600)}` },
           ],
           ...agentLlmOpts(config),
           agentKey: this.key,
           maxTokens: 120,
         });
 
-        let comment = response.content.trim().replace(/^["'`“”]+|["'`“”]+$/g, '').trim();
+        let comment = response.content.trim().replace(/^[“'`””]+|[“'`””]+$/g, '').trim();
         if (!comment) continue;
         comment = await this.selfCritique(comment, alwaysOn.find(e => e.entryType === 'voice_profile')?.content, blocklist);
+
+        const categoryViolation = validateCommentForCategory(comment, category);
+        if (categoryViolation) {
+          await this.logSvc.warn(runId, `Comment skipped (category rule): ${categoryViolation}. Post: “${post.content?.slice(0, 80)}”`);
+          continue;
+        }
+
         const violation = blocklist.find(b => comment.toLowerCase().includes(b.toLowerCase()));
 
         await this.db.db.insert(linkedinPosts).values({
@@ -366,7 +501,7 @@ Rules:
         const postSnippet = post.content.slice(0, 200).trim();
         const postUrl = post.url || '';
         const summary = [
-          `Comment on ${post.authorName}'s post:`,
+          `Comment on ${post.authorName}'s post [${category}]:`,
           '',
           `"${postSnippet}${post.content.length > 200 ? '...' : ''}"`,
           postUrl ? postUrl : null,

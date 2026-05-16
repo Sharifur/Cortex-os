@@ -98,6 +98,44 @@ export class ApprovalService {
     );
   }
 
+  async approveNoNote(approvalId: string) {
+    const approval = await this.getById(approvalId);
+    if (!approval) throw new NotFoundException(`Approval not found: ${approvalId}`);
+    if (approval.status !== 'PENDING' && approval.status !== 'FOLLOWUP') {
+      throw new Error(`Approval already resolved: ${approval.status}`);
+    }
+
+    const patchedAction = approval.action as ProposedAction;
+    if (patchedAction?.payload) {
+      (patchedAction.payload as any).note = null;
+    }
+
+    await this.db.db
+      .update(pendingApprovals)
+      .set({ status: 'APPROVED', resolvedAt: new Date(), action: patchedAction })
+      .where(eq(pendingApprovals.id, approvalId));
+
+    const run = await this.getRunForApproval(approval.runId);
+    await this.db.db
+      .update(agentRuns)
+      .set({ status: 'APPROVED' })
+      .where(eq(agentRuns.id, approval.runId));
+
+    await this.logSvc.info(approval.runId, `Approval ${approvalId} approved without note`);
+    this.events.emit('approval.removed', { id: approvalId });
+
+    await this.executeQueue.add(
+      'execute',
+      {
+        agentKey: run.agentKey,
+        runId: approval.runId,
+        approvalId,
+        action: patchedAction,
+      } satisfies AgentExecuteJobData,
+      { attempts: 3, backoff: { type: 'exponential', delay: 60_000 } },
+    );
+  }
+
   async reject(approvalId: string) {
     return this.rejectWithReason(approvalId, null);
   }
