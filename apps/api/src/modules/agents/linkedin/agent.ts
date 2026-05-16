@@ -980,6 +980,17 @@ Rules:
       },
       {
         method: 'GET',
+        path: '/linkedin/debug/persona',
+        requiresAuth: true,
+        handler: async (params) => {
+          const accountId = (params as any).accountId as string | undefined;
+          const id = accountId ?? (await this.db.db.select().from(linkedinAccounts).limit(1))[0]?.unipileAccountId;
+          if (!id) return { error: 'No account found' };
+          return this.li.debugPersonaFetch(id);
+        },
+      },
+      {
+        method: 'GET',
         path: '/linkedin/debug/posts',
         requiresAuth: true,
         handler: async (params) => {
