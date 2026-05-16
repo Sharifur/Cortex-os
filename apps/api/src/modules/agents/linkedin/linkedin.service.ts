@@ -261,9 +261,9 @@ export class LinkedInService {
   }
 
   // ─── Comments ──────────────────────────────────────────────────────────────
-  // POST /api/v1/posts/{post_id}/comments  body: { account_id, text }
-  // post_id = urn:li:activity:XXXXX (colons NOT encoded — Unipile rejects encoded URNs)
-  // account_id must be in the request body (query string alone is rejected)
+  // Unipile's /posts/{id}/comments requires a Unipile-native post ID.
+  // Since we fetch feed via raw Voyager proxy (LinkedIn URNs), we must also
+  // comment via the raw Voyager proxy — POST to LinkedIn's socialActions endpoint.
 
   async postComment(postId: string, comment: string, accountId?: string): Promise<void> {
     const { unipileKey, unipileDsn } = await this.getCredentials();
@@ -272,13 +272,20 @@ export class LinkedInService {
       return;
     }
     if (!accountId) throw new Error('account_id is required for posting comments');
-    // Do NOT encodeURIComponent the post_id — Unipile expects the URN with raw colons in the path
-    const res = await fetch(`${this.unipileBase(unipileDsn)}/posts/${postId}/comments`, {
+
+    const voyagerUrl = `https://www.linkedin.com/voyager/api/feed/socialActions/${postId}/comments`;
+    const res = await fetch(`${this.unipileBase(unipileDsn)}/linkedin`, {
       method: 'POST',
       headers: this.unipileHeaders(unipileKey),
-      body: JSON.stringify({ account_id: accountId, text: comment }),
+      body: JSON.stringify({
+        account_id: accountId,
+        request_url: voyagerUrl,
+        method: 'POST',
+        request_body: { text: { text: comment } },
+      }),
     });
-    if (!res.ok) throw new Error(`Unipile comment failed: ${await res.text()}`);
+    const raw = await res.text();
+    if (!res.ok) throw new Error(`Unipile comment failed: ${raw.slice(0, 400)}`);
   }
 
   // ─── DMs ───────────────────────────────────────────────────────────────────
