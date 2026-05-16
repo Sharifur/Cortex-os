@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.78.4',
+    date: '2026-05-16',
+    entries: [
+      { tag: 'fix', scope: 'telegram', description: 'Follow-up and reject-reason threadId now embeds APP_ENV prefix so local cannot intercept production reply messages and vice versa. Both storage and lookup are scoped to the current env.' },
+      { tag: 'fix', scope: 'linkedin', description: 'Comment posting failure now sends a Telegram notification with the error message instead of silently returning success=false after approval.' },
+    ],
+  },
+  {
     version: 'v4.78.3',
     date: '2026-05-16',
     entries: [

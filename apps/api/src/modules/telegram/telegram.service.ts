@@ -377,7 +377,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
             );
             await this.db.db
               .update(pendingApprovals)
-              .set({ telegramThreadId: String(prompt.message_id), status: 'FOLLOWUP' })
+              .set({ telegramThreadId: `${this.appEnv}:${prompt.message_id}`, status: 'FOLLOWUP' })
               .where(eq(pendingApprovals.id, approvalId));
             await this.safeEditMarkup(ctx, { inline_keyboard: [] });
           }
@@ -414,7 +414,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
             );
             await this.db.db
               .update(pendingApprovals)
-              .set({ telegramThreadId: `REJECT_REASON:${prompt.message_id}` })
+              .set({ telegramThreadId: `REJECT_REASON:${this.appEnv}:${prompt.message_id}` })
               .where(eq(pendingApprovals.id, approvalId));
             await this.safeEditMarkup(ctx, { inline_keyboard: [] });
           }
@@ -634,7 +634,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
           .from(pendingApprovals)
           .where(
             and(
-              eq(pendingApprovals.telegramThreadId, replyToMsgId),
+              eq(pendingApprovals.telegramThreadId, `${this.appEnv}:${replyToMsgId}`),
               eq(pendingApprovals.status, 'FOLLOWUP'),
             ),
           )
@@ -651,7 +651,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
         const [rejectApproval] = await this.db.db
           .select()
           .from(pendingApprovals)
-          .where(eq(pendingApprovals.telegramThreadId, `REJECT_REASON:${replyToMsgId}`))
+          .where(eq(pendingApprovals.telegramThreadId, `REJECT_REASON:${this.appEnv}:${replyToMsgId}`))
           .limit(1);
 
         if (rejectApproval) {

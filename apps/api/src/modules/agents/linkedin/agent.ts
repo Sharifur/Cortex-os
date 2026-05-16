@@ -316,6 +316,7 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
           .update(linkedinPosts)
           .set({ status: 'failed' })
           .where(eq(linkedinPosts.externalId, p.postId));
+        await this.telegram.sendMessage(`Comment failed on ${p.authorName ?? 'unknown'}'s post:\n${msg.slice(0, 300)}`);
         return { success: false, error: msg };
       }
       return { success: true, data: { postId: p.postId } };
