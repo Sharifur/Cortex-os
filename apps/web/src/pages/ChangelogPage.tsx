@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.78.9',
+    date: '2026-05-16',
+    entries: [
+      { tag: 'fix', scope: 'linkedin', description: 'getNativeFeedPosts now maps post ID to provider_id (LinkedIn activity URN) before internal Unipile ID. Fixes Voyager fallback building a malformed URL with an internal ID, which caused 400 "rejected by provider" from LinkedIn.' },
+      { tag: 'fix', scope: 'linkedin', description: 'postComment skips Voyager fallback when postId is not a LinkedIn URN (urn:li: prefix), avoiding a guaranteed-400 call. Error message now identifies the non-URN postId for easier diagnosis.' },
+    ],
+  },
+  {
     version: 'v4.78.8',
     date: '2026-05-16',
     entries: [

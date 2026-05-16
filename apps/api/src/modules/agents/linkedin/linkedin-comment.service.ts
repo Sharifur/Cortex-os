@@ -56,7 +56,10 @@ export class LinkedInCommentService {
       this.logger.warn(`Native Unipile comment error: ${(err as Error).message}`);
     }
 
-    // Attempt 2: Voyager proxy POST — fallback for activity URNs from Voyager feed
+    // Attempt 2: Voyager proxy POST — only useful when postId is a LinkedIn activity URN
+    if (!postId.startsWith('urn:li:')) {
+      throw new Error(`Comment failed: native Unipile rejected non-URN postId=${postId}. Voyager skipped (needs LinkedIn URN).`);
+    }
     const voyagerRes = await fetch(`${this.unipileBase(unipileDsn)}/linkedin`, {
       method: 'POST',
       headers: this.unipileHeaders(unipileKey),

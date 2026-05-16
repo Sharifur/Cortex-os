@@ -87,10 +87,10 @@ export class LinkedInService {
       const data = JSON.parse(raw) as any;
       const items: any[] = data.items ?? data.posts ?? data.data ?? [];
       const posts = items.map((p: any) => ({
-        id: p.id ?? p.provider_id ?? '',
+        id: p.provider_id ?? p.id ?? '',
         authorName: p.author?.name ?? p.author?.display_name ?? p.author_name ?? 'Unknown',
         content: p.text ?? p.content ?? p.body ?? '',
-        url: p.url ?? p.provider_id ? `https://www.linkedin.com/feed/update/${p.provider_id}/` : '',
+        url: p.url ?? (p.provider_id ? `https://www.linkedin.com/feed/update/${p.provider_id}/` : ''),
       })).filter(p => p.content?.trim() && p.id);
       return { posts, raw: posts.length === 0 ? raw.slice(0, 600) : null, status: res.status };
     } catch (err) {
