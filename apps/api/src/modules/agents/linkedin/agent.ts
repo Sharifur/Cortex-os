@@ -666,19 +666,46 @@ Score each profile 0.0–1.0 (1.0 = perfect match). Return JSON array only:
             { role: 'user', content: profileList },
           ],
           agentKey: this.key,
-          maxTokens: 600,
+          maxTokens: 800,
         });
-        scored = JSON.parse(res.content);
-      } catch {
-        scored = fresh.map(p => ({ id: p.id, score: 0.5, reason: 'default score' }));
+        // Strip markdown code fences the LLM sometimes wraps around JSON
+        const raw = res.content.replace(/```(?:json)?\s*/gi, '').replace(/```/g, '').trim();
+        try {
+          scored = JSON.parse(raw);
+        } catch (parseErr) {
+          await this.logSvc.warn(runId, `Connections: batch ICP JSON parse failed — falling back to individual scoring. Raw: ${raw.slice(0, 300)}`);
+          // Score each profile individually to avoid batch parse failures
+          scored = await Promise.all(fresh.map(async p => {
+            try {
+              const r = await this.llm.complete({
+                messages: [
+                  { role: 'system', content: `Score this LinkedIn profile 0.0–1.0 against the ICP. ICP: ${niche.icpDescription ?? niche.description ?? ''}. Return JSON only: {"score":0.0,"reason":"one sentence"}` },
+                  { role: 'user', content: `${p.first_name} ${p.last_name} | ${p.headline}` },
+                ],
+                agentKey: this.key,
+                maxTokens: 80,
+              });
+              const parsed = JSON.parse(r.content.replace(/```(?:json)?\s*/gi, '').replace(/```/g, '').trim());
+              return { id: p.id, score: Number(parsed.score) || 0.5, reason: parsed.reason ?? '' };
+            } catch {
+              return { id: p.id, score: 0.5, reason: 'parse error' };
+            }
+          }));
+        }
+      } catch (err) {
+        await this.logSvc.warn(runId, `Connections: ICP scoring LLM call failed — ${(err as Error).message}`);
+        scored = fresh.map(p => ({ id: p.id, score: 0.5, reason: 'llm error' }));
       }
 
       const aboveThreshold = scored.filter(s => s.score >= config.icpScoreThreshold);
       await this.logSvc.info(runId, `Connections: ICP scored ${scored.length} profiles`, {
         threshold: config.icpScoreThreshold,
         aboveThreshold: aboveThreshold.length,
-        scores: scored.map(s => ({ id: s.id, score: s.score })),
+        scores: scored.map(s => ({ id: s.id, score: s.score, reason: s.reason })),
       });
+      if (!aboveThreshold.length) {
+        await this.logSvc.warn(runId, `Connections: 0 profiles passed ICP threshold ${config.icpScoreThreshold} for niche "${niche.name}". Lower icpScoreThreshold in Config tab or improve niche ICP description.`);
+      }
 
       for (const score of scored) {
         if (score.score < config.icpScoreThreshold) continue;
