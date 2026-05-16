@@ -1,14 +1,8 @@
 import {
-  Controller, Post, Get, Delete, Body, Param, Res, HttpCode, HttpStatus, HttpException, Logger,
+  Controller, Post, Get, Delete, Body, Param, Req, Res, HttpCode, HttpStatus, HttpException, Logger,
 } from '@nestjs/common';
-import type { FastifyReply } from 'fastify';
+import type { FastifyReply, FastifyRequest } from 'fastify';
 import { DesignStudioService } from './design-studio.service';
-
-interface BatchImportItem {
-  name: string;
-  imageBase64: string;
-  mimeType?: string;
-}
 
 interface GenerateBody {
   prompt: string;
@@ -24,9 +18,20 @@ export class DesignStudioController {
 
   @Post('import-batch')
   @HttpCode(HttpStatus.OK)
-  async importBatch(@Body() body: { items: BatchImportItem[] }) {
+  async importBatch(@Req() req: FastifyRequest) {
     try {
-      return await this.service.importBatch(body.items ?? []);
+      const items: { name: string; imageBase64: string; mimeType: string }[] = [];
+      for await (const part of req.parts()) {
+        if (part.type === 'file') {
+          const buf = await part.toBuffer();
+          items.push({
+            name: part.fieldname,
+            imageBase64: buf.toString('base64'),
+            mimeType: part.mimetype,
+          });
+        }
+      }
+      return await this.service.importBatch(items);
     } catch (err) {
       throw new HttpException({ error: (err as Error).message }, HttpStatus.INTERNAL_SERVER_ERROR);
     }
