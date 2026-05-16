@@ -3956,6 +3956,284 @@ function AccountCard({ acc, todayRow, token, onPatch }: { acc: any; todayRow: an
   );
 }
 
+// ─── DM Sequences Tab ────────────────────────────────────────────────────────
+
+interface DmStep {
+  stepNumber: number;
+  delayDays: number;
+  instruction: string;
+}
+
+interface DmSequence {
+  id?: string;
+  accountId: string;
+  name: string;
+  goal: string;
+  steps: DmStep[];
+  isActive?: boolean;
+}
+
+const BLANK_STEP = (): DmStep => ({ stepNumber: 1, delayDays: 0, instruction: '' });
+const BLANK_SEQ = (): DmSequence => ({ accountId: '', name: '', goal: '', steps: [BLANK_STEP()] });
+
+function DmSequencesTab({ sequences, accounts, token, onRefresh }: {
+  sequences: any[];
+  accounts: any[];
+  token: string;
+  onRefresh: () => void;
+}) {
+  const [editing, setEditing] = useState<DmSequence | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  function openNew() {
+    setEditing(BLANK_SEQ());
+    setEditingId(null);
+    setSaveError(null);
+  }
+
+  function openEdit(seq: any) {
+    setEditing({
+      accountId: seq.accountId,
+      name: seq.name,
+      goal: seq.goal ?? '',
+      steps: (seq.steps as DmStep[]).length ? seq.steps : [BLANK_STEP()],
+      isActive: seq.isActive,
+    });
+    setEditingId(seq.id);
+    setSaveError(null);
+  }
+
+  function addStep() {
+    if (!editing) return;
+    const next = editing.steps.length + 1;
+    setEditing(e => e ? { ...e, steps: [...e.steps, { stepNumber: next, delayDays: next === 1 ? 0 : 3, instruction: '' }] } : e);
+  }
+
+  function removeStep(i: number) {
+    if (!editing) return;
+    const steps = editing.steps.filter((_, idx) => idx !== i).map((s, idx) => ({ ...s, stepNumber: idx + 1 }));
+    setEditing(e => e ? { ...e, steps } : e);
+  }
+
+  function patchStep(i: number, field: keyof DmStep, value: any) {
+    if (!editing) return;
+    const steps = editing.steps.map((s, idx) => idx === i ? { ...s, [field]: value } : s);
+    setEditing(e => e ? { ...e, steps } : e);
+  }
+
+  async function save() {
+    if (!editing) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      if (editingId) {
+        await apiFetch(token, `/linkedin/dm-sequences/${editingId}`, {
+          method: 'PATCH',
+          body: JSON.stringify(editing),
+        });
+      } else {
+        await apiFetch(token, '/linkedin/dm-sequences', {
+          method: 'POST',
+          body: JSON.stringify(editing),
+        });
+      }
+      setEditing(null);
+      setEditingId(null);
+      onRefresh();
+    } catch (err) {
+      setSaveError((err as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function deleteSeq(id: string) {
+    await apiFetch(token, `/linkedin/dm-sequences/${id}`, { method: 'DELETE' });
+    onRefresh();
+  }
+
+  async function toggleActive(seq: any) {
+    await apiFetch(token, `/linkedin/dm-sequences/${seq.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ isActive: !seq.isActive }),
+    });
+    onRefresh();
+  }
+
+  const accountMap = Object.fromEntries(accounts.map((a: any) => [a.id, a.label]));
+
+  if (editing) {
+    return (
+      <div className="rounded-xl border border-border bg-card p-5 space-y-5">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold">{editingId ? 'Edit sequence' : 'New DM sequence'}</h3>
+          <button onClick={() => setEditing(null)} className="text-xs text-muted-foreground hover:text-foreground">Cancel</button>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1">Account</label>
+            <select
+              value={editing.accountId}
+              onChange={e => setEditing(s => s ? { ...s, accountId: e.target.value } : s)}
+              className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-xs"
+            >
+              <option value="">— select account —</option>
+              {accounts.map((a: any) => <option key={a.id} value={a.id}>{a.label}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1">Sequence name</label>
+            <input
+              value={editing.name}
+              onChange={e => setEditing(s => s ? { ...s, name: e.target.value } : s)}
+              placeholder="e.g. Taskip agency outreach"
+              className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-xs"
+            />
+          </div>
+        </div>
+        <div>
+          <label className="text-xs text-muted-foreground block mb-1">Goal (context for the AI)</label>
+          <input
+            value={editing.goal}
+            onChange={e => setEditing(s => s ? { ...s, goal: e.target.value } : s)}
+            placeholder="e.g. Promote Taskip to agency owners who struggle with client management"
+            className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-xs"
+          />
+        </div>
+
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-medium">Steps ({editing.steps.length})</p>
+            <button onClick={addStep} className="text-xs px-2.5 py-1 rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-muted/30">
+              + Add step
+            </button>
+          </div>
+
+          {editing.steps.map((step, i) => (
+            <div key={i} className="rounded-lg border border-border bg-background/50 p-4 space-y-2">
+              <div className="flex items-center gap-3">
+                <span className="text-xs font-semibold text-muted-foreground shrink-0">Step {step.stepNumber}</span>
+                {i === 0 ? (
+                  <span className="text-xs text-muted-foreground italic">Sent immediately on first contact</span>
+                ) : (
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs text-muted-foreground">Send</span>
+                    <input
+                      type="number"
+                      min={1}
+                      value={step.delayDays}
+                      onChange={e => patchStep(i, 'delayDays', Number(e.target.value))}
+                      className="w-14 rounded border border-input bg-background px-2 py-0.5 text-xs text-center"
+                    />
+                    <span className="text-xs text-muted-foreground">days after previous step</span>
+                  </div>
+                )}
+                {editing.steps.length > 1 && (
+                  <button onClick={() => removeStep(i)} className="ml-auto text-xs text-muted-foreground/50 hover:text-destructive">remove</button>
+                )}
+              </div>
+              <textarea
+                value={step.instruction}
+                onChange={e => patchStep(i, 'instruction', e.target.value)}
+                rows={3}
+                placeholder={
+                  i === 0
+                    ? 'Ask them a simple question about their work based on their headline. No pitch. Be genuinely curious.'
+                    : i === 1
+                    ? 'Follow up naturally. Ask how they currently manage their clients, projects, and payments.'
+                    : 'Introduce Taskip as a solution to what they shared. Keep it conversational, not salesy.'
+                }
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-xs resize-none"
+              />
+            </div>
+          ))}
+        </div>
+
+        {saveError && <p className="text-xs text-destructive">{saveError}</p>}
+        <div className="flex gap-2">
+          <button
+            onClick={save}
+            disabled={saving || !editing.accountId || !editing.name}
+            className="text-xs px-4 py-1.5 rounded-md bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-40"
+          >
+            {saving ? 'Saving...' : 'Save sequence'}
+          </button>
+          <button onClick={() => setEditing(null)} className="text-xs px-3 py-1.5 rounded-md border border-border text-muted-foreground hover:bg-muted/30">
+            Cancel
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-5 space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-sm font-semibold">DM Sequences</h3>
+          <p className="text-xs text-muted-foreground mt-0.5">Each account runs its own sequence. Leads progress through steps automatically based on delay.</p>
+        </div>
+        <button onClick={openNew} className="text-xs px-3 py-1.5 rounded-md bg-primary text-primary-foreground hover:opacity-90">
+          New sequence
+        </button>
+      </div>
+
+      {sequences.length === 0 ? (
+        <p className="text-sm text-muted-foreground">No sequences yet. Create one to start prospecting.</p>
+      ) : (
+        <div className="space-y-3">
+          {sequences.map((seq: any) => (
+            <div key={seq.id} className="rounded-lg border border-border bg-background/50 p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="text-sm font-medium">{seq.name}</p>
+                    <span className="text-xs text-muted-foreground">{accountMap[seq.accountId] ?? seq.accountId}</span>
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${seq.isActive ? 'bg-emerald-500/15 text-emerald-300' : 'bg-muted text-muted-foreground'}`}>
+                      {seq.isActive ? 'active' : 'paused'}
+                    </span>
+                  </div>
+                  {seq.goal && <p className="text-xs text-muted-foreground mt-0.5 truncate">{seq.goal}</p>}
+                  <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+                    {(seq.steps as DmStep[]).map((step, i) => (
+                      <span key={i} className="text-[10px] bg-muted/50 px-2 py-0.5 rounded-full text-muted-foreground">
+                        {i === 0 ? `Step 1: immediate` : `Step ${step.stepNumber}: +${step.delayDays}d`}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button onClick={() => toggleActive(seq)} className="text-[10px] px-2 py-0.5 rounded border border-border text-muted-foreground hover:bg-muted/30">
+                    {seq.isActive ? 'Pause' : 'Activate'}
+                  </button>
+                  <button onClick={() => openEdit(seq)} className="text-[10px] px-2 py-0.5 rounded border border-border text-muted-foreground hover:bg-muted/30">
+                    Edit
+                  </button>
+                  <button onClick={() => deleteSeq(seq.id)} className="text-[10px] px-2 py-0.5 rounded border border-destructive/40 text-destructive/70 hover:bg-destructive/10">
+                    Delete
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-3 space-y-1.5">
+                {(seq.steps as DmStep[]).map((step, i) => (
+                  <div key={i} className="flex gap-2 text-xs">
+                    <span className="text-muted-foreground shrink-0 w-14">Step {step.stepNumber}</span>
+                    <span className="text-foreground/70 line-clamp-1">{step.instruction || <em className="text-muted-foreground">no instruction</em>}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── LinkedIn Comments Tab ───────────────────────────────────────────────────
 
 function LinkedInCommentsTab({ posts, token, onRefresh }: { posts: any[]; token: string; onRefresh: () => void }) {
@@ -4064,7 +4342,7 @@ function LinkedInCommentsTab({ posts, token, onRefresh }: { posts: any[]; token:
 
 // ─── LinkedIn Settings Tab ────────────────────────────────────────────────────
 
-type LinkedInTab = 'accounts' | 'niches' | 'leads' | 'connections' | 'posts' | 'reports' | 'docs' | 'config';
+type LinkedInTab = 'accounts' | 'niches' | 'leads' | 'connections' | 'posts' | 'sequences' | 'reports' | 'docs' | 'config';
 
 function LinkedInSettingsTab({ agent, token }: { agent: AgentDetail; token: string }) {
   const [tab, setTab] = useState<LinkedInTab>('accounts');
@@ -4095,6 +4373,11 @@ function LinkedInSettingsTab({ agent, token }: { agent: AgentDetail; token: stri
     queryFn: () => apiFetch(token, '/linkedin/reports/daily'),
     enabled: tab === 'reports' || tab === 'accounts',
     refetchInterval: 60_000,
+  });
+  const { data: dmSequences = [], refetch: refetchSequences } = useQuery<any[]>({
+    queryKey: ['linkedin-dm-sequences'],
+    queryFn: () => apiFetch(token, '/linkedin/dm-sequences'),
+    enabled: tab === 'sequences',
   });
 
   const navigate = useNavigate();
@@ -4168,6 +4451,7 @@ function LinkedInSettingsTab({ agent, token }: { agent: AgentDetail; token: stri
     { key: 'leads', label: 'Leads' },
     { key: 'connections', label: 'Connections' },
     { key: 'posts', label: 'Comments' },
+    { key: 'sequences', label: 'DM Sequences' },
     { key: 'reports', label: 'Reports' },
     { key: 'config', label: 'Config' },
     { key: 'docs', label: 'Docs' },
@@ -4515,6 +4799,15 @@ function LinkedInSettingsTab({ agent, token }: { agent: AgentDetail; token: stri
 
       {tab === 'posts' && (
         <LinkedInCommentsTab posts={posts} token={token} onRefresh={() => qc.invalidateQueries({ queryKey: ['linkedin-posts'] })} />
+      )}
+
+      {tab === 'sequences' && (
+        <DmSequencesTab
+          sequences={dmSequences}
+          accounts={accounts}
+          token={token}
+          onRefresh={refetchSequences}
+        />
       )}
 
       {tab === 'reports' && (

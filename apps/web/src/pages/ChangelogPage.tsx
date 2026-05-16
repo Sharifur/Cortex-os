@@ -16,6 +16,16 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.78.0',
+    date: '2026-05-16',
+    entries: [
+      { tag: 'feat', scope: 'linkedin', description: 'DM sequence system: each LinkedIn account can have one active multi-step sequence with a goal and per-step LLM instructions. Step 1 is sent on first contact; subsequent steps fire automatically when the configured delay (days since last DM) has elapsed.' },
+      { tag: 'feat', scope: 'linkedin', description: 'Per-lead sequence tracking: linkedin_leads gains dm_step (current step index) and dm_sequence_id. After each DM execute, dm_step increments. When all steps exhausted, lead status becomes dm_exhausted.' },
+      { tag: 'feat', scope: 'linkedin', description: 'DM Sequences tab in LinkedIn settings: create/edit/delete sequences with name, goal, and ordered steps. Each step has delay-days and an instruction textarea the AI uses as the prompt for that message. Supports multiple accounts with different sequences.' },
+      { tag: 'feat', scope: 'linkedin', description: 'API: GET/POST /linkedin/dm-sequences, PATCH/DELETE /linkedin/dm-sequences/:id. Migration 0082 adds linkedin_dm_sequences table and dm_step/dm_sequence_id columns to linkedin_leads.' },
+    ],
+  },
+  {
     version: 'v4.77.0',
     date: '2026-05-16',
     entries: [

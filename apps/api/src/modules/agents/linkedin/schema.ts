@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, boolean, integer, real } from 'drizzle-orm/pg-core';
+import { pgTable, text, timestamp, boolean, integer, real, jsonb } from 'drizzle-orm/pg-core';
 import { createId } from '@paralleldrive/cuid2';
 
 export const linkedinAccounts = pgTable('linkedin_accounts', {
@@ -52,6 +52,17 @@ export const linkedinConnectionRequests = pgTable('linkedin_connection_requests'
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
+export const linkedinDmSequences = pgTable('linkedin_dm_sequences', {
+  id: text('id').primaryKey().$defaultFn(() => createId()),
+  accountId: text('account_id').notNull().references(() => linkedinAccounts.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  goal: text('goal'),
+  // Array of { stepNumber, delayDays, instruction }
+  steps: jsonb('steps').notNull().default([]),
+  isActive: boolean('is_active').notNull().default(true),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
 export const linkedinLeads = pgTable('linkedin_leads', {
   id: text('id').primaryKey().$defaultFn(() => createId()),
   accountId: text('account_id').references(() => linkedinAccounts.id),
@@ -61,11 +72,13 @@ export const linkedinLeads = pgTable('linkedin_leads', {
   name: text('name'),
   headline: text('headline'),
   connectionStatus: text('connection_status').notNull().default('none'), // none | pending | connected | declined | ignored
-  status: text('status').notNull().default('new'), // new | dm_sent | replied | converted | ignored
+  status: text('status').notNull().default('new'), // new | dm_sent | replied | converted | ignored | dm_exhausted
   icpScore: real('icp_score'),
   icpReason: text('icp_reason'),
   lastContactedAt: timestamp('last_contacted_at'),
   notes: text('notes'),
+  dmStep: integer('dm_step').notNull().default(0),
+  dmSequenceId: text('dm_sequence_id').references(() => linkedinDmSequences.id),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 

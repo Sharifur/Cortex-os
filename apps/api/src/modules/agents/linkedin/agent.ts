@@ -4,7 +4,7 @@ import { DbService } from '../../../db/db.service';
 import { agents } from '../../../db/schema';
 import { writingSamples } from '../../knowledge-base/schema';
 import {
-  linkedinPosts, linkedinLeads, linkedinAccounts, linkedinNiches, linkedinConnectionRequests,
+  linkedinPosts, linkedinLeads, linkedinAccounts, linkedinNiches, linkedinConnectionRequests, linkedinDmSequences,
 } from './schema';
 import { LinkedInService } from './linkedin.service';
 import { LinkedInCommentService } from './linkedin-comment.service';
@@ -342,12 +342,21 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
     if (action.type === 'send_dm') {
       await this.liDm.sendDM(p.profileId, p.message, p.accountId);
       if (p.leadId) {
+        const nextStep: number = (p.nextDmStep ?? 0) + 1;
+        const exhausted = p.totalSteps && nextStep >= p.totalSteps;
+        const leadUpdate: Record<string, any> = {
+          lastContactedAt: new Date(),
+          dmStep: nextStep,
+          status: exhausted ? 'dm_exhausted' : 'dm_sent',
+        };
+        if (p.sequenceId) leadUpdate['dmSequenceId'] = p.sequenceId;
         await this.db.db
           .update(linkedinLeads)
-          .set({ status: 'dm_sent', lastContactedAt: new Date() })
+          .set(leadUpdate)
           .where(eq(linkedinLeads.id, p.leadId));
       }
-      await this.telegram.sendMessage(`LinkedIn DM sent to ${p.name ?? p.profileId}:\n${p.message.slice(0, 200)}`);
+      const stepLabel = p.nextDmStep ? ` (step ${p.nextDmStep}/${p.totalSteps ?? '?'})` : '';
+      await this.telegram.sendMessage(`LinkedIn DM sent to ${p.name ?? p.profileId}${stepLabel}:\n${p.message.slice(0, 200)}`);
       return { success: true };
     }
 
@@ -766,31 +775,6 @@ Rules:
       return [];
     }
 
-    const accountIds = dmAccounts.map(a => a.id);
-
-    const leads = await this.db.db
-      .select()
-      .from(linkedinLeads)
-      .where(
-        and(
-          eq(linkedinLeads.status, 'new'),
-          eq(linkedinLeads.connectionStatus, 'connected'),
-          inArray(linkedinLeads.accountId, accountIds),
-        ),
-      )
-      .limit(dmLimit);
-
-    await this.logSvc.info(runId, `DMs: queried leads`, {
-      accountIds,
-      dmLimit,
-      leadsFound: leads.length,
-      note: leads.length === 0
-        ? 'No leads with status=new + connectionStatus=connected. Import existing LinkedIn connections via Accounts tab to populate leads, or wait for connection requests to be accepted.'
-        : null,
-    });
-
-    if (!leads.length) return [];
-
     const [alwaysOn, samples, blocklist, rejections] = await Promise.all([
       this.kb.getAlwaysOnContext(this.key),
       this.kb.getWritingSamples(this.key),
@@ -810,59 +794,134 @@ Rules:
 
     const actions: ProposedAction[] = [];
 
-    for (const lead of leads) {
-      try {
-        const account = accounts.find(a => a.id === lead.accountId);
-        const response = await this.llm.complete({
-          messages: [
-            {
-              role: 'system',
-              content: `Write a short LinkedIn DM to a new connection. Keep it real and friendly — like a message from an actual person, not a sales template.
+    for (const account of dmAccounts) {
+      if (actions.length >= dmLimit) break;
+
+      // Load active sequence for this account
+      const [sequence] = await this.db.db
+        .select()
+        .from(linkedinDmSequences)
+        .where(and(eq(linkedinDmSequences.accountId, account.id), eq(linkedinDmSequences.isActive, true)))
+        .limit(1);
+
+      const steps: Array<{ stepNumber: number; delayDays: number; instruction: string }> =
+        (sequence?.steps as any[] ?? []).sort((a, b) => a.stepNumber - b.stepNumber);
+
+      if (!steps.length) {
+        await this.logSvc.warn(runId, `DMs: account ${account.label} has no active sequence — skipping`);
+        continue;
+      }
+
+      const now = new Date();
+
+      // Step 1 candidates: connected leads not yet contacted
+      const freshLeads = await this.db.db
+        .select()
+        .from(linkedinLeads)
+        .where(
+          and(
+            eq(linkedinLeads.accountId, account.id),
+            eq(linkedinLeads.connectionStatus, 'connected'),
+            eq(linkedinLeads.dmStep, 0),
+            eq(linkedinLeads.status, 'new'),
+          ),
+        )
+        .limit(dmLimit - actions.length);
+
+      // Follow-up candidates: leads mid-sequence whose delay has elapsed
+      const allLeadsInSequence = await this.db.db
+        .select()
+        .from(linkedinLeads)
+        .where(
+          and(
+            eq(linkedinLeads.accountId, account.id),
+            eq(linkedinLeads.connectionStatus, 'connected'),
+            eq(linkedinLeads.dmSequenceId, sequence.id),
+          ),
+        );
+
+      const followupLeads = allLeadsInSequence.filter(lead => {
+        if (lead.dmStep === 0 || lead.dmStep >= steps.length) return false;
+        const nextStep = steps[lead.dmStep]; // 0-indexed; dmStep=1 means step 1 sent, next is steps[1]
+        if (!nextStep) return false;
+        const delayMs = nextStep.delayDays * 24 * 60 * 60 * 1000;
+        return lead.lastContactedAt && (now.getTime() - lead.lastContactedAt.getTime()) >= delayMs;
+      }).slice(0, dmLimit - actions.length - freshLeads.length);
+
+      await this.logSvc.info(runId, `DMs: account ${account.label}`, {
+        sequenceName: sequence.name,
+        totalSteps: steps.length,
+        freshLeads: freshLeads.length,
+        followupLeads: followupLeads.length,
+      });
+
+      const candidatePairs: Array<{ lead: typeof freshLeads[0]; step: typeof steps[0] }> = [
+        ...freshLeads.map(lead => ({ lead, step: steps[0] })),
+        ...followupLeads.map(lead => ({ lead, step: steps[lead.dmStep] })),
+      ];
+
+      for (const { lead, step } of candidatePairs) {
+        if (actions.length >= dmLimit) break;
+        try {
+          const response = await this.llm.complete({
+            messages: [
+              {
+                role: 'system',
+                content: `You are writing a LinkedIn DM on behalf of a founder.
+
+Sequence goal: ${sequence.goal ?? 'Build a genuine connection'}
+This message is step ${step.stepNumber} of ${steps.length} in a conversation sequence.
+
+Your task for this step:
+${step.instruction}
+
 Rules:
 - 2-3 short sentences max
-- Simple words, easy to read
-- Reference something specific about their role or background
-- End with one soft, natural question or invite (not a hard CTA)
-- No corporate speak, no buzzwords, no "I wanted to reach out"
+- Write like a real person — conversational, no corporate speak
+- Do NOT mention you are following a sequence
 - Do NOT wrap your reply in quotes
 - Return only the message text${kbBlock}`,
+              },
+              {
+                role: 'user',
+                content: `Name: ${lead.name ?? 'there'}\nHeadline: ${lead.headline ?? ''}\nICP reason: ${lead.icpReason ?? ''}`,
+              },
+            ],
+            agentKey: this.key,
+            maxTokens: 180,
+          });
+
+          let message = response.content.trim().replace(/^["'`""]+|["'`""]+$/g, '').trim();
+          if (!message) continue;
+          message = await this.selfCritique(message, alwaysOn.find(e => e.entryType === 'voice_profile')?.content, blocklist);
+          const violation = blocklist.find(b => message.toLowerCase().includes(b.toLowerCase()));
+
+          const profileLink = lead.profileUrl ?? (lead.profileId ? `https://www.linkedin.com/in/${lead.profileId}` : null);
+          const summaryLines = [
+            `DM to ${lead.name ?? 'unknown'} — Step ${step.stepNumber}/${steps.length} (${sequence.name})`,
+            profileLink ?? null,
+            lead.headline ? `Role: ${lead.headline}` : null,
+            `Message: "${message.slice(0, 120)}"`,
+          ].filter(Boolean).join('\n');
+
+          actions.push({
+            type: 'send_dm',
+            summary: summaryLines,
+            payload: {
+              leadId: lead.id,
+              profileId: lead.profileId ?? lead.profileUrl,
+              accountId: account.unipileAccountId,
+              name: lead.name,
+              message,
+              nextDmStep: step.stepNumber,
+              sequenceId: sequence.id,
+              totalSteps: steps.length,
             },
-            {
-              role: 'user',
-              content: `Name: ${lead.name ?? 'there'}\nHeadline: ${lead.headline ?? ''}\nICP reason: ${lead.icpReason ?? ''}`,
-            },
-          ],
-          agentKey: this.key,
-          maxTokens: 150,
-        });
-
-        let message = response.content.trim().replace(/^["'`""]+|["'`""]+$/g, '').trim();
-        if (!message) continue;
-        message = await this.selfCritique(message, alwaysOn.find(e => e.entryType === 'voice_profile')?.content, blocklist);
-        const violation = blocklist.find(b => message.toLowerCase().includes(b.toLowerCase()));
-
-        const profileLink = lead.profileUrl ?? (lead.profileId ? `https://www.linkedin.com/in/${lead.profileId}` : null);
-        const summaryLines = [
-          `DM to ${lead.name ?? 'unknown'}`,
-          profileLink ? profileLink : null,
-          lead.headline ? `Role: ${lead.headline}` : null,
-          `Message: "${message.slice(0, 120)}"`,
-        ].filter(Boolean).join('\n');
-
-        actions.push({
-          type: 'send_dm',
-          summary: summaryLines,
-          payload: {
-            leadId: lead.id,
-            profileId: lead.profileId ?? lead.profileUrl,
-            accountId: account?.unipileAccountId,
-            name: lead.name,
-            message,
-          },
-          riskLevel: violation ? 'high' : 'medium',
-        });
-      } catch (err) {
-        this.logger.warn(`Failed to draft DM for lead ${lead.id}: ${err}`);
+            riskLevel: violation ? 'high' : 'medium',
+          });
+        } catch (err) {
+          this.logger.warn(`Failed to draft DM for lead ${lead.id}: ${err}`);
+        }
       }
     }
 
@@ -1344,6 +1403,49 @@ Rules:
             .orderBy(sql`${writingSamples.createdAt} DESC`)
             .limit(50);
           return samples;
+        },
+      },
+
+      // ─── DM Sequences ───────────────────────────────────────────────────────
+      {
+        method: 'GET',
+        path: '/linkedin/dm-sequences',
+        requiresAuth: true,
+        handler: async () =>
+          this.db.db.select().from(linkedinDmSequences).orderBy(linkedinDmSequences.createdAt),
+      },
+      {
+        method: 'POST',
+        path: '/linkedin/dm-sequences',
+        requiresAuth: true,
+        handler: async (body) => {
+          const b = body as any;
+          const [row] = await this.db.db.insert(linkedinDmSequences).values({
+            accountId: b.accountId,
+            name: b.name,
+            goal: b.goal ?? null,
+            steps: b.steps ?? [],
+          }).returning();
+          return row;
+        },
+      },
+      {
+        method: 'PATCH',
+        path: '/linkedin/dm-sequences/:id',
+        requiresAuth: true,
+        handler: async (params) => {
+          const { id, ...body } = params as any;
+          await this.db.db.update(linkedinDmSequences).set(body).where(eq(linkedinDmSequences.id, id));
+          return { ok: true };
+        },
+      },
+      {
+        method: 'DELETE',
+        path: '/linkedin/dm-sequences/:id',
+        requiresAuth: true,
+        handler: async (params) => {
+          await this.db.db.delete(linkedinDmSequences).where(eq(linkedinDmSequences.id, (params as any).id));
+          return { ok: true };
         },
       },
     ];
