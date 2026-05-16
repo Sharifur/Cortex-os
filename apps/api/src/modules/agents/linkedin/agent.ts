@@ -838,17 +838,28 @@ Rules:
       if (actions.length >= dmLimit) break;
 
       // Load active sequence for this account
-      const [sequence] = await this.db.db
-        .select()
-        .from(linkedinDmSequences)
-        .where(and(eq(linkedinDmSequences.accountId, account.id), eq(linkedinDmSequences.isActive, true)))
-        .limit(1);
+      // Falls back to null if migration 0082 (linkedin_dm_sequences table) not yet applied
+      let sequence: any = null;
+      try {
+        const [row] = await this.db.db
+          .select()
+          .from(linkedinDmSequences)
+          .where(and(eq(linkedinDmSequences.accountId, account.id), eq(linkedinDmSequences.isActive, true)))
+          .limit(1);
+        sequence = row ?? null;
+      } catch (tableErr: any) {
+        if (String(tableErr?.message).includes('linkedin_dm_sequences')) {
+          await this.logSvc.warn(runId, `DMs: migration 0082 not applied — linkedin_dm_sequences table missing. Call POST /linkedin/apply-migration-0082 to apply it, then create a sequence in the DM Sequences tab.`);
+        } else {
+          throw tableErr;
+        }
+      }
 
       const steps: Array<{ stepNumber: number; delayDays: number; instruction: string }> =
         (sequence?.steps as any[] ?? []).sort((a, b) => a.stepNumber - b.stepNumber);
 
       if (!steps.length) {
-        await this.logSvc.warn(runId, `DMs: account ${account.label} has no active sequence — skipping`);
+        await this.logSvc.warn(runId, `DMs: account ${account.label} has no active sequence — skipping. Create one in the DM Sequences tab.`);
         continue;
       }
 
