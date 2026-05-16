@@ -138,7 +138,9 @@ export class LinkedInService {
             el?.entityUrn ??
             el?.id ??
             '';
-          const url = urn ? `https://www.linkedin.com/feed/update/${encodeURIComponent(urn)}/` : '';
+          // Extract urn:li:activity:XXXXX from compound fsd_update URNs
+          const activityUrn = urn.match(/urn:li:activity:\d+/)?.[0] ?? urn;
+          const url = activityUrn.startsWith('urn:li:') ? `https://www.linkedin.com/feed/update/${activityUrn}/` : '';
           return { id: urn || `post_${Math.random()}`, authorName, content, url };
         })
         .filter(p => p.content?.trim());
