@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.73.4',
+    date: '2026-05-16',
+    entries: [
+      { tag: 'fix', scope: 'linkedin', description: 'Removed GET /api/v1/posts probe (endpoint does not exist in Unipile — publish-only). Feed always uses Voyager proxy. Removed encodeURIComponent from postComment so URN path is not mangled. Schedule changed from every 4h to daily at 09:00. Max 3 connection requests, comments, and DMs per run enforced in config and decideConnectionRequests.' },
+      { tag: 'fix', scope: 'telegram', description: 'editMessageReplyMarkup "message is not modified" 400 error no longer bubbles as Action failed. Wrapped in safeEditMarkup/safeApiEditMarkup helpers that silently swallow the not-modified error and rethrow anything else.' },
+    ],
+  },
+  {
     version: 'v4.73.3',
     date: '2026-05-16',
     entries: [

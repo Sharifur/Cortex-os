@@ -301,7 +301,7 @@ export class LinkedInService {
     if (accountId) body['account_id'] = accountId;
 
     const res = await fetch(
-      `${this.unipileBase(unipileDsn)}/posts/${encodeURIComponent(postId)}/comments`,
+      `${this.unipileBase(unipileDsn)}/posts/${postId}/comments`,
       {
         method: 'POST',
         headers: this.unipileHeaders(unipileKey),

@@ -28,6 +28,7 @@ interface LinkedInConfig {
   targetTopics: string[];
   maxCommentsPerRun: number;
   maxDMsPerRun: number;
+  maxConnectionRequestsPerRun: number;
   commentTone: string;
   icpScoreThreshold: number;
   llm?: { provider?: string; model?: string };
@@ -50,7 +51,8 @@ const DEFAULT_CONFIG: LinkedInConfig = {
     'client management', 'project management', 'scaling agency', 'SaaS tools for agencies',
   ],
   maxCommentsPerRun: 3,
-  maxDMsPerRun: 2,
+  maxDMsPerRun: 3,
+  maxConnectionRequestsPerRun: 3,
   commentTone: 'helpful, insight-driven — speaks to agency owners and freelancers, positions Taskip as a tool for scaling without adding headcount, never promotional',
   icpScoreThreshold: 0.65,
 };
@@ -77,7 +79,7 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
 
   triggers(): TriggerSpec[] {
     return [
-      { type: 'CRON', cron: '0 */4 * * *' },
+      { type: 'CRON', cron: '0 9 * * *' },
       { type: 'MANUAL' },
     ];
   }
@@ -101,40 +103,22 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
 
     const primaryAccountId = accounts[0]?.unipileAccountId;
 
-    // Try native posts first — these have Unipile-native IDs required for the comment API.
-    // Fall back to raw Voyager proxy if native returns nothing.
     let feedPosts: any[] = [];
-    let feedSource = 'none';
-
     if (primaryAccountId) {
-      const nativeResult = await this.li.getNativeFeedPosts(primaryAccountId, 20);
-      await this.logSvc.info(run.id, 'LinkedIn native posts probe', {
-        status: nativeResult.status,
-        posts: nativeResult.posts.length,
-        raw: nativeResult.raw,
+      const voyagerResult = await this.li.getFeedWithDiagnostics(20, primaryAccountId);
+      feedPosts = voyagerResult.posts;
+      await this.logSvc.info(run.id, 'LinkedIn feed', {
+        status: voyagerResult.status,
+        posts: voyagerResult.posts.length,
+        error: voyagerResult.error,
+        raw: voyagerResult.raw,
       });
-
-      if (nativeResult.posts.length > 0) {
-        feedPosts = nativeResult.posts;
-        feedSource = 'native';
-      } else {
-        const voyagerResult = await this.li.getFeedWithDiagnostics(20, primaryAccountId);
-        feedPosts = voyagerResult.posts;
-        feedSource = 'voyager';
-        await this.logSvc.info(run.id, 'LinkedIn voyager feed fallback', {
-          status: voyagerResult.status,
-          posts: voyagerResult.posts.length,
-          error: voyagerResult.error,
-          raw: voyagerResult.raw,
-        });
-      }
     }
 
-    await this.logSvc.info(run.id, `LinkedIn context`, {
+    await this.logSvc.info(run.id, 'LinkedIn context', {
       accounts: accounts.length,
       primaryAccountId: primaryAccountId ?? null,
       feedPosts: feedPosts.length,
-      feedSource,
       niches: niches.length,
     });
 
@@ -535,7 +519,7 @@ Score each profile 0.0–1.0 (1.0 = perfect match). Return JSON array only:
       }
     }
 
-    return actions;
+    return actions.slice(0, config.maxConnectionRequestsPerRun ?? 3);
   }
 
   // ─── DM outreach ───────────────────────────────────────────────────────────
