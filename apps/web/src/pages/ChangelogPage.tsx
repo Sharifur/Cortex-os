@@ -16,6 +16,17 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.75.0',
+    date: '2026-05-16',
+    entries: [
+      { tag: 'fix', scope: 'linkedin', description: 'post_comment 422: LinkedIn comment service now tries Voyager proxy POST first (handles activity URNs from feed), then falls back to native Unipile API with URL-encoded post ID. Each attempt is logged independently.' },
+      { tag: 'fix', scope: 'linkedin', description: 'Connections + DMs returning noop with no explanation: added runId param and full diagnostic logging at every bail point in decideConnectionRequests and decideDMs. Logs now show exactly which guard fails (empty keywords, quota exhausted, no leads, etc.).' },
+      { tag: 'feat', scope: 'linkedin', description: 'Separate service classes: LinkedInCommentService, LinkedInConnectionService, LinkedInDmService — each owns its Unipile calls with independent logging and error handling. execute() uses these instead of the monolithic LinkedInService.' },
+      { tag: 'feat', scope: 'linkedin', description: 'POST /linkedin/connections/import: pull existing LinkedIn connections from Unipile and upsert them as leads with connectionStatus=connected — required before DM outreach can work. UI button added in Accounts tab.' },
+      { tag: 'feat', scope: 'linkedin', description: 'Per-account persona training: Train persona button moved into each AccountCard header. POST /linkedin/persona/train accepts unipileAccountId, deletes old samples then re-inserts fresh ones to avoid stale duplicates.' },
+    ],
+  },
+  {
     version: 'v4.74.0',
     date: '2026-05-16',
     entries: [

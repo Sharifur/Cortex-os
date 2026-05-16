@@ -3715,13 +3715,15 @@ function Phase4SettingsTab({ agent, token, setupContent }: {
 
 // ─── LinkedIn Account Card ────────────────────────────────────────────────────
 
-function AccountCard({ acc, todayRow, onPatch }: { acc: any; todayRow: any; onPatch: (body: Record<string, any>) => void }) {
+function AccountCard({ acc, todayRow, token, onPatch }: { acc: any; todayRow: any; token: string; onPatch: (body: Record<string, any>) => void }) {
   const [limits, setLimits] = useState({
     dailyConnectionsLimit: acc.dailyConnectionsLimit ?? '',
     dailyCommentsLimit: acc.dailyCommentsLimit ?? '',
     dailyDmsLimit: acc.dailyDmsLimit ?? '',
   });
   const [dirty, setDirty] = useState(false);
+  const [trainStatus, setTrainStatus] = useState<{ saved: number; total: number; error?: string } | null>(null);
+  const [isTraining, setIsTraining] = useState(false);
 
   function handleLimitChange(key: string, value: string) {
     setLimits(l => ({ ...l, [key]: value }));
@@ -3737,6 +3739,22 @@ function AccountCard({ acc, todayRow, onPatch }: { acc: any; todayRow: any; onPa
     setDirty(false);
   }
 
+  async function trainPersona() {
+    setIsTraining(true);
+    setTrainStatus(null);
+    try {
+      const result = await apiFetch(token, '/linkedin/persona/train', {
+        method: 'POST',
+        body: JSON.stringify({ unipileAccountId: acc.unipileAccountId }),
+      }) as any;
+      setTrainStatus({ saved: result.saved ?? 0, total: result.total ?? 0, error: result.error });
+    } catch (err) {
+      setTrainStatus({ saved: 0, total: 0, error: (err as Error).message });
+    } finally {
+      setIsTraining(false);
+    }
+  }
+
   const ACTIONS = [
     { enableKey: 'enableConnections', label: 'Connections', dailyKey: 'dailyConnectionsLimit', defaultVal: 5, statKey: 'connections' },
     { enableKey: 'enableComments',   label: 'Feed comments', dailyKey: 'dailyCommentsLimit',   defaultVal: 10, statKey: 'comments' },
@@ -3750,13 +3768,32 @@ function AccountCard({ acc, todayRow, onPatch }: { acc: any; todayRow: any; onPa
           <p className="text-sm font-medium">{acc.label}</p>
           <p className="text-xs text-muted-foreground">{acc.unipileAccountId}</p>
         </div>
-        <button
-          onClick={() => onPatch({ isActive: !acc.isActive })}
-          className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${acc.isActive ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20' : 'border-border bg-muted text-muted-foreground hover:bg-muted/80'}`}
-        >
-          {acc.isActive ? 'Active' : 'Inactive'}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={trainPersona}
+            disabled={isTraining}
+            title="Fetch your recent LinkedIn posts and save them as AI writing samples"
+            className="text-xs px-2.5 py-1 rounded-full border border-border bg-muted/30 text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors disabled:opacity-50 flex items-center gap-1"
+          >
+            {isTraining && <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />}
+            {isTraining ? 'Training...' : 'Train persona'}
+          </button>
+          <button
+            onClick={() => onPatch({ isActive: !acc.isActive })}
+            className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${acc.isActive ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20' : 'border-border bg-muted text-muted-foreground hover:bg-muted/80'}`}
+          >
+            {acc.isActive ? 'Active' : 'Inactive'}
+          </button>
+        </div>
       </div>
+
+      {trainStatus && (
+        <div className={`px-4 py-2 text-xs border-b border-border/50 ${trainStatus.error ? 'bg-destructive/10 text-destructive' : 'bg-emerald-500/10 text-emerald-300'}`}>
+          {trainStatus.error
+            ? trainStatus.error
+            : `${trainStatus.saved} post${trainStatus.saved !== 1 ? 's' : ''} saved as writing samples (${trainStatus.total} found). AI uses these for tone on next run.`}
+        </div>
+      )}
 
       <div className="grid grid-cols-3 divide-x divide-border/50 border-b border-border/50">
         {ACTIONS.map(({ enableKey, label }) => {
@@ -3881,18 +3918,18 @@ function LinkedInSettingsTab({ agent, token }: { agent: AgentDetail; token: stri
     }
   };
 
-  const [trainStatus, setTrainStatus] = useState<{ saved: number; total: number; error?: string } | null>(null);
-  const [isTraining, setIsTraining] = useState(false);
-  const trainPersona = async () => {
-    setIsTraining(true);
-    setTrainStatus(null);
+  const [importStatus, setImportStatus] = useState<{ imported: number; error?: string } | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
+  const importConnections = async () => {
+    setIsImporting(true);
+    setImportStatus(null);
     try {
-      const result = await apiFetch(token, '/linkedin/persona/train', { method: 'POST', body: JSON.stringify({}) }) as any;
-      setTrainStatus({ saved: result.saved ?? 0, total: result.total ?? 0, error: result.error });
+      const result = await apiFetch(token, '/linkedin/connections/import', { method: 'POST', body: JSON.stringify({}) }) as any;
+      setImportStatus({ imported: result.imported ?? 0, error: result.error });
     } catch (err) {
-      setTrainStatus({ saved: 0, total: 0, error: (err as Error).message });
+      setImportStatus({ imported: 0, error: (err as Error).message });
     } finally {
-      setIsTraining(false);
+      setIsImporting(false);
     }
   };
 
@@ -4006,27 +4043,27 @@ function LinkedInSettingsTab({ agent, token }: { agent: AgentDetail; token: stri
             )}
           </div>
 
-          {/* Persona training */}
+          {/* Import existing connections — required for DMs to work */}
           <div className="rounded-xl border border-border bg-card p-4">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <p className="text-sm font-medium mb-0.5">AI Persona Training</p>
-                <p className="text-xs text-muted-foreground">Fetch your recent LinkedIn posts and save them as writing samples so the AI learns your natural tone for comments and DMs.</p>
+                <p className="text-sm font-medium mb-0.5">Import Existing Connections</p>
+                <p className="text-xs text-muted-foreground">Pull your existing LinkedIn connections from Unipile and add them as leads. Required for DM outreach to work — DMs can only go to people you are already connected with.</p>
               </div>
               <button
-                onClick={trainPersona}
-                disabled={isTraining}
+                onClick={importConnections}
+                disabled={isImporting}
                 className="shrink-0 text-xs px-3 py-1.5 rounded-lg border border-border bg-background/50 hover:bg-muted/30 transition-colors disabled:opacity-50 flex items-center gap-1.5"
               >
-                {isTraining && <span className="inline-block w-2 h-2 rounded-full bg-primary animate-pulse" />}
-                {isTraining ? 'Fetching...' : 'Train from my posts'}
+                {isImporting && <span className="inline-block w-2 h-2 rounded-full bg-primary animate-pulse" />}
+                {isImporting ? 'Importing...' : 'Import connections'}
               </button>
             </div>
-            {trainStatus && (
-              <div className={`mt-3 rounded-lg px-3 py-2 text-xs ${trainStatus.error ? 'bg-destructive/10 text-destructive' : 'bg-emerald-500/10 text-emerald-300'}`}>
-                {trainStatus.error
-                  ? trainStatus.error
-                  : `${trainStatus.saved} post${trainStatus.saved !== 1 ? 's' : ''} saved as writing samples (${trainStatus.total} found on profile). AI will use these for tone on next run.`}
+            {importStatus && (
+              <div className={`mt-3 rounded-lg px-3 py-2 text-xs ${importStatus.error ? 'bg-destructive/10 text-destructive' : 'bg-emerald-500/10 text-emerald-300'}`}>
+                {importStatus.error
+                  ? importStatus.error
+                  : `${importStatus.imported} connection${importStatus.imported !== 1 ? 's' : ''} imported as leads. Run DMs to send messages to them.`}
               </div>
             )}
           </div>
@@ -4059,7 +4096,7 @@ function LinkedInSettingsTab({ agent, token }: { agent: AgentDetail; token: stri
                 {accounts.map((acc: any) => {
                   const today = new Date().toISOString().slice(0, 10);
                   const todayRow = dailyReport.find((r: any) => r.accountId === acc.id && r.date === today) ?? null;
-                  return <AccountCard key={acc.id} acc={acc} todayRow={todayRow} onPatch={(body) => patchAccountMutation.mutate({ id: acc.id, ...body })} />;
+                  return <AccountCard key={acc.id} acc={acc} todayRow={todayRow} token={token} onPatch={(body) => patchAccountMutation.mutate({ id: acc.id, ...body })} />;
                 })}
               </div>
             )}

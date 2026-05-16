@@ -7,6 +7,9 @@ import {
   linkedinPosts, linkedinLeads, linkedinAccounts, linkedinNiches, linkedinConnectionRequests,
 } from './schema';
 import { LinkedInService } from './linkedin.service';
+import { LinkedInCommentService } from './linkedin-comment.service';
+import { LinkedInConnectionService } from './linkedin-connection.service';
+import { LinkedInDmService } from './linkedin-dm.service';
 import { AgentRegistryService } from '../runtime/agent-registry.service';
 import { AgentLogService } from '../runtime/agent-log.service';
 import { LlmRouterService } from '../../llm/llm-router.service';
@@ -72,6 +75,9 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
     private llm: LlmRouterService,
     private telegram: TelegramService,
     private li: LinkedInService,
+    private liComment: LinkedInCommentService,
+    private liConnection: LinkedInConnectionService,
+    private liDm: LinkedInDmService,
     private registry: AgentRegistryService,
     private kb: KnowledgeBaseService,
     private logSvc: AgentLogService,
@@ -143,16 +149,17 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
     }
 
     const at = snap.actionType ?? 'all';
+    const runId = snap.runId ?? '';
 
     const [commentActions, connectionActions, dmActions] = await Promise.all([
       at === 'comments' || at === 'all'
-        ? this.decideFeedComments(snap.feedPosts, snap.accounts, snap.niches, snap.config, snap.runId ?? '')
+        ? this.decideFeedComments(snap.feedPosts, snap.accounts, snap.niches, snap.config, runId)
         : Promise.resolve([]),
       at === 'connections' || at === 'all'
-        ? this.decideConnectionRequests(snap.accounts, snap.niches, snap.config)
+        ? this.decideConnectionRequests(snap.accounts, snap.niches, snap.config, runId)
         : Promise.resolve([]),
       at === 'dms' || at === 'all'
-        ? this.decideDMs(snap.accounts, snap.config)
+        ? this.decideDMs(snap.accounts, snap.config, runId)
         : Promise.resolve([]),
     ]);
 
@@ -172,7 +179,7 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
     const p = action.payload as any;
 
     if (action.type === 'post_comment') {
-      await this.li.postComment(p.postId, p.comment, p.accountId);
+      await this.liComment.postComment(p.postId, p.comment, p.accountId);
       await this.db.db
         .update(linkedinPosts)
         .set({ status: 'posted', postedAt: new Date(), accountId: p.dbAccountId ?? null })
@@ -187,7 +194,7 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
         .set({ status: 'sending' as any })
         .where(eq(linkedinConnectionRequests.id, p.requestId));
       try {
-        await this.li.sendConnectionRequest(p.accountId, p.profileId, p.note);
+        await this.liConnection.sendConnectionRequest(p.accountId, p.profileId, p.note);
         await this.db.db
           .update(linkedinConnectionRequests)
           .set({ status: 'sent', sentAt: new Date() })
@@ -197,7 +204,7 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
           .set({ connectionStatus: 'pending' })
           .where(eq(linkedinLeads.profileId, p.profileId));
         await this.telegram.sendMessage(
-          `LinkedIn connection request sent to ${p.profileName}\nHeadline: ${p.profileHeadline ?? '—'}\nNiche: ${p.nicheName ?? '—'}\nScore: ${p.icpScore ?? '—'}\nNote: "${p.note}"`,
+          `LinkedIn connection request sent to ${p.profileName}\nHeadline: ${p.profileHeadline ?? '—'}\nNiche: ${p.nicheName ?? '—'}\nScore: ${p.icpScore ?? '—'}\nNote: ${p.note}`,
         );
       } catch (err) {
         await this.db.db
@@ -210,7 +217,7 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
     }
 
     if (action.type === 'send_dm') {
-      await this.li.sendDM(p.profileId, p.message, p.accountId);
+      await this.liDm.sendDM(p.profileId, p.message, p.accountId);
       if (p.leadId) {
         await this.db.db
           .update(linkedinLeads)
@@ -223,7 +230,7 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
 
     if (action.type === 'publish_post') {
       await this.li.publishPost(p.draft, p.accountId);
-      await this.telegram.sendMessage(`LinkedIn post published:\n\n"${p.draft.slice(0, 300)}"`);
+      await this.telegram.sendMessage(`LinkedIn post published:\n\n${p.draft.slice(0, 300)}`);
       return { success: true, data: { published: true } };
     }
 
@@ -393,8 +400,12 @@ Rules:
     accounts: any[],
     niches: any[],
     config: LinkedInConfig,
+    runId: string,
   ): Promise<ProposedAction[]> {
-    if (!accounts.length || !niches.length) return [];
+    if (!accounts.length || !niches.length) {
+      await this.logSvc.warn(runId, `Connections: bailed — accounts=${accounts.length} niches=${niches.length}`);
+      return [];
+    }
 
     const [alwaysOn] = await Promise.all([this.kb.getAlwaysOnContext(this.key)]);
     const voiceProfile = alwaysOn.find(e => e.entryType === 'voice_profile')?.content ?? '';
@@ -405,7 +416,14 @@ Rules:
 
     for (const niche of niches) {
       const account = accounts.find(a => a.id === niche.accountId) ?? accounts[0];
-      if (!account || account.enableConnections === false) continue;
+      if (!account) {
+        await this.logSvc.warn(runId, `Connections: niche "${niche.name}" — no matching account found`);
+        continue;
+      }
+      if (account.enableConnections === false) {
+        await this.logSvc.warn(runId, `Connections: niche "${niche.name}" — connections disabled on account "${account.label}"`);
+        continue;
+      }
 
       const sentToday = await this.db.db
         .select({ id: linkedinConnectionRequests.id })
@@ -419,7 +437,10 @@ Rules:
         );
 
       const nicheRemaining = niche.dailyConnectLimit - sentToday.length;
-      if (nicheRemaining <= 0) continue;
+      if (nicheRemaining <= 0) {
+        await this.logSvc.warn(runId, `Connections: niche "${niche.name}" daily limit reached (${sentToday.length}/${niche.dailyConnectLimit})`);
+        continue;
+      }
 
       const accountQuota = await this.accountQuota(
         account.id,
@@ -435,17 +456,28 @@ Rules:
       );
 
       const remaining = Math.min(nicheRemaining, accountQuota);
-      if (remaining <= 0) continue;
+      if (remaining <= 0) {
+        await this.logSvc.warn(runId, `Connections: account "${account.label}" quota exhausted (nicheRemaining=${nicheRemaining} accountQuota=${accountQuota})`);
+        continue;
+      }
 
       const keywords = (niche.keywords ?? []).join(' ');
-      if (!keywords) continue;
+      if (!keywords) {
+        await this.logSvc.warn(runId, `Connections: niche "${niche.name}" has NO keywords — add keywords in the Niches tab to enable people search`);
+        continue;
+      }
 
-      const candidates = await this.li.searchPeople(
+      await this.logSvc.info(runId, `Connections: searching LinkedIn for niche "${niche.name}"`, { keywords, remaining });
+      const candidates = await this.liConnection.searchPeople(
         account.unipileAccountId,
         keywords,
         { jobTitles: niche.targetJobTitles ?? [], industries: niche.targetIndustries ?? [] },
       );
-      if (!candidates.length) continue;
+      await this.logSvc.info(runId, `Connections: search returned ${candidates.length} candidates`, { keywords });
+      if (!candidates.length) {
+        await this.logSvc.warn(runId, `Connections: Unipile search returned 0 results for keywords "${keywords}" — check Unipile LinkedIn search API`);
+        continue;
+      }
 
       const existingProfileIds = await this.db.db
         .select({ profileId: linkedinConnectionRequests.profileId })
@@ -454,7 +486,11 @@ Rules:
       const contacted = new Set(existingProfileIds.map(r => r.profileId));
 
       const fresh = candidates.filter(c => c.id && !contacted.has(c.id)).slice(0, remaining);
-      if (!fresh.length) continue;
+      if (!fresh.length) {
+        await this.logSvc.warn(runId, `Connections: all ${candidates.length} candidates already contacted for niche "${niche.name}"`);
+        continue;
+      }
+      await this.logSvc.info(runId, `Connections: ${fresh.length} fresh candidates for niche "${niche.name}"`)
 
       const icpPrompt = `You are scoring LinkedIn profiles against an Ideal Customer Profile (ICP).
 
@@ -479,6 +515,13 @@ Score each profile 0.0–1.0 (1.0 = perfect match). Return JSON array only:
       } catch {
         scored = fresh.map(p => ({ id: p.id, score: 0.5, reason: 'default score' }));
       }
+
+      const aboveThreshold = scored.filter(s => s.score >= config.icpScoreThreshold);
+      await this.logSvc.info(runId, `Connections: ICP scored ${scored.length} profiles`, {
+        threshold: config.icpScoreThreshold,
+        aboveThreshold: aboveThreshold.length,
+        scores: scored.map(s => ({ id: s.id, score: s.score })),
+      });
 
       for (const score of scored) {
         if (score.score < config.icpScoreThreshold) continue;
@@ -557,11 +600,17 @@ Rules:
 
   // ─── DM outreach ───────────────────────────────────────────────────────────
 
-  private async decideDMs(accounts: any[], config: LinkedInConfig): Promise<ProposedAction[]> {
-    if (!accounts.length) return [];
+  private async decideDMs(accounts: any[], config: LinkedInConfig, runId: string): Promise<ProposedAction[]> {
+    if (!accounts.length) {
+      await this.logSvc.warn(runId, 'DMs: no accounts found');
+      return [];
+    }
 
     const dmAccounts = accounts.filter(a => a.isActive && a.enableDMs !== false);
-    if (!dmAccounts.length) return [];
+    if (!dmAccounts.length) {
+      await this.logSvc.warn(runId, `DMs: no accounts with DMs enabled (total accounts: ${accounts.length})`);
+      return [];
+    }
 
     const dmQuotas = await Promise.all(dmAccounts.map(a =>
       this.accountQuota(a.id, a.dailyDmsLimit, 5, (since) =>
@@ -571,7 +620,10 @@ Rules:
       ),
     ));
     const dmLimit = Math.min(dmQuotas.reduce((s, q) => s + q, 0), config.maxDMsPerRun);
-    if (dmLimit <= 0) return [];
+    if (dmLimit <= 0) {
+      await this.logSvc.warn(runId, `DMs: daily quota exhausted (quotas: [${dmQuotas.join(', ')}] maxPerRun: ${config.maxDMsPerRun})`);
+      return [];
+    }
 
     const accountIds = dmAccounts.map(a => a.id);
 
@@ -586,6 +638,15 @@ Rules:
         ),
       )
       .limit(dmLimit);
+
+    await this.logSvc.info(runId, `DMs: queried leads`, {
+      accountIds,
+      dmLimit,
+      leadsFound: leads.length,
+      note: leads.length === 0
+        ? 'No leads with status=new + connectionStatus=connected. Import existing LinkedIn connections via Accounts tab to populate leads, or wait for connection requests to be accepted.'
+        : null,
+    });
 
     if (!leads.length) return [];
 
@@ -800,6 +861,41 @@ Rules:
         },
       },
       {
+        // Import existing LinkedIn connections as leads so DMs can be sent to them.
+        // Upserts on profileUrl — sets connectionStatus=connected for newly-imported leads.
+        method: 'POST',
+        path: '/linkedin/connections/import',
+        requiresAuth: true,
+        handler: async (body) => {
+          const targetAccountId = (body as any).unipileAccountId as string | undefined;
+          const accounts = targetAccountId
+            ? await this.db.db.select().from(linkedinAccounts).where(eq(linkedinAccounts.unipileAccountId, targetAccountId))
+            : await this.db.db.select().from(linkedinAccounts).where(eq(linkedinAccounts.isActive, true));
+
+          let imported = 0;
+          for (const account of accounts) {
+            const connections = await this.liConnection.getConnections(account.unipileAccountId, 200);
+            for (const conn of connections) {
+              if (!conn.profile_url) continue;
+              await this.db.db.insert(linkedinLeads).values({
+                accountId: account.id,
+                profileId: conn.id || null,
+                profileUrl: conn.profile_url,
+                name: `${conn.first_name} ${conn.last_name}`.trim() || null,
+                headline: conn.headline || null,
+                connectionStatus: 'connected',
+                status: 'new',
+              }).onConflictDoUpdate({
+                target: linkedinLeads.profileUrl,
+                set: { connectionStatus: 'connected', accountId: account.id },
+              });
+              imported++;
+            }
+          }
+          return { imported, accounts: accounts.length };
+        },
+      },
+      {
         method: 'GET',
         path: '/linkedin/niches',
         requiresAuth: true,
@@ -975,19 +1071,30 @@ Rules:
         },
       },
       {
+        // Train AI persona from a specific LinkedIn account's own posts.
+        // unipileAccountId: the Unipile account ID (from the accounts list).
+        // Deletes old persona samples for this agent then re-inserts fresh ones.
         method: 'POST',
         path: '/linkedin/persona/train',
         requiresAuth: true,
         handler: async (body) => {
-          const accountId = (body as any).accountId as string | undefined;
-          const [accounts] = accountId
-            ? await this.db.db.select().from(linkedinAccounts).where(eq(linkedinAccounts.unipileAccountId, accountId)).limit(1).then(r => [r[0]])
-            : await this.db.db.select().from(linkedinAccounts).where(eq(linkedinAccounts.isActive, true)).limit(1).then(r => [r[0]]);
+          const unipileAccountId = (body as any).unipileAccountId as string | undefined;
+          const account = unipileAccountId
+            ? (await this.db.db.select().from(linkedinAccounts).where(eq(linkedinAccounts.unipileAccountId, unipileAccountId)).limit(1))[0]
+            : (await this.db.db.select().from(linkedinAccounts).where(eq(linkedinAccounts.isActive, true)).limit(1))[0];
 
-          if (!accounts?.unipileAccountId) return { error: 'No active LinkedIn account found' };
+          if (!account?.unipileAccountId) return { error: 'No active LinkedIn account found' };
 
-          const posts = await this.li.fetchOwnPosts(accounts.unipileAccountId);
-          if (!posts.length) return { saved: 0, note: 'No recent posts found on your profile' };
+          const posts = await this.li.fetchOwnPosts(account.unipileAccountId);
+          if (!posts.length) return { saved: 0, total: 0, note: 'No recent posts found on your profile — check Voyager proxy access' };
+
+          // Replace old samples for this agent to avoid accumulating stale duplicates
+          await this.db.db.delete(writingSamples).where(
+            and(
+              eq(writingSamples.agentKeys, this.key),
+              eq(writingSamples.context, 'LinkedIn persona — own post'),
+            ),
+          );
 
           let saved = 0;
           for (const post of posts) {
@@ -997,10 +1104,10 @@ Rules:
               sampleText: post.slice(0, 2000),
               polarity: 'positive',
               agentKeys: this.key,
-            }).onConflictDoNothing();
+            });
             saved++;
           }
-          return { saved, total: posts.length };
+          return { saved, total: posts.length, account: account.label };
         },
       },
       {
