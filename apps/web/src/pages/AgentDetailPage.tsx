@@ -20,6 +20,7 @@ import { agentColor } from '@/lib/agent-colors';
 import { getAgentSuggestions } from '@/lib/agentTaskSuggestions';
 import { isGreetingExact } from '@/lib/greetings';
 import { NICHE_TEMPLATES, NICHE_CATEGORIES, type NicheTemplate } from '@/lib/linkedinNicheTemplates';
+import { DM_SEQUENCE_TEMPLATES, DM_SEQUENCE_CATEGORIES, type DmSequenceTemplate } from '@/lib/linkedinDmSequenceTemplates';
 
 interface AgentDetail {
   id: string;
@@ -3715,13 +3716,40 @@ function Phase4SettingsTab({ agent, token, setupContent }: {
 
 // ─── LinkedIn Account Card ────────────────────────────────────────────────────
 
-function AccountCard({ acc, todayRow, onPatch }: { acc: any; todayRow: any; onPatch: (body: Record<string, any>) => void }) {
+function AccountCard({ acc, todayRow, token, onPatch }: { acc: any; todayRow: any; token: string; onPatch: (body: Record<string, any>) => void }) {
   const [limits, setLimits] = useState({
     dailyConnectionsLimit: acc.dailyConnectionsLimit ?? '',
     dailyCommentsLimit: acc.dailyCommentsLimit ?? '',
     dailyDmsLimit: acc.dailyDmsLimit ?? '',
   });
   const [dirty, setDirty] = useState(false);
+  const [trainStatus, setTrainStatus] = useState<{ saved: number; total: number; error?: string } | null>(null);
+  const [isTraining, setIsTraining] = useState(false);
+  const [importStatus, setImportStatus] = useState<{ imported: number; error?: string } | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
+  const [showManual, setShowManual] = useState(false);
+  const [manualText, setManualText] = useState('');
+  const [manualStatus, setManualStatus] = useState<{ saved: number; error?: string } | null>(null);
+  const [isSavingManual, setIsSavingManual] = useState(false);
+
+  async function saveManualPersona() {
+    const texts = manualText.split('\n---\n').map(t => t.trim()).filter(Boolean);
+    if (!texts.length) return;
+    setIsSavingManual(true);
+    setManualStatus(null);
+    try {
+      const result = await apiFetch(token, '/linkedin/persona/train-manual', {
+        method: 'POST',
+        body: JSON.stringify({ texts }),
+      }) as any;
+      setManualStatus({ saved: result.saved ?? 0, error: result.error });
+      if (!result.error) setManualText('');
+    } catch (err) {
+      setManualStatus({ saved: 0, error: (err as Error).message });
+    } finally {
+      setIsSavingManual(false);
+    }
+  }
 
   function handleLimitChange(key: string, value: string) {
     setLimits(l => ({ ...l, [key]: value }));
@@ -3737,6 +3765,38 @@ function AccountCard({ acc, todayRow, onPatch }: { acc: any; todayRow: any; onPa
     setDirty(false);
   }
 
+  async function trainPersona() {
+    setIsTraining(true);
+    setTrainStatus(null);
+    try {
+      const result = await apiFetch(token, '/linkedin/persona/train', {
+        method: 'POST',
+        body: JSON.stringify({ unipileAccountId: acc.unipileAccountId }),
+      }) as any;
+      setTrainStatus({ saved: result.saved ?? 0, total: result.total ?? 0, error: result.error });
+    } catch (err) {
+      setTrainStatus({ saved: 0, total: 0, error: (err as Error).message });
+    } finally {
+      setIsTraining(false);
+    }
+  }
+
+  async function importConnections() {
+    setIsImporting(true);
+    setImportStatus(null);
+    try {
+      const result = await apiFetch(token, '/linkedin/connections/import', {
+        method: 'POST',
+        body: JSON.stringify({ unipileAccountId: acc.unipileAccountId }),
+      }) as any;
+      setImportStatus({ imported: result.imported ?? 0, error: result.error });
+    } catch (err) {
+      setImportStatus({ imported: 0, error: (err as Error).message });
+    } finally {
+      setIsImporting(false);
+    }
+  }
+
   const ACTIONS = [
     { enableKey: 'enableConnections', label: 'Connections', dailyKey: 'dailyConnectionsLimit', defaultVal: 5, statKey: 'connections' },
     { enableKey: 'enableComments',   label: 'Feed comments', dailyKey: 'dailyCommentsLimit',   defaultVal: 10, statKey: 'comments' },
@@ -3750,13 +3810,88 @@ function AccountCard({ acc, todayRow, onPatch }: { acc: any; todayRow: any; onPa
           <p className="text-sm font-medium">{acc.label}</p>
           <p className="text-xs text-muted-foreground">{acc.unipileAccountId}</p>
         </div>
-        <button
-          onClick={() => onPatch({ isActive: !acc.isActive })}
-          className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${acc.isActive ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20' : 'border-border bg-muted text-muted-foreground hover:bg-muted/80'}`}
-        >
-          {acc.isActive ? 'Active' : 'Inactive'}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={importConnections}
+            disabled={isImporting}
+            title="Import existing LinkedIn connections as leads — required for DM outreach"
+            className="text-xs px-2.5 py-1 rounded-full border border-border bg-muted/30 text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors disabled:opacity-50 flex items-center gap-1"
+          >
+            {isImporting && <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />}
+            {isImporting ? 'Importing...' : 'Import connections'}
+          </button>
+          <button
+            onClick={trainPersona}
+            disabled={isTraining}
+            title="Fetch your recent LinkedIn posts and save them as AI writing samples"
+            className="text-xs px-2.5 py-1 rounded-full border border-border bg-muted/30 text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors disabled:opacity-50 flex items-center gap-1"
+          >
+            {isTraining && <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />}
+            {isTraining ? 'Training...' : 'Train persona'}
+          </button>
+          <button
+            onClick={() => { setShowManual(m => !m); setManualStatus(null); }}
+            title="Manually paste your LinkedIn posts as AI writing samples"
+            className="text-xs px-2.5 py-1 rounded-full border border-border bg-muted/30 text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors flex items-center gap-1"
+          >
+            Paste posts
+          </button>
+          <button
+            onClick={() => onPatch({ isActive: !acc.isActive })}
+            className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${acc.isActive ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20' : 'border-border bg-muted text-muted-foreground hover:bg-muted/80'}`}
+          >
+            {acc.isActive ? 'Active' : 'Inactive'}
+          </button>
+        </div>
       </div>
+
+      {importStatus && (
+        <div className={`px-4 py-2 text-xs border-b border-border/50 ${importStatus.error ? 'bg-destructive/10 text-destructive' : 'bg-sky-500/10 text-sky-300'}`}>
+          {importStatus.error
+            ? importStatus.error
+            : `${importStatus.imported} connection${importStatus.imported !== 1 ? 's' : ''} imported as leads. Run DMs to message them.`}
+        </div>
+      )}
+      {trainStatus && (
+        <div className={`px-4 py-2 text-xs border-b border-border/50 ${trainStatus.error ? 'bg-destructive/10 text-destructive' : 'bg-emerald-500/10 text-emerald-300'}`}>
+          {trainStatus.error
+            ? trainStatus.error
+            : `${trainStatus.saved} post${trainStatus.saved !== 1 ? 's' : ''} saved as writing samples (${trainStatus.total} found). AI uses these for tone on next run.`}
+        </div>
+      )}
+
+      {showManual && (
+        <div className="px-4 py-3 border-b border-border/50 bg-muted/20 space-y-2">
+          <p className="text-xs text-muted-foreground">Paste your LinkedIn posts separated by <code className="bg-muted px-1 rounded">---</code> on its own line. These will replace existing manual samples.</p>
+          <textarea
+            value={manualText}
+            onChange={e => setManualText(e.target.value)}
+            rows={6}
+            placeholder={"Your first post here...\n---\nYour second post here..."}
+            className="w-full rounded-md border border-input bg-background px-3 py-2 text-xs resize-y font-mono"
+          />
+          {manualStatus && (
+            <p className={`text-xs ${manualStatus.error ? 'text-destructive' : 'text-emerald-300'}`}>
+              {manualStatus.error ? manualStatus.error : `${manualStatus.saved} sample${manualStatus.saved !== 1 ? 's' : ''} saved.`}
+            </p>
+          )}
+          <div className="flex gap-2">
+            <button
+              onClick={saveManualPersona}
+              disabled={isSavingManual || !manualText.trim()}
+              className="text-xs px-3 py-1 rounded-md bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-40"
+            >
+              {isSavingManual ? 'Saving...' : 'Save samples'}
+            </button>
+            <button
+              onClick={() => { setShowManual(false); setManualStatus(null); }}
+              className="text-xs px-3 py-1 rounded-md border border-border text-muted-foreground hover:bg-muted/30"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-3 divide-x divide-border/50 border-b border-border/50">
         {ACTIONS.map(({ enableKey, label }) => {
@@ -3822,9 +3957,461 @@ function AccountCard({ acc, todayRow, onPatch }: { acc: any; todayRow: any; onPa
   );
 }
 
+// ─── DM Sequences Tab ────────────────────────────────────────────────────────
+
+interface DmStep {
+  stepNumber: number;
+  delayDays: number;
+  instruction: string;
+}
+
+interface DmSequence {
+  id?: string;
+  accountId: string;
+  name: string;
+  goal: string;
+  steps: DmStep[];
+  isActive?: boolean;
+}
+
+const BLANK_STEP = (): DmStep => ({ stepNumber: 1, delayDays: 0, instruction: '' });
+const BLANK_SEQ = (): DmSequence => ({ accountId: '', name: '', goal: '', steps: [BLANK_STEP()] });
+
+function DmSequencesTab({ sequences, accounts, token, onRefresh }: {
+  sequences: any[];
+  accounts: any[];
+  token: string;
+  onRefresh: () => void;
+}) {
+  const [editing, setEditing] = useState<DmSequence | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [showTemplates, setShowTemplates] = useState(false);
+  const [templateCategory, setTemplateCategory] = useState(DM_SEQUENCE_CATEGORIES[0]);
+
+  function applyTemplate(tpl: DmSequenceTemplate) {
+    setEditing(e => e ? { ...e, name: tpl.name, goal: tpl.goal, steps: tpl.steps } : {
+      accountId: '',
+      name: tpl.name,
+      goal: tpl.goal,
+      steps: tpl.steps,
+    });
+    setShowTemplates(false);
+  }
+
+  function openNew() {
+    setEditing(BLANK_SEQ());
+    setEditingId(null);
+    setSaveError(null);
+    setShowTemplates(false);
+  }
+
+  function openEdit(seq: any) {
+    setEditing({
+      accountId: seq.accountId,
+      name: seq.name,
+      goal: seq.goal ?? '',
+      steps: (seq.steps as DmStep[]).length ? seq.steps : [BLANK_STEP()],
+      isActive: seq.isActive,
+    });
+    setEditingId(seq.id);
+    setSaveError(null);
+  }
+
+  function addStep() {
+    if (!editing) return;
+    const next = editing.steps.length + 1;
+    setEditing(e => e ? { ...e, steps: [...e.steps, { stepNumber: next, delayDays: next === 1 ? 0 : 3, instruction: '' }] } : e);
+  }
+
+  function removeStep(i: number) {
+    if (!editing) return;
+    const steps = editing.steps.filter((_, idx) => idx !== i).map((s, idx) => ({ ...s, stepNumber: idx + 1 }));
+    setEditing(e => e ? { ...e, steps } : e);
+  }
+
+  function patchStep(i: number, field: keyof DmStep, value: any) {
+    if (!editing) return;
+    const steps = editing.steps.map((s, idx) => idx === i ? { ...s, [field]: value } : s);
+    setEditing(e => e ? { ...e, steps } : e);
+  }
+
+  async function save() {
+    if (!editing) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      if (editingId) {
+        await apiFetch(token, `/linkedin/dm-sequences/${editingId}`, {
+          method: 'PATCH',
+          body: JSON.stringify(editing),
+        });
+      } else {
+        await apiFetch(token, '/linkedin/dm-sequences', {
+          method: 'POST',
+          body: JSON.stringify(editing),
+        });
+      }
+      setEditing(null);
+      setEditingId(null);
+      onRefresh();
+    } catch (err) {
+      setSaveError((err as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function deleteSeq(id: string) {
+    await apiFetch(token, `/linkedin/dm-sequences/${id}`, { method: 'DELETE' });
+    onRefresh();
+  }
+
+  async function toggleActive(seq: any) {
+    await apiFetch(token, `/linkedin/dm-sequences/${seq.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ isActive: !seq.isActive }),
+    });
+    onRefresh();
+  }
+
+  const accountMap = Object.fromEntries(accounts.map((a: any) => [a.id, a.label]));
+
+  if (editing) {
+    const filteredTemplates = DM_SEQUENCE_TEMPLATES.filter(t => t.category === templateCategory);
+
+    return (
+      <div className="rounded-xl border border-border bg-card p-5 space-y-5">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold">{editingId ? 'Edit sequence' : 'New DM sequence'}</h3>
+          <div className="flex items-center gap-2">
+            {!editingId && (
+              <button
+                onClick={() => setShowTemplates(t => !t)}
+                className={`text-xs px-2.5 py-1 rounded-md border transition-colors ${showTemplates ? 'border-primary text-primary bg-primary/10' : 'border-border text-muted-foreground hover:text-foreground hover:bg-muted/30'}`}
+              >
+                {showTemplates ? 'Hide templates' : 'Use template'}
+              </button>
+            )}
+            <button onClick={() => { setEditing(null); setShowTemplates(false); }} className="text-xs text-muted-foreground hover:text-foreground">Cancel</button>
+          </div>
+        </div>
+
+        {showTemplates && (
+          <div className="rounded-lg border border-border bg-muted/20 p-4 space-y-3">
+            <div className="flex gap-1.5 flex-wrap">
+              {DM_SEQUENCE_CATEGORIES.map(cat => (
+                <button
+                  key={cat}
+                  onClick={() => setTemplateCategory(cat)}
+                  className={`text-[10px] px-2.5 py-1 rounded-full border transition-colors ${templateCategory === cat ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:bg-muted/40'}`}
+                >
+                  {cat}
+                </button>
+              ))}
+            </div>
+            <div className="grid grid-cols-1 gap-2 max-h-72 overflow-y-auto pr-1">
+              {filteredTemplates.map((tpl, i) => (
+                <button
+                  key={i}
+                  onClick={() => applyTemplate(tpl)}
+                  className="text-left rounded-lg border border-border bg-background/60 hover:border-primary/50 hover:bg-primary/5 p-3 transition-colors"
+                >
+                  <p className="text-xs font-medium">{tpl.name}</p>
+                  <p className="text-[10px] text-muted-foreground mt-0.5 line-clamp-2">{tpl.goal}</p>
+                  <div className="flex gap-1.5 mt-1.5 flex-wrap">
+                    {tpl.steps.map((s, si) => (
+                      <span key={si} className="text-[9px] bg-muted px-1.5 py-0.5 rounded text-muted-foreground">
+                        Step {s.stepNumber}{si > 0 ? ` +${s.delayDays}d` : ' immediate'}
+                      </span>
+                    ))}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1">Account</label>
+            <select
+              value={editing.accountId}
+              onChange={e => setEditing(s => s ? { ...s, accountId: e.target.value } : s)}
+              className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-xs"
+            >
+              <option value="">— select account —</option>
+              {accounts.map((a: any) => <option key={a.id} value={a.id}>{a.label}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1">Sequence name</label>
+            <input
+              value={editing.name}
+              onChange={e => setEditing(s => s ? { ...s, name: e.target.value } : s)}
+              placeholder="e.g. Taskip agency outreach"
+              className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-xs"
+            />
+          </div>
+        </div>
+        <div>
+          <label className="text-xs text-muted-foreground block mb-1">Goal (context for the AI)</label>
+          <input
+            value={editing.goal}
+            onChange={e => setEditing(s => s ? { ...s, goal: e.target.value } : s)}
+            placeholder="e.g. Promote Taskip to agency owners who struggle with client management"
+            className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-xs"
+          />
+        </div>
+
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-medium">Steps ({editing.steps.length})</p>
+            <button onClick={addStep} className="text-xs px-2.5 py-1 rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-muted/30">
+              + Add step
+            </button>
+          </div>
+
+          {editing.steps.map((step, i) => (
+            <div key={i} className="rounded-lg border border-border bg-background/50 p-4 space-y-2">
+              <div className="flex items-center gap-3">
+                <span className="text-xs font-semibold text-muted-foreground shrink-0">Step {step.stepNumber}</span>
+                {i === 0 ? (
+                  <span className="text-xs text-muted-foreground italic">Sent immediately on first contact</span>
+                ) : (
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs text-muted-foreground">Send</span>
+                    <input
+                      type="number"
+                      min={1}
+                      value={step.delayDays}
+                      onChange={e => patchStep(i, 'delayDays', Number(e.target.value))}
+                      className="w-14 rounded border border-input bg-background px-2 py-0.5 text-xs text-center"
+                    />
+                    <span className="text-xs text-muted-foreground">days after previous step</span>
+                  </div>
+                )}
+                {editing.steps.length > 1 && (
+                  <button onClick={() => removeStep(i)} className="ml-auto text-xs text-muted-foreground/50 hover:text-destructive">remove</button>
+                )}
+              </div>
+              <textarea
+                value={step.instruction}
+                onChange={e => patchStep(i, 'instruction', e.target.value)}
+                rows={3}
+                placeholder={
+                  i === 0
+                    ? 'Ask them a simple question about their work based on their headline. No pitch. Be genuinely curious.'
+                    : i === 1
+                    ? 'Follow up naturally. Ask how they currently manage their clients, projects, and payments.'
+                    : 'Introduce Taskip as a solution to what they shared. Keep it conversational, not salesy.'
+                }
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-xs resize-none"
+              />
+            </div>
+          ))}
+        </div>
+
+        {saveError && <p className="text-xs text-destructive">{saveError}</p>}
+        <div className="flex gap-2">
+          <button
+            onClick={save}
+            disabled={saving || !editing.accountId || !editing.name}
+            className="text-xs px-4 py-1.5 rounded-md bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-40"
+          >
+            {saving ? 'Saving...' : 'Save sequence'}
+          </button>
+          <button onClick={() => setEditing(null)} className="text-xs px-3 py-1.5 rounded-md border border-border text-muted-foreground hover:bg-muted/30">
+            Cancel
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-5 space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-sm font-semibold">DM Sequences</h3>
+          <p className="text-xs text-muted-foreground mt-0.5">Each account runs its own sequence. Leads progress through steps automatically based on delay.</p>
+        </div>
+        <div className="flex gap-2">
+          <button
+            onClick={() => { openNew(); setShowTemplates(true); }}
+            className="text-xs px-3 py-1.5 rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-muted/30"
+          >
+            From template
+          </button>
+          <button onClick={openNew} className="text-xs px-3 py-1.5 rounded-md bg-primary text-primary-foreground hover:opacity-90">
+            New sequence
+          </button>
+        </div>
+      </div>
+
+      {sequences.length === 0 ? (
+        <p className="text-sm text-muted-foreground">No sequences yet. Create one to start prospecting.</p>
+      ) : (
+        <div className="space-y-3">
+          {sequences.map((seq: any) => (
+            <div key={seq.id} className="rounded-lg border border-border bg-background/50 p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="text-sm font-medium">{seq.name}</p>
+                    <span className="text-xs text-muted-foreground">{accountMap[seq.accountId] ?? seq.accountId}</span>
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${seq.isActive ? 'bg-emerald-500/15 text-emerald-300' : 'bg-muted text-muted-foreground'}`}>
+                      {seq.isActive ? 'active' : 'paused'}
+                    </span>
+                  </div>
+                  {seq.goal && <p className="text-xs text-muted-foreground mt-0.5 truncate">{seq.goal}</p>}
+                  <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+                    {(seq.steps as DmStep[]).map((step, i) => (
+                      <span key={i} className="text-[10px] bg-muted/50 px-2 py-0.5 rounded-full text-muted-foreground">
+                        {i === 0 ? `Step 1: immediate` : `Step ${step.stepNumber}: +${step.delayDays}d`}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button onClick={() => toggleActive(seq)} className="text-[10px] px-2 py-0.5 rounded border border-border text-muted-foreground hover:bg-muted/30">
+                    {seq.isActive ? 'Pause' : 'Activate'}
+                  </button>
+                  <button onClick={() => openEdit(seq)} className="text-[10px] px-2 py-0.5 rounded border border-border text-muted-foreground hover:bg-muted/30">
+                    Edit
+                  </button>
+                  <button onClick={() => deleteSeq(seq.id)} className="text-[10px] px-2 py-0.5 rounded border border-destructive/40 text-destructive/70 hover:bg-destructive/10">
+                    Delete
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-3 space-y-1.5">
+                {(seq.steps as DmStep[]).map((step, i) => (
+                  <div key={i} className="flex gap-2 text-xs">
+                    <span className="text-muted-foreground shrink-0 w-14">Step {step.stepNumber}</span>
+                    <span className="text-foreground/70 line-clamp-1">{step.instruction || <em className="text-muted-foreground">no instruction</em>}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── LinkedIn Comments Tab ───────────────────────────────────────────────────
+
+function LinkedInCommentsTab({ posts, token, onRefresh }: { posts: any[]; token: string; onRefresh: () => void }) {
+  const [actionState, setActionState] = useState<Record<string, 'approving' | 'rejecting' | 'done' | 'error'>>({});
+
+  const postUrl = (externalId: string) =>
+    externalId?.startsWith('urn:li:') ? `https://www.linkedin.com/feed/update/${externalId}/` : null;
+
+  async function approve(p: any) {
+    setActionState(s => ({ ...s, [p.id]: 'approving' }));
+    try {
+      await apiFetch(token, `/linkedin/posts/${p.id}/approve`, { method: 'POST', body: JSON.stringify({}) });
+      setActionState(s => ({ ...s, [p.id]: 'done' }));
+      onRefresh();
+    } catch {
+      setActionState(s => ({ ...s, [p.id]: 'error' }));
+    }
+  }
+
+  async function reject(p: any) {
+    setActionState(s => ({ ...s, [p.id]: 'rejecting' }));
+    try {
+      await apiFetch(token, `/linkedin/posts/${p.id}/reject`, { method: 'POST', body: JSON.stringify({}) });
+      setActionState(s => ({ ...s, [p.id]: 'done' }));
+      onRefresh();
+    } catch {
+      setActionState(s => ({ ...s, [p.id]: 'error' }));
+    }
+  }
+
+  const STATUS_COLORS: Record<string, string> = {
+    pending: 'bg-yellow-500/15 text-yellow-300',
+    posted:  'bg-emerald-500/15 text-emerald-300',
+    skipped: 'bg-muted text-muted-foreground',
+    approved: 'bg-blue-500/15 text-blue-300',
+  };
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-5">
+      <h3 className="text-sm font-semibold mb-4">Feed Comments ({posts.length})</h3>
+      {posts.length === 0 ? (
+        <p className="text-sm text-muted-foreground">No comments tracked yet. Run the Comments action to generate drafts.</p>
+      ) : (
+        <div className="space-y-3">
+          {posts.map((p: any) => {
+            const url = postUrl(p.externalId);
+            const state = actionState[p.id];
+            const busy = state === 'approving' || state === 'rejecting';
+            return (
+              <div key={p.id} className="p-3 rounded-lg border border-border bg-background/50">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <p className="text-xs font-medium text-muted-foreground">{p.authorName ?? '—'}</p>
+                      {url && (
+                        <a
+                          href={url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-[10px] text-muted-foreground/60 hover:text-primary underline underline-offset-2 transition-colors"
+                        >
+                          view post
+                        </a>
+                      )}
+                    </div>
+                    <p className="text-sm line-clamp-2 text-foreground/80">{p.content?.slice(0, 200)}</p>
+                    {p.draftComment && (
+                      <p className="text-xs text-primary mt-1.5 italic">{p.draftComment.slice(0, 200)}</p>
+                    )}
+                    {state === 'error' && (
+                      <p className="text-xs text-destructive mt-1">Action failed — check run logs</p>
+                    )}
+                  </div>
+                  <div className="shrink-0 flex flex-col items-end gap-1.5">
+                    <span className={`text-xs px-1.5 py-0.5 rounded-full ${STATUS_COLORS[state === 'done' ? (p.status === 'pending' ? 'posted' : 'skipped') : p.status] ?? 'bg-muted text-muted-foreground'}`}>
+                      {state === 'approving' ? 'posting...' : state === 'rejecting' ? 'skipping...' : p.status}
+                    </span>
+                    {(p.status === 'pending') && state !== 'done' && (
+                      <div className="flex gap-1">
+                        <button
+                          onClick={() => approve(p)}
+                          disabled={busy}
+                          className="text-[10px] px-2 py-0.5 rounded border border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10 transition-colors disabled:opacity-40"
+                        >
+                          Approve
+                        </button>
+                        <button
+                          onClick={() => reject(p)}
+                          disabled={busy}
+                          className="text-[10px] px-2 py-0.5 rounded border border-border text-muted-foreground hover:bg-muted/30 transition-colors disabled:opacity-40"
+                        >
+                          Reject
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── LinkedIn Settings Tab ────────────────────────────────────────────────────
 
-type LinkedInTab = 'accounts' | 'niches' | 'leads' | 'connections' | 'posts' | 'reports' | 'docs' | 'config';
+type LinkedInTab = 'accounts' | 'niches' | 'leads' | 'connections' | 'posts' | 'sequences' | 'reports' | 'docs' | 'config';
 
 function LinkedInSettingsTab({ agent, token }: { agent: AgentDetail; token: string }) {
   const [tab, setTab] = useState<LinkedInTab>('accounts');
@@ -3856,6 +4443,11 @@ function LinkedInSettingsTab({ agent, token }: { agent: AgentDetail; token: stri
     enabled: tab === 'reports' || tab === 'accounts',
     refetchInterval: 60_000,
   });
+  const { data: dmSequences = [], refetch: refetchSequences } = useQuery<any[]>({
+    queryKey: ['linkedin-dm-sequences'],
+    queryFn: () => apiFetch(token, '/linkedin/dm-sequences'),
+    enabled: tab === 'sequences',
+  });
 
   const navigate = useNavigate();
   const [syncResult, setSyncResult] = useState<{ synced: number } | null>(null);
@@ -3881,20 +4473,6 @@ function LinkedInSettingsTab({ agent, token }: { agent: AgentDetail; token: stri
     }
   };
 
-  const [trainStatus, setTrainStatus] = useState<{ saved: number; total: number; error?: string } | null>(null);
-  const [isTraining, setIsTraining] = useState(false);
-  const trainPersona = async () => {
-    setIsTraining(true);
-    setTrainStatus(null);
-    try {
-      const result = await apiFetch(token, '/linkedin/persona/train', { method: 'POST', body: JSON.stringify({}) }) as any;
-      setTrainStatus({ saved: result.saved ?? 0, total: result.total ?? 0, error: result.error });
-    } catch (err) {
-      setTrainStatus({ saved: 0, total: 0, error: (err as Error).message });
-    } finally {
-      setIsTraining(false);
-    }
-  };
 
   const patchAccountMutation = useMutation({
     mutationFn: ({ id, ...body }: any) => apiFetch(token, `/linkedin/accounts/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
@@ -3941,7 +4519,8 @@ function LinkedInSettingsTab({ agent, token }: { agent: AgentDetail; token: stri
     { key: 'niches', label: 'Niches' },
     { key: 'leads', label: 'Leads' },
     { key: 'connections', label: 'Connections' },
-    { key: 'posts', label: 'Posts' },
+    { key: 'posts', label: 'Comments' },
+    { key: 'sequences', label: 'DM Sequences' },
     { key: 'reports', label: 'Reports' },
     { key: 'config', label: 'Config' },
     { key: 'docs', label: 'Docs' },
@@ -4006,30 +4585,6 @@ function LinkedInSettingsTab({ agent, token }: { agent: AgentDetail; token: stri
             )}
           </div>
 
-          {/* Persona training */}
-          <div className="rounded-xl border border-border bg-card p-4">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="text-sm font-medium mb-0.5">AI Persona Training</p>
-                <p className="text-xs text-muted-foreground">Fetch your recent LinkedIn posts and save them as writing samples so the AI learns your natural tone for comments and DMs.</p>
-              </div>
-              <button
-                onClick={trainPersona}
-                disabled={isTraining}
-                className="shrink-0 text-xs px-3 py-1.5 rounded-lg border border-border bg-background/50 hover:bg-muted/30 transition-colors disabled:opacity-50 flex items-center gap-1.5"
-              >
-                {isTraining && <span className="inline-block w-2 h-2 rounded-full bg-primary animate-pulse" />}
-                {isTraining ? 'Fetching...' : 'Train from my posts'}
-              </button>
-            </div>
-            {trainStatus && (
-              <div className={`mt-3 rounded-lg px-3 py-2 text-xs ${trainStatus.error ? 'bg-destructive/10 text-destructive' : 'bg-emerald-500/10 text-emerald-300'}`}>
-                {trainStatus.error
-                  ? trainStatus.error
-                  : `${trainStatus.saved} post${trainStatus.saved !== 1 ? 's' : ''} saved as writing samples (${trainStatus.total} found on profile). AI will use these for tone on next run.`}
-              </div>
-            )}
-          </div>
 
           <div className="rounded-xl border border-border bg-card p-5">
             <div className="flex items-center justify-between mb-3">
@@ -4059,7 +4614,7 @@ function LinkedInSettingsTab({ agent, token }: { agent: AgentDetail; token: stri
                 {accounts.map((acc: any) => {
                   const today = new Date().toISOString().slice(0, 10);
                   const todayRow = dailyReport.find((r: any) => r.accountId === acc.id && r.date === today) ?? null;
-                  return <AccountCard key={acc.id} acc={acc} todayRow={todayRow} onPatch={(body) => patchAccountMutation.mutate({ id: acc.id, ...body })} />;
+                  return <AccountCard key={acc.id} acc={acc} todayRow={todayRow} token={token} onPatch={(body) => patchAccountMutation.mutate({ id: acc.id, ...body })} />;
                 })}
               </div>
             )}
@@ -4312,31 +4867,16 @@ function LinkedInSettingsTab({ agent, token }: { agent: AgentDetail; token: stri
       )}
 
       {tab === 'posts' && (
-        <div className="rounded-xl border border-border bg-card p-5">
-          <h3 className="text-sm font-semibold mb-4">Feed Posts Engaged ({posts.length})</h3>
-          {posts.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No posts tracked yet.</p>
-          ) : (
-            <div className="space-y-3">
-              {posts.map((p: any) => (
-                <div key={p.id} className="p-3 rounded-lg border border-border bg-background/50">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-medium text-muted-foreground">{p.authorName ?? '—'}</p>
-                      <p className="text-sm mt-0.5 line-clamp-2">{p.content?.slice(0, 200)}</p>
-                      {p.draftComment && (
-                        <p className="text-xs text-primary mt-1.5 italic">"{p.draftComment.slice(0, 150)}"</p>
-                      )}
-                    </div>
-                    <span className={`shrink-0 text-xs px-1.5 py-0.5 rounded-full ${STATUS_COLORS[p.status] ?? 'bg-muted text-muted-foreground'}`}>
-                      {p.status}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+        <LinkedInCommentsTab posts={posts} token={token} onRefresh={() => qc.invalidateQueries({ queryKey: ['linkedin-posts'] })} />
+      )}
+
+      {tab === 'sequences' && (
+        <DmSequencesTab
+          sequences={dmSequences}
+          accounts={accounts}
+          token={token}
+          onRefresh={refetchSequences}
+        />
       )}
 
       {tab === 'reports' && (

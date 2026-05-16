@@ -4,9 +4,12 @@ import { DbService } from '../../../db/db.service';
 import { agents } from '../../../db/schema';
 import { writingSamples } from '../../knowledge-base/schema';
 import {
-  linkedinPosts, linkedinLeads, linkedinAccounts, linkedinNiches, linkedinConnectionRequests,
+  linkedinPosts, linkedinLeads, linkedinAccounts, linkedinNiches, linkedinConnectionRequests, linkedinDmSequences,
 } from './schema';
 import { LinkedInService } from './linkedin.service';
+import { LinkedInCommentService } from './linkedin-comment.service';
+import { LinkedInConnectionService } from './linkedin-connection.service';
+import { LinkedInDmService } from './linkedin-dm.service';
 import { AgentRegistryService } from '../runtime/agent-registry.service';
 import { AgentLogService } from '../runtime/agent-log.service';
 import { LlmRouterService } from '../../llm/llm-router.service';
@@ -48,6 +51,129 @@ interface LinkedInSnapshot {
   actionType: LinkedInActionType;
 }
 
+// ─── Post Category System ─────────────────────────────────────────────────────
+
+type PostCategory =
+  | 'job_new'          // "Excited to join..." — person announcing a new role
+  | 'hiring'           // "We're hiring..." — company/person recruiting
+  | 'success_milestone'// "We just hit X users / $X revenue..."
+  | 'design_creative'  // Sharing a design, UI screenshot, visual work
+  | 'question'         // Asking for advice, opinions, or a poll
+  | 'insight'          // Sharing a lesson, framework, hot take, opinion
+  | 'personal_story'   // Career journey, personal reflection, life event
+  | 'product_launch'   // Launching or announcing a product/feature
+  | 'event'            // Webinar, conference, virtual event
+  | 'other';
+
+function classifyPost(content: string): PostCategory {
+  const t = content.toLowerCase();
+
+  const matchesAny = (terms: string[]) => terms.some(k => t.includes(k));
+
+  if (matchesAny(['excited to join', "i'm joining", "i've joined", 'thrilled to announce i', 'starting my new role', 'first day at', 'new chapter', 'new position at', 'new role at']))
+    return 'job_new';
+
+  if (matchesAny(["we're hiring", 'we are hiring', "i'm hiring", 'looking for a', 'open role', 'job opening', 'apply now', 'join our team', 'seeking a', 'we have an opening']))
+    return 'hiring';
+
+  if (matchesAny(['just hit', 'just crossed', 'we reached', 'milestone', 'users', 'mrr', 'revenue', 'customers', '1k', '10k', '100k', '1m', 'sold out', 'launched and']))
+    return 'success_milestone';
+
+  if (matchesAny(['product launch', 'announcing', 'we just launched', 'now available', 'introducing', 'releasing', 'ship', 'beta is live', 'go live']))
+    return 'product_launch';
+
+  if (matchesAny(['webinar', 'conference', 'event', 'meetup', 'summit', 'workshop', 'register', 'rsvp', 'join us on', 'join us for']))
+    return 'event';
+
+  if (matchesAny(['designed', 'redesigned', 'ui', 'ux', 'design', 'figma', 'mockup', 'wireframe', 'visual', 'illustration', 'branding', 'color palette', 'typography']))
+    return 'design_creative';
+
+  if (matchesAny(['what do you think', 'thoughts?', 'agree?', 'disagree?', 'your experience', 'poll:', 'question:', 'asking', "what's your", 'how do you', 'anyone else']))
+    return 'question';
+
+  if (matchesAny(['i learned', "here's what", 'lesson:', 'unpopular opinion', 'hot take', 'truth:', 'reality:', 'mistake i made', 'i used to', 'stop doing', 'start doing', 'tip:', 'framework']))
+    return 'insight';
+
+  if (matchesAny(['my journey', 'my story', 'personal', 'vulnerable', 'i want to share', 'two years ago', 'a year ago', 'looking back', 'gratitude', 'grateful', 'burnout', 'mental health']))
+    return 'personal_story';
+
+  return 'other';
+}
+
+const CATEGORY_COMMENT_RULES: Record<PostCategory, string> = {
+  job_new: `This is a new job announcement. Rules for this category:
+- Congratulate warmly and specifically (mention the company or role if visible)
+- Do NOT pitch any product or service
+- Do NOT ask generic questions like "what will you be working on?" — they just told you
+- Keep it to 1 sentence, warm and personal`,
+
+  hiring: `This is a hiring post. Rules for this category:
+- Acknowledge what they are looking for
+- You may reference your product only if the role directly involves it (e.g. hiring a dev tool user)
+- Do NOT pitch your product or redirect the conversation
+- Keep it brief and supportive`,
+
+  success_milestone: `This is a milestone or success announcement. Rules for this category:
+- Celebrate genuinely — be specific about what you find impressive
+- Do NOT pitch your product or claim credit
+- Do NOT use generic phrases like "Congrats!" alone — add something specific
+- 1-2 sentences max`,
+
+  design_creative: `This is a design or creative post. Rules for this category:
+- Comment on the visual or creative aspect specifically
+- Reference what you notice from the description (style, approach, problem solved)
+- Do NOT pitch any product
+- Avoid generic "Looks great!" — say WHY it works`,
+
+  question: `This is a question or poll post. Rules for this category:
+- Answer the question directly if you have relevant insight
+- Add your own short perspective or experience
+- Do NOT start with "Great question!"
+- 1-2 sentences — direct and useful`,
+
+  insight: `This is a thought-leadership or insight post. Rules for this category:
+- Engage with the idea — agree, respectfully challenge, or extend it with your own take
+- You may briefly reference a related experience
+- Do NOT just validate — add something substantive
+- 1-2 sentences`,
+
+  personal_story: `This is a personal story or reflection. Rules for this category:
+- Respond on a human level — empathy first
+- Do NOT pitch any product
+- Do NOT give unsolicited advice
+- 1 short sentence that acknowledges what they shared`,
+
+  product_launch: `This is a product launch or feature announcement. Rules for this category:
+- Congratulate and ask one specific genuine question about the product
+- Do NOT compare to or mention your own product
+- Do NOT say "I'd love to collaborate" or redirect to yourself
+- 1-2 sentences`,
+
+  event: `This is an event announcement. Rules for this category:
+- Express genuine interest or ask about one specific aspect of the event
+- Do NOT redirect to your own product or event
+- Keep it brief`,
+
+  other: `Rules for this post:
+- Give a genuine, specific reaction based on what was actually written
+- Do NOT start with generic openers like "Great post!" or "So true!"
+- No self-promotion. 1-2 sentences`,
+};
+
+const CATEGORY_VALIDATION_PHRASES: Partial<Record<PostCategory, string[]>> = {
+  job_new: ['our product', 'check out', 'try', 'visit', 'sign up', 'join our', 'book a demo', 'free trial'],
+  hiring: [],
+  success_milestone: ['our product', 'check out', 'try our', 'we can help', 'book a demo'],
+  personal_story: ['our product', 'check out', 'try our', 'we can help', 'book a demo', 'by the way'],
+};
+
+function validateCommentForCategory(comment: string, category: PostCategory): string | null {
+  const blocked = CATEGORY_VALIDATION_PHRASES[category] ?? [];
+  const lower = comment.toLowerCase();
+  const found = blocked.find(p => lower.includes(p));
+  return found ? `Contains disallowed phrase for ${category}: "${found}"` : null;
+}
+
 const DEFAULT_CONFIG: LinkedInConfig = {
   targetTopics: [
     'digital agency', 'marketing agency', 'web agency', 'agency growth',
@@ -72,6 +198,9 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
     private llm: LlmRouterService,
     private telegram: TelegramService,
     private li: LinkedInService,
+    private liComment: LinkedInCommentService,
+    private liConnection: LinkedInConnectionService,
+    private liDm: LinkedInDmService,
     private registry: AgentRegistryService,
     private kb: KnowledgeBaseService,
     private logSvc: AgentLogService,
@@ -143,16 +272,17 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
     }
 
     const at = snap.actionType ?? 'all';
+    const runId = snap.runId ?? '';
 
     const [commentActions, connectionActions, dmActions] = await Promise.all([
       at === 'comments' || at === 'all'
-        ? this.decideFeedComments(snap.feedPosts, snap.accounts, snap.niches, snap.config, snap.runId ?? '')
+        ? this.decideFeedComments(snap.feedPosts, snap.accounts, snap.niches, snap.config, runId)
         : Promise.resolve([]),
       at === 'connections' || at === 'all'
-        ? this.decideConnectionRequests(snap.accounts, snap.niches, snap.config)
+        ? this.decideConnectionRequests(snap.accounts, snap.niches, snap.config, runId)
         : Promise.resolve([]),
       at === 'dms' || at === 'all'
-        ? this.decideDMs(snap.accounts, snap.config)
+        ? this.decideDMs(snap.accounts, snap.config, runId)
         : Promise.resolve([]),
     ]);
 
@@ -172,12 +302,23 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
     const p = action.payload as any;
 
     if (action.type === 'post_comment') {
-      await this.li.postComment(p.postId, p.comment, p.accountId);
-      await this.db.db
-        .update(linkedinPosts)
-        .set({ status: 'posted', postedAt: new Date(), accountId: p.dbAccountId ?? null })
-        .where(eq(linkedinPosts.externalId, p.postId));
-      await this.telegram.sendMessage(`LinkedIn comment posted on ${p.authorName}'s post:\n${p.comment}`);
+      try {
+        await this.liComment.postComment(p.postId, p.comment, p.accountId);
+        await this.db.db
+          .update(linkedinPosts)
+          .set({ status: 'posted', postedAt: new Date(), accountId: p.dbAccountId ?? null })
+          .where(eq(linkedinPosts.externalId, p.postId));
+        await this.telegram.sendMessage(`LinkedIn comment posted on ${p.authorName}'s post:\n${p.comment}`);
+      } catch (err) {
+        const msg = (err as Error).message;
+        this.logger.warn(`post_comment skipped for ${p.postId}: ${msg}`);
+        await this.db.db
+          .update(linkedinPosts)
+          .set({ status: 'failed' })
+          .where(eq(linkedinPosts.externalId, p.postId));
+        await this.telegram.sendMessage(`Comment failed on ${p.authorName ?? 'unknown'}'s post:\n${msg.slice(0, 300)}`);
+        return { success: false, error: msg };
+      }
       return { success: true, data: { postId: p.postId } };
     }
 
@@ -187,7 +328,7 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
         .set({ status: 'sending' as any })
         .where(eq(linkedinConnectionRequests.id, p.requestId));
       try {
-        await this.li.sendConnectionRequest(p.accountId, p.profileId, p.note);
+        await this.liConnection.sendConnectionRequest(p.accountId, p.profileId, p.note);
         await this.db.db
           .update(linkedinConnectionRequests)
           .set({ status: 'sent', sentAt: new Date() })
@@ -197,7 +338,7 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
           .set({ connectionStatus: 'pending' })
           .where(eq(linkedinLeads.profileId, p.profileId));
         await this.telegram.sendMessage(
-          `LinkedIn connection request sent to ${p.profileName}\nHeadline: ${p.profileHeadline ?? '—'}\nNiche: ${p.nicheName ?? '—'}\nScore: ${p.icpScore ?? '—'}\nNote: "${p.note}"`,
+          `LinkedIn connection request sent to ${p.profileName}\nHeadline: ${p.profileHeadline ?? '—'}\nNiche: ${p.nicheName ?? '—'}\nScore: ${p.icpScore ?? '—'}\nNote: ${p.note}`,
         );
       } catch (err) {
         await this.db.db
@@ -210,20 +351,42 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
     }
 
     if (action.type === 'send_dm') {
-      await this.li.sendDM(p.profileId, p.message, p.accountId);
+      await this.liDm.sendDM(p.profileId, p.message, p.accountId);
       if (p.leadId) {
-        await this.db.db
-          .update(linkedinLeads)
-          .set({ status: 'dm_sent', lastContactedAt: new Date() })
-          .where(eq(linkedinLeads.id, p.leadId));
+        const nextStep: number = (p.nextDmStep ?? 0) + 1;
+        const exhausted = p.totalSteps && nextStep >= p.totalSteps;
+        try {
+          const leadUpdate: Record<string, any> = {
+            lastContactedAt: new Date(),
+            dmStep: nextStep,
+            status: exhausted ? 'dm_exhausted' : 'dm_sent',
+          };
+          if (p.sequenceId) leadUpdate['dmSequenceId'] = p.sequenceId;
+          await this.db.db
+            .update(linkedinLeads)
+            .set(leadUpdate)
+            .where(eq(linkedinLeads.id, p.leadId));
+        } catch (updateErr: any) {
+          // Migration 0082 may not have run yet — fall back to basic update
+          if (String(updateErr?.message).includes('dm_step') || String(updateErr?.message).includes('dm_sequence_id')) {
+            await this.db.db
+              .update(linkedinLeads)
+              .set({ lastContactedAt: new Date(), status: 'dm_sent' })
+              .where(eq(linkedinLeads.id, p.leadId));
+            this.logger.warn(`send_dm: dm_step column missing — run migration 0082. Basic lead update applied.`);
+          } else {
+            throw updateErr;
+          }
+        }
       }
-      await this.telegram.sendMessage(`LinkedIn DM sent to ${p.name ?? p.profileId}:\n${p.message.slice(0, 200)}`);
+      const stepLabel = p.nextDmStep ? ` (step ${p.nextDmStep}/${p.totalSteps ?? '?'})` : '';
+      await this.telegram.sendMessage(`LinkedIn DM sent to ${p.name ?? p.profileId}${stepLabel}:\n${p.message.slice(0, 200)}`);
       return { success: true };
     }
 
     if (action.type === 'publish_post') {
       await this.li.publishPost(p.draft, p.accountId);
-      await this.telegram.sendMessage(`LinkedIn post published:\n\n"${p.draft.slice(0, 300)}"`);
+      await this.telegram.sendMessage(`LinkedIn post published:\n\n${p.draft.slice(0, 300)}`);
       return { success: true, data: { published: true } };
     }
 
@@ -314,6 +477,9 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
 
     for (const post of fresh) {
       try {
+        const category = classifyPost(post.content ?? '');
+        const categoryRules = CATEGORY_COMMENT_RULES[category];
+
         const references = await this.kb.searchEntries(post.content?.slice(0, 300) ?? '', this.key, 3);
         const kbBlock = this.kb.buildKbPromptBlock({
           voiceProfile: alwaysOn.find(e => e.entryType === 'voice_profile') ?? null,
@@ -325,27 +491,36 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
           rejections,
         });
         const defaultSystem = `You write LinkedIn comments. Tone: ${config.commentTone}.
-Rules:
-- 1-2 short sentences only
+
+${categoryRules}
+
+General rules (apply to all categories):
 - Use simple everyday words — write like a real person, not a marketer
-- Never start with "Great post!", "Love this!", "So true!" or any generic opener
-- No emojis. No self-promotion. No corporate speak
+- Never start with “Great post!”, “Love this!”, “So true!”, “Congratulations!” alone
+- No emojis. No corporate speak
 - Sound like someone who actually read the post and has a genuine take
 - Do NOT wrap your reply in quotes
 - Return only the comment text`;
         const response = await this.llm.complete({
           messages: [
             { role: 'system', content: (template?.system ?? defaultSystem) + kbBlock },
-            { role: 'user', content: `Post by ${post.authorName}:\n\n${post.content.slice(0, 600)}` },
+            { role: 'user', content: `Post type: ${category}\nPost by ${post.authorName}:\n\n${post.content.slice(0, 600)}` },
           ],
           ...agentLlmOpts(config),
           agentKey: this.key,
           maxTokens: 120,
         });
 
-        let comment = response.content.trim().replace(/^["'`“”]+|["'`“”]+$/g, '').trim();
+        let comment = response.content.trim().replace(/^[“'`””]+|[“'`””]+$/g, '').trim();
         if (!comment) continue;
         comment = await this.selfCritique(comment, alwaysOn.find(e => e.entryType === 'voice_profile')?.content, blocklist);
+
+        const categoryViolation = validateCommentForCategory(comment, category);
+        if (categoryViolation) {
+          await this.logSvc.warn(runId, `Comment skipped (category rule): ${categoryViolation}. Post: “${post.content?.slice(0, 80)}”`);
+          continue;
+        }
+
         const violation = blocklist.find(b => comment.toLowerCase().includes(b.toLowerCase()));
 
         await this.db.db.insert(linkedinPosts).values({
@@ -359,7 +534,7 @@ Rules:
         const postSnippet = post.content.slice(0, 200).trim();
         const postUrl = post.url || '';
         const summary = [
-          `Comment on ${post.authorName}'s post:`,
+          `Comment on ${post.authorName}'s post [${category}]:`,
           '',
           `"${postSnippet}${post.content.length > 200 ? '...' : ''}"`,
           postUrl ? postUrl : null,
@@ -393,8 +568,12 @@ Rules:
     accounts: any[],
     niches: any[],
     config: LinkedInConfig,
+    runId: string,
   ): Promise<ProposedAction[]> {
-    if (!accounts.length || !niches.length) return [];
+    if (!accounts.length || !niches.length) {
+      await this.logSvc.warn(runId, `Connections: bailed — accounts=${accounts.length} niches=${niches.length}`);
+      return [];
+    }
 
     const [alwaysOn] = await Promise.all([this.kb.getAlwaysOnContext(this.key)]);
     const voiceProfile = alwaysOn.find(e => e.entryType === 'voice_profile')?.content ?? '';
@@ -405,7 +584,14 @@ Rules:
 
     for (const niche of niches) {
       const account = accounts.find(a => a.id === niche.accountId) ?? accounts[0];
-      if (!account || account.enableConnections === false) continue;
+      if (!account) {
+        await this.logSvc.warn(runId, `Connections: niche "${niche.name}" — no matching account found`);
+        continue;
+      }
+      if (account.enableConnections === false) {
+        await this.logSvc.warn(runId, `Connections: niche "${niche.name}" — connections disabled on account "${account.label}"`);
+        continue;
+      }
 
       const sentToday = await this.db.db
         .select({ id: linkedinConnectionRequests.id })
@@ -419,7 +605,10 @@ Rules:
         );
 
       const nicheRemaining = niche.dailyConnectLimit - sentToday.length;
-      if (nicheRemaining <= 0) continue;
+      if (nicheRemaining <= 0) {
+        await this.logSvc.warn(runId, `Connections: niche "${niche.name}" daily limit reached (${sentToday.length}/${niche.dailyConnectLimit})`);
+        continue;
+      }
 
       const accountQuota = await this.accountQuota(
         account.id,
@@ -435,17 +624,28 @@ Rules:
       );
 
       const remaining = Math.min(nicheRemaining, accountQuota);
-      if (remaining <= 0) continue;
+      if (remaining <= 0) {
+        await this.logSvc.warn(runId, `Connections: account "${account.label}" quota exhausted (nicheRemaining=${nicheRemaining} accountQuota=${accountQuota})`);
+        continue;
+      }
 
       const keywords = (niche.keywords ?? []).join(' ');
-      if (!keywords) continue;
+      if (!keywords) {
+        await this.logSvc.warn(runId, `Connections: niche "${niche.name}" has NO keywords — add keywords in the Niches tab to enable people search`);
+        continue;
+      }
 
-      const candidates = await this.li.searchPeople(
+      await this.logSvc.info(runId, `Connections: searching LinkedIn for niche "${niche.name}"`, { keywords, remaining });
+      const candidates = await this.liConnection.searchPeople(
         account.unipileAccountId,
         keywords,
         { jobTitles: niche.targetJobTitles ?? [], industries: niche.targetIndustries ?? [] },
       );
-      if (!candidates.length) continue;
+      await this.logSvc.info(runId, `Connections: search returned ${candidates.length} candidates`, { keywords });
+      if (!candidates.length) {
+        await this.logSvc.warn(runId, `Connections: Unipile search returned 0 results for keywords "${keywords}" — check Unipile LinkedIn search API`);
+        continue;
+      }
 
       const existingProfileIds = await this.db.db
         .select({ profileId: linkedinConnectionRequests.profileId })
@@ -454,7 +654,11 @@ Rules:
       const contacted = new Set(existingProfileIds.map(r => r.profileId));
 
       const fresh = candidates.filter(c => c.id && !contacted.has(c.id)).slice(0, remaining);
-      if (!fresh.length) continue;
+      if (!fresh.length) {
+        await this.logSvc.warn(runId, `Connections: all ${candidates.length} candidates already contacted for niche "${niche.name}"`);
+        continue;
+      }
+      await this.logSvc.info(runId, `Connections: ${fresh.length} fresh candidates for niche "${niche.name}"`)
 
       const icpPrompt = `You are scoring LinkedIn profiles against an Ideal Customer Profile (ICP).
 
@@ -473,11 +677,45 @@ Score each profile 0.0–1.0 (1.0 = perfect match). Return JSON array only:
             { role: 'user', content: profileList },
           ],
           agentKey: this.key,
-          maxTokens: 600,
+          maxTokens: 800,
         });
-        scored = JSON.parse(res.content);
-      } catch {
-        scored = fresh.map(p => ({ id: p.id, score: 0.5, reason: 'default score' }));
+        // Strip markdown code fences the LLM sometimes wraps around JSON
+        const raw = res.content.replace(/```(?:json)?\s*/gi, '').replace(/```/g, '').trim();
+        try {
+          scored = JSON.parse(raw);
+        } catch (parseErr) {
+          await this.logSvc.warn(runId, `Connections: batch ICP JSON parse failed — falling back to individual scoring. Raw: ${raw.slice(0, 300)}`);
+          // Score each profile individually to avoid batch parse failures
+          scored = await Promise.all(fresh.map(async p => {
+            try {
+              const r = await this.llm.complete({
+                messages: [
+                  { role: 'system', content: `Score this LinkedIn profile 0.0–1.0 against the ICP. ICP: ${niche.icpDescription ?? niche.description ?? ''}. Return JSON only: {"score":0.0,"reason":"one sentence"}` },
+                  { role: 'user', content: `${p.first_name} ${p.last_name} | ${p.headline}` },
+                ],
+                agentKey: this.key,
+                maxTokens: 80,
+              });
+              const parsed = JSON.parse(r.content.replace(/```(?:json)?\s*/gi, '').replace(/```/g, '').trim());
+              return { id: p.id, score: Number(parsed.score) || 0.5, reason: parsed.reason ?? '' };
+            } catch {
+              return { id: p.id, score: 0.5, reason: 'parse error' };
+            }
+          }));
+        }
+      } catch (err) {
+        await this.logSvc.warn(runId, `Connections: ICP scoring LLM call failed — ${(err as Error).message}`);
+        scored = fresh.map(p => ({ id: p.id, score: 0.5, reason: 'llm error' }));
+      }
+
+      const aboveThreshold = scored.filter(s => s.score >= config.icpScoreThreshold);
+      await this.logSvc.info(runId, `Connections: ICP scored ${scored.length} profiles`, {
+        threshold: config.icpScoreThreshold,
+        aboveThreshold: aboveThreshold.length,
+        scores: scored.map(s => ({ id: s.id, score: s.score, reason: s.reason })),
+      });
+      if (!aboveThreshold.length) {
+        await this.logSvc.warn(runId, `Connections: 0 profiles passed ICP threshold ${config.icpScoreThreshold} for niche "${niche.name}". Lower icpScoreThreshold in Config tab or improve niche ICP description.`);
       }
 
       for (const score of scored) {
@@ -535,7 +773,13 @@ Rules:
 
         actions.push({
           type: 'send_connection_request',
-          summary: `Connect with ${profile.first_name} ${profile.last_name} (${niche.name}, score: ${score.score.toFixed(2)}): "${note.slice(0, 60)}"`,
+          summary: [
+            `Connect with ${profile.first_name} ${profile.last_name}`,
+            profile.profile_url ?? null,
+            profile.headline ? `Role: ${profile.headline}` : null,
+            `Niche: ${niche.name} | ICP score: ${score.score.toFixed(2)}`,
+            `Note: "${note.slice(0, 100)}"`,
+          ].filter(Boolean).join('\n'),
           payload: {
             requestId: req.id,
             accountId: account.unipileAccountId,
@@ -557,11 +801,17 @@ Rules:
 
   // ─── DM outreach ───────────────────────────────────────────────────────────
 
-  private async decideDMs(accounts: any[], config: LinkedInConfig): Promise<ProposedAction[]> {
-    if (!accounts.length) return [];
+  private async decideDMs(accounts: any[], config: LinkedInConfig, runId: string): Promise<ProposedAction[]> {
+    if (!accounts.length) {
+      await this.logSvc.warn(runId, 'DMs: no accounts found');
+      return [];
+    }
 
     const dmAccounts = accounts.filter(a => a.isActive && a.enableDMs !== false);
-    if (!dmAccounts.length) return [];
+    if (!dmAccounts.length) {
+      await this.logSvc.warn(runId, `DMs: no accounts with DMs enabled (total accounts: ${accounts.length})`);
+      return [];
+    }
 
     const dmQuotas = await Promise.all(dmAccounts.map(a =>
       this.accountQuota(a.id, a.dailyDmsLimit, 5, (since) =>
@@ -571,23 +821,10 @@ Rules:
       ),
     ));
     const dmLimit = Math.min(dmQuotas.reduce((s, q) => s + q, 0), config.maxDMsPerRun);
-    if (dmLimit <= 0) return [];
-
-    const accountIds = dmAccounts.map(a => a.id);
-
-    const leads = await this.db.db
-      .select()
-      .from(linkedinLeads)
-      .where(
-        and(
-          eq(linkedinLeads.status, 'new'),
-          eq(linkedinLeads.connectionStatus, 'connected'),
-          inArray(linkedinLeads.accountId, accountIds),
-        ),
-      )
-      .limit(dmLimit);
-
-    if (!leads.length) return [];
+    if (dmLimit <= 0) {
+      await this.logSvc.warn(runId, `DMs: daily quota exhausted (quotas: [${dmQuotas.join(', ')}] maxPerRun: ${config.maxDMsPerRun})`);
+      return [];
+    }
 
     const [alwaysOn, samples, blocklist, rejections] = await Promise.all([
       this.kb.getAlwaysOnContext(this.key),
@@ -608,51 +845,172 @@ Rules:
 
     const actions: ProposedAction[] = [];
 
-    for (const lead of leads) {
+    for (const account of dmAccounts) {
+      if (actions.length >= dmLimit) break;
+
+      // Load active sequence for this account
+      // Falls back to null if migration 0082 (linkedin_dm_sequences table) not yet applied
+      let sequence: any = null;
       try {
-        const account = accounts.find(a => a.id === lead.accountId);
-        const response = await this.llm.complete({
-          messages: [
-            {
-              role: 'system',
-              content: `Write a short LinkedIn DM to a new connection. Keep it real and friendly — like a message from an actual person, not a sales template.
+        const [row] = await this.db.db
+          .select()
+          .from(linkedinDmSequences)
+          .where(and(eq(linkedinDmSequences.accountId, account.id), eq(linkedinDmSequences.isActive, true)))
+          .limit(1);
+        sequence = row ?? null;
+      } catch (tableErr: any) {
+        if (String(tableErr?.message).includes('linkedin_dm_sequences')) {
+          await this.logSvc.warn(runId, `DMs: migration 0082 not applied — linkedin_dm_sequences table missing. Call POST /linkedin/apply-migration-0082 to apply it, then create a sequence in the DM Sequences tab.`);
+        } else {
+          throw tableErr;
+        }
+      }
+
+      const steps: Array<{ stepNumber: number; delayDays: number; instruction: string }> =
+        (sequence?.steps as any[] ?? []).sort((a, b) => a.stepNumber - b.stepNumber);
+
+      if (!steps.length) {
+        await this.logSvc.warn(runId, `DMs: account ${account.label} has no active sequence — skipping. Create one in the DM Sequences tab.`);
+        continue;
+      }
+
+      const now = new Date();
+
+      // Step 1 candidates: connected leads not yet contacted
+      // NOTE: falls back to status-only query if migration 0082 (dm_step column) not yet applied
+      let freshLeads: any[] = [];
+      try {
+        freshLeads = await this.db.db
+          .select()
+          .from(linkedinLeads)
+          .where(
+            and(
+              eq(linkedinLeads.accountId, account.id),
+              eq(linkedinLeads.connectionStatus, 'connected'),
+              eq(linkedinLeads.dmStep, 0),
+              eq(linkedinLeads.status, 'new'),
+            ),
+          )
+          .limit(dmLimit - actions.length);
+      } catch (colErr: any) {
+        if (String(colErr?.message).includes('dm_step') || String(colErr?.message).includes('dm_sequence_id')) {
+          await this.logSvc.warn(runId, 'DMs: migration 0082 not yet applied (dm_step column missing). Restart the API server to run migrations, then DM sequences will work. Falling back to status-based lead query.');
+          freshLeads = await this.db.db
+            .select()
+            .from(linkedinLeads)
+            .where(
+              and(
+                eq(linkedinLeads.accountId, account.id),
+                eq(linkedinLeads.connectionStatus, 'connected'),
+                eq(linkedinLeads.status, 'new'),
+              ),
+            )
+            .limit(dmLimit - actions.length);
+        } else {
+          throw colErr;
+        }
+      }
+
+      // Follow-up candidates: leads mid-sequence whose delay has elapsed
+      let allLeadsInSequence: any[] = [];
+      try {
+        allLeadsInSequence = await this.db.db
+          .select()
+          .from(linkedinLeads)
+          .where(
+            and(
+              eq(linkedinLeads.accountId, account.id),
+              eq(linkedinLeads.connectionStatus, 'connected'),
+              eq(linkedinLeads.dmSequenceId, sequence.id),
+            ),
+          );
+      } catch {
+        // dm_sequence_id column not yet available — skip follow-up step
+        allLeadsInSequence = [];
+      }
+
+      const followupLeads = allLeadsInSequence.filter(lead => {
+        if (!lead.dmStep || lead.dmStep === 0 || lead.dmStep >= steps.length) return false;
+        const nextStep = steps[lead.dmStep]; // 0-indexed; dmStep=1 means step 1 sent, next is steps[1]
+        if (!nextStep) return false;
+        const delayMs = nextStep.delayDays * 24 * 60 * 60 * 1000;
+        return lead.lastContactedAt && (now.getTime() - lead.lastContactedAt.getTime()) >= delayMs;
+      }).slice(0, dmLimit - actions.length - freshLeads.length);
+
+      await this.logSvc.info(runId, `DMs: account ${account.label}`, {
+        sequenceName: sequence.name,
+        totalSteps: steps.length,
+        freshLeads: freshLeads.length,
+        followupLeads: followupLeads.length,
+      });
+
+      const candidatePairs: Array<{ lead: typeof freshLeads[0]; step: typeof steps[0] }> = [
+        ...freshLeads.map(lead => ({ lead, step: steps[0] })),
+        ...followupLeads.map(lead => ({ lead, step: steps[lead.dmStep] })),
+      ];
+
+      for (const { lead, step } of candidatePairs) {
+        if (actions.length >= dmLimit) break;
+        try {
+          const response = await this.llm.complete({
+            messages: [
+              {
+                role: 'system',
+                content: `You are writing a LinkedIn DM on behalf of a founder.
+
+Sequence goal: ${sequence.goal ?? 'Build a genuine connection'}
+This message is step ${step.stepNumber} of ${steps.length} in a conversation sequence.
+
+Your task for this step:
+${step.instruction}
+
 Rules:
 - 2-3 short sentences max
-- Simple words, easy to read
-- Reference something specific about their role or background
-- End with one soft, natural question or invite (not a hard CTA)
-- No corporate speak, no buzzwords, no "I wanted to reach out"
+- Write like a real person — conversational, no corporate speak
+- Do NOT mention you are following a sequence
 - Do NOT wrap your reply in quotes
 - Return only the message text${kbBlock}`,
-            },
-            {
-              role: 'user',
-              content: `Name: ${lead.name ?? 'there'}\nHeadline: ${lead.headline ?? ''}\nICP reason: ${lead.icpReason ?? ''}`,
-            },
-          ],
-          agentKey: this.key,
-          maxTokens: 150,
-        });
+              },
+              {
+                role: 'user',
+                content: `Name: ${lead.name ?? 'there'}\nHeadline: ${lead.headline ?? ''}\nICP reason: ${lead.icpReason ?? ''}`,
+              },
+            ],
+            agentKey: this.key,
+            maxTokens: 180,
+          });
 
-        let message = response.content.trim().replace(/^["'`""]+|["'`""]+$/g, '').trim();
-        if (!message) continue;
-        message = await this.selfCritique(message, alwaysOn.find(e => e.entryType === 'voice_profile')?.content, blocklist);
-        const violation = blocklist.find(b => message.toLowerCase().includes(b.toLowerCase()));
+          let message = response.content.trim().replace(/^["'`""]+|["'`""]+$/g, '').trim();
+          if (!message) continue;
+          message = await this.selfCritique(message, alwaysOn.find(e => e.entryType === 'voice_profile')?.content, blocklist);
+          const violation = blocklist.find(b => message.toLowerCase().includes(b.toLowerCase()));
 
-        actions.push({
-          type: 'send_dm',
-          summary: `DM to ${lead.name ?? lead.profileUrl}: "${message.slice(0, 80)}"`,
-          payload: {
-            leadId: lead.id,
-            profileId: lead.profileId ?? lead.profileUrl,
-            accountId: account?.unipileAccountId,
-            name: lead.name,
-            message,
-          },
-          riskLevel: violation ? 'high' : 'medium',
-        });
-      } catch (err) {
-        this.logger.warn(`Failed to draft DM for lead ${lead.id}: ${err}`);
+          const profileLink = lead.profileUrl ?? (lead.profileId ? `https://www.linkedin.com/in/${lead.profileId}` : null);
+          const summaryLines = [
+            `DM to ${lead.name ?? 'unknown'} — Step ${step.stepNumber}/${steps.length} (${sequence.name})`,
+            profileLink ?? null,
+            lead.headline ? `Role: ${lead.headline}` : null,
+            `Message: "${message.slice(0, 120)}"`,
+          ].filter(Boolean).join('\n');
+
+          actions.push({
+            type: 'send_dm',
+            summary: summaryLines,
+            payload: {
+              leadId: lead.id,
+              profileId: lead.profileId ?? lead.profileUrl,
+              accountId: account.unipileAccountId,
+              name: lead.name,
+              message,
+              nextDmStep: step.stepNumber,
+              sequenceId: sequence.id,
+              totalSteps: steps.length,
+            },
+            riskLevel: violation ? 'high' : 'medium',
+          });
+        } catch (err) {
+          this.logger.warn(`Failed to draft DM for lead ${lead.id}: ${err}`);
+        }
       }
     }
 
@@ -800,6 +1158,41 @@ Rules:
         },
       },
       {
+        // Import existing LinkedIn connections as leads so DMs can be sent to them.
+        // Upserts on profileUrl — sets connectionStatus=connected for newly-imported leads.
+        method: 'POST',
+        path: '/linkedin/connections/import',
+        requiresAuth: true,
+        handler: async (body) => {
+          const targetAccountId = (body as any).unipileAccountId as string | undefined;
+          const accounts = targetAccountId
+            ? await this.db.db.select().from(linkedinAccounts).where(eq(linkedinAccounts.unipileAccountId, targetAccountId))
+            : await this.db.db.select().from(linkedinAccounts).where(eq(linkedinAccounts.isActive, true));
+
+          let imported = 0;
+          for (const account of accounts) {
+            const connections = await this.liConnection.getConnections(account.unipileAccountId, 200);
+            for (const conn of connections) {
+              if (!conn.profile_url) continue;
+              await this.db.db.insert(linkedinLeads).values({
+                accountId: account.id,
+                profileId: conn.id || null,
+                profileUrl: conn.profile_url,
+                name: `${conn.first_name} ${conn.last_name}`.trim() || null,
+                headline: conn.headline || null,
+                connectionStatus: 'connected',
+                status: 'new',
+              }).onConflictDoUpdate({
+                target: linkedinLeads.profileUrl,
+                set: { connectionStatus: 'connected', accountId: account.id },
+              });
+              imported++;
+            }
+          }
+          return { imported, accounts: accounts.length };
+        },
+      },
+      {
         method: 'GET',
         path: '/linkedin/niches',
         requiresAuth: true,
@@ -881,6 +1274,79 @@ Rules:
         handler: async () =>
           this.db.db.select().from(linkedinPosts)
             .orderBy(sql`${linkedinPosts.createdAt} DESC`).limit(100),
+      },
+      {
+        method: 'POST',
+        path: '/linkedin/posts/:id/approve',
+        requiresAuth: true,
+        handler: async (params) => {
+          const { id } = params as any;
+          const [post] = await this.db.db.select().from(linkedinPosts).where(eq(linkedinPosts.id, id));
+          if (!post) return { error: 'Comment not found' };
+          if (post.status === 'posted') return { error: 'Already posted' };
+          if (!post.draftComment) return { error: 'No draft comment to post' };
+
+          const account = post.accountId
+            ? (await this.db.db.select().from(linkedinAccounts).where(eq(linkedinAccounts.id, post.accountId)))[0]
+            : (await this.db.db.select().from(linkedinAccounts).where(eq(linkedinAccounts.isActive, true)).limit(1))[0];
+
+          await this.liComment.postComment(post.externalId, post.draftComment, account?.unipileAccountId);
+          await this.db.db.update(linkedinPosts)
+            .set({ status: 'posted', postedAt: new Date() })
+            .where(eq(linkedinPosts.id, id));
+          return { ok: true, posted: post.draftComment };
+        },
+      },
+      {
+        method: 'POST',
+        path: '/linkedin/posts/:id/reject',
+        requiresAuth: true,
+        handler: async (params) => {
+          const { id } = params as any;
+          await this.db.db.update(linkedinPosts)
+            .set({ status: 'skipped' })
+            .where(eq(linkedinPosts.id, id));
+          return { ok: true };
+        },
+      },
+      {
+        // Save manually-pasted LinkedIn posts/comments as persona writing samples.
+        // body.texts: string[] — each element is one post/comment block.
+        method: 'POST',
+        path: '/linkedin/persona/train-manual',
+        requiresAuth: true,
+        handler: async (body) => {
+          const texts: string[] = ((body as any).texts ?? []).filter((t: string) => t?.trim()?.length > 20);
+          if (!texts.length) return { saved: 0 };
+
+          await this.db.db.delete(writingSamples).where(
+            and(
+              eq(writingSamples.agentKeys, this.key),
+              eq(writingSamples.context, 'LinkedIn persona — own post'),
+            ),
+          );
+
+          for (const text of texts) {
+            await this.db.db.insert(writingSamples).values({
+              context: 'LinkedIn persona — own post',
+              sampleText: text.slice(0, 2000),
+              polarity: 'positive',
+              agentKeys: this.key,
+            });
+          }
+          return { saved: texts.length };
+        },
+      },
+      {
+        method: 'GET',
+        path: '/linkedin/debug/persona',
+        requiresAuth: true,
+        handler: async (params) => {
+          const accountId = (params as any).accountId as string | undefined;
+          const id = accountId ?? (await this.db.db.select().from(linkedinAccounts).limit(1))[0]?.unipileAccountId;
+          if (!id) return { error: 'No account found' };
+          return this.li.debugPersonaFetch(id);
+        },
       },
       {
         method: 'GET',
@@ -975,19 +1441,30 @@ Rules:
         },
       },
       {
+        // Train AI persona from a specific LinkedIn account's own posts.
+        // unipileAccountId: the Unipile account ID (from the accounts list).
+        // Deletes old persona samples for this agent then re-inserts fresh ones.
         method: 'POST',
         path: '/linkedin/persona/train',
         requiresAuth: true,
         handler: async (body) => {
-          const accountId = (body as any).accountId as string | undefined;
-          const [accounts] = accountId
-            ? await this.db.db.select().from(linkedinAccounts).where(eq(linkedinAccounts.unipileAccountId, accountId)).limit(1).then(r => [r[0]])
-            : await this.db.db.select().from(linkedinAccounts).where(eq(linkedinAccounts.isActive, true)).limit(1).then(r => [r[0]]);
+          const unipileAccountId = (body as any).unipileAccountId as string | undefined;
+          const account = unipileAccountId
+            ? (await this.db.db.select().from(linkedinAccounts).where(eq(linkedinAccounts.unipileAccountId, unipileAccountId)).limit(1))[0]
+            : (await this.db.db.select().from(linkedinAccounts).where(eq(linkedinAccounts.isActive, true)).limit(1))[0];
 
-          if (!accounts?.unipileAccountId) return { error: 'No active LinkedIn account found' };
+          if (!account?.unipileAccountId) return { error: 'No active LinkedIn account found' };
 
-          const posts = await this.li.fetchOwnPosts(accounts.unipileAccountId);
-          if (!posts.length) return { saved: 0, note: 'No recent posts found on your profile' };
+          const posts = await this.li.fetchOwnPosts(account.unipileAccountId);
+          if (!posts.length) return { saved: 0, total: 0, note: 'No recent posts found on your profile — check Voyager proxy access' };
+
+          // Replace old samples for this agent to avoid accumulating stale duplicates
+          await this.db.db.delete(writingSamples).where(
+            and(
+              eq(writingSamples.agentKeys, this.key),
+              eq(writingSamples.context, 'LinkedIn persona — own post'),
+            ),
+          );
 
           let saved = 0;
           for (const post of posts) {
@@ -997,10 +1474,10 @@ Rules:
               sampleText: post.slice(0, 2000),
               polarity: 'positive',
               agentKeys: this.key,
-            }).onConflictDoNothing();
+            });
             saved++;
           }
-          return { saved, total: posts.length };
+          return { saved, total: posts.length, account: account.label };
         },
       },
       {
@@ -1015,6 +1492,80 @@ Rules:
             .orderBy(sql`${writingSamples.createdAt} DESC`)
             .limit(50);
           return samples;
+        },
+      },
+
+      // ─── Migration helper ────────────────────────────────────────────────────
+      {
+        method: 'POST',
+        path: '/linkedin/apply-migration-0082',
+        requiresAuth: true,
+        handler: async () => {
+          try {
+            await this.db.db.execute(sql`
+              CREATE TABLE IF NOT EXISTS linkedin_dm_sequences (
+                id text PRIMARY KEY,
+                account_id text NOT NULL REFERENCES linkedin_accounts(id) ON DELETE CASCADE,
+                name text NOT NULL,
+                goal text,
+                steps jsonb NOT NULL DEFAULT '[]',
+                is_active boolean NOT NULL DEFAULT true,
+                created_at timestamp NOT NULL DEFAULT NOW()
+              )
+            `);
+            await this.db.db.execute(sql`
+              ALTER TABLE linkedin_leads ADD COLUMN IF NOT EXISTS dm_step integer NOT NULL DEFAULT 0
+            `);
+            await this.db.db.execute(sql`
+              ALTER TABLE linkedin_leads ADD COLUMN IF NOT EXISTS dm_sequence_id text REFERENCES linkedin_dm_sequences(id)
+            `);
+            return { ok: true, message: 'Migration 0082 applied successfully' };
+          } catch (err) {
+            return { ok: false, error: (err as Error).message };
+          }
+        },
+      },
+
+      // ─── DM Sequences ───────────────────────────────────────────────────────
+      {
+        method: 'GET',
+        path: '/linkedin/dm-sequences',
+        requiresAuth: true,
+        handler: async () =>
+          this.db.db.select().from(linkedinDmSequences).orderBy(linkedinDmSequences.createdAt),
+      },
+      {
+        method: 'POST',
+        path: '/linkedin/dm-sequences',
+        requiresAuth: true,
+        handler: async (body) => {
+          const b = body as any;
+          const [row] = await this.db.db.insert(linkedinDmSequences).values({
+            accountId: b.accountId,
+            name: b.name,
+            goal: b.goal ?? null,
+            steps: b.steps ?? [],
+          }).returning();
+          return row;
+        },
+      },
+      {
+        method: 'PATCH',
+        path: '/linkedin/dm-sequences/:id',
+        requiresAuth: true,
+        handler: async (params) => {
+          const { id, ...body } = params as any;
+          await this.db.db.update(linkedinDmSequences).set(body).where(eq(linkedinDmSequences.id, id));
+          return { ok: true };
+        },
+      },
+      {
+        method: 'DELETE',
+        path: '/linkedin/dm-sequences/:id',
+        requiresAuth: true,
+        handler: async (params) => {
+          await this.db.db.delete(linkedinDmSequences).where(eq(linkedinDmSequences.id, (params as any).id));
+          return { ok: true };
         },
       },
     ];

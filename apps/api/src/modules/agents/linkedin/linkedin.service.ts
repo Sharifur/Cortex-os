@@ -339,60 +339,112 @@ export class LinkedInService {
   async fetchOwnPosts(accountId: string): Promise<string[]> {
     const { unipileKey, unipileDsn } = await this.getCredentials();
     if (!unipileKey || !unipileDsn) return [];
+
+    // Step 1: get own public identifier via Voyager /me
+    let publicId: string | null = null;
     try {
-      // Step 1: get own public identifier via /voyager/api/me
       const meRes = await fetch(`${this.unipileBase(unipileDsn)}/linkedin`, {
         method: 'POST',
         headers: this.unipileHeaders(unipileKey),
-        body: JSON.stringify({
-          account_id: accountId,
-          request_url: 'https://www.linkedin.com/voyager/api/me',
-        }),
+        body: JSON.stringify({ account_id: accountId, request_url: 'https://www.linkedin.com/voyager/api/me' }),
       });
-      let publicId: string | null = null;
+      const meRaw = await meRes.text();
+      this.logger.log(`fetchOwnPosts /me status=${meRes.status} raw=${meRaw.slice(0, 400)}`);
       if (meRes.ok) {
-        const meData = await meRes.json() as any;
-        const profile = meData?.data ?? meData;
+        const meData = JSON.parse(meRaw) as any;
+        // Unipile wraps: { object:"LinkedinRawData", data: <linkedin-response> }
+        // LinkedIn /me returns: { data: { miniProfile: { publicIdentifier } }, included: [...] }
+        const li = meData?.data ?? meData;
         publicId =
-          profile?.miniProfile?.publicIdentifier ??
-          profile?.publicIdentifier ??
-          profile?.data?.me?.profile?.miniProfile?.publicIdentifier ??
+          li?.data?.miniProfile?.publicIdentifier ??   // LinkedIn REST /me
+          li?.miniProfile?.publicIdentifier ??          // some versions
+          li?.publicIdentifier ??                       // rare
           null;
+        this.logger.log(`fetchOwnPosts publicId resolved: ${publicId}`);
       }
-
-      // Step 2: fetch recent profile updates (SHARES = own posts)
-      const updatesUrl = publicId
-        ? `https://www.linkedin.com/voyager/api/identity/profiles/${publicId}/updates?type=SHARES&start=0&count=20`
-        : `https://www.linkedin.com/voyager/api/identity/profiles/me/updates?type=SHARES&start=0&count=20`;
-
-      const updatesRes = await fetch(`${this.unipileBase(unipileDsn)}/linkedin`, {
-        method: 'POST',
-        headers: this.unipileHeaders(unipileKey),
-        body: JSON.stringify({ account_id: accountId, request_url: updatesUrl }),
-      });
-      if (!updatesRes.ok) return [];
-
-      const raw = await updatesRes.json() as any;
-      const voyager = raw?.data ?? raw;
-      const elements: any[] = voyager?.elements ?? voyager?.feedUpdates ?? [];
-
-      const texts: string[] = [];
-      for (const el of elements) {
-        const update = el?.updateV2 ?? el?.update ?? el;
-        const text =
-          update?.commentary?.text?.text ??
-          update?.commentary?.text ??
-          update?.specificContent?.['com.linkedin.ugc.ShareContent']?.shareCommentary?.text ??
-          el?.commentary?.text?.text ??
-          el?.text?.text ??
-          '';
-        if (text?.trim()) texts.push(text.trim());
-      }
-      return texts;
     } catch (err) {
-      this.logger.warn(`fetchOwnPosts error: ${(err as Error).message}`);
-      return [];
+      this.logger.warn(`fetchOwnPosts /me error: ${(err as Error).message}`);
     }
+
+    // Step 2: fetch profile updates (own posts) — try multiple URL patterns
+    const urlsToTry = publicId
+      ? [
+          `https://www.linkedin.com/voyager/api/identity/profiles/${publicId}/updates?type=SHARES&start=0&count=20`,
+          `https://www.linkedin.com/voyager/api/identity/profiles/${publicId}/updates?start=0&count=20`,
+        ]
+      : [
+          `https://www.linkedin.com/voyager/api/identity/profiles/me/updates?type=SHARES&start=0&count=20`,
+          `https://www.linkedin.com/voyager/api/identity/profiles/me/updates?start=0&count=20`,
+        ];
+
+    for (const updatesUrl of urlsToTry) {
+      try {
+        const updatesRes = await fetch(`${this.unipileBase(unipileDsn)}/linkedin`, {
+          method: 'POST',
+          headers: this.unipileHeaders(unipileKey),
+          body: JSON.stringify({ account_id: accountId, request_url: updatesUrl }),
+        });
+        const updatesRaw = await updatesRes.text();
+        this.logger.log(`fetchOwnPosts updates status=${updatesRes.status} url=${updatesUrl} raw=${updatesRaw.slice(0, 500)}`);
+
+        if (!updatesRes.ok) continue;
+
+        const parsed = JSON.parse(updatesRaw) as any;
+        const voyager = parsed?.data ?? parsed;
+        const elements: any[] = voyager?.elements ?? voyager?.feedUpdates ?? voyager?.data?.elements ?? [];
+
+        const texts: string[] = [];
+        for (const el of elements) {
+          const update = el?.updateV2 ?? el?.update ?? el;
+          const text =
+            update?.commentary?.text?.text ??
+            update?.commentary?.text ??
+            update?.specificContent?.['com.linkedin.ugc.ShareContent']?.shareCommentary?.text ??
+            el?.commentary?.text?.text ??
+            el?.text?.text ??
+            '';
+          if (text?.trim()) texts.push(text.trim());
+        }
+
+        this.logger.log(`fetchOwnPosts: extracted ${texts.length} posts from ${elements.length} elements`);
+        if (texts.length > 0) return texts;
+      } catch (err) {
+        this.logger.warn(`fetchOwnPosts updates error (${updatesUrl}): ${(err as Error).message}`);
+      }
+    }
+    return [];
+  }
+
+  // Debug helper — returns raw Voyager responses for persona training diagnosis
+  async debugPersonaFetch(accountId: string): Promise<{ me: any; updates: any }> {
+    const { unipileKey, unipileDsn } = await this.getCredentials();
+    if (!unipileKey || !unipileDsn) return { me: { error: 'not configured' }, updates: { error: 'not configured' } };
+
+    const meRes = await fetch(`${this.unipileBase(unipileDsn)}/linkedin`, {
+      method: 'POST',
+      headers: this.unipileHeaders(unipileKey),
+      body: JSON.stringify({ account_id: accountId, request_url: 'https://www.linkedin.com/voyager/api/me' }),
+    });
+    const meRaw = await meRes.text();
+    let meParsed: any = null;
+    try { meParsed = JSON.parse(meRaw); } catch { /* ignore */ }
+
+    const updatesRes = await fetch(`${this.unipileBase(unipileDsn)}/linkedin`, {
+      method: 'POST',
+      headers: this.unipileHeaders(unipileKey),
+      body: JSON.stringify({
+        account_id: accountId,
+        request_url: 'https://www.linkedin.com/voyager/api/identity/profiles/me/updates?type=SHARES&start=0&count=5',
+      }),
+    });
+    const updatesRaw = await updatesRes.text();
+    let updatesParsed: any = null;
+    try { updatesParsed = JSON.parse(updatesRaw); } catch { /* ignore */ }
+
+    return {
+      me: { status: meRes.status, raw: meRaw.slice(0, 1000), parsed: meParsed },
+      updates: { status: updatesRes.status, raw: updatesRaw.slice(0, 2000), parsed: updatesParsed },
+    };
   }
 
   // ─── Posts ─────────────────────────────────────────────────────────────────

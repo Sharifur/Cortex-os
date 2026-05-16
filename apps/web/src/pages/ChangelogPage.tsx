@@ -16,6 +16,85 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.78.4',
+    date: '2026-05-16',
+    entries: [
+      { tag: 'fix', scope: 'telegram', description: 'Follow-up and reject-reason threadId now embeds APP_ENV prefix so local cannot intercept production reply messages and vice versa. Both storage and lookup are scoped to the current env.' },
+      { tag: 'fix', scope: 'linkedin', description: 'Comment posting failure now sends a Telegram notification with the error message instead of silently returning success=false after approval.' },
+    ],
+  },
+  {
+    version: 'v4.78.3',
+    date: '2026-05-16',
+    entries: [
+      { tag: 'fix', scope: 'telegram', description: 'Approval callbacks are now environment-scoped via APP_ENV env var (defaults to "local"). Callback data embeds env prefix (e.g. approval:prod:id:approve) so local and production never consume each other\'s Telegram callbacks when sharing the same bot token.' },
+    ],
+  },
+  {
+    version: 'v4.78.2',
+    date: '2026-05-16',
+    entries: [
+      { tag: 'fix', scope: 'linkedin', description: 'Comment posting failures are now non-fatal: if a post cannot be commented on (Unipile 422 / post not found), the post is marked failed in the DB and the run continues instead of crashing the entire execution.' },
+      { tag: 'fix', scope: 'linkedin', description: 'Voyager proxy comment URL corrected: changed socialactions/ to feed/socialactions/ to match LinkedIn internal API path for commenting on feed posts.' },
+    ],
+  },
+  {
+    version: 'v4.78.1',
+    date: '2026-05-16',
+    entries: [
+      { tag: 'feat', scope: 'linkedin', description: '11 pre-built DM sequence templates across 5 categories: Product Outreach (Taskip Agency, SaaS Pain-first, Product Launch), Partnership (exploration, agency-freelancer), Recruitment (tech role, passive nurture), Consulting (lead gen, audit offer), Content & Creator (collaboration, newsletter cross-promo). Each template pre-fills name, goal, and all steps with ready-to-use LLM instructions.' },
+      { tag: 'feat', scope: 'linkedin', description: 'DM Sequences tab: From template button opens templates panel with category filter. New sequence button opens blank form. Template picker also accessible inside the editor via Use template button.' },
+    ],
+  },
+  {
+    version: 'v4.78.0',
+    date: '2026-05-16',
+    entries: [
+      { tag: 'feat', scope: 'linkedin', description: 'DM sequence system: each LinkedIn account can have one active multi-step sequence with a goal and per-step LLM instructions. Step 1 is sent on first contact; subsequent steps fire automatically when the configured delay (days since last DM) has elapsed.' },
+      { tag: 'feat', scope: 'linkedin', description: 'Per-lead sequence tracking: linkedin_leads gains dm_step (current step index) and dm_sequence_id. After each DM execute, dm_step increments. When all steps exhausted, lead status becomes dm_exhausted.' },
+      { tag: 'feat', scope: 'linkedin', description: 'DM Sequences tab in LinkedIn settings: create/edit/delete sequences with name, goal, and ordered steps. Each step has delay-days and an instruction textarea the AI uses as the prompt for that message. Supports multiple accounts with different sequences.' },
+      { tag: 'feat', scope: 'linkedin', description: 'API: GET/POST /linkedin/dm-sequences, PATCH/DELETE /linkedin/dm-sequences/:id. Migration 0082 adds linkedin_dm_sequences table and dm_step/dm_sequence_id columns to linkedin_leads.' },
+    ],
+  },
+  {
+    version: 'v4.77.0',
+    date: '2026-05-16',
+    entries: [
+      { tag: 'feat', scope: 'linkedin', description: 'Post categorization: each feed post is classified (job_new, hiring, success_milestone, design_creative, question, insight, personal_story, product_launch, event, other) before generating a comment. The LLM receives category-specific rules — e.g. job_new prevents any product pitch, design_creative requires engaging with the visual aspect, question requires directly answering.' },
+      { tag: 'feat', scope: 'linkedin', description: 'Post-generation category validation: after comment generation, a blocklist of disallowed phrases per category is checked. Comments containing product pitch language on job/personal posts are skipped and logged rather than sent for approval.' },
+      { tag: 'feat', scope: 'linkedin', description: 'Post category label shown in Telegram comment proposal: "Comment on [name]s post [design_creative]:" so you can see context before approving.' },
+      { tag: 'feat', scope: 'linkedin', description: 'Connection requests: Telegram approval shows Approve + note / Approve (no note) buttons. Approve without note sends a clean connection request with no message. approve_no_note strips payload.note before queuing execute.' },
+    ],
+  },
+  {
+    version: 'v4.76.1',
+    date: '2026-05-16',
+    entries: [
+      { tag: 'fix', scope: 'linkedin', description: 'DM proposal Telegram message now includes LinkedIn profile URL and Role (headline) so proposals are identifiable without opening LinkedIn separately.' },
+      { tag: 'fix', scope: 'linkedin', description: 'Connection request proposal Telegram message now includes profile URL, Role, niche name, ICP score, and note preview on separate lines.' },
+    ],
+  },
+  {
+    version: 'v4.76.0',
+    date: '2026-05-16',
+    entries: [
+      { tag: 'feat', scope: 'linkedin', description: 'Posts tab renamed to Comments. Each entry shows author, post content, draft comment (italic), status badge, and a view post link (LinkedIn feed update URL) for cross-checking.' },
+      { tag: 'feat', scope: 'linkedin', description: 'Approve/Reject buttons on pending comments: Approve calls POST /linkedin/posts/:id/approve (posts immediately via Unipile), Reject calls POST /linkedin/posts/:id/reject (skips). Optimistic state per card.' },
+      { tag: 'feat', scope: 'linkedin', description: 'Manual persona paste in AccountCard: Paste posts button opens textarea. Posts separated by --- on their own line are sent to POST /linkedin/persona/train-manual and saved as writing samples for that account.' },
+    ],
+  },
+  {
+    version: 'v4.75.0',
+    date: '2026-05-16',
+    entries: [
+      { tag: 'fix', scope: 'linkedin', description: 'post_comment 422: LinkedIn comment service now tries Voyager proxy POST first (handles activity URNs from feed), then falls back to native Unipile API with URL-encoded post ID. Each attempt is logged independently.' },
+      { tag: 'fix', scope: 'linkedin', description: 'Connections + DMs returning noop with no explanation: added runId param and full diagnostic logging at every bail point in decideConnectionRequests and decideDMs. Logs now show exactly which guard fails (empty keywords, quota exhausted, no leads, etc.).' },
+      { tag: 'feat', scope: 'linkedin', description: 'Separate service classes: LinkedInCommentService, LinkedInConnectionService, LinkedInDmService — each owns its Unipile calls with independent logging and error handling. execute() uses these instead of the monolithic LinkedInService.' },
+      { tag: 'feat', scope: 'linkedin', description: 'POST /linkedin/connections/import: pull existing LinkedIn connections from Unipile and upsert them as leads with connectionStatus=connected — required before DM outreach can work. UI button added in Accounts tab.' },
+      { tag: 'feat', scope: 'linkedin', description: 'Per-account persona training: Train persona button moved into each AccountCard header. POST /linkedin/persona/train accepts unipileAccountId, deletes old samples then re-inserts fresh ones to avoid stale duplicates.' },
+    ],
+  },
+  {
     version: 'v4.74.0',
     date: '2026-05-16',
     entries: [

@@ -575,6 +575,13 @@
       "when": 1748390400000,
       "tag": "0081_linkedin_leads_profile_id",
       "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "6",
+      "when": 1748476800000,
+      "tag": "0082_linkedin_dm_sequences",
+      "breakpoints": true
     }
   ]
 }
