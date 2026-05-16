@@ -16,6 +16,15 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.76.0',
+    date: '2026-05-16',
+    entries: [
+      { tag: 'feat', scope: 'linkedin', description: 'Posts tab renamed to Comments. Each entry shows author, post content, draft comment (italic), status badge, and a view post link (LinkedIn feed update URL) for cross-checking.' },
+      { tag: 'feat', scope: 'linkedin', description: 'Approve/Reject buttons on pending comments: Approve calls POST /linkedin/posts/:id/approve (posts immediately via Unipile), Reject calls POST /linkedin/posts/:id/reject (skips). Optimistic state per card.' },
+      { tag: 'feat', scope: 'linkedin', description: 'Manual persona paste in AccountCard: Paste posts button opens textarea. Posts separated by --- on their own line are sent to POST /linkedin/persona/train-manual and saved as writing samples for that account.' },
+    ],
+  },
+  {
     version: 'v4.75.0',
     date: '2026-05-16',
     entries: [

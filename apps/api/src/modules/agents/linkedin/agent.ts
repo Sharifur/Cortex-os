@@ -979,6 +979,68 @@ Rules:
             .orderBy(sql`${linkedinPosts.createdAt} DESC`).limit(100),
       },
       {
+        method: 'POST',
+        path: '/linkedin/posts/:id/approve',
+        requiresAuth: true,
+        handler: async (params) => {
+          const { id } = params as any;
+          const [post] = await this.db.db.select().from(linkedinPosts).where(eq(linkedinPosts.id, id));
+          if (!post) return { error: 'Comment not found' };
+          if (post.status === 'posted') return { error: 'Already posted' };
+          if (!post.draftComment) return { error: 'No draft comment to post' };
+
+          const account = post.accountId
+            ? (await this.db.db.select().from(linkedinAccounts).where(eq(linkedinAccounts.id, post.accountId)))[0]
+            : (await this.db.db.select().from(linkedinAccounts).where(eq(linkedinAccounts.isActive, true)).limit(1))[0];
+
+          await this.liComment.postComment(post.externalId, post.draftComment, account?.unipileAccountId);
+          await this.db.db.update(linkedinPosts)
+            .set({ status: 'posted', postedAt: new Date() })
+            .where(eq(linkedinPosts.id, id));
+          return { ok: true, posted: post.draftComment };
+        },
+      },
+      {
+        method: 'POST',
+        path: '/linkedin/posts/:id/reject',
+        requiresAuth: true,
+        handler: async (params) => {
+          const { id } = params as any;
+          await this.db.db.update(linkedinPosts)
+            .set({ status: 'skipped' })
+            .where(eq(linkedinPosts.id, id));
+          return { ok: true };
+        },
+      },
+      {
+        // Save manually-pasted LinkedIn posts/comments as persona writing samples.
+        // body.texts: string[] — each element is one post/comment block.
+        method: 'POST',
+        path: '/linkedin/persona/train-manual',
+        requiresAuth: true,
+        handler: async (body) => {
+          const texts: string[] = ((body as any).texts ?? []).filter((t: string) => t?.trim()?.length > 20);
+          if (!texts.length) return { saved: 0 };
+
+          await this.db.db.delete(writingSamples).where(
+            and(
+              eq(writingSamples.agentKeys, this.key),
+              eq(writingSamples.context, 'LinkedIn persona — own post'),
+            ),
+          );
+
+          for (const text of texts) {
+            await this.db.db.insert(writingSamples).values({
+              context: 'LinkedIn persona — own post',
+              sampleText: text.slice(0, 2000),
+              polarity: 'positive',
+              agentKeys: this.key,
+            });
+          }
+          return { saved: texts.length };
+        },
+      },
+      {
         method: 'GET',
         path: '/linkedin/debug/persona',
         requiresAuth: true,

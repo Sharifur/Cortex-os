@@ -3726,6 +3726,29 @@ function AccountCard({ acc, todayRow, token, onPatch }: { acc: any; todayRow: an
   const [isTraining, setIsTraining] = useState(false);
   const [importStatus, setImportStatus] = useState<{ imported: number; error?: string } | null>(null);
   const [isImporting, setIsImporting] = useState(false);
+  const [showManual, setShowManual] = useState(false);
+  const [manualText, setManualText] = useState('');
+  const [manualStatus, setManualStatus] = useState<{ saved: number; error?: string } | null>(null);
+  const [isSavingManual, setIsSavingManual] = useState(false);
+
+  async function saveManualPersona() {
+    const texts = manualText.split('\n---\n').map(t => t.trim()).filter(Boolean);
+    if (!texts.length) return;
+    setIsSavingManual(true);
+    setManualStatus(null);
+    try {
+      const result = await apiFetch(token, '/linkedin/persona/train-manual', {
+        method: 'POST',
+        body: JSON.stringify({ texts }),
+      }) as any;
+      setManualStatus({ saved: result.saved ?? 0, error: result.error });
+      if (!result.error) setManualText('');
+    } catch (err) {
+      setManualStatus({ saved: 0, error: (err as Error).message });
+    } finally {
+      setIsSavingManual(false);
+    }
+  }
 
   function handleLimitChange(key: string, value: string) {
     setLimits(l => ({ ...l, [key]: value }));
@@ -3806,6 +3829,13 @@ function AccountCard({ acc, todayRow, token, onPatch }: { acc: any; todayRow: an
             {isTraining ? 'Training...' : 'Train persona'}
           </button>
           <button
+            onClick={() => { setShowManual(m => !m); setManualStatus(null); }}
+            title="Manually paste your LinkedIn posts as AI writing samples"
+            className="text-xs px-2.5 py-1 rounded-full border border-border bg-muted/30 text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors flex items-center gap-1"
+          >
+            Paste posts
+          </button>
+          <button
             onClick={() => onPatch({ isActive: !acc.isActive })}
             className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${acc.isActive ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20' : 'border-border bg-muted text-muted-foreground hover:bg-muted/80'}`}
           >
@@ -3826,6 +3856,39 @@ function AccountCard({ acc, todayRow, token, onPatch }: { acc: any; todayRow: an
           {trainStatus.error
             ? trainStatus.error
             : `${trainStatus.saved} post${trainStatus.saved !== 1 ? 's' : ''} saved as writing samples (${trainStatus.total} found). AI uses these for tone on next run.`}
+        </div>
+      )}
+
+      {showManual && (
+        <div className="px-4 py-3 border-b border-border/50 bg-muted/20 space-y-2">
+          <p className="text-xs text-muted-foreground">Paste your LinkedIn posts separated by <code className="bg-muted px-1 rounded">---</code> on its own line. These will replace existing manual samples.</p>
+          <textarea
+            value={manualText}
+            onChange={e => setManualText(e.target.value)}
+            rows={6}
+            placeholder={"Your first post here...\n---\nYour second post here..."}
+            className="w-full rounded-md border border-input bg-background px-3 py-2 text-xs resize-y font-mono"
+          />
+          {manualStatus && (
+            <p className={`text-xs ${manualStatus.error ? 'text-destructive' : 'text-emerald-300'}`}>
+              {manualStatus.error ? manualStatus.error : `${manualStatus.saved} sample${manualStatus.saved !== 1 ? 's' : ''} saved.`}
+            </p>
+          )}
+          <div className="flex gap-2">
+            <button
+              onClick={saveManualPersona}
+              disabled={isSavingManual || !manualText.trim()}
+              className="text-xs px-3 py-1 rounded-md bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-40"
+            >
+              {isSavingManual ? 'Saving...' : 'Save samples'}
+            </button>
+            <button
+              onClick={() => { setShowManual(false); setManualStatus(null); }}
+              className="text-xs px-3 py-1 rounded-md border border-border text-muted-foreground hover:bg-muted/30"
+            >
+              Cancel
+            </button>
+          </div>
         </div>
       )}
 
@@ -3889,6 +3952,112 @@ function AccountCard({ acc, todayRow, token, onPatch }: { acc: any; todayRow: an
           </button>
         )}
       </div>
+    </div>
+  );
+}
+
+// ─── LinkedIn Comments Tab ───────────────────────────────────────────────────
+
+function LinkedInCommentsTab({ posts, token, onRefresh }: { posts: any[]; token: string; onRefresh: () => void }) {
+  const [actionState, setActionState] = useState<Record<string, 'approving' | 'rejecting' | 'done' | 'error'>>({});
+
+  const postUrl = (externalId: string) =>
+    externalId?.startsWith('urn:li:') ? `https://www.linkedin.com/feed/update/${externalId}/` : null;
+
+  async function approve(p: any) {
+    setActionState(s => ({ ...s, [p.id]: 'approving' }));
+    try {
+      await apiFetch(token, `/linkedin/posts/${p.id}/approve`, { method: 'POST', body: JSON.stringify({}) });
+      setActionState(s => ({ ...s, [p.id]: 'done' }));
+      onRefresh();
+    } catch {
+      setActionState(s => ({ ...s, [p.id]: 'error' }));
+    }
+  }
+
+  async function reject(p: any) {
+    setActionState(s => ({ ...s, [p.id]: 'rejecting' }));
+    try {
+      await apiFetch(token, `/linkedin/posts/${p.id}/reject`, { method: 'POST', body: JSON.stringify({}) });
+      setActionState(s => ({ ...s, [p.id]: 'done' }));
+      onRefresh();
+    } catch {
+      setActionState(s => ({ ...s, [p.id]: 'error' }));
+    }
+  }
+
+  const STATUS_COLORS: Record<string, string> = {
+    pending: 'bg-yellow-500/15 text-yellow-300',
+    posted:  'bg-emerald-500/15 text-emerald-300',
+    skipped: 'bg-muted text-muted-foreground',
+    approved: 'bg-blue-500/15 text-blue-300',
+  };
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-5">
+      <h3 className="text-sm font-semibold mb-4">Feed Comments ({posts.length})</h3>
+      {posts.length === 0 ? (
+        <p className="text-sm text-muted-foreground">No comments tracked yet. Run the Comments action to generate drafts.</p>
+      ) : (
+        <div className="space-y-3">
+          {posts.map((p: any) => {
+            const url = postUrl(p.externalId);
+            const state = actionState[p.id];
+            const busy = state === 'approving' || state === 'rejecting';
+            return (
+              <div key={p.id} className="p-3 rounded-lg border border-border bg-background/50">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <p className="text-xs font-medium text-muted-foreground">{p.authorName ?? '—'}</p>
+                      {url && (
+                        <a
+                          href={url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-[10px] text-muted-foreground/60 hover:text-primary underline underline-offset-2 transition-colors"
+                        >
+                          view post
+                        </a>
+                      )}
+                    </div>
+                    <p className="text-sm line-clamp-2 text-foreground/80">{p.content?.slice(0, 200)}</p>
+                    {p.draftComment && (
+                      <p className="text-xs text-primary mt-1.5 italic">{p.draftComment.slice(0, 200)}</p>
+                    )}
+                    {state === 'error' && (
+                      <p className="text-xs text-destructive mt-1">Action failed — check run logs</p>
+                    )}
+                  </div>
+                  <div className="shrink-0 flex flex-col items-end gap-1.5">
+                    <span className={`text-xs px-1.5 py-0.5 rounded-full ${STATUS_COLORS[state === 'done' ? (p.status === 'pending' ? 'posted' : 'skipped') : p.status] ?? 'bg-muted text-muted-foreground'}`}>
+                      {state === 'approving' ? 'posting...' : state === 'rejecting' ? 'skipping...' : p.status}
+                    </span>
+                    {(p.status === 'pending') && state !== 'done' && (
+                      <div className="flex gap-1">
+                        <button
+                          onClick={() => approve(p)}
+                          disabled={busy}
+                          className="text-[10px] px-2 py-0.5 rounded border border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10 transition-colors disabled:opacity-40"
+                        >
+                          Approve
+                        </button>
+                        <button
+                          onClick={() => reject(p)}
+                          disabled={busy}
+                          className="text-[10px] px-2 py-0.5 rounded border border-border text-muted-foreground hover:bg-muted/30 transition-colors disabled:opacity-40"
+                        >
+                          Reject
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -3998,7 +4167,7 @@ function LinkedInSettingsTab({ agent, token }: { agent: AgentDetail; token: stri
     { key: 'niches', label: 'Niches' },
     { key: 'leads', label: 'Leads' },
     { key: 'connections', label: 'Connections' },
-    { key: 'posts', label: 'Posts' },
+    { key: 'posts', label: 'Comments' },
     { key: 'reports', label: 'Reports' },
     { key: 'config', label: 'Config' },
     { key: 'docs', label: 'Docs' },
@@ -4345,31 +4514,7 @@ function LinkedInSettingsTab({ agent, token }: { agent: AgentDetail; token: stri
       )}
 
       {tab === 'posts' && (
-        <div className="rounded-xl border border-border bg-card p-5">
-          <h3 className="text-sm font-semibold mb-4">Feed Posts Engaged ({posts.length})</h3>
-          {posts.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No posts tracked yet.</p>
-          ) : (
-            <div className="space-y-3">
-              {posts.map((p: any) => (
-                <div key={p.id} className="p-3 rounded-lg border border-border bg-background/50">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-medium text-muted-foreground">{p.authorName ?? '—'}</p>
-                      <p className="text-sm mt-0.5 line-clamp-2">{p.content?.slice(0, 200)}</p>
-                      {p.draftComment && (
-                        <p className="text-xs text-primary mt-1.5 italic">"{p.draftComment.slice(0, 150)}"</p>
-                      )}
-                    </div>
-                    <span className={`shrink-0 text-xs px-1.5 py-0.5 rounded-full ${STATUS_COLORS[p.status] ?? 'bg-muted text-muted-foreground'}`}>
-                      {p.status}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+        <LinkedInCommentsTab posts={posts} token={token} onRefresh={() => qc.invalidateQueries({ queryKey: ['linkedin-posts'] })} />
       )}
 
       {tab === 'reports' && (
