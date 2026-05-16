@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
+import { getRealtimeSocket } from '@/lib/realtime';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
@@ -18,6 +19,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { agentColor } from '@/lib/agent-colors';
 import { getAgentSuggestions } from '@/lib/agentTaskSuggestions';
 import { isGreetingExact } from '@/lib/greetings';
+import { NICHE_TEMPLATES, NICHE_CATEGORIES, type NicheTemplate } from '@/lib/linkedinNicheTemplates';
 
 interface AgentDetail {
   id: string;
@@ -242,10 +244,20 @@ interface PendingApproval {
 function RunsTab({ agentKey, token }: { agentKey: string; token: string }) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const qc = useQueryClient();
+  const navigate = useNavigate();
 
   const toggleExpand = useCallback((id: string) => {
     setExpandedId((prev) => (prev === id ? null : id));
   }, []);
+
+  const retryMutation = useMutation({
+    mutationFn: () =>
+      apiFetch(token, `/agents/${agentKey}/trigger`, {
+        method: 'POST',
+        body: JSON.stringify({ triggerType: 'MANUAL' }),
+      }),
+    onSuccess: (run: { id: string }) => navigate(`/runs/${run.id}`),
+  });
 
   const { data: runs, isLoading, isError } = useQuery<Run[]>({
     queryKey: ['agent-runs', agentKey],
@@ -259,17 +271,35 @@ function RunsTab({ agentKey, token }: { agentKey: string; token: string }) {
     refetchInterval: 10_000,
   });
 
-  const { data: allApprovals } = useQuery<PendingApproval[]>({
-    queryKey: ['pending-approvals'],
-    queryFn: () => apiFetch(token, '/approvals'),
-    refetchInterval: 10_000,
-  });
+  const [allApprovals, setAllApprovals] = useState<PendingApproval[]>([]);
+
+  useEffect(() => {
+    const socket = getRealtimeSocket(token);
+    const subscribe = () => socket.emit('approvals:subscribe');
+    const onSnapshot = (rows: PendingApproval[]) => setAllApprovals(rows ?? []);
+    const onCreated = (a: PendingApproval) => setAllApprovals((prev) => [a, ...prev.filter((x) => x.id !== a.id)]);
+    const onRemoved = (p: { id: string }) => setAllApprovals((prev) => prev.filter((a) => a.id !== p.id));
+
+    socket.on('approvals:snapshot', onSnapshot);
+    socket.on('approval:created', onCreated);
+    socket.on('approval:removed', onRemoved);
+    socket.on('connect', subscribe);
+    if (socket.connected) subscribe();
+
+    return () => {
+      socket.emit('approvals:unsubscribe');
+      socket.off('approvals:snapshot', onSnapshot);
+      socket.off('approval:created', onCreated);
+      socket.off('approval:removed', onRemoved);
+      socket.off('connect', subscribe);
+    };
+  }, [token]);
 
   const approveMutation = useMutation({
     mutationFn: (approvalId: string) =>
       apiFetch(token, `/approvals/${approvalId}/approve`, { method: 'POST' }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['pending-approvals'] });
+    onSuccess: (_data, approvalId) => {
+      setAllApprovals((prev) => prev.filter((a) => a.id !== approvalId));
       qc.invalidateQueries({ queryKey: ['agent-runs', agentKey] });
     },
   });
@@ -277,13 +307,13 @@ function RunsTab({ agentKey, token }: { agentKey: string; token: string }) {
   const rejectMutation = useMutation({
     mutationFn: (approvalId: string) =>
       apiFetch(token, `/approvals/${approvalId}/reject`, { method: 'POST' }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['pending-approvals'] });
+    onSuccess: (_data, approvalId) => {
+      setAllApprovals((prev) => prev.filter((a) => a.id !== approvalId));
       qc.invalidateQueries({ queryKey: ['agent-runs', agentKey] });
     },
   });
 
-  const approvalsByRunId = (allApprovals ?? [])
+  const approvalsByRunId = allApprovals
     .filter((a) => a.agentKey === agentKey)
     .reduce<Record<string, PendingApproval[]>>((acc, a) => {
       (acc[a.runId] ??= []).push(a);
@@ -312,6 +342,17 @@ function RunsTab({ agentKey, token }: { agentKey: string; token: string }) {
 
   return (
     <div className="rounded-xl border border-border bg-card overflow-hidden">
+      <div className="flex items-center justify-between px-4 sm:px-5 py-3 border-b border-border">
+        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Run history</span>
+        <button
+          onClick={() => retryMutation.mutate()}
+          disabled={retryMutation.isPending}
+          className="flex items-center gap-1.5 text-xs bg-primary/10 text-primary border border-primary/20 px-3 py-1.5 rounded-lg hover:bg-primary/20 transition-colors disabled:opacity-50"
+        >
+          <Play className={`w-3.5 h-3.5 ${retryMutation.isPending ? 'animate-spin' : ''}`} />
+          {retryMutation.isPending ? 'Starting…' : 'Run now'}
+        </button>
+      </div>
       <div className="divide-y divide-border">
         {runs.map((run) => {
           const isExpanded = expandedId === run.id;
@@ -372,14 +413,26 @@ function RunsTab({ agentKey, token }: { agentKey: string; token: string }) {
                   <p className="text-xs text-muted-foreground">{relTime(run.startedAt)}</p>
                   <p className="text-xs text-muted-foreground">{duration(run.startedAt, run.finishedAt)}</p>
                 </div>
-                <Link
-                  to={`/runs/${run.id}`}
-                  className="text-xs text-muted-foreground hover:text-foreground shrink-0 px-1.5 py-1 rounded hover:bg-accent"
-                  title="Open full run page"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  Full log
-                </Link>
+                <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+                  {run.status === 'FAILED' && (
+                    <button
+                      onClick={() => retryMutation.mutate()}
+                      disabled={retryMutation.isPending}
+                      className="flex items-center gap-1 text-xs text-red-400 hover:text-red-300 px-1.5 py-1 rounded hover:bg-red-500/10 transition-colors disabled:opacity-50"
+                      title="Retry this run"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${retryMutation.isPending ? 'animate-spin' : ''}`} />
+                      Retry
+                    </button>
+                  )}
+                  <Link
+                    to={`/runs/${run.id}`}
+                    className="text-xs text-muted-foreground hover:text-foreground px-1.5 py-1 rounded hover:bg-accent"
+                    title="Open full run page"
+                  >
+                    Full log
+                  </Link>
+                </div>
               </div>
               {isExpanded && <RunRowExpanded runId={run.id} token={token} />}
             </div>
@@ -3662,7 +3715,7 @@ function Phase4SettingsTab({ agent, token, setupContent }: {
 
 // ─── LinkedIn Account Card ────────────────────────────────────────────────────
 
-function AccountCard({ acc, onPatch }: { acc: any; onPatch: (body: Record<string, any>) => void }) {
+function AccountCard({ acc, todayRow, onPatch }: { acc: any; todayRow: any; onPatch: (body: Record<string, any>) => void }) {
   const [limits, setLimits] = useState({
     dailyConnectionsLimit: acc.dailyConnectionsLimit ?? '',
     dailyCommentsLimit: acc.dailyCommentsLimit ?? '',
@@ -3685,9 +3738,9 @@ function AccountCard({ acc, onPatch }: { acc: any; onPatch: (body: Record<string
   }
 
   const ACTIONS = [
-    { enableKey: 'enableConnections', label: 'Connections', dailyKey: 'dailyConnectionsLimit', defaultVal: 5  },
-    { enableKey: 'enableComments',   label: 'Feed comments', dailyKey: 'dailyCommentsLimit',   defaultVal: 10 },
-    { enableKey: 'enableDMs',        label: 'DM outreach',  dailyKey: 'dailyDmsLimit',         defaultVal: 5  },
+    { enableKey: 'enableConnections', label: 'Connections', dailyKey: 'dailyConnectionsLimit', defaultVal: 5, statKey: 'connections' },
+    { enableKey: 'enableComments',   label: 'Feed comments', dailyKey: 'dailyCommentsLimit',   defaultVal: 10, statKey: 'comments' },
+    { enableKey: 'enableDMs',        label: 'DM outreach',  dailyKey: 'dailyDmsLimit',         defaultVal: 5, statKey: 'dms' },
   ] as const;
 
   return (
@@ -3725,19 +3778,36 @@ function AccountCard({ acc, onPatch }: { acc: any; onPatch: (body: Record<string
 
       <div className="px-4 py-3">
         <div className="grid grid-cols-3 gap-3 text-xs mb-3">
-          {ACTIONS.map(({ dailyKey, label, defaultVal }) => (
-            <div key={dailyKey}>
-              <label className="text-muted-foreground block mb-1">{label} / day</label>
-              <input
-                type="number"
-                min={1}
-                placeholder={String(defaultVal)}
-                value={limits[dailyKey]}
-                onChange={e => handleLimitChange(dailyKey, e.target.value)}
-                className="w-full rounded-md border border-input bg-background px-2 py-1 text-center text-xs"
-              />
-            </div>
-          ))}
+          {ACTIONS.map(({ dailyKey, label, defaultVal, statKey }) => {
+            const cap = limits[dailyKey] !== '' ? Number(limits[dailyKey]) : defaultVal;
+            const used = todayRow?.[statKey] ?? 0;
+            const pct = cap > 0 ? Math.min(100, Math.round((used / cap) * 100)) : 0;
+            const full = used >= cap;
+            return (
+              <div key={dailyKey}>
+                <label className="text-muted-foreground block mb-1">{label} / day</label>
+                <input
+                  type="number"
+                  min={1}
+                  placeholder={String(defaultVal)}
+                  value={limits[dailyKey]}
+                  onChange={e => handleLimitChange(dailyKey, e.target.value)}
+                  className="w-full rounded-md border border-input bg-background px-2 py-1 text-center text-xs"
+                />
+                <div className="mt-1.5 flex items-center gap-1.5">
+                  <div className="flex-1 h-1 rounded-full bg-muted overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all ${full ? 'bg-red-500' : 'bg-primary'}`}
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                  <span className={`text-[10px] tabular-nums ${full ? 'text-red-400' : 'text-muted-foreground'}`}>
+                    {used}/{cap}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
         </div>
         {dirty && (
           <button
@@ -3783,9 +3853,11 @@ function LinkedInSettingsTab({ agent, token }: { agent: AgentDetail; token: stri
   const { data: dailyReport = [] } = useQuery<any[]>({
     queryKey: ['linkedin-reports-daily'],
     queryFn: () => apiFetch(token, '/linkedin/reports/daily'),
-    enabled: tab === 'reports',
+    enabled: tab === 'reports' || tab === 'accounts',
+    refetchInterval: 60_000,
   });
 
+  const navigate = useNavigate();
   const [syncResult, setSyncResult] = useState<{ synced: number } | null>(null);
   const syncMutation = useMutation({
     mutationFn: () => apiFetch(token, '/linkedin/accounts/sync', { method: 'POST' }),
@@ -3794,12 +3866,66 @@ function LinkedInSettingsTab({ agent, token }: { agent: AgentDetail; token: stri
       qc.invalidateQueries({ queryKey: ['linkedin-accounts'] });
     },
   });
+
+  const [runningAction, setRunningAction] = useState<string | null>(null);
+  const triggerAction = async (actionType: 'comments' | 'connections' | 'dms') => {
+    setRunningAction(actionType);
+    try {
+      const run = await apiFetch(token, `/agents/${agent.key}/trigger`, {
+        method: 'POST',
+        body: JSON.stringify({ triggerType: 'MANUAL', payload: { actionType } }),
+      });
+      navigate(`/runs/${(run as any).id}`);
+    } finally {
+      setRunningAction(null);
+    }
+  };
+
+  const [trainStatus, setTrainStatus] = useState<{ saved: number; total: number; error?: string } | null>(null);
+  const [isTraining, setIsTraining] = useState(false);
+  const trainPersona = async () => {
+    setIsTraining(true);
+    setTrainStatus(null);
+    try {
+      const result = await apiFetch(token, '/linkedin/persona/train', { method: 'POST', body: JSON.stringify({}) }) as any;
+      setTrainStatus({ saved: result.saved ?? 0, total: result.total ?? 0, error: result.error });
+    } catch (err) {
+      setTrainStatus({ saved: 0, total: 0, error: (err as Error).message });
+    } finally {
+      setIsTraining(false);
+    }
+  };
+
   const patchAccountMutation = useMutation({
     mutationFn: ({ id, ...body }: any) => apiFetch(token, `/linkedin/accounts/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['linkedin-accounts'] }),
   });
 
   const [newNiche, setNewNiche] = useState({ name: '', description: '', icpDescription: '', keywords: '', targetJobTitles: '', dailyConnectLimit: 5, accountId: '' });
+  const [showTemplates, setShowTemplates] = useState(false);
+  const [templateCategory, setTemplateCategory] = useState<string>(NICHE_CATEGORIES[0]);
+  const [templateSearch, setTemplateSearch] = useState('');
+
+  const applyTemplate = (tpl: NicheTemplate) => {
+    setNewNiche(n => ({
+      ...n,
+      name: tpl.name,
+      description: tpl.description,
+      icpDescription: tpl.icpDescription,
+      keywords: tpl.keywords.join(', '),
+      targetJobTitles: tpl.targetJobTitles.join(', '),
+      dailyConnectLimit: tpl.dailyConnectLimit,
+    }));
+    setShowTemplates(false);
+  };
+
+  const filteredTemplates = NICHE_TEMPLATES.filter(t => {
+    const matchesCat = t.category === templateCategory;
+    if (!templateSearch) return matchesCat;
+    const q = templateSearch.toLowerCase();
+    return matchesCat && (t.name.toLowerCase().includes(q) || t.keywords.some(k => k.includes(q)));
+  });
+
   const createNicheMutation = useMutation({
     mutationFn: (data: any) => apiFetch(token, '/linkedin/niches', { method: 'POST', body: JSON.stringify(data) }),
     onSuccess: () => { refetchNiches(); setNewNiche({ name: '', description: '', icpDescription: '', keywords: '', targetJobTitles: '', dailyConnectLimit: 5, accountId: '' }); },
@@ -3851,6 +3977,60 @@ function LinkedInSettingsTab({ agent, token }: { agent: AgentDetail; token: stri
 
       {tab === 'accounts' && (
         <div className="space-y-4">
+
+          {/* Manual action triggers */}
+          <div className="rounded-xl border border-border bg-card p-4">
+            <p className="text-xs font-medium text-muted-foreground mb-3">Run individual action now — each fires independently, same Telegram approval flow</p>
+            <div className="grid grid-cols-3 gap-2">
+              {([
+                { actionType: 'comments' as const,    label: 'Run Comments',    desc: 'Scan feed + draft 3 comments' },
+                { actionType: 'connections' as const, label: 'Run Connections', desc: 'Search people + send up to 3 invites' },
+                { actionType: 'dms' as const,         label: 'Run DMs',         desc: 'Message up to 3 connected leads' },
+              ]).map(({ actionType, label, desc }) => (
+                <button
+                  key={actionType}
+                  onClick={() => triggerAction(actionType)}
+                  disabled={!!runningAction || !agent.enabled}
+                  className="flex flex-col gap-0.5 rounded-lg border border-border bg-background/50 px-3 py-2.5 text-left text-xs transition-colors hover:bg-muted/30 disabled:opacity-50"
+                >
+                  <span className="font-medium flex items-center gap-1.5">
+                    {runningAction === actionType && <span className="inline-block w-2.5 h-2.5 rounded-full bg-primary animate-pulse" />}
+                    {label}
+                  </span>
+                  <span className="text-muted-foreground">{desc}</span>
+                </button>
+              ))}
+            </div>
+            {!agent.enabled && (
+              <p className="text-xs text-amber-400 mt-2">Enable the agent in the General tab before running.</p>
+            )}
+          </div>
+
+          {/* Persona training */}
+          <div className="rounded-xl border border-border bg-card p-4">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-sm font-medium mb-0.5">AI Persona Training</p>
+                <p className="text-xs text-muted-foreground">Fetch your recent LinkedIn posts and save them as writing samples so the AI learns your natural tone for comments and DMs.</p>
+              </div>
+              <button
+                onClick={trainPersona}
+                disabled={isTraining}
+                className="shrink-0 text-xs px-3 py-1.5 rounded-lg border border-border bg-background/50 hover:bg-muted/30 transition-colors disabled:opacity-50 flex items-center gap-1.5"
+              >
+                {isTraining && <span className="inline-block w-2 h-2 rounded-full bg-primary animate-pulse" />}
+                {isTraining ? 'Fetching...' : 'Train from my posts'}
+              </button>
+            </div>
+            {trainStatus && (
+              <div className={`mt-3 rounded-lg px-3 py-2 text-xs ${trainStatus.error ? 'bg-destructive/10 text-destructive' : 'bg-emerald-500/10 text-emerald-300'}`}>
+                {trainStatus.error
+                  ? trainStatus.error
+                  : `${trainStatus.saved} post${trainStatus.saved !== 1 ? 's' : ''} saved as writing samples (${trainStatus.total} found on profile). AI will use these for tone on next run.`}
+              </div>
+            )}
+          </div>
+
           <div className="rounded-xl border border-border bg-card p-5">
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-semibold">LinkedIn Accounts</h3>
@@ -3876,9 +4056,11 @@ function LinkedInSettingsTab({ agent, token }: { agent: AgentDetail; token: stri
               <p className="text-sm text-muted-foreground">No accounts synced yet. Click "Sync from Unipile" to import your connected LinkedIn accounts.</p>
             ) : accounts.length === 0 ? null : (
               <div className="space-y-3">
-                {accounts.map((acc: any) => (
-                  <AccountCard key={acc.id} acc={acc} onPatch={(body) => patchAccountMutation.mutate({ id: acc.id, ...body })} />
-                ))}
+                {accounts.map((acc: any) => {
+                  const today = new Date().toISOString().slice(0, 10);
+                  const todayRow = dailyReport.find((r: any) => r.accountId === acc.id && r.date === today) ?? null;
+                  return <AccountCard key={acc.id} acc={acc} todayRow={todayRow} onPatch={(body) => patchAccountMutation.mutate({ id: acc.id, ...body })} />;
+                })}
               </div>
             )}
           </div>
@@ -3887,63 +4069,123 @@ function LinkedInSettingsTab({ agent, token }: { agent: AgentDetail; token: stri
 
       {tab === 'niches' && (
         <div className="space-y-4">
-          <div className="rounded-xl border border-border bg-card p-5">
-            <h3 className="text-sm font-semibold mb-4">Add Niche</h3>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs text-muted-foreground block mb-1">Account</label>
-                <select
-                  value={newNiche.accountId}
-                  onChange={e => setNewNiche(n => ({ ...n, accountId: e.target.value }))}
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                >
-                  <option value="">Select account</option>
-                  {accounts.map((a: any) => <option key={a.id} value={a.id}>{a.label}</option>)}
-                </select>
+          {showTemplates ? (
+            <div className="rounded-xl border border-border bg-card p-5">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-semibold">Choose a Template</h3>
+                <button onClick={() => setShowTemplates(false)} className="text-muted-foreground hover:text-foreground transition-colors">
+                  <X className="w-4 h-4" />
+                </button>
               </div>
-              <div>
-                <label className="text-xs text-muted-foreground block mb-1">Niche name</label>
-                <Input value={newNiche.name} onChange={e => setNewNiche(n => ({ ...n, name: e.target.value }))} placeholder="e.g. SaaS Founders" className="text-sm" />
+              <Input
+                value={templateSearch}
+                onChange={e => setTemplateSearch(e.target.value)}
+                placeholder="Search templates..."
+                className="text-sm mb-3"
+              />
+              <div className="flex gap-1.5 flex-wrap mb-4">
+                {NICHE_CATEGORIES.map(cat => (
+                  <button
+                    key={cat}
+                    onClick={() => { setTemplateCategory(cat); setTemplateSearch(''); }}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${templateCategory === cat ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'}`}
+                  >
+                    {cat}
+                  </button>
+                ))}
               </div>
-              <div className="col-span-2">
-                <label className="text-xs text-muted-foreground block mb-1">ICP description (used for LLM scoring)</label>
-                <textarea
-                  value={newNiche.icpDescription}
-                  onChange={e => setNewNiche(n => ({ ...n, icpDescription: e.target.value }))}
-                  placeholder="Describe your ideal customer: role, company size, pain points, goals..."
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm min-h-[80px] resize-none"
-                />
-              </div>
-              <div>
-                <label className="text-xs text-muted-foreground block mb-1">Keywords (comma-separated)</label>
-                <Input value={newNiche.keywords} onChange={e => setNewNiche(n => ({ ...n, keywords: e.target.value }))} placeholder="saas, founder, startup" className="text-sm" />
-              </div>
-              <div>
-                <label className="text-xs text-muted-foreground block mb-1">Target job titles (comma-separated)</label>
-                <Input value={newNiche.targetJobTitles} onChange={e => setNewNiche(n => ({ ...n, targetJobTitles: e.target.value }))} placeholder="CEO, Founder, Head of Product" className="text-sm" />
-              </div>
-              <div>
-                <label className="text-xs text-muted-foreground block mb-1">Daily connection limit</label>
-                <Input type="number" min={1} max={20} value={newNiche.dailyConnectLimit} onChange={e => setNewNiche(n => ({ ...n, dailyConnectLimit: Number(e.target.value) }))} className="text-sm" />
+              <div className="grid grid-cols-1 gap-2 max-h-[420px] overflow-y-auto pr-1">
+                {filteredTemplates.map(tpl => (
+                  <button
+                    key={tpl.name}
+                    onClick={() => applyTemplate(tpl)}
+                    className="text-left p-3 rounded-lg border border-border hover:border-primary/50 hover:bg-accent/30 transition-all"
+                  >
+                    <p className="text-sm font-medium">{tpl.name}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">{tpl.description}</p>
+                    <div className="flex flex-wrap gap-1 mt-2">
+                      {tpl.keywords.slice(0, 5).map(kw => (
+                        <span key={kw} className="text-xs bg-muted px-1.5 py-0.5 rounded">{kw}</span>
+                      ))}
+                      {tpl.keywords.length > 5 && (
+                        <span className="text-xs text-muted-foreground px-1.5 py-0.5">+{tpl.keywords.length - 5}</span>
+                      )}
+                    </div>
+                  </button>
+                ))}
+                {filteredTemplates.length === 0 && (
+                  <p className="text-sm text-muted-foreground text-center py-6">No templates match your search.</p>
+                )}
               </div>
             </div>
-            <Button
-              size="sm"
-              className="mt-4"
-              disabled={!newNiche.name || !newNiche.accountId || createNicheMutation.isPending}
-              onClick={() => createNicheMutation.mutate({
-                accountId: newNiche.accountId,
-                name: newNiche.name,
-                icpDescription: newNiche.icpDescription || null,
-                keywords: newNiche.keywords.split(',').map(s => s.trim()).filter(Boolean),
-                targetJobTitles: newNiche.targetJobTitles.split(',').map(s => s.trim()).filter(Boolean),
-                dailyConnectLimit: newNiche.dailyConnectLimit,
-              })}
-            >
-              {createNicheMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> : <Plus className="w-3.5 h-3.5 mr-1.5" />}
-              Add Niche
-            </Button>
-          </div>
+          ) : (
+            <div className="rounded-xl border border-border bg-card p-5">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-semibold">Add Niche</h3>
+                <button
+                  onClick={() => setShowTemplates(true)}
+                  className="flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 transition-colors border border-primary/30 rounded-lg px-2.5 py-1.5 hover:bg-primary/5"
+                >
+                  <Layers className="w-3.5 h-3.5" />
+                  Use Template (35 prebuilt)
+                </button>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-muted-foreground block mb-1">Account</label>
+                  <select
+                    value={newNiche.accountId}
+                    onChange={e => setNewNiche(n => ({ ...n, accountId: e.target.value }))}
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  >
+                    <option value="">Select account</option>
+                    {accounts.map((a: any) => <option key={a.id} value={a.id}>{a.label}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground block mb-1">Niche name</label>
+                  <Input value={newNiche.name} onChange={e => setNewNiche(n => ({ ...n, name: e.target.value }))} placeholder="e.g. SaaS Founders" className="text-sm" />
+                </div>
+                <div className="col-span-2">
+                  <label className="text-xs text-muted-foreground block mb-1">ICP description (used for LLM scoring)</label>
+                  <textarea
+                    value={newNiche.icpDescription}
+                    onChange={e => setNewNiche(n => ({ ...n, icpDescription: e.target.value }))}
+                    placeholder="Describe your ideal customer: role, company size, pain points, goals..."
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm min-h-[80px] resize-none"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground block mb-1">Keywords (comma-separated)</label>
+                  <Input value={newNiche.keywords} onChange={e => setNewNiche(n => ({ ...n, keywords: e.target.value }))} placeholder="saas, founder, startup" className="text-sm" />
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground block mb-1">Target job titles (comma-separated)</label>
+                  <Input value={newNiche.targetJobTitles} onChange={e => setNewNiche(n => ({ ...n, targetJobTitles: e.target.value }))} placeholder="CEO, Founder, Head of Product" className="text-sm" />
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground block mb-1">Daily connection limit</label>
+                  <Input type="number" min={1} max={20} value={newNiche.dailyConnectLimit} onChange={e => setNewNiche(n => ({ ...n, dailyConnectLimit: Number(e.target.value) }))} className="text-sm" />
+                </div>
+              </div>
+              <Button
+                size="sm"
+                className="mt-4"
+                disabled={!newNiche.name || !newNiche.accountId || createNicheMutation.isPending}
+                onClick={() => createNicheMutation.mutate({
+                  accountId: newNiche.accountId,
+                  name: newNiche.name,
+                  icpDescription: newNiche.icpDescription || null,
+                  keywords: newNiche.keywords.split(',').map(s => s.trim()).filter(Boolean),
+                  targetJobTitles: newNiche.targetJobTitles.split(',').map(s => s.trim()).filter(Boolean),
+                  dailyConnectLimit: newNiche.dailyConnectLimit,
+                })}
+              >
+                {createNicheMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> : <Plus className="w-3.5 h-3.5 mr-1.5" />}
+                Add Niche
+              </Button>
+            </div>
+          )}
 
           {niches.length > 0 && (
             <div className="rounded-xl border border-border bg-card p-5">

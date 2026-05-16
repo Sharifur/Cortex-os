@@ -16,6 +16,63 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.74.0',
+    date: '2026-05-16',
+    entries: [
+      { tag: 'fix', scope: 'linkedin', description: 'Strip leading/trailing quotes from LLM-generated comments, DMs, and connection notes so text never appears with double-quotes on LinkedIn. execute() notifications also no longer wrap comment/DM text in quotes.' },
+      { tag: 'feat', scope: 'linkedin', description: 'More human system prompts for comments, DMs, and connection notes: simple words, no corporate speak, no generic openers, explicit instruction to not wrap output in quotes.' },
+      { tag: 'feat', scope: 'linkedin', description: 'Persona training: POST /linkedin/persona/train fetches own recent LinkedIn posts via Unipile Voyager proxy and saves them as writing samples (agentKeys=linkedin, polarity=positive) so the AI learns the account owner\'s tone. GET /linkedin/persona/samples lists stored samples. UI button on Accounts tab triggers training and shows result count.' },
+    ],
+  },
+  {
+    version: 'v4.73.6',
+    date: '2026-05-16',
+    entries: [
+      { tag: 'fix', scope: 'canva', description: 'Template preview images now stored in Cloudflare R2 instead of as base64 in the database. When R2 is configured, uploads always go to R2; local base64 fallback only applies when R2 is not set up. /preview endpoint redirects to R2 URL. generateEdit() fetches image from R2 URL when needed.' },
+    ],
+  },
+  {
+    version: 'v4.73.5',
+    date: '2026-05-16',
+    entries: [
+      { tag: 'feat', scope: 'linkedin', description: 'Action-isolated runs: each trigger (comments, connections, DMs) runs as a separate job with actionType in the payload. decide() only runs the requested decider. Feed is only fetched for comment runs.' },
+      { tag: 'feat', scope: 'linkedin', description: 'Staggered BullMQ cron schedule: comments at 09:23, connections at 11:41, DMs at 14:17 daily — registered via LinkedInCronProcessor on startup, old repeatable jobs cleared on each restart to apply schedule changes.' },
+      { tag: 'feat', scope: 'linkedin', description: 'Manual action buttons added to Accounts tab: Run Comments, Run Connections, Run DMs — each fires a MANUAL run with the specific actionType and navigates to the run detail page.' },
+    ],
+  },
+  {
+    version: 'v4.73.4',
+    date: '2026-05-16',
+    entries: [
+      { tag: 'fix', scope: 'linkedin', description: 'Removed GET /api/v1/posts probe (endpoint does not exist in Unipile — publish-only). Feed always uses Voyager proxy. Removed encodeURIComponent from postComment so URN path is not mangled. Schedule changed from every 4h to daily at 09:00. Max 3 connection requests, comments, and DMs per run enforced in config and decideConnectionRequests.' },
+      { tag: 'fix', scope: 'telegram', description: 'editMessageReplyMarkup "message is not modified" 400 error no longer bubbles as Action failed. Wrapped in safeEditMarkup/safeApiEditMarkup helpers that silently swallow the not-modified error and rethrow anything else.' },
+    ],
+  },
+  {
+    version: 'v4.73.3',
+    date: '2026-05-16',
+    entries: [
+      { tag: 'fix', scope: 'linkedin', description: 'Daily limits now strictly enforced: linkedinPosts insert now stores accountId so quota counter is no longer always 0. Comment quota counts only status=posted rows using postedAt. Connection quota counts only sentAt (actually sent) not createdAt (proposed). DM quota unchanged (already correct).' },
+      { tag: 'fix', scope: 'linkedin', description: 'Daily reports now show actual executed actions: connections use sentAt, comments use postedAt+status=posted. Reports tab auto-refreshes every 60 seconds. Accounts tab also loads today\'s stats and shows a live progress bar (used/cap) under each limit input, turning red when the daily cap is reached.' },
+    ],
+  },
+  {
+    version: 'v4.73.2',
+    date: '2026-05-16',
+    entries: [
+      { tag: 'fix', scope: 'linkedin', description: 'postComment reverted to Unipile native API (POST /posts/{id}/comments) — requires native post IDs from GET /posts, not LinkedIn URNs from Voyager proxy. Debug endpoint GET /linkedin/debug/posts added to inspect Unipile raw post response and verify ID compatibility.' },
+      { tag: 'chore', scope: 'docs', description: 'linkedin-agent.md created: full reference for Unipile endpoints, post ID compatibility rules, comment flow, dedup logic, rate limiting, debug endpoints, and troubleshooting table. Added to CLAUDE.md doc index.' },
+    ],
+  },
+  {
+    version: 'v4.73.1',
+    date: '2026-05-16',
+    entries: [
+      { tag: 'feat', scope: 'runs', description: 'Run detail page now shows Retry button (failed runs) and Run Again button (all runs) — triggers a fresh MANUAL run for the same agent and navigates to the new run detail page.' },
+      { tag: 'feat', scope: 'linkedin', description: 'LinkedIn agent: 35 prebuilt niche templates added across SaaS Founders, MVP Dev, Web Dev Agencies, Freelance Dev, and Digital Agencies categories with a searchable template browser in the Niches tab.' },
+    ],
+  },
+  {
     version: 'v4.73.0',
     date: '2026-05-16',
     entries: [

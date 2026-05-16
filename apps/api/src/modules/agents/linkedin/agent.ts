@@ -2,11 +2,13 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { eq, and, gte, inArray, sql } from 'drizzle-orm';
 import { DbService } from '../../../db/db.service';
 import { agents } from '../../../db/schema';
+import { writingSamples } from '../../knowledge-base/schema';
 import {
   linkedinPosts, linkedinLeads, linkedinAccounts, linkedinNiches, linkedinConnectionRequests,
 } from './schema';
 import { LinkedInService } from './linkedin.service';
 import { AgentRegistryService } from '../runtime/agent-registry.service';
+import { AgentLogService } from '../runtime/agent-log.service';
 import { LlmRouterService } from '../../llm/llm-router.service';
 import { TelegramService } from '../../telegram/telegram.service';
 import { KnowledgeBaseService } from '../../knowledge-base/knowledge-base.service';
@@ -27,10 +29,13 @@ interface LinkedInConfig {
   targetTopics: string[];
   maxCommentsPerRun: number;
   maxDMsPerRun: number;
+  maxConnectionRequestsPerRun: number;
   commentTone: string;
   icpScoreThreshold: number;
   llm?: { provider?: string; model?: string };
 }
+
+type LinkedInActionType = 'comments' | 'connections' | 'dms' | 'all';
 
 interface LinkedInSnapshot {
   feedPosts: any[];
@@ -39,6 +44,8 @@ interface LinkedInSnapshot {
   niches: any[];
   taskMode?: boolean;
   instructions?: string;
+  runId?: string;
+  actionType: LinkedInActionType;
 }
 
 const DEFAULT_CONFIG: LinkedInConfig = {
@@ -48,7 +55,8 @@ const DEFAULT_CONFIG: LinkedInConfig = {
     'client management', 'project management', 'scaling agency', 'SaaS tools for agencies',
   ],
   maxCommentsPerRun: 3,
-  maxDMsPerRun: 2,
+  maxDMsPerRun: 3,
+  maxConnectionRequestsPerRun: 3,
   commentTone: 'helpful, insight-driven — speaks to agency owners and freelancers, positions Taskip as a tool for scaling without adding headcount, never promotional',
   icpScoreThreshold: 0.65,
 };
@@ -66,6 +74,7 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
     private li: LinkedInService,
     private registry: AgentRegistryService,
     private kb: KnowledgeBaseService,
+    private logSvc: AgentLogService,
   ) {}
 
   onModuleInit() {
@@ -74,7 +83,10 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
 
   triggers(): TriggerSpec[] {
     return [
-      { type: 'CRON', cron: '0 */4 * * *' },
+      // Staggered daily schedule — each action runs independently, hours apart
+      { type: 'CRON', cron: '23 9 * * *',  payload: { actionType: 'comments' } },
+      { type: 'CRON', cron: '41 11 * * *', payload: { actionType: 'connections' } },
+      { type: 'CRON', cron: '17 14 * * *', payload: { actionType: 'dms' } },
       { type: 'MANUAL' },
     ];
   }
@@ -86,18 +98,41 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
     if (payload?._taskId) {
       return {
         source: trigger,
-        snapshot: { taskMode: true, instructions: (payload.instructions as string) ?? '', config, feedPosts: [], accounts: [], niches: [] },
+        snapshot: { taskMode: true, instructions: (payload.instructions as string) ?? '', config, feedPosts: [], accounts: [], niches: [], runId: run.id, actionType: 'all' },
         followups: [],
       };
     }
 
-    const [feedPosts, accounts, niches] = await Promise.all([
-      this.li.getFeedPosts(20),
+    const actionType = (payload?.actionType as LinkedInActionType | undefined) ?? 'all';
+
+    const [accounts, niches] = await Promise.all([
       this.db.db.select().from(linkedinAccounts).where(eq(linkedinAccounts.isActive, true)),
       this.db.db.select().from(linkedinNiches).where(eq(linkedinNiches.isActive, true)),
     ]);
 
-    return { source: trigger, snapshot: { feedPosts, config, accounts, niches }, followups: [] };
+    const primaryAccountId = accounts[0]?.unipileAccountId;
+
+    // Only fetch feed when the run will actually process comments
+    let feedPosts: any[] = [];
+    if ((actionType === 'comments' || actionType === 'all') && primaryAccountId) {
+      const voyagerResult = await this.li.getFeedWithDiagnostics(20, primaryAccountId);
+      feedPosts = voyagerResult.posts;
+      await this.logSvc.info(run.id, 'LinkedIn feed', {
+        status: voyagerResult.status,
+        posts: voyagerResult.posts.length,
+        error: voyagerResult.error,
+        raw: voyagerResult.raw,
+      });
+    }
+
+    await this.logSvc.info(run.id, `LinkedIn context [action: ${actionType}]`, {
+      accounts: accounts.length,
+      primaryAccountId: primaryAccountId ?? null,
+      feedPosts: feedPosts.length,
+      niches: niches.length,
+    });
+
+    return { source: trigger, snapshot: { feedPosts, config, accounts, niches, runId: run.id, actionType }, followups: [] };
   }
 
   async decide(ctx: AgentContext): Promise<ProposedAction[]> {
@@ -107,14 +142,22 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
       return this.decideTaskMode(snap.config, snap.instructions ?? '', followupNote);
     }
 
+    const at = snap.actionType ?? 'all';
+
     const [commentActions, connectionActions, dmActions] = await Promise.all([
-      this.decideFeedComments(snap.feedPosts, snap.accounts, snap.config),
-      this.decideConnectionRequests(snap.accounts, snap.niches, snap.config),
-      this.decideDMs(snap.accounts, snap.config),
+      at === 'comments' || at === 'all'
+        ? this.decideFeedComments(snap.feedPosts, snap.accounts, snap.niches, snap.config, snap.runId ?? '')
+        : Promise.resolve([]),
+      at === 'connections' || at === 'all'
+        ? this.decideConnectionRequests(snap.accounts, snap.niches, snap.config)
+        : Promise.resolve([]),
+      at === 'dms' || at === 'all'
+        ? this.decideDMs(snap.accounts, snap.config)
+        : Promise.resolve([]),
     ]);
 
     const all = [...commentActions, ...connectionActions, ...dmActions];
-    return all.length ? all : [{ type: 'noop', summary: 'No actionable items.', payload: {}, riskLevel: 'low' }];
+    return all.length ? all : [{ type: 'noop', summary: `No actionable items for action: ${at}`, payload: {}, riskLevel: 'low' }];
   }
 
   requiresApproval(action: ProposedAction): boolean {
@@ -132,9 +175,9 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
       await this.li.postComment(p.postId, p.comment, p.accountId);
       await this.db.db
         .update(linkedinPosts)
-        .set({ status: 'posted', postedAt: new Date() })
+        .set({ status: 'posted', postedAt: new Date(), accountId: p.dbAccountId ?? null })
         .where(eq(linkedinPosts.externalId, p.postId));
-      await this.telegram.sendMessage(`LinkedIn comment posted on ${p.authorName}'s post:\n"${p.comment}"`);
+      await this.telegram.sendMessage(`LinkedIn comment posted on ${p.authorName}'s post:\n${p.comment}`);
       return { success: true, data: { postId: p.postId } };
     }
 
@@ -174,7 +217,7 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
           .set({ status: 'dm_sent', lastContactedAt: new Date() })
           .where(eq(linkedinLeads.id, p.leadId));
       }
-      await this.telegram.sendMessage(`LinkedIn DM sent to ${p.name ?? p.profileId}:\n"${p.message.slice(0, 200)}"`);
+      await this.telegram.sendMessage(`LinkedIn DM sent to ${p.name ?? p.profileId}:\n${p.message.slice(0, 200)}`);
       return { success: true };
     }
 
@@ -203,16 +246,26 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
 
   // ─── Feed comments ─────────────────────────────────────────────────────────
 
-  private async decideFeedComments(feedPosts: any[], accounts: any[], config: LinkedInConfig): Promise<ProposedAction[]> {
-    if (!feedPosts.length) return [];
+  private async decideFeedComments(feedPosts: any[], accounts: any[], niches: any[], config: LinkedInConfig, runId: string): Promise<ProposedAction[]> {
+    if (!feedPosts.length) {
+      await this.logSvc.warn(runId, 'Feed comments: no posts returned from Unipile — check Unipile API key and DSN in Settings');
+      return [];
+    }
 
     const commentingAccounts = accounts.filter(a => a.isActive && a.enableComments !== false);
-    if (!commentingAccounts.length) return [];
+    if (!commentingAccounts.length) {
+      await this.logSvc.warn(runId, 'Feed comments: no accounts have comments enabled');
+      return [];
+    }
 
     const quotas = await Promise.all(commentingAccounts.map(a =>
       this.accountQuota(a.id, a.dailyCommentsLimit, 10, (since) =>
         this.db.db.select({ id: linkedinPosts.id }).from(linkedinPosts)
-          .where(and(eq(linkedinPosts.accountId, a.id), gte(linkedinPosts.postedAt, since)))
+          .where(and(
+            eq(linkedinPosts.accountId, a.id),
+            eq(linkedinPosts.status, 'posted'),
+            gte(linkedinPosts.postedAt, since),
+          ))
           .then(r => r.length),
       ),
     ));
@@ -223,12 +276,30 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
       .from(linkedinPosts);
     const seenSet = new Set(knownIds.map(r => r.externalId));
 
-    const fresh = feedPosts
-      .filter(p => !seenSet.has(p.id))
-      .filter(p => config.targetTopics.some(t => p.content?.toLowerCase().includes(t.toLowerCase())))
+    const nicheKeywords = niches.flatMap(n => n.keywords ?? []);
+    const allTopics = [...config.targetTopics, ...nicheKeywords];
+
+    const unseen = feedPosts.filter(p => !seenSet.has(p.id));
+
+    const fresh = unseen
+      .filter(p => !allTopics.length || allTopics.some(t => p.content?.toLowerCase().includes(t.toLowerCase())))
       .slice(0, limit);
 
-    if (!fresh.length) return [];
+    await this.logSvc.info(runId, 'Feed comments filter', {
+      feedPosts: feedPosts.length,
+      commentingAccounts: commentingAccounts.length,
+      quotaLimit: limit,
+      alreadySeen: feedPosts.length - unseen.length,
+      unseenPosts: unseen.length,
+      afterTopicFilter: fresh.length,
+      topics: allTopics,
+      sampleUnseenContent: unseen[0]?.content?.slice(0, 120) ?? null,
+    });
+
+    if (!fresh.length) {
+      await this.logSvc.warn(runId, `Feed comments: 0 posts matched keywords. Topics: [${allTopics.join(', ')}]. Sample unseen post: "${unseen[0]?.content?.slice(0, 120) ?? 'none'}"`);
+      return [];
+    }
 
     const [alwaysOn, samples, blocklist, rejections] = await Promise.all([
       this.kb.getAlwaysOnContext(this.key),
@@ -238,6 +309,8 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
     ]);
     const template = await this.kb.getPromptTemplate(this.key);
     const actions: ProposedAction[] = [];
+
+    const defaultAccount = commentingAccounts[0];
 
     for (const post of fresh) {
       try {
@@ -251,7 +324,15 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
           negativeSamples: samples.filter(s => s.polarity === 'negative'),
           rejections,
         });
-        const defaultSystem = `You are writing a LinkedIn comment. Tone: ${config.commentTone}. Write 1-2 sentences max. No emojis. No self-promotion. Respond with just the comment text.`;
+        const defaultSystem = `You write LinkedIn comments. Tone: ${config.commentTone}.
+Rules:
+- 1-2 short sentences only
+- Use simple everyday words — write like a real person, not a marketer
+- Never start with "Great post!", "Love this!", "So true!" or any generic opener
+- No emojis. No self-promotion. No corporate speak
+- Sound like someone who actually read the post and has a genuine take
+- Do NOT wrap your reply in quotes
+- Return only the comment text`;
         const response = await this.llm.complete({
           messages: [
             { role: 'system', content: (template?.system ?? defaultSystem) + kbBlock },
@@ -262,22 +343,41 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
           maxTokens: 120,
         });
 
-        let comment = response.content.trim();
+        let comment = response.content.trim().replace(/^["'`“”]+|["'`“”]+$/g, '').trim();
         if (!comment) continue;
         comment = await this.selfCritique(comment, alwaysOn.find(e => e.entryType === 'voice_profile')?.content, blocklist);
         const violation = blocklist.find(b => comment.toLowerCase().includes(b.toLowerCase()));
 
         await this.db.db.insert(linkedinPosts).values({
           externalId: post.id,
+          accountId: defaultAccount?.id ?? null,
           authorName: post.authorName,
           content: post.content.slice(0, 2000),
           draftComment: comment,
         }).onConflictDoNothing();
 
+        const postSnippet = post.content.slice(0, 200).trim();
+        const postUrl = post.url || '';
+        const summary = [
+          `Comment on ${post.authorName}'s post:`,
+          '',
+          `"${postSnippet}${post.content.length > 200 ? '...' : ''}"`,
+          postUrl ? postUrl : null,
+          '',
+          `Proposed comment: "${comment.slice(0, 120)}"`,
+        ].filter(l => l !== null).join('\n');
+
         actions.push({
           type: 'post_comment',
-          summary: `Comment on ${post.authorName}'s post: "${comment.slice(0, 80)}"`,
-          payload: { postId: post.id, authorName: post.authorName, comment },
+          summary,
+          payload: {
+            postId: post.id,
+            authorName: post.authorName,
+            comment,
+            postUrl,
+            accountId: defaultAccount?.unipileAccountId ?? null,
+            dbAccountId: defaultAccount?.id ?? null,
+          },
           riskLevel: violation ? 'high' : 'medium',
         });
       } catch (err) {
@@ -326,7 +426,11 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
         account.dailyConnectionsLimit,
         5,
         (since) => this.db.db.select({ id: linkedinConnectionRequests.id }).from(linkedinConnectionRequests)
-          .where(and(eq(linkedinConnectionRequests.accountId, account.id), gte(linkedinConnectionRequests.createdAt, since)))
+          .where(and(
+            eq(linkedinConnectionRequests.accountId, account.id),
+            gte(linkedinConnectionRequests.sentAt, since),
+            inArray(linkedinConnectionRequests.status, ['sent', 'accepted', 'declined']),
+          ))
           .then(r => r.length),
       );
 
@@ -385,7 +489,14 @@ Score each profile 0.0–1.0 (1.0 = perfect match). Return JSON array only:
           messages: [
             {
               role: 'system',
-              content: `Write a LinkedIn connection request note. Max 280 characters. Genuine, not salesy. Reference their work. Voice: ${voiceProfile || 'professional and direct'}. Return only the note text.`,
+              content: `Write a LinkedIn connection request note. Max 280 characters.
+Rules:
+- Sound like a real person, not a sales pitch
+- Mention something specific about their role or what they do
+- Simple, plain words — no jargon, no "synergy", no "reaching out"
+- Voice: ${voiceProfile || 'direct and genuine'}
+- Do NOT wrap your reply in quotes
+- Return only the note text`,
             },
             {
               role: 'user',
@@ -395,7 +506,7 @@ Score each profile 0.0–1.0 (1.0 = perfect match). Return JSON array only:
           agentKey: this.key,
           maxTokens: 80,
         });
-        const note = noteRes.content.trim().slice(0, 280);
+        const note = noteRes.content.trim().replace(/^["'`""]+|["'`""]+$/g, '').trim().slice(0, 280);
 
         const [req] = await this.db.db.insert(linkedinConnectionRequests).values({
           accountId: account.id,
@@ -441,7 +552,7 @@ Score each profile 0.0–1.0 (1.0 = perfect match). Return JSON array only:
       }
     }
 
-    return actions;
+    return actions.slice(0, config.maxConnectionRequestsPerRun ?? 3);
   }
 
   // ─── DM outreach ───────────────────────────────────────────────────────────
@@ -504,7 +615,15 @@ Score each profile 0.0–1.0 (1.0 = perfect match). Return JSON array only:
           messages: [
             {
               role: 'system',
-              content: `Write a brief, genuine LinkedIn DM to a connected prospect. 2-3 sentences. No templates. Reference their role. One soft CTA.${kbBlock}`,
+              content: `Write a short LinkedIn DM to a new connection. Keep it real and friendly — like a message from an actual person, not a sales template.
+Rules:
+- 2-3 short sentences max
+- Simple words, easy to read
+- Reference something specific about their role or background
+- End with one soft, natural question or invite (not a hard CTA)
+- No corporate speak, no buzzwords, no "I wanted to reach out"
+- Do NOT wrap your reply in quotes
+- Return only the message text${kbBlock}`,
             },
             {
               role: 'user',
@@ -515,7 +634,7 @@ Score each profile 0.0–1.0 (1.0 = perfect match). Return JSON array only:
           maxTokens: 150,
         });
 
-        let message = response.content.trim();
+        let message = response.content.trim().replace(/^["'`""]+|["'`""]+$/g, '').trim();
         if (!message) continue;
         message = await this.selfCritique(message, alwaysOn.find(e => e.entryType === 'voice_profile')?.content, blocklist);
         const violation = blocklist.find(b => message.toLowerCase().includes(b.toLowerCase()));
@@ -765,6 +884,25 @@ Score each profile 0.0–1.0 (1.0 = perfect match). Return JSON array only:
       },
       {
         method: 'GET',
+        path: '/linkedin/debug/posts',
+        requiresAuth: true,
+        handler: async (params) => {
+          const accountId = (params as any).accountId as string | undefined;
+          const { unipileKey, unipileDsn } = await this.li.getCredentials();
+          if (!unipileKey || !unipileDsn) return { error: 'Unipile not configured' };
+          const id = accountId ?? (await this.db.db.select().from(linkedinAccounts).limit(1))[0]?.unipileAccountId;
+          if (!id) return { error: 'No account found' };
+          const res = await fetch(`https://${unipileDsn}/api/v1/posts?account_id=${encodeURIComponent(id)}&limit=5`, {
+            headers: { 'X-API-KEY': unipileKey, 'Content-Type': 'application/json' },
+          });
+          const raw = await res.text();
+          let parsed: any = null;
+          try { parsed = JSON.parse(raw); } catch { /* ignore */ }
+          return { status: res.status, accountId: id, raw: raw.slice(0, 2000), parsed };
+        },
+      },
+      {
+        method: 'GET',
         path: '/linkedin/reports/daily',
         requiresAuth: true,
         handler: async () => {
@@ -774,10 +912,21 @@ Score each profile 0.0–1.0 (1.0 = perfect match). Return JSON array only:
 
           const [accounts, connections, comments, dms] = await Promise.all([
             this.db.db.select().from(linkedinAccounts),
-            this.db.db.select({ accountId: linkedinConnectionRequests.accountId, createdAt: linkedinConnectionRequests.createdAt })
-              .from(linkedinConnectionRequests).where(gte(linkedinConnectionRequests.createdAt, since)),
-            this.db.db.select({ accountId: linkedinPosts.accountId, createdAt: linkedinPosts.createdAt })
-              .from(linkedinPosts).where(gte(linkedinPosts.createdAt, since)),
+            // Count only actually-sent requests (sentAt set by execute)
+            this.db.db.select({ accountId: linkedinConnectionRequests.accountId, sentAt: linkedinConnectionRequests.sentAt })
+              .from(linkedinConnectionRequests)
+              .where(and(
+                gte(linkedinConnectionRequests.sentAt, since),
+                inArray(linkedinConnectionRequests.status, ['sent', 'accepted', 'declined']),
+              )),
+            // Count only actually-posted comments (postedAt set by execute, status = posted)
+            this.db.db.select({ accountId: linkedinPosts.accountId, postedAt: linkedinPosts.postedAt })
+              .from(linkedinPosts)
+              .where(and(
+                gte(linkedinPosts.postedAt, since),
+                eq(linkedinPosts.status, 'posted'),
+              )),
+            // Count leads where DM was actually sent
             this.db.db.select({ accountId: linkedinLeads.accountId, lastContactedAt: linkedinLeads.lastContactedAt })
               .from(linkedinLeads)
               .where(and(
@@ -794,8 +943,8 @@ Score each profile 0.0–1.0 (1.0 = perfect match). Return JSON array only:
             return map[aId][date];
           };
 
-          for (const r of connections) { if (r.accountId) entry(r.accountId, dateKey(r.createdAt)).connections++; }
-          for (const r of comments)    { if (r.accountId) entry(r.accountId, dateKey(r.createdAt)).comments++; }
+          for (const r of connections) { if (r.accountId && r.sentAt) entry(r.accountId, dateKey(r.sentAt)).connections++; }
+          for (const r of comments)    { if (r.accountId && r.postedAt) entry(r.accountId, dateKey(r.postedAt)).comments++; }
           for (const r of dms)         { if (r.accountId && r.lastContactedAt) entry(r.accountId, dateKey(r.lastContactedAt)).dms++; }
 
           const accountMap = Object.fromEntries(accounts.map(a => [a.id, a.label]));
@@ -823,6 +972,49 @@ Score each profile 0.0–1.0 (1.0 = perfect match). Return JSON array only:
             maxTokens: 120,
           });
           return { draft: response.content.trim() };
+        },
+      },
+      {
+        method: 'POST',
+        path: '/linkedin/persona/train',
+        requiresAuth: true,
+        handler: async (body) => {
+          const accountId = (body as any).accountId as string | undefined;
+          const [accounts] = accountId
+            ? await this.db.db.select().from(linkedinAccounts).where(eq(linkedinAccounts.unipileAccountId, accountId)).limit(1).then(r => [r[0]])
+            : await this.db.db.select().from(linkedinAccounts).where(eq(linkedinAccounts.isActive, true)).limit(1).then(r => [r[0]]);
+
+          if (!accounts?.unipileAccountId) return { error: 'No active LinkedIn account found' };
+
+          const posts = await this.li.fetchOwnPosts(accounts.unipileAccountId);
+          if (!posts.length) return { saved: 0, note: 'No recent posts found on your profile' };
+
+          let saved = 0;
+          for (const post of posts) {
+            if (!post.trim() || post.length < 30) continue;
+            await this.db.db.insert(writingSamples).values({
+              context: 'LinkedIn persona — own post',
+              sampleText: post.slice(0, 2000),
+              polarity: 'positive',
+              agentKeys: this.key,
+            }).onConflictDoNothing();
+            saved++;
+          }
+          return { saved, total: posts.length };
+        },
+      },
+      {
+        method: 'GET',
+        path: '/linkedin/persona/samples',
+        requiresAuth: true,
+        handler: async () => {
+          const samples = await this.db.db
+            .select()
+            .from(writingSamples)
+            .where(eq(writingSamples.agentKeys, this.key))
+            .orderBy(sql`${writingSamples.createdAt} DESC`)
+            .limit(50);
+          return samples;
         },
       },
     ];

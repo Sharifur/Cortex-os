@@ -10,6 +10,7 @@ import * as os from 'os';
 import { DbService } from '../../db/db.service';
 import { LlmRouterService } from '../llm/llm-router.service';
 import { SettingsService } from '../settings/settings.service';
+import { StorageService } from '../storage/storage.service';
 import { QUEUE_NAMES } from '../../common/queue/queue.constants';
 import { designStudioTemplates, designStudioJobs } from './schema';
 import { postRenders } from '../post-render/schema';
@@ -34,6 +35,7 @@ export class DesignStudioService {
     private readonly db: DbService,
     private readonly llm: LlmRouterService,
     private readonly settings: SettingsService,
+    private readonly storage: StorageService,
     @InjectQueue(QUEUE_NAMES.DESIGN_STUDIO) private readonly queue: Queue,
   ) {}
 
@@ -45,6 +47,22 @@ export class DesignStudioService {
     for (const item of items) {
       const jobId = createId();
       const mimeType = item.mimeType ?? 'image/png';
+      const imageBuffer = Buffer.from(item.imageBase64, 'base64');
+
+      let previewUrl: string | null = null;
+      const r2Ready = await this.storage.isConfigured();
+      if (r2Ready) {
+        const ext = mimeType.split('/')[1]?.split('+')[0] ?? 'png';
+        const stored = await this.storage.upload({
+          module: 'design-studio/templates',
+          body: imageBuffer,
+          declaredMime: mimeType,
+          originalFilename: `${jobId}.${ext}`,
+        });
+        previewUrl = stored.url;
+      }
+
+      const previewData = previewUrl ?? `data:${mimeType};base64,${item.imageBase64}`;
 
       const [row] = await this.db.db
         .insert(designStudioJobs)
@@ -52,7 +70,7 @@ export class DesignStudioService {
           id: jobId,
           name: item.name,
           status: 'pending',
-          previewData: `data:${mimeType};base64,${item.imageBase64}`,
+          previewData,
         })
         .returning();
 
@@ -61,6 +79,7 @@ export class DesignStudioService {
         name: item.name,
         imageBase64: item.imageBase64,
         mimeType,
+        previewUrl: previewUrl ?? undefined,
       };
 
       await this.queue.add('analyze', jobData, {
@@ -160,8 +179,15 @@ export class DesignStudioService {
     const previewData = template.previewData;
     if (!previewData) throw new Error('Template has no preview image — re-upload to enable edit mode');
 
-    const base64 = previewData.includes(',') ? previewData.split(',')[1] : previewData;
-    const imageBuffer = Buffer.from(base64, 'base64');
+    let imageBuffer: Buffer;
+    if (previewData.startsWith('http://') || previewData.startsWith('https://')) {
+      const resp = await fetch(previewData);
+      if (!resp.ok) throw new Error(`Failed to fetch template image from storage (${resp.status})`);
+      imageBuffer = Buffer.from(await resp.arrayBuffer());
+    } else {
+      const b64 = previewData.includes(',') ? previewData.split(',')[1] : previewData;
+      imageBuffer = Buffer.from(b64, 'base64');
+    }
     const imageFile = await toFile(imageBuffer, 'template.png', { type: 'image/png' });
 
     const hexColors = dna.colors?.length ? dna.colors.slice(0, 3).join(', ') : null;

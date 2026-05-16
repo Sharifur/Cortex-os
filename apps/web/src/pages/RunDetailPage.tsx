@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
-import { ArrowLeft, Bot, Bug, Info, AlertTriangle, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { useQuery, useMutation } from '@tanstack/react-query';
+import { ArrowLeft, Bot, Bug, Info, AlertTriangle, AlertCircle, CheckCircle2, RefreshCw, Play } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAuthStore } from '@/stores/authStore';
 
@@ -50,6 +50,15 @@ function duration(start: string, end: string | null) {
   return `${Math.floor(ms / 60_000)}m ${Math.floor((ms % 60_000) / 1000)}s`;
 }
 
+async function apiFetch(token: string, path: string, opts?: RequestInit) {
+  const res = await fetch(path, {
+    ...opts,
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', ...(opts?.headers ?? {}) },
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
 export default function RunDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -67,6 +76,15 @@ export default function RunDetailPage() {
       if (!res.ok) throw new Error('Failed');
       return res.json();
     },
+  });
+
+  const triggerMutation = useMutation({
+    mutationFn: () =>
+      apiFetch(token, `/agents/${run!.agentKey}/trigger`, {
+        method: 'POST',
+        body: JSON.stringify({ triggerType: 'MANUAL' }),
+      }),
+    onSuccess: (newRun: { id: string }) => navigate(`/runs/${newRun.id}`),
   });
 
   // Poll logs every 1.5s until the run finishes.
@@ -162,14 +180,34 @@ export default function RunDetailPage() {
               </div>
             </div>
 
-            {run.status === 'AWAITING_APPROVAL' && (
-              <Link
-                to="/approvals"
-                className="text-xs bg-yellow-500/10 text-yellow-500 border border-yellow-500/20 px-3 py-1.5 rounded-lg hover:bg-yellow-500/20 transition-colors shrink-0"
+            <div className="flex items-center gap-2 shrink-0">
+              {run.status === 'AWAITING_APPROVAL' && (
+                <Link
+                  to="/approvals"
+                  className="text-xs bg-yellow-500/10 text-yellow-500 border border-yellow-500/20 px-3 py-1.5 rounded-lg hover:bg-yellow-500/20 transition-colors"
+                >
+                  View pending approval →
+                </Link>
+              )}
+              {run.status === 'FAILED' && (
+                <button
+                  onClick={() => triggerMutation.mutate()}
+                  disabled={triggerMutation.isPending}
+                  className="flex items-center gap-1.5 text-xs bg-red-500/10 text-red-400 border border-red-500/20 px-3 py-1.5 rounded-lg hover:bg-red-500/20 transition-colors disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${triggerMutation.isPending ? 'animate-spin' : ''}`} />
+                  Retry
+                </button>
+              )}
+              <button
+                onClick={() => triggerMutation.mutate()}
+                disabled={triggerMutation.isPending}
+                className="flex items-center gap-1.5 text-xs bg-primary/10 text-primary border border-primary/20 px-3 py-1.5 rounded-lg hover:bg-primary/20 transition-colors disabled:opacity-50"
               >
-                View pending approval →
-              </Link>
-            )}
+                <Play className="w-3.5 h-3.5" />
+                {triggerMutation.isPending ? 'Starting…' : 'Run again'}
+              </button>
+            </div>
           </div>
 
           {run.error && (

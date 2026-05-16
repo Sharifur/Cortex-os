@@ -14,6 +14,7 @@ export interface DesignStudioJobData {
   name: string;
   imageBase64: string;
   mimeType: string;
+  previewUrl?: string;
 }
 
 export interface DesignDNA {
@@ -75,7 +76,7 @@ export class DesignStudioProcessor extends WorkerHost {
   }
 
   async process(job: Job<DesignStudioJobData>): Promise<void> {
-    const { jobId, name, imageBase64, mimeType } = job.data;
+    const { jobId, name, imageBase64, mimeType, previewUrl } = job.data;
 
     await this.setStatus(jobId, 'processing');
 
@@ -98,7 +99,7 @@ export class DesignStudioProcessor extends WorkerHost {
       await this.db.db.insert(designStudioTemplates).values({
         id: templateId,
         name,
-        previewData: `data:${mimeType};base64,${imageBase64}`,
+        previewData: previewUrl ?? `data:${mimeType};base64,${imageBase64}`,
         parameters: dna.parameters as any,
         spec: dna as any,
       });

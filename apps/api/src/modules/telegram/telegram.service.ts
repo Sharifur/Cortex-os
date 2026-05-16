@@ -191,6 +191,24 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  private async safeEditMarkup(ctx: any, markup: any) {
+    try {
+      await ctx.editMessageReplyMarkup({ reply_markup: markup });
+    } catch (err) {
+      const msg = (err as Error).message ?? '';
+      if (!msg.includes('message is not modified')) throw err;
+    }
+  }
+
+  private async safeApiEditMarkup(api: any, chatId: string, msgId: number, markup: any) {
+    try {
+      await api.editMessageReplyMarkup(chatId, msgId, { reply_markup: markup });
+    } catch (err) {
+      const msg = (err as Error).message ?? '';
+      if (!msg.includes('message is not modified')) throw err;
+    }
+  }
+
   private registerHandlers() {
     if (!this.bot) return;
 
@@ -312,13 +330,13 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
         try {
           if (action === 'approve') {
             await this.approvalSvc.approve(approvalId);
-            await ctx.editMessageReplyMarkup({ reply_markup: { inline_keyboard: [] } });
+            await this.safeEditMarkup(ctx, { inline_keyboard: [] });
             await ctx.reply('Approved.');
           } else if (action === 'reject') {
             const keyboard = new InlineKeyboard()
               .text('Reject silently', `reject:${approvalId}:silent`)
               .text('Reject + reason', `reject:${approvalId}:reason`);
-            await ctx.editMessageReplyMarkup({ reply_markup: keyboard });
+            await this.safeEditMarkup(ctx, keyboard);
           } else if (action === 'followup') {
             const prompt = await ctx.api.sendMessage(
               this.ownerChatId!,
@@ -329,7 +347,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
               .update(pendingApprovals)
               .set({ telegramThreadId: String(prompt.message_id), status: 'FOLLOWUP' })
               .where(eq(pendingApprovals.id, approvalId));
-            await ctx.editMessageReplyMarkup({ reply_markup: { inline_keyboard: [] } });
+            await this.safeEditMarkup(ctx, { inline_keyboard: [] });
           }
         } catch (err) {
           this.logger.error(`approval ${action} failed for ${approvalId}: ${err}`);
@@ -354,7 +372,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
         try {
           if (subAction === 'silent') {
             await this.approvalSvc.rejectWithReason(approvalId, null);
-            await ctx.editMessageReplyMarkup({ reply_markup: { inline_keyboard: [] } });
+            await this.safeEditMarkup(ctx, { inline_keyboard: [] });
             await ctx.reply('Rejected.');
           } else {
             const prompt = await ctx.api.sendMessage(
@@ -366,7 +384,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
               .update(pendingApprovals)
               .set({ telegramThreadId: `REJECT_REASON:${prompt.message_id}` })
               .where(eq(pendingApprovals.id, approvalId));
-            await ctx.editMessageReplyMarkup({ reply_markup: { inline_keyboard: [] } });
+            await this.safeEditMarkup(ctx, { inline_keyboard: [] });
           }
         } catch (err) {
           this.logger.error(`reject sub-action ${subAction} failed for ${approvalId}: ${err}`);
@@ -391,11 +409,11 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
         try {
           if (action === 'approve') {
             await this.selfImproveSvc.approveProposal(proposalId);
-            await ctx.editMessageReplyMarkup({ reply_markup: { inline_keyboard: [] } });
+            await this.safeEditMarkup(ctx, { inline_keyboard: [] });
             await ctx.reply('KB proposal accepted and added to Knowledge Base.');
           } else {
             await this.selfImproveSvc.rejectProposal(proposalId);
-            await ctx.editMessageReplyMarkup({ reply_markup: { inline_keyboard: [] } });
+            await this.safeEditMarkup(ctx, { inline_keyboard: [] });
             await ctx.reply('KB proposal skipped.');
           }
         } catch (err) {
@@ -415,7 +433,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       await ctx.answerCallbackQuery();
       try {
         await this.hrm.approveLeave(leaveId);
-        await ctx.editMessageReplyMarkup({ reply_markup: { inline_keyboard: [] } });
+        await this.safeEditMarkup(ctx, { inline_keyboard: [] });
         await ctx.reply('Leave approved.');
       } catch (err) {
         await ctx.reply(`Failed: ${(err as Error).message}`);
@@ -430,7 +448,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       }
       const [, leaveId] = ctx.match!;
       await ctx.answerCallbackQuery();
-      await ctx.editMessageReplyMarkup({ reply_markup: { inline_keyboard: [] } });
+      await this.safeEditMarkup(ctx, { inline_keyboard: [] });
       const original = ctx.msg?.text ?? '';
       const prompt = await ctx.api.sendMessage(this.ownerChatId!, 'Reason for rejecting this leave:', {
         reply_markup: { force_reply: true, selective: true },
@@ -453,7 +471,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       await ctx.answerCallbackQuery();
       try {
         await this.hrm.approveWfh(wfhId);
-        await ctx.editMessageReplyMarkup({ reply_markup: { inline_keyboard: [] } });
+        await this.safeEditMarkup(ctx, { inline_keyboard: [] });
         await ctx.reply('WFH approved.');
       } catch (err) {
         await ctx.reply(`Failed: ${(err as Error).message}`);
@@ -468,7 +486,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       }
       const [, wfhId] = ctx.match!;
       await ctx.answerCallbackQuery();
-      await ctx.editMessageReplyMarkup({ reply_markup: { inline_keyboard: [] } });
+      await this.safeEditMarkup(ctx, { inline_keyboard: [] });
       const original = ctx.msg?.text ?? '';
       const prompt = await ctx.api.sendMessage(this.ownerChatId!, 'Reason for rejecting this WFH:', {
         reply_markup: { force_reply: true, selective: true },
@@ -492,7 +510,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       try {
         await this.hrm.approvePayslip(xghrmId);
         await this.db.db.update(hrPayslipRuns).set({ status: 'approved' }).where(eq(hrPayslipRuns.id, runId));
-        await ctx.editMessageReplyMarkup({ reply_markup: { inline_keyboard: [] } });
+        await this.safeEditMarkup(ctx, { inline_keyboard: [] });
         await ctx.reply('Payslip approved.');
         await this.checkPayslipRunComplete(runId);
       } catch (err) {
@@ -508,7 +526,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       }
       const [, runId, xghrmId] = ctx.match!;
       await ctx.answerCallbackQuery();
-      await ctx.editMessageReplyMarkup({ reply_markup: { inline_keyboard: [] } });
+      await this.safeEditMarkup(ctx, { inline_keyboard: [] });
       const prompt = await ctx.api.sendMessage(
         this.ownerChatId!,
         'Enter new values (e.g. bonus=5000 deductions=2000):',
@@ -532,7 +550,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       const [, runId] = ctx.match!;
       await ctx.answerCallbackQuery();
       await this.db.db.update(hrPayslipRuns).set({ status: 'skipped' }).where(eq(hrPayslipRuns.id, runId));
-      await ctx.editMessageReplyMarkup({ reply_markup: { inline_keyboard: [] } });
+      await this.safeEditMarkup(ctx, { inline_keyboard: [] });
       await ctx.reply('Payslip skipped.');
       await this.checkPayslipRunComplete(runId);
     });
@@ -752,7 +770,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     if (pending.type === 'leave_reject') {
       try {
         await this.hrm.rejectLeave(pending.xghrmId, text);
-        await ctx.api.editMessageReplyMarkup(this.ownerChatId!, pending.originalMsgId, { reply_markup: { inline_keyboard: [] } });
+        await this.safeApiEditMarkup(ctx.api, this.ownerChatId!, pending.originalMsgId, { inline_keyboard: [] });
         await ctx.reply(`Leave rejected. Reason: ${text}`);
       } catch (err) {
         await ctx.reply(`Failed to reject leave: ${(err as Error).message}`);
@@ -763,7 +781,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     if (pending.type === 'wfh_reject') {
       try {
         await this.hrm.rejectWfh(pending.xghrmId, text);
-        await ctx.api.editMessageReplyMarkup(this.ownerChatId!, pending.originalMsgId, { reply_markup: { inline_keyboard: [] } });
+        await this.safeApiEditMarkup(ctx.api, this.ownerChatId!, pending.originalMsgId, { inline_keyboard: [] });
         await ctx.reply(`WFH rejected. Reason: ${text}`);
       } catch (err) {
         await ctx.reply(`Failed to reject WFH: ${(err as Error).message}`);
@@ -798,7 +816,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
           `Bonus: ${updated.currency} ${Number(updated.bonus).toLocaleString()}\n` +
           `Deductions: ${updated.currency} ${Number(updated.deductions).toLocaleString()}\n` +
           `Net: ${updated.currency} ${Number(updated.netSalary).toLocaleString()}`;
-        await ctx.api.editMessageReplyMarkup(this.ownerChatId!, pending.originalMsgId, { reply_markup: kb });
+        await this.safeApiEditMarkup(ctx.api, this.ownerChatId!, pending.originalMsgId, kb);
         await ctx.reply(updatedText);
       } catch (err) {
         await ctx.reply(`Failed to update payslip: ${(err as Error).message}`);
