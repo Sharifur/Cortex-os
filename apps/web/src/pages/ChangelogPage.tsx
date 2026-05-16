@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.78.8',
+    date: '2026-05-16',
+    entries: [
+      { tag: 'fix', scope: 'canva', description: 'Post Renders slide images now load via GET /posts/renders/:id/slides/:n/png proxy instead of raw R2 URLs. The endpoint looks up the stored URL from DB and proxies from R2 server-side, so browser never needs direct R2 access.' },
+      { tag: 'feat', scope: 'canva', description: 'Slide thumbnails in Post Renders show a skeleton pulse while loading and an image placeholder on error, same as template cards.' },
+    ],
+  },
+  {
     version: 'v4.78.7',
     date: '2026-05-16',
     entries: [
