@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.78.7',
+    date: '2026-05-16',
+    entries: [
+      { tag: 'fix', scope: 'canva', description: 'DnaTemplateCard now uses /design-studio/templates/:id/preview as img src (API proxy) instead of template.previewData directly. Fixes broken thumbnails for R2-hosted templates where the raw URL is private or signed URLs have expired.' },
+      { tag: 'feat', scope: 'canva', description: 'Template cards show a skeleton while the image is loading, then fade in. On error shows "No preview" placeholder instead of broken image icon.' },
+    ],
+  },
+  {
     version: 'v4.78.6',
     date: '2026-05-16',
     entries: [
