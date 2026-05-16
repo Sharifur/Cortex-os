@@ -241,17 +241,26 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
 
     const primaryAccountId = accounts[0]?.unipileAccountId;
 
-    // Only fetch feed when the run will actually process comments
+    // Only fetch feed when the run will actually process comments.
+    // Native feed returns Unipile-internal post IDs which work with the comment API.
+    // Voyager feed returns activity URNs which the comment API cannot resolve — used only as fallback.
     let feedPosts: any[] = [];
     if ((actionType === 'comments' || actionType === 'all') && primaryAccountId) {
-      const voyagerResult = await this.li.getFeedWithDiagnostics(20, primaryAccountId);
-      feedPosts = voyagerResult.posts;
-      await this.logSvc.info(run.id, 'LinkedIn feed', {
-        status: voyagerResult.status,
-        posts: voyagerResult.posts.length,
-        error: voyagerResult.error,
-        raw: voyagerResult.raw,
-      });
+      const nativeResult = await this.li.getNativeFeedPosts(primaryAccountId, 20);
+      if (nativeResult.posts.length) {
+        feedPosts = nativeResult.posts;
+        await this.logSvc.info(run.id, 'LinkedIn feed (native)', { posts: feedPosts.length });
+      } else {
+        // Native returned nothing — fall back to Voyager proxy (commenting may fail for these)
+        const voyagerResult = await this.li.getFeedWithDiagnostics(20, primaryAccountId);
+        feedPosts = voyagerResult.posts;
+        await this.logSvc.info(run.id, 'LinkedIn feed (Voyager fallback)', {
+          status: voyagerResult.status,
+          posts: voyagerResult.posts.length,
+          error: voyagerResult.error,
+          nativeRaw: nativeResult.raw,
+        });
+      }
     }
 
     await this.logSvc.info(run.id, `LinkedIn context [action: ${actionType}]`, {

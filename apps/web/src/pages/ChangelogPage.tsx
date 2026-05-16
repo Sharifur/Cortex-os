@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.78.5',
+    date: '2026-05-16',
+    entries: [
+      { tag: 'fix', scope: 'linkedin', description: 'Feed now fetched via Unipile native GET /posts (returns internal post IDs) instead of Voyager proxy (returns activity URNs). Native IDs work directly with the comment API — fixes 422 "Post cannot be found" on every comment attempt. Voyager feed kept as fallback if native returns empty.' },
+      { tag: 'fix', scope: 'linkedin', description: 'Comment service now tries native Unipile API first (path 1), Voyager proxy second. Previously the order was reversed, so the working path was only reached after the fast-failing path.' },
+    ],
+  },
+  {
     version: 'v4.78.4',
     date: '2026-05-16',
     entries: [
