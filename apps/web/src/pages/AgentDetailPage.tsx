@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
+import { getRealtimeSocket } from '@/lib/realtime';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
@@ -270,17 +271,35 @@ function RunsTab({ agentKey, token }: { agentKey: string; token: string }) {
     refetchInterval: 10_000,
   });
 
-  const { data: allApprovals } = useQuery<PendingApproval[]>({
-    queryKey: ['pending-approvals'],
-    queryFn: () => apiFetch(token, '/approvals'),
-    refetchInterval: 10_000,
-  });
+  const [allApprovals, setAllApprovals] = useState<PendingApproval[]>([]);
+
+  useEffect(() => {
+    const socket = getRealtimeSocket(token);
+    const subscribe = () => socket.emit('approvals:subscribe');
+    const onSnapshot = (rows: PendingApproval[]) => setAllApprovals(rows ?? []);
+    const onCreated = (a: PendingApproval) => setAllApprovals((prev) => [a, ...prev.filter((x) => x.id !== a.id)]);
+    const onRemoved = (p: { id: string }) => setAllApprovals((prev) => prev.filter((a) => a.id !== p.id));
+
+    socket.on('approvals:snapshot', onSnapshot);
+    socket.on('approval:created', onCreated);
+    socket.on('approval:removed', onRemoved);
+    socket.on('connect', subscribe);
+    if (socket.connected) subscribe();
+
+    return () => {
+      socket.emit('approvals:unsubscribe');
+      socket.off('approvals:snapshot', onSnapshot);
+      socket.off('approval:created', onCreated);
+      socket.off('approval:removed', onRemoved);
+      socket.off('connect', subscribe);
+    };
+  }, [token]);
 
   const approveMutation = useMutation({
     mutationFn: (approvalId: string) =>
       apiFetch(token, `/approvals/${approvalId}/approve`, { method: 'POST' }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['pending-approvals'] });
+    onSuccess: (_data, approvalId) => {
+      setAllApprovals((prev) => prev.filter((a) => a.id !== approvalId));
       qc.invalidateQueries({ queryKey: ['agent-runs', agentKey] });
     },
   });
@@ -288,13 +307,13 @@ function RunsTab({ agentKey, token }: { agentKey: string; token: string }) {
   const rejectMutation = useMutation({
     mutationFn: (approvalId: string) =>
       apiFetch(token, `/approvals/${approvalId}/reject`, { method: 'POST' }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['pending-approvals'] });
+    onSuccess: (_data, approvalId) => {
+      setAllApprovals((prev) => prev.filter((a) => a.id !== approvalId));
       qc.invalidateQueries({ queryKey: ['agent-runs', agentKey] });
     },
   });
 
-  const approvalsByRunId = (allApprovals ?? [])
+  const approvalsByRunId = allApprovals
     .filter((a) => a.agentKey === agentKey)
     .reduce<Record<string, PendingApproval[]>>((acc, a) => {
       (acc[a.runId] ??= []).push(a);
