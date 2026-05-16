@@ -321,7 +321,8 @@ export class GmailService {
       return this.withImap(acc, async (client) => {
         const lock = await client.getMailboxLock('INBOX');
         try {
-          const uids = (await client.search({ header: { 'message-id': threadId } }, { uid: true })) || [];
+          // Search for replies: messages whose In-Reply-To header references our sent message-id
+          const uids = (await client.search({ header: { 'in-reply-to': threadId } }, { uid: true })) || [];
           if (!uids.length) return { id: threadId, messages: [] };
           const out: GmailMessage[] = [];
           for await (const msg of client.fetch(uids, { uid: true, source: true, envelope: true, internalDate: true })) {

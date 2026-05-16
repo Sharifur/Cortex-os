@@ -5,6 +5,7 @@ import { DbService } from '../../../db/db.service';
 import { taskipInternalEmails, taskipInternalEmailReplies } from '../../../db/schema';
 import { emailSuppressions } from '../../ses/ses-suppressions.schema';
 import { GmailService } from '../../gmail/gmail.service';
+import { SettingsService } from '../../settings/settings.service';
 
 // Footer constants kept for future opt-in use but NOT appended to 1:1 outreach.
 // Research shows appending "Reply STOP to unsubscribe" on personal Gmail sends
@@ -69,7 +70,11 @@ export interface SendTrackedEmailInput {
 export class TaskipInternalEmailService {
   private readonly logger = new Logger(TaskipInternalEmailService.name);
 
-  constructor(private readonly db: DbService, private readonly gmail: GmailService) {}
+  constructor(
+    private readonly db: DbService,
+    private readonly gmail: GmailService,
+    private readonly settings: SettingsService,
+  ) {}
 
   async send(input: SendTrackedEmailInput): Promise<{ id: string; gmailMessageId: string | null; status: 'sent' | 'failed'; error?: string }> {
     let suppressed: Array<{ id: string }> = [];
@@ -96,9 +101,10 @@ export class TaskipInternalEmailService {
     const id = createId();
 
     let htmlBody: string | undefined;
-    const apiBase = (process.env.COOLIFY_URL ?? process.env.API_PUBLIC_URL ?? process.env.VITE_API_URL ?? '').replace(/\/$/, '');
+    const settingsApiUrl = await this.settings.getDecrypted('api_public_url').catch(() => null);
+    const apiBase = (settingsApiUrl ?? process.env.COOLIFY_URL ?? process.env.API_PUBLIC_URL ?? process.env.VITE_API_URL ?? '').replace(/\/$/, '');
     if (!apiBase) {
-      this.logger.warn('COOLIFY_URL / API_PUBLIC_URL not set — tracking pixel URL will be empty and opens will not be recorded');
+      this.logger.warn('api_public_url not set in Settings and COOLIFY_URL/API_PUBLIC_URL env vars missing — tracking pixel disabled');
     }
     if (!input.plainText && apiBase) {
       const pixelUrl = `${apiBase}/track/open/${id}.gif`;
@@ -116,12 +122,18 @@ export class TaskipInternalEmailService {
         htmlBody,
       }, input.accountId);
 
+      // For OAuth: getMessage returns Gmail's internal threadId (different from messageId).
+      // For IMAP: messageId is the SMTP Message-ID header (e.g. <abc@smtp.gmail.com>);
+      // getMessage would try Number(messageId) → NaN and fail. Replies reference this
+      // message via In-Reply-To, so the messageId itself IS the thread identifier.
       let threadId: string | null = null;
       try {
-        const msg = await this.gmail.getMessage(messageId);
-        threadId = msg.threadId || null;
-      } catch (err) {
-        this.logger.warn(`could not fetch threadId for ${messageId}: ${(err as Error).message}`);
+        const msg = await this.gmail.getMessage(messageId, input.accountId);
+        threadId = msg.threadId || messageId || null;
+      } catch {
+        // IMAP path or transient error — fall back to messageId as thread key
+        threadId = messageId || null;
+        this.logger.warn(`getMessage failed for ${messageId} — using messageId as threadId`);
       }
 
       await this.db.db.execute(sql`
