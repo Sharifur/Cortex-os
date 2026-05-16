@@ -261,8 +261,9 @@ export class LinkedInService {
   }
 
   // ─── Comments ──────────────────────────────────────────────────────────────
-  // Correct: POST /api/v1/posts/{post_id}/comments?account_id=X  { text }
-  // Docs: https://developer.unipile.com/docs/posts-and-comments
+  // POST /api/v1/posts/{post_id}/comments  body: { account_id, text }
+  // post_id = urn:li:activity:XXXXX (colons NOT encoded — Unipile rejects encoded URNs)
+  // account_id must be in the request body (query string alone is rejected)
 
   async postComment(postId: string, comment: string, accountId?: string): Promise<void> {
     const { unipileKey, unipileDsn } = await this.getCredentials();
@@ -270,11 +271,12 @@ export class LinkedInService {
       this.logger.warn('LinkedIn not configured — skipping comment');
       return;
     }
-    const query = accountId ? `?account_id=${encodeURIComponent(accountId)}` : '';
-    const res = await fetch(`${this.unipileBase(unipileDsn)}/posts/${encodeURIComponent(postId)}/comments${query}`, {
+    if (!accountId) throw new Error('account_id is required for posting comments');
+    // Do NOT encodeURIComponent the post_id — Unipile expects the URN with raw colons in the path
+    const res = await fetch(`${this.unipileBase(unipileDsn)}/posts/${postId}/comments`, {
       method: 'POST',
       headers: this.unipileHeaders(unipileKey),
-      body: JSON.stringify({ text: comment }),
+      body: JSON.stringify({ account_id: accountId, text: comment }),
     });
     if (!res.ok) throw new Error(`Unipile comment failed: ${await res.text()}`);
   }
