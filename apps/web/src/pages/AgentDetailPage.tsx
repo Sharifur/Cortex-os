@@ -243,10 +243,20 @@ interface PendingApproval {
 function RunsTab({ agentKey, token }: { agentKey: string; token: string }) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const qc = useQueryClient();
+  const navigate = useNavigate();
 
   const toggleExpand = useCallback((id: string) => {
     setExpandedId((prev) => (prev === id ? null : id));
   }, []);
+
+  const retryMutation = useMutation({
+    mutationFn: () =>
+      apiFetch(token, `/agents/${agentKey}/trigger`, {
+        method: 'POST',
+        body: JSON.stringify({ triggerType: 'MANUAL' }),
+      }),
+    onSuccess: (run: { id: string }) => navigate(`/runs/${run.id}`),
+  });
 
   const { data: runs, isLoading, isError } = useQuery<Run[]>({
     queryKey: ['agent-runs', agentKey],
@@ -373,14 +383,26 @@ function RunsTab({ agentKey, token }: { agentKey: string; token: string }) {
                   <p className="text-xs text-muted-foreground">{relTime(run.startedAt)}</p>
                   <p className="text-xs text-muted-foreground">{duration(run.startedAt, run.finishedAt)}</p>
                 </div>
-                <Link
-                  to={`/runs/${run.id}`}
-                  className="text-xs text-muted-foreground hover:text-foreground shrink-0 px-1.5 py-1 rounded hover:bg-accent"
-                  title="Open full run page"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  Full log
-                </Link>
+                <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+                  {run.status === 'FAILED' && (
+                    <button
+                      onClick={() => retryMutation.mutate()}
+                      disabled={retryMutation.isPending}
+                      className="flex items-center gap-1 text-xs text-red-400 hover:text-red-300 px-1.5 py-1 rounded hover:bg-red-500/10 transition-colors disabled:opacity-50"
+                      title="Retry this run"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${retryMutation.isPending ? 'animate-spin' : ''}`} />
+                      Retry
+                    </button>
+                  )}
+                  <Link
+                    to={`/runs/${run.id}`}
+                    className="text-xs text-muted-foreground hover:text-foreground px-1.5 py-1 rounded hover:bg-accent"
+                    title="Open full run page"
+                  >
+                    Full log
+                  </Link>
+                </div>
               </div>
               {isExpanded && <RunRowExpanded runId={run.id} token={token} />}
             </div>
