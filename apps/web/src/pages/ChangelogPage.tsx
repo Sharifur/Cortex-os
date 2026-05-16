@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.73.6',
+    date: '2026-05-16',
+    entries: [
+      { tag: 'fix', scope: 'canva', description: 'Template preview images now stored in Cloudflare R2 instead of as base64 in the database. When R2 is configured, uploads always go to R2; local base64 fallback only applies when R2 is not set up. /preview endpoint redirects to R2 URL. generateEdit() fetches image from R2 URL when needed.' },
+    ],
+  },
+  {
     version: 'v4.73.5',
     date: '2026-05-16',
     entries: [

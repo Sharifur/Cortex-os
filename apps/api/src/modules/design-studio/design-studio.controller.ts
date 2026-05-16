@@ -88,6 +88,12 @@ export class DesignStudioController {
     try {
       const t = await this.service.getTemplate(id);
       const previewData: string = (t as any).previewData ?? '';
+      if (!previewData) {
+        throw new HttpException({ error: 'No preview available' }, HttpStatus.NOT_FOUND);
+      }
+      if (previewData.startsWith('http://') || previewData.startsWith('https://')) {
+        return void reply.redirect(previewData, 302);
+      }
       if (!previewData.startsWith('data:')) {
         throw new HttpException({ error: 'No preview available' }, HttpStatus.NOT_FOUND);
       }
