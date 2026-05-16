@@ -3715,7 +3715,7 @@ function Phase4SettingsTab({ agent, token, setupContent }: {
 
 // ─── LinkedIn Account Card ────────────────────────────────────────────────────
 
-function AccountCard({ acc, onPatch }: { acc: any; onPatch: (body: Record<string, any>) => void }) {
+function AccountCard({ acc, todayRow, onPatch }: { acc: any; todayRow: any; onPatch: (body: Record<string, any>) => void }) {
   const [limits, setLimits] = useState({
     dailyConnectionsLimit: acc.dailyConnectionsLimit ?? '',
     dailyCommentsLimit: acc.dailyCommentsLimit ?? '',
@@ -3738,9 +3738,9 @@ function AccountCard({ acc, onPatch }: { acc: any; onPatch: (body: Record<string
   }
 
   const ACTIONS = [
-    { enableKey: 'enableConnections', label: 'Connections', dailyKey: 'dailyConnectionsLimit', defaultVal: 5  },
-    { enableKey: 'enableComments',   label: 'Feed comments', dailyKey: 'dailyCommentsLimit',   defaultVal: 10 },
-    { enableKey: 'enableDMs',        label: 'DM outreach',  dailyKey: 'dailyDmsLimit',         defaultVal: 5  },
+    { enableKey: 'enableConnections', label: 'Connections', dailyKey: 'dailyConnectionsLimit', defaultVal: 5, statKey: 'connections' },
+    { enableKey: 'enableComments',   label: 'Feed comments', dailyKey: 'dailyCommentsLimit',   defaultVal: 10, statKey: 'comments' },
+    { enableKey: 'enableDMs',        label: 'DM outreach',  dailyKey: 'dailyDmsLimit',         defaultVal: 5, statKey: 'dms' },
   ] as const;
 
   return (
@@ -3778,19 +3778,36 @@ function AccountCard({ acc, onPatch }: { acc: any; onPatch: (body: Record<string
 
       <div className="px-4 py-3">
         <div className="grid grid-cols-3 gap-3 text-xs mb-3">
-          {ACTIONS.map(({ dailyKey, label, defaultVal }) => (
-            <div key={dailyKey}>
-              <label className="text-muted-foreground block mb-1">{label} / day</label>
-              <input
-                type="number"
-                min={1}
-                placeholder={String(defaultVal)}
-                value={limits[dailyKey]}
-                onChange={e => handleLimitChange(dailyKey, e.target.value)}
-                className="w-full rounded-md border border-input bg-background px-2 py-1 text-center text-xs"
-              />
-            </div>
-          ))}
+          {ACTIONS.map(({ dailyKey, label, defaultVal, statKey }) => {
+            const cap = limits[dailyKey] !== '' ? Number(limits[dailyKey]) : defaultVal;
+            const used = todayRow?.[statKey] ?? 0;
+            const pct = cap > 0 ? Math.min(100, Math.round((used / cap) * 100)) : 0;
+            const full = used >= cap;
+            return (
+              <div key={dailyKey}>
+                <label className="text-muted-foreground block mb-1">{label} / day</label>
+                <input
+                  type="number"
+                  min={1}
+                  placeholder={String(defaultVal)}
+                  value={limits[dailyKey]}
+                  onChange={e => handleLimitChange(dailyKey, e.target.value)}
+                  className="w-full rounded-md border border-input bg-background px-2 py-1 text-center text-xs"
+                />
+                <div className="mt-1.5 flex items-center gap-1.5">
+                  <div className="flex-1 h-1 rounded-full bg-muted overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all ${full ? 'bg-red-500' : 'bg-primary'}`}
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                  <span className={`text-[10px] tabular-nums ${full ? 'text-red-400' : 'text-muted-foreground'}`}>
+                    {used}/{cap}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
         </div>
         {dirty && (
           <button
@@ -3836,7 +3853,8 @@ function LinkedInSettingsTab({ agent, token }: { agent: AgentDetail; token: stri
   const { data: dailyReport = [] } = useQuery<any[]>({
     queryKey: ['linkedin-reports-daily'],
     queryFn: () => apiFetch(token, '/linkedin/reports/daily'),
-    enabled: tab === 'reports',
+    enabled: tab === 'reports' || tab === 'accounts',
+    refetchInterval: 60_000,
   });
 
   const [syncResult, setSyncResult] = useState<{ synced: number } | null>(null);
@@ -3953,9 +3971,11 @@ function LinkedInSettingsTab({ agent, token }: { agent: AgentDetail; token: stri
               <p className="text-sm text-muted-foreground">No accounts synced yet. Click "Sync from Unipile" to import your connected LinkedIn accounts.</p>
             ) : accounts.length === 0 ? null : (
               <div className="space-y-3">
-                {accounts.map((acc: any) => (
-                  <AccountCard key={acc.id} acc={acc} onPatch={(body) => patchAccountMutation.mutate({ id: acc.id, ...body })} />
-                ))}
+                {accounts.map((acc: any) => {
+                  const today = new Date().toISOString().slice(0, 10);
+                  const todayRow = dailyReport.find((r: any) => r.accountId === acc.id && r.date === today) ?? null;
+                  return <AccountCard key={acc.id} acc={acc} todayRow={todayRow} onPatch={(body) => patchAccountMutation.mutate({ id: acc.id, ...body })} />;
+                })}
               </div>
             )}
           </div>

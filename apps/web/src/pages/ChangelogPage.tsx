@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.73.3',
+    date: '2026-05-16',
+    entries: [
+      { tag: 'fix', scope: 'linkedin', description: 'Daily limits now strictly enforced: linkedinPosts insert now stores accountId so quota counter is no longer always 0. Comment quota counts only status=posted rows using postedAt. Connection quota counts only sentAt (actually sent) not createdAt (proposed). DM quota unchanged (already correct).' },
+      { tag: 'fix', scope: 'linkedin', description: 'Daily reports now show actual executed actions: connections use sentAt, comments use postedAt+status=posted. Reports tab auto-refreshes every 60 seconds. Accounts tab also loads today\'s stats and shows a live progress bar (used/cap) under each limit input, turning red when the daily cap is reached.' },
+    ],
+  },
+  {
     version: 'v4.73.2',
     date: '2026-05-16',
     entries: [

@@ -173,7 +173,7 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
       await this.li.postComment(p.postId, p.comment, p.accountId);
       await this.db.db
         .update(linkedinPosts)
-        .set({ status: 'posted', postedAt: new Date() })
+        .set({ status: 'posted', postedAt: new Date(), accountId: p.dbAccountId ?? null })
         .where(eq(linkedinPosts.externalId, p.postId));
       await this.telegram.sendMessage(`LinkedIn comment posted on ${p.authorName}'s post:\n"${p.comment}"`);
       return { success: true, data: { postId: p.postId } };
@@ -259,7 +259,11 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
     const quotas = await Promise.all(commentingAccounts.map(a =>
       this.accountQuota(a.id, a.dailyCommentsLimit, 10, (since) =>
         this.db.db.select({ id: linkedinPosts.id }).from(linkedinPosts)
-          .where(and(eq(linkedinPosts.accountId, a.id), gte(linkedinPosts.postedAt, since)))
+          .where(and(
+            eq(linkedinPosts.accountId, a.id),
+            eq(linkedinPosts.status, 'posted'),
+            gte(linkedinPosts.postedAt, since),
+          ))
           .then(r => r.length),
       ),
     ));
@@ -336,6 +340,7 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
 
         await this.db.db.insert(linkedinPosts).values({
           externalId: post.id,
+          accountId: defaultAccount?.id ?? null,
           authorName: post.authorName,
           content: post.content.slice(0, 2000),
           draftComment: comment,
@@ -361,6 +366,7 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
             comment,
             postUrl,
             accountId: defaultAccount?.unipileAccountId ?? null,
+            dbAccountId: defaultAccount?.id ?? null,
           },
           riskLevel: violation ? 'high' : 'medium',
         });
@@ -410,7 +416,11 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
         account.dailyConnectionsLimit,
         5,
         (since) => this.db.db.select({ id: linkedinConnectionRequests.id }).from(linkedinConnectionRequests)
-          .where(and(eq(linkedinConnectionRequests.accountId, account.id), gte(linkedinConnectionRequests.createdAt, since)))
+          .where(and(
+            eq(linkedinConnectionRequests.accountId, account.id),
+            gte(linkedinConnectionRequests.sentAt, since),
+            inArray(linkedinConnectionRequests.status, ['sent', 'accepted', 'declined']),
+          ))
           .then(r => r.length),
       );
 
@@ -877,10 +887,21 @@ Score each profile 0.0–1.0 (1.0 = perfect match). Return JSON array only:
 
           const [accounts, connections, comments, dms] = await Promise.all([
             this.db.db.select().from(linkedinAccounts),
-            this.db.db.select({ accountId: linkedinConnectionRequests.accountId, createdAt: linkedinConnectionRequests.createdAt })
-              .from(linkedinConnectionRequests).where(gte(linkedinConnectionRequests.createdAt, since)),
-            this.db.db.select({ accountId: linkedinPosts.accountId, createdAt: linkedinPosts.createdAt })
-              .from(linkedinPosts).where(gte(linkedinPosts.createdAt, since)),
+            // Count only actually-sent requests (sentAt set by execute)
+            this.db.db.select({ accountId: linkedinConnectionRequests.accountId, sentAt: linkedinConnectionRequests.sentAt })
+              .from(linkedinConnectionRequests)
+              .where(and(
+                gte(linkedinConnectionRequests.sentAt, since),
+                inArray(linkedinConnectionRequests.status, ['sent', 'accepted', 'declined']),
+              )),
+            // Count only actually-posted comments (postedAt set by execute, status = posted)
+            this.db.db.select({ accountId: linkedinPosts.accountId, postedAt: linkedinPosts.postedAt })
+              .from(linkedinPosts)
+              .where(and(
+                gte(linkedinPosts.postedAt, since),
+                eq(linkedinPosts.status, 'posted'),
+              )),
+            // Count leads where DM was actually sent
             this.db.db.select({ accountId: linkedinLeads.accountId, lastContactedAt: linkedinLeads.lastContactedAt })
               .from(linkedinLeads)
               .where(and(
@@ -897,8 +918,8 @@ Score each profile 0.0–1.0 (1.0 = perfect match). Return JSON array only:
             return map[aId][date];
           };
 
-          for (const r of connections) { if (r.accountId) entry(r.accountId, dateKey(r.createdAt)).connections++; }
-          for (const r of comments)    { if (r.accountId) entry(r.accountId, dateKey(r.createdAt)).comments++; }
+          for (const r of connections) { if (r.accountId && r.sentAt) entry(r.accountId, dateKey(r.sentAt)).connections++; }
+          for (const r of comments)    { if (r.accountId && r.postedAt) entry(r.accountId, dateKey(r.postedAt)).comments++; }
           for (const r of dms)         { if (r.accountId && r.lastContactedAt) entry(r.accountId, dateKey(r.lastContactedAt)).dms++; }
 
           const accountMap = Object.fromEntries(accounts.map(a => [a.id, a.label]));
