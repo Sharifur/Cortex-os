@@ -16,6 +16,15 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.78.6',
+    date: '2026-05-16',
+    entries: [
+      { tag: 'fix', scope: 'canva', description: 'Template preview endpoint now proxies R2 URLs through the API instead of redirecting. Fixes broken layout picker thumbnails when R2 bucket is private or signed URLs have expired.' },
+      { tag: 'fix', scope: 'canva', description: 'Candidate thumbnail save now uploads to R2 when configured and returns the public URL. On production the DB stores the R2 URL; locally it falls back to the filesystem path.' },
+      { tag: 'fix', scope: 'canva', description: 'GET /canva/thumbnail/:id now proxies R2 URLs through the API if thumbnailPath is a URL. Previously always attempted readFile() which fails on production for remote-generated thumbnails.' },
+    ],
+  },
+  {
     version: 'v4.78.5',
     date: '2026-05-16',
     entries: [

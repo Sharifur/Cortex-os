@@ -92,7 +92,16 @@ export class DesignStudioController {
         throw new HttpException({ error: 'No preview available' }, HttpStatus.NOT_FOUND);
       }
       if (previewData.startsWith('http://') || previewData.startsWith('https://')) {
-        return void reply.redirect(previewData, 302);
+        // Proxy through API instead of redirecting — avoids browser CORS/access issues
+        // with private R2 buckets or expired signed URLs
+        const r2Res = await fetch(previewData);
+        if (!r2Res.ok) {
+          throw new HttpException({ error: 'Preview not accessible' }, HttpStatus.NOT_FOUND);
+        }
+        const bytes = Buffer.from(await r2Res.arrayBuffer());
+        const ct = r2Res.headers.get('content-type') ?? 'image/png';
+        void reply.header('Content-Type', ct).header('Cache-Control', 'public, max-age=86400').send(bytes);
+        return;
       }
       if (!previewData.startsWith('data:')) {
         throw new HttpException({ error: 'No preview available' }, HttpStatus.NOT_FOUND);

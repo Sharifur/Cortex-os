@@ -1,8 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
 import type { Candidate, DesignBrief } from './adapters/types';
+import { StorageService } from '../../storage/storage.service';
 
 export interface SessionManifest {
   sessionId: string;
@@ -26,6 +27,8 @@ const DEFAULT_APPROVAL_ROOT = path.join(os.homedir(), 'Designs', 'AI-Agent', 'Ap
 @Injectable()
 export class ApprovalFolderService {
   private readonly logger = new Logger(ApprovalFolderService.name);
+
+  constructor(@Optional() private readonly storage?: StorageService) {}
 
   approvalRoot(): string {
     return process.env.CANVA_APPROVAL_FOLDER ?? DEFAULT_APPROVAL_ROOT;
@@ -87,9 +90,30 @@ export class ApprovalFolderService {
   }
 
   async saveThumbnail(sessionId: string, candidateId: string, bytes: Buffer): Promise<string> {
-    const p = path.join(this.sessionDir(sessionId), 'pending', `${candidateId}_thumb.png`);
-    await this.atomicWrite(p, bytes);
-    return p;
+    // Always write locally as fallback / for local dev
+    const localPath = path.join(this.sessionDir(sessionId), 'pending', `${candidateId}_thumb.png`);
+    await this.atomicWrite(localPath, bytes);
+
+    // Upload to R2 when configured — production env needs URL-based access
+    if (this.storage) {
+      try {
+        const r2Ready = await this.storage.isConfigured();
+        if (r2Ready) {
+          const stored = await this.storage.upload({
+            module: 'canva/thumbnails',
+            refKey: sessionId,
+            body: bytes,
+            declaredMime: 'image/png',
+            originalFilename: `${candidateId}_thumb.png`,
+          });
+          return stored.url;
+        }
+      } catch (err) {
+        this.logger.warn(`R2 thumbnail upload failed, using local path: ${(err as Error).message}`);
+      }
+    }
+
+    return localPath;
   }
 
   async updateStatus(sessionId: string, candidateId: string, status: 'approved' | 'rejected'): Promise<void> {
