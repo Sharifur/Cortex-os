@@ -3724,6 +3724,8 @@ function AccountCard({ acc, todayRow, token, onPatch }: { acc: any; todayRow: an
   const [dirty, setDirty] = useState(false);
   const [trainStatus, setTrainStatus] = useState<{ saved: number; total: number; error?: string } | null>(null);
   const [isTraining, setIsTraining] = useState(false);
+  const [importStatus, setImportStatus] = useState<{ imported: number; error?: string } | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
 
   function handleLimitChange(key: string, value: string) {
     setLimits(l => ({ ...l, [key]: value }));
@@ -3755,6 +3757,22 @@ function AccountCard({ acc, todayRow, token, onPatch }: { acc: any; todayRow: an
     }
   }
 
+  async function importConnections() {
+    setIsImporting(true);
+    setImportStatus(null);
+    try {
+      const result = await apiFetch(token, '/linkedin/connections/import', {
+        method: 'POST',
+        body: JSON.stringify({ unipileAccountId: acc.unipileAccountId }),
+      }) as any;
+      setImportStatus({ imported: result.imported ?? 0, error: result.error });
+    } catch (err) {
+      setImportStatus({ imported: 0, error: (err as Error).message });
+    } finally {
+      setIsImporting(false);
+    }
+  }
+
   const ACTIONS = [
     { enableKey: 'enableConnections', label: 'Connections', dailyKey: 'dailyConnectionsLimit', defaultVal: 5, statKey: 'connections' },
     { enableKey: 'enableComments',   label: 'Feed comments', dailyKey: 'dailyCommentsLimit',   defaultVal: 10, statKey: 'comments' },
@@ -3769,6 +3787,15 @@ function AccountCard({ acc, todayRow, token, onPatch }: { acc: any; todayRow: an
           <p className="text-xs text-muted-foreground">{acc.unipileAccountId}</p>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={importConnections}
+            disabled={isImporting}
+            title="Import existing LinkedIn connections as leads — required for DM outreach"
+            className="text-xs px-2.5 py-1 rounded-full border border-border bg-muted/30 text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors disabled:opacity-50 flex items-center gap-1"
+          >
+            {isImporting && <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />}
+            {isImporting ? 'Importing...' : 'Import connections'}
+          </button>
           <button
             onClick={trainPersona}
             disabled={isTraining}
@@ -3787,6 +3814,13 @@ function AccountCard({ acc, todayRow, token, onPatch }: { acc: any; todayRow: an
         </div>
       </div>
 
+      {importStatus && (
+        <div className={`px-4 py-2 text-xs border-b border-border/50 ${importStatus.error ? 'bg-destructive/10 text-destructive' : 'bg-sky-500/10 text-sky-300'}`}>
+          {importStatus.error
+            ? importStatus.error
+            : `${importStatus.imported} connection${importStatus.imported !== 1 ? 's' : ''} imported as leads. Run DMs to message them.`}
+        </div>
+      )}
       {trainStatus && (
         <div className={`px-4 py-2 text-xs border-b border-border/50 ${trainStatus.error ? 'bg-destructive/10 text-destructive' : 'bg-emerald-500/10 text-emerald-300'}`}>
           {trainStatus.error
@@ -3918,20 +3952,6 @@ function LinkedInSettingsTab({ agent, token }: { agent: AgentDetail; token: stri
     }
   };
 
-  const [importStatus, setImportStatus] = useState<{ imported: number; error?: string } | null>(null);
-  const [isImporting, setIsImporting] = useState(false);
-  const importConnections = async () => {
-    setIsImporting(true);
-    setImportStatus(null);
-    try {
-      const result = await apiFetch(token, '/linkedin/connections/import', { method: 'POST', body: JSON.stringify({}) }) as any;
-      setImportStatus({ imported: result.imported ?? 0, error: result.error });
-    } catch (err) {
-      setImportStatus({ imported: 0, error: (err as Error).message });
-    } finally {
-      setIsImporting(false);
-    }
-  };
 
   const patchAccountMutation = useMutation({
     mutationFn: ({ id, ...body }: any) => apiFetch(token, `/linkedin/accounts/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
@@ -4043,30 +4063,6 @@ function LinkedInSettingsTab({ agent, token }: { agent: AgentDetail; token: stri
             )}
           </div>
 
-          {/* Import existing connections — required for DMs to work */}
-          <div className="rounded-xl border border-border bg-card p-4">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="text-sm font-medium mb-0.5">Import Existing Connections</p>
-                <p className="text-xs text-muted-foreground">Pull your existing LinkedIn connections from Unipile and add them as leads. Required for DM outreach to work — DMs can only go to people you are already connected with.</p>
-              </div>
-              <button
-                onClick={importConnections}
-                disabled={isImporting}
-                className="shrink-0 text-xs px-3 py-1.5 rounded-lg border border-border bg-background/50 hover:bg-muted/30 transition-colors disabled:opacity-50 flex items-center gap-1.5"
-              >
-                {isImporting && <span className="inline-block w-2 h-2 rounded-full bg-primary animate-pulse" />}
-                {isImporting ? 'Importing...' : 'Import connections'}
-              </button>
-            </div>
-            {importStatus && (
-              <div className={`mt-3 rounded-lg px-3 py-2 text-xs ${importStatus.error ? 'bg-destructive/10 text-destructive' : 'bg-emerald-500/10 text-emerald-300'}`}>
-                {importStatus.error
-                  ? importStatus.error
-                  : `${importStatus.imported} connection${importStatus.imported !== 1 ? 's' : ''} imported as leads. Run DMs to send messages to them.`}
-              </div>
-            )}
-          </div>
 
           <div className="rounded-xl border border-border bg-card p-5">
             <div className="flex items-center justify-between mb-3">
