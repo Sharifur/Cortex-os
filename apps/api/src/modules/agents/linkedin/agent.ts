@@ -709,7 +709,10 @@ General rules (apply to all categories):
         .where(eq(linkedinConnectionRequests.accountId, account.id));
       const contacted = new Set(existingProfileIds.map(r => r.profileId));
 
-      const blockedLower = (config.blockedCountries ?? []).map(c => c.toLowerCase());
+      const accountBlocked = (account.blockedCountries as string[] | null) ?? [];
+      const blockedLower = [...(config.blockedCountries ?? []), ...accountBlocked]
+        .map(c => c.toLowerCase())
+        .filter((v, i, a) => a.indexOf(v) === i);
       const fresh = candidates
         .filter(c => c.id && !contacted.has(c.id))
         .filter(c => {

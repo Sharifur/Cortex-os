@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.79.5',
+    date: '2026-05-17',
+    entries: [
+      { tag: 'feat', scope: 'linkedin', description: 'Per-account blocked countries: chip multi-select in the Accounts tab. Type a country name and press Enter to add, click x to remove. Saved immediately via PATCH. Merged with the global blockedCountries config at runtime. Migration 0084 adds blocked_countries column.' },
+    ],
+  },
+  {
     version: 'v4.79.4',
     date: '2026-05-17',
     entries: [

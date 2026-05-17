@@ -3723,6 +3723,22 @@ function AccountCard({ acc, todayRow, token, onPatch }: { acc: any; todayRow: an
     dailyDmsLimit: acc.dailyDmsLimit ?? '',
   });
   const [dirty, setDirty] = useState(false);
+  const [blockedCountries, setBlockedCountries] = useState<string[]>(acc.blockedCountries ?? []);
+  const [countryInput, setCountryInput] = useState('');
+
+  function addCountry(val: string) {
+    const trimmed = val.trim();
+    if (!trimmed || blockedCountries.map(c => c.toLowerCase()).includes(trimmed.toLowerCase())) return;
+    const next = [...blockedCountries, trimmed];
+    setBlockedCountries(next);
+    onPatch({ blockedCountries: next });
+  }
+
+  function removeCountry(country: string) {
+    const next = blockedCountries.filter(c => c !== country);
+    setBlockedCountries(next);
+    onPatch({ blockedCountries: next });
+  }
   const [trainStatus, setTrainStatus] = useState<{ saved: number; total: number; error?: string } | null>(null);
   const [isTraining, setIsTraining] = useState(false);
   const [importStatus, setImportStatus] = useState<{ imported: number; error?: string } | null>(null);
@@ -3952,6 +3968,42 @@ function AccountCard({ acc, todayRow, token, onPatch }: { acc: any; todayRow: an
             Save limits
           </button>
         )}
+      </div>
+
+      <div className="px-4 py-3 border-t border-border/50">
+        <p className="text-xs font-medium mb-2">Blocked countries (connections)</p>
+        <div className="flex flex-wrap gap-1.5 mb-2">
+          {blockedCountries.map(c => (
+            <span key={c} className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-muted border border-border text-muted-foreground">
+              {c}
+              <button onClick={() => removeCountry(c)} className="text-muted-foreground hover:text-destructive leading-none">&times;</button>
+            </span>
+          ))}
+          {blockedCountries.length === 0 && <span className="text-[11px] text-muted-foreground/50">None — all countries allowed</span>}
+        </div>
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={countryInput}
+            onChange={e => setCountryInput(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Enter' || e.key === ',') {
+                e.preventDefault();
+                addCountry(countryInput);
+                setCountryInput('');
+              }
+            }}
+            placeholder="Type country, press Enter"
+            className="flex-1 rounded-md border border-input bg-background px-2 py-1 text-xs"
+          />
+          <button
+            onClick={() => { addCountry(countryInput); setCountryInput(''); }}
+            disabled={!countryInput.trim()}
+            className="text-xs px-3 py-1 rounded-md border border-border bg-muted/30 text-muted-foreground hover:bg-muted/60 disabled:opacity-40"
+          >
+            Add
+          </button>
+        </div>
       </div>
     </div>
   );
