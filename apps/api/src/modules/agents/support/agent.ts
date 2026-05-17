@@ -1180,7 +1180,18 @@ export class SupportAgent implements IAgent, OnModuleInit {
     if (!baseUrl) return { ok: false, error: 'support_crm_base_url not configured' };
     const headers = await this.crmHeaders();
 
-    const ticketRes = await fetch(`${baseUrl.replace(/\/$/, '')}/api/public-v1/support-ticket/${crmTicketId}`, {
+    // CRM API requires UUID — look up from local DB by ticket number
+    let ticketIdentifier: string = String(crmTicketId);
+    const [localTicket] = await this.db.db
+      .select({ crmUuid: supportTickets.crmUuid })
+      .from(supportTickets)
+      .where(eq(supportTickets.ticketNo, String(crmTicketId)))
+      .limit(1);
+    if (localTicket?.crmUuid) {
+      ticketIdentifier = localTicket.crmUuid;
+    }
+
+    const ticketRes = await fetch(`${baseUrl.replace(/\/$/, '')}/api/public-v1/support-ticket/${ticketIdentifier}`, {
       headers,
       signal: AbortSignal.timeout(10000),
     });
@@ -1195,7 +1206,7 @@ export class SupportAgent implements IAgent, OnModuleInit {
     // Try to fetch reply thread
     let replies: { role: 'customer' | 'agent'; text: string }[] = [];
     try {
-      const replyRes = await fetch(`${baseUrl.replace(/\/$/, '')}/api/public-v1/support-ticket/${crmTicketId}/replies`, {
+      const replyRes = await fetch(`${baseUrl.replace(/\/$/, '')}/api/public-v1/support-ticket/${ticketIdentifier}/replies`, {
         headers,
         signal: AbortSignal.timeout(8000),
       });
