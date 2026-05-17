@@ -784,6 +784,7 @@ Score each profile 0.0–1.0 (1.0 = perfect match). Return JSON array only:
               role: 'system',
               content: `Write a LinkedIn connection request note. Max 280 characters.
 Rules:
+- Use the person's actual first name — never write [Name] or any placeholder
 - Sound like a real person, not a sales pitch
 - Mention something specific about their role or what they do
 - Simple, plain words — no jargon, no "synergy", no "reaching out"
@@ -793,13 +794,16 @@ Rules:
             },
             {
               role: 'user',
-              content: `Connect with: ${profile.first_name} ${profile.last_name}\nHeadline: ${profile.headline}\nNiche: ${niche.name}`,
+              content: `First name: ${profile.first_name}\nFull name: ${profile.first_name} ${profile.last_name}\nHeadline: ${profile.headline}\nNiche: ${niche.name}`,
             },
           ],
           agentKey: this.key,
           maxTokens: 80,
         });
-        const note = noteRes.content.trim().replace(/^["'`""]+|["'`""]+$/g, '').trim().slice(0, 280);
+        const note = noteRes.content.trim()
+          .replace(/^["'`""]+|["'`""]+$/g, '')
+          .replace(/\[name\]/gi, profile.first_name)
+          .trim().slice(0, 280);
 
         const [req] = await this.db.db.insert(linkedinConnectionRequests).values({
           accountId: account.id,

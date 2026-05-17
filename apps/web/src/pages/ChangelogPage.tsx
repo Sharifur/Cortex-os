@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.79.3',
+    date: '2026-05-17',
+    entries: [
+      { tag: 'fix', scope: 'linkedin', description: 'Connection request notes no longer contain [Name] placeholder. Prompt now instructs LLM to use the actual first name; a post-generation replace also catches any remaining [name] occurrences.' },
+    ],
+  },
+  {
     version: 'v4.79.2',
     date: '2026-05-17',
     entries: [
