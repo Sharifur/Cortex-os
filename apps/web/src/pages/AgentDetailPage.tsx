@@ -5002,6 +5002,7 @@ function LinkedInSettingsTab({ agent, token }: { agent: AgentDetail; token: stri
                   <li><code className="bg-muted px-1 rounded">commentTone</code> — style instruction for the LLM (e.g. <code className="bg-muted px-1 rounded">"professional, concise, adds value"</code>)</li>
                   <li><code className="bg-muted px-1 rounded">maxCommentsPerRun</code> — how many comments to draft per 4-hour cycle (default 3)</li>
                   <li><code className="bg-muted px-1 rounded">maxDMsPerRun</code> — max outreach DMs drafted per cycle (default 3)</li>
+                  <li><code className="bg-muted px-1 rounded">blockedCountries</code> — array of country names to skip when sending connection requests (e.g. <code className="bg-muted px-1 rounded">["India","Pakistan","Bangladesh"]</code>). Matched case-insensitively against the profile location field returned by Unipile.</li>
                 </ul>
               </SetupStep>
               <SetupStep n={5} title="Enable the agent and do a test run" done={agent.enabled}>

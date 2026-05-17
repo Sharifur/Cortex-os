@@ -35,6 +35,7 @@ interface LinkedInConfig {
   maxConnectionRequestsPerRun: number;
   commentTone: string;
   icpScoreThreshold: number;
+  blockedCountries?: string[];
   llm?: { provider?: string; model?: string };
 }
 
@@ -708,12 +709,20 @@ General rules (apply to all categories):
         .where(eq(linkedinConnectionRequests.accountId, account.id));
       const contacted = new Set(existingProfileIds.map(r => r.profileId));
 
-      const fresh = candidates.filter(c => c.id && !contacted.has(c.id)).slice(0, remaining);
+      const blockedLower = (config.blockedCountries ?? []).map(c => c.toLowerCase());
+      const fresh = candidates
+        .filter(c => c.id && !contacted.has(c.id))
+        .filter(c => {
+          if (!blockedLower.length || !c.location) return true;
+          const loc = c.location.toLowerCase();
+          return !blockedLower.some(bc => loc.includes(bc));
+        })
+        .slice(0, remaining);
       if (!fresh.length) {
-        await this.logSvc.warn(runId, `Connections: all ${candidates.length} candidates already contacted for niche "${niche.name}"`);
+        await this.logSvc.warn(runId, `Connections: 0 fresh candidates for niche "${niche.name}" after dedup + country filter (blockedCountries: [${blockedLower.join(', ')}])`);
         continue;
       }
-      await this.logSvc.info(runId, `Connections: ${fresh.length} fresh candidates for niche "${niche.name}"`)
+      await this.logSvc.info(runId, `Connections: ${fresh.length} fresh candidates for niche "${niche.name}"`, { blockedCountries: blockedLower })
 
       const icpPrompt = `You are scoring LinkedIn profiles against an Ideal Customer Profile (ICP).
 
