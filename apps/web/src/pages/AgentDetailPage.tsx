@@ -2978,7 +2978,7 @@ function SupportKbImportSection({ token }: { token: string }) {
       const res = await fetch('/support/kb-import', {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ crmTicketId: Number(ticketId.trim()) }),
+        body: JSON.stringify({ crmTicketId: ticketId.trim() }),
       });
       const data = await res.json();
       setResult(data);
@@ -2994,14 +2994,14 @@ function SupportKbImportSection({ token }: { token: string }) {
     <div className="rounded-xl border border-border bg-card px-5 py-4 space-y-3">
       <div>
         <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Feed KB from CRM Ticket</p>
-        <p className="text-xs text-muted-foreground mt-1">Enter a resolved CRM ticket ID. The agent will fetch the full conversation and generate a Q&A knowledge base entry from it.</p>
+        <p className="text-xs text-muted-foreground mt-1">Enter a ticket number (e.g. 1415) or UUID. The agent will fetch the full conversation and generate a Q&A knowledge base entry from it.</p>
       </div>
       <div className="flex items-center gap-2">
         <input
-          type="number"
+          type="text"
           value={ticketId}
           onChange={e => setTicketId(e.target.value)}
-          placeholder="CRM ticket ID (e.g. 1445)"
+          placeholder="Ticket number or UUID"
           className="flex-1 rounded-md border border-border bg-background px-3 py-1.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring"
           onKeyDown={e => e.key === 'Enter' && handleImport()}
         />

@@ -16,6 +16,20 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.79.7',
+    date: '2026-05-17',
+    entries: [
+      { tag: 'fix', scope: 'support', description: 'KB import ticket lookup now matches by both ticket_no and external_id. Previously only ticket_no was checked, so numeric CRM ticket IDs (stored in external_id) were not resolved to a UUID and the CRM fetch returned HTTP 404.' },
+    ],
+  },
+  {
+    version: 'v4.79.6',
+    date: '2026-05-17',
+    entries: [
+      { tag: 'fix', scope: 'support', description: 'Feed KB from CRM Ticket now resolves UUID from local DB by ticket number before calling the CRM API. CRM API requires UUID — passing a numeric ticket number caused HTTP 404. Both ticket fetch and replies fetch use the resolved UUID.' },
+    ],
+  },
+  {
     version: 'v4.79.5',
     date: '2026-05-17',
     entries: [
