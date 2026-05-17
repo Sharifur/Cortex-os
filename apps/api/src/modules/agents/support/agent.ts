@@ -1187,7 +1187,7 @@ export class SupportAgent implements IAgent, OnModuleInit {
       const [localTicket] = await this.db.db
         .select({ crmUuid: supportTickets.crmUuid })
         .from(supportTickets)
-        .where(eq(supportTickets.ticketNo, input))
+        .where(or(eq(supportTickets.ticketNo, input), eq(supportTickets.externalId, input)))
         .limit(1);
       if (localTicket?.crmUuid) ticketIdentifier = localTicket.crmUuid;
     }
