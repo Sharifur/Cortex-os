@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.79.2',
+    date: '2026-05-17',
+    entries: [
+      { tag: 'fix', scope: 'linkedin', description: 'getNativeFeedPosts now uses Unipile internal ID (p.id) as post.id instead of provider_id (LinkedIn URN). Fixes "Comment failed on both paths" — Unipile native comment API requires its own internal ID, not a LinkedIn URN. URL generation still uses provider_id.' },
+    ],
+  },
+  {
     version: 'v4.79.1',
     date: '2026-05-17',
     entries: [
