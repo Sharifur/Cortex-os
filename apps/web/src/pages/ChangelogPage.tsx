@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.79.4',
+    date: '2026-05-17',
+    entries: [
+      { tag: 'feat', scope: 'inbox', description: 'Inbox email list shows sending Gmail account as a badge on each row. Detail view shows "From: account" in the header. Reply composer pre-selects the account that sent the original email instead of always defaulting to the platform default. Migration 0083 adds gmail_account_id column to taskip_internal_emails.' },
+    ],
+  },
+  {
     version: 'v4.79.3',
     date: '2026-05-17',
     entries: [
