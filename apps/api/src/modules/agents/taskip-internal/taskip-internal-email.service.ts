@@ -139,11 +139,11 @@ export class TaskipInternalEmailService {
       await this.db.db.execute(sql`
         INSERT INTO taskip_internal_emails
           (id, purpose, workspace_uuid, recipient, subject, body,
-           gmail_message_id, gmail_thread_id, status, metadata, sent_at)
+           gmail_message_id, gmail_thread_id, gmail_account_id, status, metadata, sent_at)
         VALUES
           (${id}, ${input.purpose}, ${input.workspaceUuid ?? null},
            ${input.recipient}, ${input.subject}, ${input.body},
-           ${messageId}, ${threadId}, 'sent',
+           ${messageId}, ${threadId}, ${input.accountId ?? null}, 'sent',
            ${input.metadata ?? null},
            NOW())
       `);
@@ -178,6 +178,7 @@ export class TaskipInternalEmailService {
     const rows = await this.db.db.execute(sql`
       SELECT id, purpose, workspace_uuid AS "workspaceUuid", recipient, subject, body,
              gmail_message_id AS "gmailMessageId", gmail_thread_id AS "gmailThreadId",
+             gmail_account_id AS "gmailAccountId",
              status, error, reply_count AS "replyCount", last_reply_at AS "lastReplyAt",
              last_synced_at AS "lastSyncedAt", metadata, sent_at AS "sentAt",
              COALESCE(open_count, (metadata->>'openCount')::int, 0) AS "openCount",
@@ -191,6 +192,7 @@ export class TaskipInternalEmailService {
       this.db.db.execute(sql`
         SELECT id, purpose, workspace_uuid AS "workspaceUuid", recipient, subject, body,
                gmail_message_id AS "gmailMessageId", gmail_thread_id AS "gmailThreadId",
+               gmail_account_id AS "gmailAccountId",
                status, error, reply_count AS "replyCount", last_reply_at AS "lastReplyAt",
                last_synced_at AS "lastSyncedAt", metadata, sent_at AS "sentAt",
                0 AS "openCount", NULL AS "firstOpenAt", NULL AS "lastOpenAt"
@@ -214,6 +216,7 @@ export class TaskipInternalEmailService {
     const rows = await this.db.db.execute(sql`
       SELECT id, purpose, workspace_uuid AS "workspaceUuid", recipient, subject, body,
              gmail_message_id AS "gmailMessageId", gmail_thread_id AS "gmailThreadId",
+             gmail_account_id AS "gmailAccountId",
              status, error, reply_count AS "replyCount", last_reply_at AS "lastReplyAt",
              last_synced_at AS "lastSyncedAt", metadata, sent_at AS "sentAt",
              COALESCE(open_count, (metadata->>'openCount')::int, 0) AS "openCount",
@@ -224,6 +227,7 @@ export class TaskipInternalEmailService {
       this.db.db.execute(sql`
         SELECT id, purpose, workspace_uuid AS "workspaceUuid", recipient, subject, body,
                gmail_message_id AS "gmailMessageId", gmail_thread_id AS "gmailThreadId",
+               gmail_account_id AS "gmailAccountId",
                status, error, reply_count AS "replyCount", last_reply_at AS "lastReplyAt",
                last_synced_at AS "lastSyncedAt", metadata, sent_at AS "sentAt",
                0 AS "openCount", NULL AS "firstOpenAt", NULL AS "lastOpenAt"

@@ -35,6 +35,7 @@ interface LinkedInConfig {
   maxConnectionRequestsPerRun: number;
   commentTone: string;
   icpScoreThreshold: number;
+  blockedCountries?: string[];
   llm?: { provider?: string; model?: string };
 }
 
@@ -708,12 +709,23 @@ General rules (apply to all categories):
         .where(eq(linkedinConnectionRequests.accountId, account.id));
       const contacted = new Set(existingProfileIds.map(r => r.profileId));
 
-      const fresh = candidates.filter(c => c.id && !contacted.has(c.id)).slice(0, remaining);
+      const accountBlocked = (account.blockedCountries as string[] | null) ?? [];
+      const blockedLower = [...(config.blockedCountries ?? []), ...accountBlocked]
+        .map(c => c.toLowerCase())
+        .filter((v, i, a) => a.indexOf(v) === i);
+      const fresh = candidates
+        .filter(c => c.id && !contacted.has(c.id))
+        .filter(c => {
+          if (!blockedLower.length || !c.location) return true;
+          const loc = c.location.toLowerCase();
+          return !blockedLower.some(bc => loc.includes(bc));
+        })
+        .slice(0, remaining);
       if (!fresh.length) {
-        await this.logSvc.warn(runId, `Connections: all ${candidates.length} candidates already contacted for niche "${niche.name}"`);
+        await this.logSvc.warn(runId, `Connections: 0 fresh candidates for niche "${niche.name}" after dedup + country filter (blockedCountries: [${blockedLower.join(', ')}])`);
         continue;
       }
-      await this.logSvc.info(runId, `Connections: ${fresh.length} fresh candidates for niche "${niche.name}"`)
+      await this.logSvc.info(runId, `Connections: ${fresh.length} fresh candidates for niche "${niche.name}"`, { blockedCountries: blockedLower })
 
       const icpPrompt = `You are scoring LinkedIn profiles against an Ideal Customer Profile (ICP).
 
@@ -784,6 +796,7 @@ Score each profile 0.0–1.0 (1.0 = perfect match). Return JSON array only:
               role: 'system',
               content: `Write a LinkedIn connection request note. Max 280 characters.
 Rules:
+- Use the person's actual first name — never write [Name] or any placeholder
 - Sound like a real person, not a sales pitch
 - Mention something specific about their role or what they do
 - Simple, plain words — no jargon, no "synergy", no "reaching out"
@@ -793,13 +806,16 @@ Rules:
             },
             {
               role: 'user',
-              content: `Connect with: ${profile.first_name} ${profile.last_name}\nHeadline: ${profile.headline}\nNiche: ${niche.name}`,
+              content: `First name: ${profile.first_name}\nFull name: ${profile.first_name} ${profile.last_name}\nHeadline: ${profile.headline}\nNiche: ${niche.name}`,
             },
           ],
           agentKey: this.key,
           maxTokens: 80,
         });
-        const note = noteRes.content.trim().replace(/^["'`""]+|["'`""]+$/g, '').trim().slice(0, 280);
+        const note = noteRes.content.trim()
+          .replace(/^["'`""]+|["'`""]+$/g, '')
+          .replace(/\[name\]/gi, profile.first_name)
+          .trim().slice(0, 280);
 
         const [req] = await this.db.db.insert(linkedinConnectionRequests).values({
           accountId: account.id,

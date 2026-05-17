@@ -19,6 +19,7 @@ export const linkedinAccounts = pgTable('linkedin_accounts', {
   hourlyCommentsLimit: integer('hourly_comments_limit'),
   dailyDmsLimit: integer('daily_dms_limit'),
   hourlyDmsLimit: integer('hourly_dms_limit'),
+  blockedCountries: text('blocked_countries').array().notNull().default([]),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 

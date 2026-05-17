@@ -23,6 +23,7 @@ export const taskipInternalEmails = pgTable(
     body: text('body').notNull(),
     gmailMessageId: text('gmail_message_id'),
     gmailThreadId: text('gmail_thread_id'),
+    gmailAccountId: text('gmail_account_id'),
     status: text('status').notNull().default('sent'), // sent | failed
     error: text('error'),
     replyCount: integer('reply_count').notNull().default(0),

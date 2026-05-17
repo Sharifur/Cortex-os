@@ -29,6 +29,7 @@ interface InboxRow {
   lastReplyAt: string | null;
   lastSyncedAt: string | null;
   sentAt: string;
+  gmailAccountId?: string | null;
   openCount?: number;
   firstOpenAt?: string | null;
   lastOpenAt?: string | null;
@@ -385,6 +386,16 @@ export default function InboxPage() {
     }
   }, [accounts]);
 
+  // Pre-select the account that sent the selected email when switching emails
+  useEffect(() => {
+    if (!selected || !accounts.length) return;
+    const match = selected.gmailAccountId
+      ? accounts.find(a => a.id === selected.gmailAccountId)
+      : null;
+    const target = match ?? accounts.find(a => a.isDefault) ?? accounts[0];
+    if (target) setReplyAccountId(target.id);
+  }, [selected?.id, accounts]);
+
   async function handleSendCompose() {
     if (!composeTo.trim() || !composeSubject.trim() || !composeBody.trim()) return;
     setComposeSending(true);
@@ -621,6 +632,14 @@ export default function InboxPage() {
                       <span className={`text-[9px] px-1.5 py-0.5 rounded-full uppercase tracking-wider font-semibold ${purposeColor(r.purpose)}`}>
                         {r.purpose}
                       </span>
+                      {r.gmailAccountId && accounts.length > 0 && (() => {
+                        const acct = accounts.find(a => a.id === r.gmailAccountId);
+                        return acct ? (
+                          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-sky-500/15 text-sky-300 max-w-[120px] truncate" title={acct.email}>
+                            {acct.email}
+                          </span>
+                        ) : null;
+                      })()}
                       {r.metadata?.spamGrade && (
                         <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-semibold ${spamGradeColor(r.metadata.spamGrade as string)}`}>
                           {spamGradeLabel(r.metadata.spamGrade as string)} {r.metadata.spamScore}
@@ -800,6 +819,12 @@ export default function InboxPage() {
                   <div className={`w-6 h-6 rounded-full ${avatarColor(selected.recipient)} flex items-center justify-center text-white text-[10px] font-semibold`}>
                     {initials(selected.recipient)}
                   </div>
+                  {selected.gmailAccountId && accounts.length > 0 && (() => {
+                    const acct = accounts.find(a => a.id === selected.gmailAccountId);
+                    return acct ? (
+                      <span className="text-xs text-muted-foreground">From: <span className="text-foreground">{acct.displayName ? `${acct.displayName} <${acct.email}>` : acct.email}</span></span>
+                    ) : null;
+                  })()}
                   <span className="text-sm text-muted-foreground">To: {selected.recipient}</span>
                   <span className="text-xs text-muted-foreground">·</span>
                   <span className="text-xs text-muted-foreground">{new Date(selected.sentAt).toLocaleString()}</span>

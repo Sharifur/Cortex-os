@@ -23,6 +23,7 @@ export interface UnipileProfile {
   headline: string;
   profile_url: string;
   network_distance?: string;
+  location?: string;
 }
 
 @Injectable()
@@ -217,6 +218,7 @@ export class LinkedInService {
         headline: p.headline ?? p.sub_title ?? '',
         profile_url: p.public_profile_url ?? p.profile_url ?? `https://www.linkedin.com/in/${p.public_identifier ?? ''}`,
         network_distance: p.distance ?? p.network_distance ?? '',
+        location: p.location ?? p.geo_location ?? p.country ?? '',
       })) as UnipileProfile[];
     } catch (err) {
       this.logger.warn(`searchPeople error: ${(err as Error).message}`);

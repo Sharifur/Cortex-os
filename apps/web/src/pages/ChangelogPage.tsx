@@ -16,6 +16,28 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.79.5',
+    date: '2026-05-17',
+    entries: [
+      { tag: 'feat', scope: 'linkedin', description: 'Per-account blocked countries: chip multi-select in the Accounts tab. Type a country name and press Enter to add, click x to remove. Saved immediately via PATCH. Merged with the global blockedCountries config at runtime. Migration 0084 adds blocked_countries column.' },
+    ],
+  },
+  {
+    version: 'v4.79.4',
+    date: '2026-05-17',
+    entries: [
+      { tag: 'feat', scope: 'inbox', description: 'Inbox email list shows sending Gmail account as a badge on each row. Detail view shows "From: account" in the header. Reply composer pre-selects the account that sent the original email instead of always defaulting to the platform default. Migration 0083 adds gmail_account_id column to taskip_internal_emails.' },
+      { tag: 'feat', scope: 'linkedin', description: 'Connection requests now support blockedCountries config key — an array of country names to skip (e.g. ["India","Pakistan"]). Matched case-insensitively against the Unipile location field on each candidate profile.' },
+    ],
+  },
+  {
+    version: 'v4.79.3',
+    date: '2026-05-17',
+    entries: [
+      { tag: 'fix', scope: 'linkedin', description: 'Connection request notes no longer contain [Name] placeholder. Prompt now instructs LLM to use the actual first name; a post-generation replace also catches any remaining [name] occurrences.' },
+    ],
+  },
+  {
     version: 'v4.79.2',
     date: '2026-05-17',
     entries: [
