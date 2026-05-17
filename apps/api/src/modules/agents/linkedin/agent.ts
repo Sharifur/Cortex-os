@@ -174,6 +174,18 @@ function validateCommentForCategory(comment: string, category: PostCategory): st
   return found ? `Contains disallowed phrase for ${category}: "${found}"` : null;
 }
 
+// Detects posts with explicit CTA like: comment "LINKEDIN", comment 'FREE', comment WORD
+// Returns the keyword to post verbatim, or null if no CTA found.
+function detectCtaKeyword(content: string): string | null {
+  const dq = content.match(/(?:comment|type|reply|say)\s+["“”]([^"“”]{1,30})["“”]/i);
+  if (dq) return dq[1].trim();
+  const sq = content.match(/(?:comment|type|reply|say)\s+'([^']{1,30})'/i);
+  if (sq) return sq[1].trim();
+  const caps = content.match(/\bcomment\s+([A-Z]{3,15})\b/);
+  if (caps) return caps[1].trim();
+  return null;
+}
+
 const DEFAULT_CONFIG: LinkedInConfig = {
   targetTopics: [
     'digital agency', 'marketing agency', 'web agency', 'agency growth',
@@ -486,6 +498,40 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
 
     for (const post of fresh) {
       try {
+        const ctaKeyword = detectCtaKeyword(post.content ?? '');
+        if (ctaKeyword) {
+          await this.db.db.insert(linkedinPosts).values({
+            externalId: post.id,
+            accountId: defaultAccount?.id ?? null,
+            authorName: post.authorName,
+            content: post.content.slice(0, 2000),
+            draftComment: ctaKeyword,
+          }).onConflictDoNothing();
+          const postSnippet = post.content.slice(0, 200).trim();
+          const postUrl = post.url || '';
+          actions.push({
+            type: 'post_comment',
+            summary: [
+              `Comment on ${post.authorName}'s post [cta_keyword]:`,
+              '',
+              `"${postSnippet}${post.content.length > 200 ? '...' : ''}"`,
+              postUrl || null,
+              '',
+              `Proposed comment: "${ctaKeyword}" (CTA keyword from post)`,
+            ].filter(l => l !== null).join('\n'),
+            payload: {
+              postId: post.id,
+              authorName: post.authorName,
+              comment: ctaKeyword,
+              postUrl,
+              accountId: defaultAccount?.unipileAccountId ?? null,
+              dbAccountId: defaultAccount?.id ?? null,
+            },
+            riskLevel: 'low',
+          });
+          continue;
+        }
+
         const category = classifyPost(post.content ?? '');
         const categoryRules = CATEGORY_COMMENT_RULES[category];
 

@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.79.1',
+    date: '2026-05-17',
+    entries: [
+      { tag: 'feat', scope: 'linkedin', description: 'Agent detects CTA posts (e.g. "comment LINKEDIN", comment "FREE") and responds with the exact keyword instead of generating a generic comment. Handles double quotes, smart quotes, single quotes, and ALL_CAPS keywords.' },
+    ],
+  },
+  {
     version: 'v4.79.0',
     date: '2026-05-16',
     entries: [
