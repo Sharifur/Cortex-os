@@ -87,7 +87,9 @@ export class LinkedInService {
       const data = JSON.parse(raw) as any;
       const items: any[] = data.items ?? data.posts ?? data.data ?? [];
       const posts = items.map((p: any) => ({
-        id: p.provider_id ?? p.id ?? '',
+        // Use Unipile internal ID so POST /posts/{id}/comments works.
+        // provider_id is the LinkedIn URN — used only for URL generation.
+        id: p.id ?? p.provider_id ?? '',
         authorName: p.author?.name ?? p.author?.display_name ?? p.author_name ?? 'Unknown',
         content: p.text ?? p.content ?? p.body ?? '',
         url: p.url ?? (p.provider_id ? `https://www.linkedin.com/feed/update/${p.provider_id}/` : ''),
