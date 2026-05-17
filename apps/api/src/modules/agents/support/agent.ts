@@ -719,9 +719,9 @@ export class SupportAgent implements IAgent, OnModuleInit {
         path: '/support/kb-import',
         requiresAuth: true,
         handler: async (body) => {
-          const crmTicketId = Number((body as any)?.crmTicketId);
-          if (!crmTicketId || isNaN(crmTicketId)) throw new Error('crmTicketId is required');
-          return this.importTicketToKb(crmTicketId);
+          const raw = String((body as any)?.crmTicketId ?? '').trim();
+          if (!raw) throw new Error('crmTicketId is required');
+          return this.importTicketToKb(raw);
         },
       },
       {
@@ -1175,20 +1175,21 @@ export class SupportAgent implements IAgent, OnModuleInit {
     return { 'X-Secret-Key': key ?? '', 'Content-Type': 'application/json', Accept: 'application/json' };
   }
 
-  private async importTicketToKb(crmTicketId: number): Promise<{ ok: boolean; title?: string; entryId?: string; error?: string }> {
+  private async importTicketToKb(input: string): Promise<{ ok: boolean; title?: string; entryId?: string; error?: string }> {
     const baseUrl = await this.settings.getDecrypted('support_crm_base_url');
     if (!baseUrl) return { ok: false, error: 'support_crm_base_url not configured' };
     const headers = await this.crmHeaders();
 
-    // CRM API requires UUID — look up from local DB by ticket number
-    let ticketIdentifier: string = String(crmTicketId);
-    const [localTicket] = await this.db.db
-      .select({ crmUuid: supportTickets.crmUuid })
-      .from(supportTickets)
-      .where(eq(supportTickets.ticketNo, String(crmTicketId)))
-      .limit(1);
-    if (localTicket?.crmUuid) {
-      ticketIdentifier = localTicket.crmUuid;
+    // If input looks like a UUID, use it directly. Otherwise treat as ticket number and resolve UUID from local DB.
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(input);
+    let ticketIdentifier: string = input;
+    if (!isUuid) {
+      const [localTicket] = await this.db.db
+        .select({ crmUuid: supportTickets.crmUuid })
+        .from(supportTickets)
+        .where(eq(supportTickets.ticketNo, input))
+        .limit(1);
+      if (localTicket?.crmUuid) ticketIdentifier = localTicket.crmUuid;
     }
 
     const ticketRes = await fetch(`${baseUrl.replace(/\/$/, '')}/api/public-v1/support-ticket/${ticketIdentifier}`, {
@@ -1261,10 +1262,10 @@ export class SupportAgent implements IAgent, OnModuleInit {
       priority: 70,
       agentKeys: this.key,
       sourceType: 'crm_import',
-      sourceUrl: `${baseUrl.replace(/\/$/, '')}/support-ticket/${crmTicketId}`,
+      sourceUrl: `${baseUrl.replace(/\/$/, '')}/support-ticket/${ticketIdentifier}`,
     });
 
-    this.logger.log(`KB import from CRM ticket #${crmTicketId}: "${proposal.title}" (${entry.id})`);
+    this.logger.log(`KB import from CRM ticket ${input}: "${proposal.title}" (${entry.id})`);
     return { ok: true, title: proposal.title, entryId: entry.id };
   }
 
