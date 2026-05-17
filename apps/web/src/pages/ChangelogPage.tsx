@@ -16,6 +16,23 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.79.0',
+    date: '2026-05-16',
+    entries: [
+      { tag: 'fix', scope: 'inbox', description: 'Tracking pixel URL now reads api_public_url from Settings first, then falls back to COOLIFY_URL / API_PUBLIC_URL env vars. Previously the URL was always empty on production if those env vars were not set, so open tracking never fired.' },
+      { tag: 'fix', scope: 'inbox', description: 'IMAP: after sending, getMessage(smtpMessageId) was doing Number(smtpMessageId) which evaluates to NaN, causing the fetch to fail silently and gmailThreadId to be stored as null. syncReplies then returned immediately. Now falls back to using the SMTP Message-ID itself as the threadId.' },
+      { tag: 'fix', scope: 'inbox', description: 'IMAP getThread now searches In-Reply-To header instead of Message-ID. The old search matched only the original sent message (in Sent folder, not INBOX), returning no replies. The new search finds messages in INBOX that replied to the sent email.' },
+    ],
+  },
+  {
+    version: 'v4.78.9',
+    date: '2026-05-16',
+    entries: [
+      { tag: 'fix', scope: 'linkedin', description: 'getNativeFeedPosts now maps post ID to provider_id (LinkedIn activity URN) before internal Unipile ID. Fixes Voyager fallback building a malformed URL with an internal ID, which caused 400 "rejected by provider" from LinkedIn.' },
+      { tag: 'fix', scope: 'linkedin', description: 'postComment skips Voyager fallback when postId is not a LinkedIn URN (urn:li: prefix), avoiding a guaranteed-400 call. Error message now identifies the non-URN postId for easier diagnosis.' },
+    ],
+  },
+  {
     version: 'v4.78.8',
     date: '2026-05-16',
     entries: [
