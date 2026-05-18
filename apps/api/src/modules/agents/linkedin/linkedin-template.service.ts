@@ -109,15 +109,39 @@ Reply with ONLY a single digit: the template number you chose (1-${candidates.le
     return chosen;
   }
 
-  private async renderTemplate(body: string, prospect: ProspectContext): Promise<string> {
-    // Fill known static variables first
-    let draft = body
-      .replace(/\{firstName\}/g, prospect.firstName)
-      .replace(/\{company\}/g, prospect.company ?? '{company}')
-      .replace(/\{yourCompany\}/g, prospect.yourCompany ?? '{yourCompany}');
+  // Matches both {placeholder} and [placeholder] styles, case-insensitive
+  private readonly PLACEHOLDER_RE = /\{[^}]{1,60}\}|\[[^\]]{1,60}\]/gi;
 
-    // If placeholders remain, ask LLM to fill them contextually
-    if (/{[^}]+}/.test(draft)) {
+  private hasPlaceholders(text: string): boolean {
+    return this.PLACEHOLDER_RE.test(text);
+  }
+
+  private stripRemainingPlaceholders(text: string): string {
+    // Remove any unfilled placeholder and collapse double-spaces left behind
+    return text
+      .replace(this.PLACEHOLDER_RE, '')
+      .replace(/[ \t]{2,}/g, ' ')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+  }
+
+  private async renderTemplate(body: string, prospect: ProspectContext): Promise<string> {
+    // Static fills — known variables
+    let draft = body
+      .replace(/\{firstName\}|\[First Name\]|\[first name\]/gi, prospect.firstName)
+      .replace(/\{lastName\}|\[Last Name\]|\[last name\]/gi, prospect.lastName ?? '')
+      .replace(/\{company\}|\[Company\]|\[company name\]/gi, prospect.company ?? '')
+      .replace(/\{yourCompany\}|\[Your Company\]/gi, prospect.yourCompany ?? '')
+      .replace(/\{headline\}|\[Headline\]/gi, prospect.headline ?? '')
+      .replace(/\{topic\}|\[Topic\]|\[Niche\]/gi, prospect.topic ?? '')
+      .replace(/\{targetRole\}|\[Target Role\]|\[Role\]/gi, prospect.targetRole ?? '')
+      .replace(/\{industry\}|\[Industry\]/gi, prospect.industry ?? '');
+
+    // Reset lastIndex (stateful regex)
+    this.PLACEHOLDER_RE.lastIndex = 0;
+
+    if (this.hasPlaceholders(draft)) {
+      this.PLACEHOLDER_RE.lastIndex = 0;
       const res = await this.llm.complete({
         messages: [
           {
@@ -132,7 +156,8 @@ ${prospect.topic ? `- Topic/niche: ${prospect.topic}` : ''}
 ${prospect.extraContext ? `- Extra context: ${prospect.extraContext}` : ''}
 
 Rules:
-- Fill every {placeholder} with a plausible, specific, natural-sounding value based on the prospect
+- Replace every placeholder (both {curly} and [square] bracket styles) with a specific, natural-sounding value
+- If you cannot determine a plausible value for a placeholder, remove it entirely — never leave a placeholder in the output
 - Keep filled values short and concrete — no generic filler
 - Do NOT add explanations or commentary
 - Return only the completed message, nothing else`,
@@ -143,6 +168,13 @@ Rules:
         maxTokens: 400,
       });
       draft = res.content.trim();
+    }
+
+    // Final safety pass — strip any placeholder the LLM missed
+    this.PLACEHOLDER_RE.lastIndex = 0;
+    if (this.hasPlaceholders(draft)) {
+      this.PLACEHOLDER_RE.lastIndex = 0;
+      draft = this.stripRemainingPlaceholders(draft);
     }
 
     return draft;
