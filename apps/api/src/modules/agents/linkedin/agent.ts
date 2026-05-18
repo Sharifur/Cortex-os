@@ -10,6 +10,7 @@ import { LinkedInService } from './linkedin.service';
 import { LinkedInCommentService } from './linkedin-comment.service';
 import { LinkedInConnectionService } from './linkedin-connection.service';
 import { LinkedInDmService } from './linkedin-dm.service';
+import { LinkedInTemplateService } from './linkedin-template.service';
 import { AgentRegistryService } from '../runtime/agent-registry.service';
 import { AgentLogService } from '../runtime/agent-log.service';
 import { LlmRouterService } from '../../llm/llm-router.service';
@@ -214,6 +215,7 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
     private liComment: LinkedInCommentService,
     private liConnection: LinkedInConnectionService,
     private liDm: LinkedInDmService,
+    private liTemplate: LinkedInTemplateService,
     private registry: AgentRegistryService,
     private kb: KnowledgeBaseService,
     private logSvc: AgentLogService,
@@ -794,7 +796,7 @@ Score each profile 0.0–1.0 (1.0 = perfect match). Return JSON array only:
           messages: [
             {
               role: 'system',
-              content: `Write a LinkedIn connection request note. Max 280 characters.
+              content: `Write a LinkedIn connection request note. Max 190 characters.
 Rules:
 - Use the person's actual first name — never write [Name] or any placeholder
 - Sound like a real person, not a sales pitch
@@ -815,7 +817,7 @@ Rules:
         const note = noteRes.content.trim()
           .replace(/^["'`""]+|["'`""]+$/g, '')
           .replace(/\[name\]/gi, profile.first_name)
-          .trim().slice(0, 280);
+          .trim().slice(0, 190);
 
         const [req] = await this.db.db.insert(linkedinConnectionRequests).values({
           accountId: account.id,
@@ -1023,11 +1025,25 @@ Rules:
       for (const { lead, step } of candidatePairs) {
         if (actions.length >= dmLimit) break;
         try {
-          const response = await this.llm.complete({
-            messages: [
-              {
-                role: 'system',
-                content: `You are writing a LinkedIn DM on behalf of a founder.
+          let message: string;
+
+          if (step.stepNumber === 1) {
+            // Fresh lead first DM — use template system
+            const nameParts = (lead.name ?? '').split(' ');
+            message = await this.liTemplate.selectAndRender({
+              firstName: nameParts[0] || 'there',
+              lastName: nameParts.slice(1).join(' ') || undefined,
+              headline: lead.headline ?? undefined,
+              stage: 'dm1',
+              extraContext: lead.icpReason ?? undefined,
+            });
+          } else {
+            // Follow-up DM — use sequence step instruction via LLM
+            const response = await this.llm.complete({
+              messages: [
+                {
+                  role: 'system',
+                  content: `You are writing a LinkedIn DM on behalf of a founder.
 
 Sequence goal: ${sequence.goal ?? 'Build a genuine connection'}
 This message is step ${step.stepNumber} of ${steps.length} in a conversation sequence.
@@ -1041,17 +1057,18 @@ Rules:
 - Do NOT mention you are following a sequence
 - Do NOT wrap your reply in quotes
 - Return only the message text${kbBlock}`,
-              },
-              {
-                role: 'user',
-                content: `Name: ${lead.name ?? 'there'}\nHeadline: ${lead.headline ?? ''}\nICP reason: ${lead.icpReason ?? ''}`,
-              },
-            ],
-            agentKey: this.key,
-            maxTokens: 180,
-          });
+                },
+                {
+                  role: 'user',
+                  content: `Name: ${lead.name ?? 'there'}\nHeadline: ${lead.headline ?? ''}\nICP reason: ${lead.icpReason ?? ''}`,
+                },
+              ],
+              agentKey: this.key,
+              maxTokens: 180,
+            });
+            message = response.content.trim().replace(/^["'`""]+|["'`""]+$/g, '').trim();
+          }
 
-          let message = response.content.trim().replace(/^["'`""]+|["'`""]+$/g, '').trim();
           if (!message) continue;
           message = await this.selfCritique(message, alwaysOn.find(e => e.entryType === 'voice_profile')?.content, blocklist);
           const violation = blocklist.find(b => message.toLowerCase().includes(b.toLowerCase()));

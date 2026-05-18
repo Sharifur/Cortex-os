@@ -16,6 +16,15 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.80.0',
+    date: '2026-05-18',
+    entries: [
+      { tag: 'feat', scope: 'linkedin', description: 'Template system for DM outreach: 502 stage-tagged templates stored in DB, LLM picks best candidate, variables resolved contextually. Fresh leads (dmStep=0) use templates; follow-up DMs use sequence step instructions.' },
+      { tag: 'fix', scope: 'linkedin', description: 'Connection request note hard-capped at 200 chars at Unipile boundary and 190 chars in LLM prompt to prevent 400 too_many_characters errors.' },
+      { tag: 'feat', scope: 'linkedin', description: 'LinkedIn templates migration (0085) and LinkedInTemplateService with candidate fetching, LLM picker, and two-pass variable renderer.' },
+    ],
+  },
+  {
     version: 'v4.79.7',
     date: '2026-05-17',
     entries: [
