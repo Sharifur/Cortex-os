@@ -13,6 +13,7 @@ import { LinkedInService } from './linkedin.service';
 import { LinkedInCommentService } from './linkedin-comment.service';
 import { LinkedInConnectionService } from './linkedin-connection.service';
 import { LinkedInDmService } from './linkedin-dm.service';
+import { LinkedInTemplateService } from './linkedin-template.service';
 import { LinkedInCronProcessor } from './linkedin-cron.processor';
 
 // Staggered daily schedule — each action runs independently, hours apart
@@ -33,8 +34,8 @@ const LINKEDIN_CRON_SCHEDULES = [
     SettingsModule,
     BullModule.registerQueue({ name: QUEUE_NAMES.LINKEDIN_CRON }),
   ],
-  providers: [LinkedInService, LinkedInCommentService, LinkedInConnectionService, LinkedInDmService, LinkedInAgent, LinkedInCronProcessor],
-  exports: [LinkedInService, LinkedInCommentService, LinkedInConnectionService, LinkedInDmService, LinkedInAgent],
+  providers: [LinkedInService, LinkedInCommentService, LinkedInConnectionService, LinkedInDmService, LinkedInTemplateService, LinkedInAgent, LinkedInCronProcessor],
+  exports: [LinkedInService, LinkedInCommentService, LinkedInConnectionService, LinkedInDmService, LinkedInTemplateService, LinkedInAgent],
 })
 export class LinkedInModule implements OnModuleInit {
   constructor(

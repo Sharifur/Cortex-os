@@ -94,3 +94,19 @@ export const linkedinPosts = pgTable('linkedin_posts', {
   postedAt: timestamp('posted_at'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
+
+// stage: connection | dm1 | dm2 | dm3 | dm4 | breakup
+// category: universal | sales | seo | partnership | networking | event | referral |
+//           founder | cmo | vp_sales | revops | people | product | cto | recruiter |
+//           investor | saas | ecommerce | agency | local | consulting | fintech
+export const linkedinTemplates = pgTable('linkedin_templates', {
+  id: text('id').primaryKey().$defaultFn(() => createId()),
+  templateNumber: integer('template_number'),
+  stage: text('stage').notNull(),
+  category: text('category').notNull(),
+  targetRole: text('target_role'),
+  industry: text('industry'),
+  body: text('body').notNull(),
+  isActive: boolean('is_active').notNull().default(true),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});

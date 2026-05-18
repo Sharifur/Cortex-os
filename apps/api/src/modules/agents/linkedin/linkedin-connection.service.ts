@@ -31,7 +31,10 @@ export class LinkedInConnectionService {
 
     this.logger.log(`sendConnectionRequest: profileId=${profileId} accountId=${accountId} withNote=${!!note}`);
     const body: Record<string, any> = { account_id: accountId, provider_id: profileId };
-    if (note?.trim()) body['message'] = note.trim();
+    if (note?.trim()) {
+      const trimmed = note.trim().slice(0, 200);
+      body['message'] = trimmed;
+    }
     const res = await fetch(`${this.unipileBase(unipileDsn)}/users/invite`, {
       method: 'POST',
       headers: this.unipileHeaders(unipileKey),
