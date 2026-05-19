@@ -6,6 +6,7 @@ import { taskipInternalEmails, taskipInternalEmailReplies } from '../../../db/sc
 import { emailSuppressions } from '../../ses/ses-suppressions.schema';
 import { GmailService } from '../../gmail/gmail.service';
 import { SettingsService } from '../../settings/settings.service';
+import { PushService } from '../../push/push.service';
 
 // Footer constants kept for future opt-in use but NOT appended to 1:1 outreach.
 // Research shows appending "Reply STOP to unsubscribe" on personal Gmail sends
@@ -74,6 +75,7 @@ export class TaskipInternalEmailService {
     private readonly db: DbService,
     private readonly gmail: GmailService,
     private readonly settings: SettingsService,
+    private readonly push: PushService,
   ) {}
 
   async send(input: SendTrackedEmailInput): Promise<{ id: string; gmailMessageId: string | null; status: 'sent' | 'failed'; error?: string }> {
@@ -309,6 +311,16 @@ export class TaskipInternalEmailService {
         lastSyncedAt: new Date(),
       })
       .where(eq(taskipInternalEmails.id, emailId));
+
+    if (added > 0) {
+      this.push.sendToAll({
+        title: 'New email reply',
+        body: `${added} new repl${added === 1 ? 'y' : 'ies'} in your inbox`,
+        tag: `inbox-reply-${emailId}`,
+        url: `/inbox?highlight=${emailId}`,
+        renotify: true,
+      }).catch(() => {});
+    }
 
     // A reply proves the recipient opened the email — auto-mark opened if not already.
     if (added > 0 && email.openCount === 0 && lastReplyAt) {

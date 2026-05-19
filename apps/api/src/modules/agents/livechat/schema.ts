@@ -109,6 +109,7 @@ export const livechatSessions = pgTable(
     currentPageTitle: text('current_page_title'),
     lastSeenAt: timestamp('last_seen_at').notNull().defaultNow(),
     transcriptSentAt: timestamp('transcript_sent_at'),
+    inactivityEmailSentAt: timestamp('inactivity_email_sent_at'),
     pageContext: jsonb('page_context'),
     createdAt: timestamp('created_at').notNull().defaultNow(),
   },

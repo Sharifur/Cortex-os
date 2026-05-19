@@ -38,11 +38,17 @@ export class NotificationsService {
       SELECT COUNT(*)::int AS count FROM livechat_kb_gaps
     `);
 
+    const [newReplies] = await this.db.db.execute(sql`
+      SELECT COUNT(*)::int AS count FROM taskip_internal_email_replies
+      WHERE received_at >= NOW() - INTERVAL '24 hours'
+    `);
+
     const waitingChats = Number((waiting as any)?.count ?? 0);
     const pendingApprovals = Number((approvals as any)?.count ?? 0);
     const agentFailures = Number((failures as any)?.count ?? 0);
     const kbProposals = Number((proposals as any)?.count ?? 0);
     const kbGaps = Number((gaps as any)?.count ?? 0);
+    const newInboxReplies = Number((newReplies as any)?.count ?? 0);
 
     return {
       waitingChats,
@@ -50,7 +56,8 @@ export class NotificationsService {
       agentFailures,
       kbProposals,
       kbGaps,
-      total: waitingChats + pendingApprovals + agentFailures + kbProposals + kbGaps,
+      newInboxReplies,
+      total: waitingChats + pendingApprovals + agentFailures + kbProposals + kbGaps + newInboxReplies,
     };
   }
 }

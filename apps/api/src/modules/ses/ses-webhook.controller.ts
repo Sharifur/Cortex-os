@@ -56,6 +56,8 @@ export class SesWebhookController {
       throw new UnauthorizedException('Invalid webhook token');
     }
 
+    this.logger.debug(`SES webhook received — messageType: ${messageType}`);
+
     if (messageType === 'SubscriptionConfirmation' && body.SubscribeURL) {
       try {
         const u = new URL(body.SubscribeURL);
@@ -82,16 +84,22 @@ export class SesWebhookController {
       return;
     }
 
+    this.logger.debug(`SES notification — type: ${notification.notificationType}`);
+
     if (notification.notificationType === 'Bounce') {
       const bounce = notification.bounce!;
       if (bounce.bounceType === 'Permanent') {
+        this.logger.log(`SES hard bounce — suppressing: ${bounce.bouncedRecipients.map(r => r.emailAddress).join(', ')}`);
         for (const r of bounce.bouncedRecipients) {
           await this.ses.suppress(r.emailAddress, 'hard_bounce', 'ses');
         }
+      } else {
+        this.logger.debug(`SES soft bounce (${bounce.bounceType}) — not suppressing: ${bounce.bouncedRecipients.map(r => r.emailAddress).join(', ')}`);
       }
     }
 
     if (notification.notificationType === 'Complaint') {
+      this.logger.log(`SES complaint — suppressing: ${notification.complaint!.complainedRecipients.map(r => r.emailAddress).join(', ')}`);
       for (const r of notification.complaint!.complainedRecipients) {
         await this.ses.suppress(r.emailAddress, 'complaint', 'ses');
       }

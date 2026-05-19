@@ -16,6 +16,35 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.82.1',
+    date: '2026-05-20',
+    entries: [
+      { tag: 'docs', scope: 'livechat', description: 'Rewrote LC-27 email-to-thread setup runbook with step-by-step MX record, SNS topic, SES Receipt Rule instructions, troubleshooting table, and anti-spoofing notes.' },
+    ],
+  },
+  {
+    version: 'v4.82.0',
+    date: '2026-05-20',
+    entries: [
+      { tag: 'feat', scope: 'livechat', description: 'Inactivity email: if a visitor goes offline for 3+ minutes with unread agent messages, an email is sent automatically with the missed messages and a Reply-To so they can respond directly from email.' },
+      { tag: 'fix', scope: 'livechat', description: 'Reply-To address now auto-sets once livechat_reply_domain is configured — livechat_reply_secret is generated automatically if missing.' },
+      { tag: 'feat', scope: 'widget', description: 'Email auto-capture: when a visitor types an email address in the chat textarea the widget silently calls identify() so the session is linked to their email without interrupting the conversation.' },
+      { tag: 'feat', scope: 'ses', description: 'SES webhook and livechat inbound controller now emit detailed debug/warn logs for all notification types, bounces, complaints, and rejected inbound emails — easier to diagnose routing issues.' },
+      { tag: 'fix', scope: 'livechat', description: 'Transcript service now warns at log level WARN (not DEBUG) when Reply-To cannot be set, with a clear message about which settings are missing.' },
+    ],
+  },
+  {
+    version: 'v4.81.0',
+    date: '2026-05-20',
+    entries: [
+      { tag: 'feat', scope: 'inbox', description: 'Mobile responsive layout: email list and detail panel stack on small screens with back navigation between views.' },
+      { tag: 'feat', scope: 'inbox', description: 'Web Push notifications for new email replies — bell icon in inbox top bar to subscribe/unsubscribe per browser.' },
+      { tag: 'feat', scope: 'notifications', description: 'Bell icon now shows unread inbox replies count (last 24h) alongside existing chat/approval/failure counts.' },
+      { tag: 'fix', scope: 'inbox', description: 'Timestamps now parsed as UTC by appending Z to strings lacking timezone designator, fixing relative time showing 6h offset for UTC+6 users.' },
+      { tag: 'fix', scope: 'inbox', description: 'All date displays use configured platform timezone (Asia/Dhaka) instead of browser OS timezone.' },
+    ],
+  },
+  {
     version: 'v4.80.1',
     date: '2026-05-20',
     entries: [

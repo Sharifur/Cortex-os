@@ -109,76 +109,157 @@ psql -c "SELECT visitor_id, ip_country, browser_name, os_name, total_pageviews, 
 
 ### LC-27 runbook — email-to-thread (AWS setup)
 
-This is the AWS-side configuration that pairs with the code in LC-27. Without it the transcript emails still go out, but visitor replies will land in your inbox unrouted.
+This is the AWS-side configuration that pairs with the code in LC-27. Without it transcript emails still go out, but visitor replies land in your inbox unrouted instead of back in the chat.
 
-**Prerequisites:** SES is in production mode (out of sandbox), AWS SES inbound is enabled in your region, you control DNS for the reply subdomain.
+**How it works end-to-end:**
 
-```sh
-# 1. Pick a subdomain you'll use as the reply address.
-#    e.g. reply.taskip.net (must be a subdomain you control, NOT a domain you send from).
-
-# 2. Add MX records pointing the subdomain at SES inbound for your region.
-#    For us-east-1:  reply.taskip.net.  MX  10  inbound-smtp.us-east-1.amazonaws.com.
-#    For ap-south-1: reply.taskip.net.  MX  10  inbound-smtp.ap-south-1.amazonaws.com.
-#    Replace the region to match SES configuration in cortex-os Settings.
-
-# 3. Verify the domain in SES → Verified identities → Create identity → Domain.
-#    (You only need DKIM verification for sending; for receiving, the MX is enough.)
-
-# 4. Create an SNS topic that the Receipt Rule will publish to:
-#    SNS → Topics → Create topic → Standard → name: cortex-livechat-inbound
-
-# 5. Generate two random secrets, paste them into cortex-os
-#    (Settings → Integrations → Email (SES)):
-#       livechat_reply_domain    = reply.taskip.net   (the subdomain from step 1)
-#       livechat_reply_secret    = <32+ char random>  (HMAC key for reply tokens)
-#       livechat_inbound_token   = <32+ char random>  (URL query token)
-
-# 6. Subscribe the inbound webhook to the SNS topic:
-#    SNS → your topic → Create subscription
-#       Protocol: HTTPS
-#       Endpoint: https://api.<your-domain>/livechat/inbound?t=<livechat_inbound_token>
-#    The first POST will be a SubscriptionConfirmation with a SubscribeURL —
-#    cortex auto-confirms it (controller logs "SNS livechat-inbound subscription confirmed").
-
-# 7. Create the SES Receipt Rule:
-#    SES → Email receiving → Rule sets → (default rule set) → Create rule
-#       Recipients: reply.taskip.net   (or transcript@reply.taskip.net for stricter scoping)
-#       Action 1: Publish to Amazon SNS topic
-#         - Topic: cortex-livechat-inbound
-#         - Encoding: UTF-8
-#         - Message format: SES (will include parsed mail.commonHeaders + raw content)
-#       Action 2 (optional): Add header X-Cortex-Source: livechat
-#       Then activate the rule set.
-
-# 8. Smoke test:
-#    a. Open admin → Live Chat → enable transcript on a site, set visitor email, close a session.
-#    b. Visitor receives transcript with Reply-To: transcript+<sessionId>.<token>@reply.taskip.net
-#    c. Visitor hits Reply, types "thanks", hits Send.
-#    d. SES receives → SNS → cortex /livechat/inbound endpoint.
-#    e. Watch API logs for: "Inbound accepted for session XXXXXXXX (accepted)"
-#    f. Open admin Conversations → the closed session reopens, the email body is
-#       now a visitor message, agent has replied.
-
-# Anti-spoofing built in:
-#   - HMAC token in the To address (only cortex can mint valid reply addresses)
-#   - Sender email must match livechat_sessions.visitor_email (rejects forwarded replies from third parties)
-#   - URL token (?t=) on the webhook (rejects calls not from your SNS)
-#   - SNS SubscribeURL must come from sns.<region>.amazonaws.com (rejects spoofed handshake attempts)
-#
-# Quoted-reply / signature stripping:
-#   - "On X, Y wrote:" Gmail-style quote markers
-#   - "From: ... Sent: ... To: ..." Outlook quote headers
-#   - "------ Original Message ------"
-#   - "Sent from my iPhone/iPad/Android/Outlook"
-#   - "------ Forwarded message ------"
-#   - Any line starting with > (quoted reply lines)
-#
-# What can break:
-#   - Visitor replies from a different email than the session's visitor_email → rejected as sender_mismatch
-#   - Visitor replies after 24h+ (transcript URLs expired) → still works, only attachment images go stale; reply itself routes fine
-#   - Visitor's email client mangles the In-Reply-To header → token in the To address still works; both paths are checked
 ```
+Visitor receives transcript email
+  → has Reply-To: transcript+{sessionId}.{hmac}@reply.yourdomain.com
+Visitor clicks Reply, types message, sends
+  → email arrives at SES (MX record on reply.yourdomain.com points to AWS)
+SES Receipt Rule fires
+  → publishes raw email to SNS topic
+SNS delivers to cortex webhook: POST /livechat/inbound?t={token}
+  → controller parses recipient, verifies HMAC, extracts text body
+  → message appended to chat session as visitor message
+  → AI agent responds normally
+```
+
+**Prerequisites:**
+- AWS SES out of sandbox (production mode)
+- SES email receiving enabled in your region (us-east-1 or ap-south-1)
+- You control DNS for a subdomain (e.g. `reply.taskip.net`) — must NOT be the same domain you send from
+
+---
+
+#### Step 1 — Add MX record to DNS
+
+In your DNS provider (Cloudflare, Route 53, etc.) add:
+
+| Type | Name | Value | Priority |
+|------|------|-------|----------|
+| MX | `reply.taskip.net` | `inbound-smtp.us-east-1.amazonaws.com.` | 10 |
+
+Use the inbound endpoint matching your SES region:
+- us-east-1 → `inbound-smtp.us-east-1.amazonaws.com`
+- ap-south-1 → `inbound-smtp.ap-south-1.amazonaws.com`
+- eu-west-1 → `inbound-smtp.eu-west-1.amazonaws.com`
+
+Wait for DNS to propagate (usually 5–30 min). Test with:
+```sh
+dig MX reply.taskip.net
+```
+
+---
+
+#### Step 2 — Configure cortex Settings
+
+Go to **Settings → Integrations → Email (SES)** and set:
+
+| Key | Value | Notes |
+|-----|-------|-------|
+| `livechat_reply_domain` | `reply.taskip.net` | The subdomain from Step 1 |
+| `livechat_reply_secret` | *(leave blank)* | Auto-generated on first transcript send |
+| `livechat_inbound_token` | `<generate a 32+ char random string>` | Used as `?t=` URL token on the webhook |
+
+Generate a token: `openssl rand -hex 32`
+
+Note: `livechat_reply_secret` is auto-generated by cortex the first time a transcript is sent after `livechat_reply_domain` is configured. You never need to set it manually.
+
+---
+
+#### Step 3 — Create SNS topic
+
+1. Go to **AWS Console → SNS → Topics → Create topic**
+2. Type: **Standard**
+3. Name: `cortex-livechat-inbound`
+4. Click **Create topic**
+5. Copy the **Topic ARN** (you'll need it in Step 5)
+
+---
+
+#### Step 4 — Subscribe cortex webhook to SNS
+
+1. Open your new SNS topic → **Create subscription**
+2. Fill in:
+   - Protocol: **HTTPS**
+   - Endpoint: `https://api.yourdomain.com/livechat/inbound?t=<livechat_inbound_token>`
+     *(replace `livechat_inbound_token` with the value you set in Step 2)*
+3. Click **Create subscription** — status shows **Pending confirmation**
+4. Cortex auto-confirms it within seconds. Check API logs for:
+   ```
+   SNS livechat-inbound subscription confirmed
+   ```
+   Status in AWS changes to **Confirmed**.
+
+---
+
+#### Step 5 — Create SES Receipt Rule
+
+1. Go to **AWS Console → SES → Email receiving → Rule sets**
+2. Click the **default rule set** (or create one and make it active)
+3. Click **Create rule**
+
+**Rule settings:**
+- Rule name: `cortex-livechat-reply`
+- Status: **Enabled**
+- TLS: Required (recommended)
+
+**Recipients:**
+- Add: `reply.taskip.net`
+  *(this matches ALL addresses at this subdomain — transcript+xyz@reply.taskip.net, etc.)*
+
+**Actions — Add action → Publish to Amazon SNS topic:**
+- SNS Topic: select `cortex-livechat-inbound`
+- Encoding: **UTF-8**
+
+Click **Next**, review, **Create rule**.
+
+---
+
+#### Step 6 — Smoke test
+
+1. Admin → Live Chat → pick a site → enable **Send transcript on close**
+2. Open the widget, type a message, enter a real email when prompted, then close the session
+3. Check your email — transcript arrives with subject "Transcript of your conversation with…"
+4. Hit **Reply**, type "this is a test reply", send
+5. Watch API logs:
+   ```
+   Inbound accepted for session XXXXXXXX (accepted)
+   ```
+6. Admin → Conversations → find the session — it reopens, "this is a test reply" appears as a visitor message, AI responds
+
+---
+
+#### Troubleshooting
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| No Reply-To in transcript email | `livechat_reply_domain` not set | Add it in Settings |
+| Reply goes to From address, not chat | SES Receipt Rule not active or MX wrong | Check Step 1 and 5 |
+| API logs show `no_session_in_recipient_or_in_reply_to` | Email client stripped To address | Check `In-Reply-To` header; both paths are tried |
+| API logs show `sender_mismatch` | Visitor replied from different email | Visitor's session email must match reply sender |
+| API logs show `token_invalid` | `livechat_reply_secret` changed after tokens were minted | Don't change the secret; existing transcript reply links break |
+| SNS subscription stuck at Pending | Cortex not reachable from AWS / wrong token | Check endpoint URL and `livechat_inbound_token` value |
+| `Inbound rejected: reply_secret_not_configured` | Transcript sent before secret was auto-generated | Resend transcript; secret auto-generates on first send |
+
+---
+
+#### Anti-spoofing protections built in
+
+- HMAC token in Reply-To address — only cortex can mint valid addresses
+- Sender email must match `livechat_sessions.visitor_email` — rejects third-party forwarded replies
+- `?t=` URL token on webhook — rejects calls not from your SNS
+- SNS SubscribeURL validated against `sns.<region>.amazonaws.com` — rejects spoofed handshakes
+
+#### Quoted-reply stripping (what gets stripped before inserting to chat)
+
+- `On X, Y wrote:` Gmail-style quote marker
+- `From: ... Sent: ... To: ...` Outlook quote header
+- `------ Original Message ------`
+- `Sent from my iPhone/iPad/Android/Outlook`
+- Lines starting with `>` (quoted reply lines)
 
 ### LC-18 runbook — production rollout (multi-site)
 

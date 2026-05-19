@@ -65,6 +65,8 @@ export class LivechatInboundController {
     }
     if (messageType !== 'Notification') return;
 
+    this.logger.debug(`Livechat inbound received — messageType: ${messageType}`);
+
     let parsed: SesInboundNotification;
     try {
       parsed = JSON.parse(body.Message);
@@ -72,6 +74,7 @@ export class LivechatInboundController {
       this.logger.warn('Failed to parse inbound SNS Message body');
       return;
     }
+    this.logger.debug(`Inbound notification — recipient: ${(parsed.mail?.commonHeaders?.to ?? parsed.mail?.destination ?? []).join(', ')} | sender: ${(parsed.mail?.commonHeaders?.from ?? [])[0] ?? parsed.mail?.source ?? ''}`);
 
     const headers = parsed.mail?.commonHeaders ?? {};
     const recipient = (headers.to ?? parsed.mail?.destination ?? [])[0];
@@ -94,7 +97,7 @@ export class LivechatInboundController {
     });
 
     if (!result.ok) {
-      this.logger.debug(`Inbound rejected: ${result.reason}`);
+      this.logger.warn(`Inbound rejected: ${result.reason}`);
     } else {
       this.logger.log(`Inbound accepted for session ${result.sessionId?.slice(-8)} (${result.reason})`);
     }

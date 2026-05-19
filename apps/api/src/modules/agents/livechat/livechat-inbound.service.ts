@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { createHmac, timingSafeEqual } from 'crypto';
+import { createHmac, randomBytes, timingSafeEqual } from 'crypto';
 import { SettingsService } from '../../settings/settings.service';
 import { LivechatService } from './livechat.service';
 import { LivechatStreamService } from './livechat-stream.service';
@@ -25,11 +25,14 @@ export class LivechatInboundService {
 
   /** Build the Reply-To address for a transcript email. */
   async buildReplyTo(sessionId: string): Promise<string | null> {
-    const [domain, secret] = await Promise.all([
-      this.settings.getDecrypted('livechat_reply_domain'),
-      this.settings.getDecrypted('livechat_reply_secret'),
-    ]);
-    if (!domain || !secret) return null;
+    const domain = await this.settings.getDecrypted('livechat_reply_domain');
+    if (!domain?.trim()) return null;
+    let secret = await this.settings.getDecrypted('livechat_reply_secret');
+    if (!secret?.trim()) {
+      secret = randomBytes(32).toString('hex');
+      await this.settings.upsert('livechat_reply_secret', secret);
+      this.logger.log('Auto-generated livechat_reply_secret');
+    }
     const cleanDomain = domain.trim().replace(/^@/, '');
     if (!cleanDomain || !/^[a-zA-Z0-9.\-]+$/.test(cleanDomain)) {
       this.logger.warn(`buildReplyTo: livechat_reply_domain "${domain}" contains illegal characters — skipping Reply-To`);
