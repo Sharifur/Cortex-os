@@ -391,6 +391,21 @@ export default function SupportTicketDetailPage() {
 
   const activeDraft = draft ?? ticket?.lastDraft;
 
+  // Determine reply state from events — more accurate than ticket.status alone
+  const latestReplyEvent = sortedEvents.find(e =>
+    e.eventType === 'reply_sent' || e.eventType === 'reply_failed',
+  );
+  const replyFailed = latestReplyEvent?.eventType === 'reply_failed';
+  const replyFailedError = replyFailed
+    ? ((latestReplyEvent?.payload as any)?.error ?? latestReplyEvent?.error ?? 'Unknown error')
+    : null;
+
+  // Fallback draft: if lastDraft is null, pull from the most recent event that has a draft
+  const eventFallbackDraft = (() => {
+    const ev = sortedEvents.find(e => !!(e.payload as any)?.draft);
+    return ev ? (ev.payload as any).draft as string : null;
+  })();
+
   // Pull purchase verification details from the most recent verify event
   const purchaseVerifyEvent = sortedEvents.find(
     e => e.eventType === 'purchase_code_verified' || e.eventType === 'purchase_code_expired' || e.eventType === 'purchase_code_invalid',
@@ -523,7 +538,30 @@ export default function SupportTicketDetailPage() {
           {/* AI Draft section — state-driven */}
           {ticket.status === 'replied' ? (
             <>
+              {/* Reply failed card — shown when latest reply event is reply_failed */}
+              {replyFailed && (
+                <div className="rounded-xl border border-red-500/30 bg-red-500/5 px-5 py-4 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <XCircle className="w-4 h-4 text-red-400 shrink-0" />
+                    <p className="text-sm font-semibold text-red-400">Reply Failed</p>
+                    {latestReplyEvent?.createdAt && (
+                      <span className="text-xs text-muted-foreground">{fmt(latestReplyEvent.createdAt)}</span>
+                    )}
+                  </div>
+                  <p className="text-xs text-red-300 font-mono bg-red-500/10 rounded px-3 py-2 break-all">{replyFailedError}</p>
+                  {(eventFallbackDraft ?? ticket.lastDraft) && (
+                    <div className="space-y-1">
+                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Draft that was not sent</p>
+                      <div className="rounded-lg border border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground whitespace-pre-wrap leading-relaxed">
+                        {eventFallbackDraft ?? ticket.lastDraft}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Sent reply — always read-only */}
+              {!replyFailed && (
               <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-5 py-4 space-y-3">
                 <div className="flex items-center gap-2">
                   <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
@@ -542,12 +580,13 @@ export default function SupportTicketDetailPage() {
                     </button>
                   </div>
                 </div>
-                {(originalSentDraft ?? ticket.lastDraft) && (
+                {(originalSentDraft ?? ticket.lastDraft ?? eventFallbackDraft) && (
                   <div className="rounded-lg border border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground whitespace-pre-wrap leading-relaxed">
-                    {originalSentDraft ?? ticket.lastDraft}
+                    {originalSentDraft ?? ticket.lastDraft ?? eventFallbackDraft}
                   </div>
                 )}
               </div>
+              )}
 
               {/* New draft — separate card, only shown after Generate New Reply */}
               {draft && (
