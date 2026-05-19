@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.80.1',
+    date: '2026-05-20',
+    entries: [
+      { tag: 'fix', scope: 'tracking', description: 'Tracking pixel handler now passes ISO string to Postgres timestamp columns instead of a Date object, fixing 500 errors on open tracking requests.' },
+    ],
+  },
+  {
     version: 'v4.80.0',
     date: '2026-05-18',
     entries: [
