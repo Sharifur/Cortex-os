@@ -134,6 +134,20 @@ export class LivechatConversationsController {
     return { ok: true, status: 'open' };
   }
 
+  @Post('sessions/bulk-close')
+  @HttpCode(HttpStatus.OK)
+  async bulkClose(@Body() body: { siteKey?: string; status?: string }) {
+    const ids = await this.livechat.bulkCloseSessions({ siteKey: body?.siteKey, status: body?.status });
+    for (const id of ids) {
+      this.stream.publish(id, { type: 'session_status', sessionId: id, status: 'closed' });
+      void this.transcript.maybeSendOnClose(id);
+    }
+    if (ids.length > 0) {
+      this.stream.publishToOperators({ type: 'inbox_dirty' });
+    }
+    return { ok: true, closed: ids.length };
+  }
+
   @Post('sessions/:id/close')
   @HttpCode(HttpStatus.OK)
   async close(@Param('id') id: string) {

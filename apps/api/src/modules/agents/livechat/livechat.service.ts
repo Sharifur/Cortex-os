@@ -1,5 +1,5 @@
 import { Injectable, Logger, NotFoundException, BadRequestException, ForbiddenException, OnModuleInit } from '@nestjs/common';
-import { eq, sql, desc, and, inArray, gte, isNull, isNotNull } from 'drizzle-orm';
+import { eq, ne, sql, desc, and, inArray, gte, isNull, isNotNull } from 'drizzle-orm';
 import { DbService } from '../../../db/db.service';
 import {
   livechatSites,
@@ -1370,5 +1370,35 @@ export class LivechatService implements OnModuleInit {
       widgetCacheBust: r.widgetCacheBust ?? null,
       createdAt: r.createdAt,
     };
+  }
+
+  async bulkCloseSessions(opts: { siteKey?: string; status?: string } = {}): Promise<string[]> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const conditions: any[] = [ne(livechatSessions.status, 'closed')];
+
+    if (opts.siteKey) {
+      const site = await this.getSiteByKey(opts.siteKey);
+      if (!site) return [];
+      conditions.push(eq(livechatSessions.siteId, site.id));
+    }
+
+    if (opts.status && opts.status !== 'closed') {
+      conditions.push(eq(livechatSessions.status, opts.status));
+    }
+
+    const rows = await this.db.db
+      .select({ id: livechatSessions.id })
+      .from(livechatSessions)
+      .where(and(...conditions));
+
+    const ids = rows.map((r) => r.id);
+    if (!ids.length) return [];
+
+    await this.db.db
+      .update(livechatSessions)
+      .set({ status: 'closed', lastSeenAt: new Date() })
+      .where(inArray(livechatSessions.id, ids));
+
+    return ids;
   }
 }
