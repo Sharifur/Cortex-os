@@ -16,6 +16,17 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.81.0',
+    date: '2026-05-20',
+    entries: [
+      { tag: 'feat', scope: 'inbox', description: 'Mobile responsive layout: email list and detail panel stack on small screens with back navigation between views.' },
+      { tag: 'feat', scope: 'inbox', description: 'Web Push notifications for new email replies — bell icon in inbox top bar to subscribe/unsubscribe per browser.' },
+      { tag: 'feat', scope: 'notifications', description: 'Bell icon now shows unread inbox replies count (last 24h) alongside existing chat/approval/failure counts.' },
+      { tag: 'fix', scope: 'inbox', description: 'Timestamps now parsed as UTC by appending Z to strings lacking timezone designator, fixing relative time showing 6h offset for UTC+6 users.' },
+      { tag: 'fix', scope: 'inbox', description: 'All date displays use configured platform timezone (Asia/Dhaka) instead of browser OS timezone.' },
+    ],
+  },
+  {
     version: 'v4.80.1',
     date: '2026-05-20',
     entries: [

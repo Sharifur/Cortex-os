@@ -28,6 +28,7 @@ interface NotifSummary {
   agentFailures: number;
   kbProposals: number;
   kbGaps: number;
+  newInboxReplies: number;
   total: number;
 }
 
@@ -59,7 +60,7 @@ function NotificationBell({ token }: { token: string }) {
     queryFn: async () => {
       const since = getFailuresSince();
       const res = await fetch(`/notifications/summary?failuresSince=${encodeURIComponent(since)}`, { headers: { Authorization: `Bearer ${token}` } });
-      if (!res.ok) return { waitingChats: 0, pendingApprovals: 0, agentFailures: 0, kbProposals: 0, kbGaps: 0, total: 0 };
+      if (!res.ok) return { waitingChats: 0, pendingApprovals: 0, agentFailures: 0, kbProposals: 0, kbGaps: 0, newInboxReplies: 0, total: 0 };
       return res.json();
     },
     refetchInterval: 5 * 60_000,
@@ -133,6 +134,12 @@ function NotificationBell({ token }: { token: string }) {
       label: 'Pending approvals',
       count: summary?.pendingApprovals ?? 0,
       to: '/approvals',
+    },
+    {
+      icon: <Mail className="w-4 h-4 text-indigo-400" />,
+      label: 'New inbox replies (24h)',
+      count: summary?.newInboxReplies ?? 0,
+      to: '/inbox',
     },
     {
       icon: <ShieldAlert className="w-4 h-4 text-red-400" />,
@@ -337,7 +344,7 @@ function Sidebar({
           <>
             <Bot className="w-5 h-5 text-primary shrink-0" />
             <span className="font-semibold text-sm">Cortex OS</span>
-            <span className="text-muted-foreground text-xs">v4.80.1</span>
+            <span className="text-muted-foreground text-xs">v4.81.0</span>
             {onToggleCollapse && (
               <button
                 onClick={onToggleCollapse}
@@ -539,7 +546,7 @@ export default function AppLayout() {
           <div className="flex items-center gap-2">
             <Bot className="w-5 h-5 text-primary" />
             <span className="font-semibold text-sm">Cortex OS</span>
-            <span className="text-muted-foreground text-xs">v4.80.1</span>
+            <span className="text-muted-foreground text-xs">v4.81.0</span>
           </div>
           <button
             onClick={() => setDrawerOpen(false)}

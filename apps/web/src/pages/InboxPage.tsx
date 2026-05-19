@@ -5,7 +5,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
-  Mail, Eye, EyeOff, MessageSquare, RefreshCw, Bot, Loader2, Clock, ChevronRight, Reply, Send, X, Search, Pencil, ChevronDown, Trash2,
+  Mail, Eye, EyeOff, MessageSquare, RefreshCw, Bot, Loader2, Clock, ChevronRight, ChevronLeft, Reply, Send, X, Search, Pencil, ChevronDown, Trash2, Bell, BellOff,
 } from 'lucide-react';
 
 interface GmailAccount {
@@ -122,14 +122,23 @@ function renderMd(text: string): string {
   return s;
 }
 
+function parseUtc(iso: string): Date {
+  // Postgres timestamp columns return without timezone designator; treat as UTC.
+  return new Date(/Z|[+-]\d{2}:?\d{2}$/.test(iso) ? iso : iso + 'Z');
+}
+
 function timeAgo(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
+  const diff = Date.now() - parseUtc(iso).getTime();
   const m = Math.floor(diff / 60000);
   if (m < 1) return 'just now';
   if (m < 60) return `${m}m ago`;
   const h = Math.floor(m / 60);
   if (h < 24) return `${h}h ago`;
   return `${Math.floor(h / 24)}d ago`;
+}
+
+function fmtDate(iso: string, tz: string): string {
+  return parseUtc(iso).toLocaleString(undefined, { timeZone: tz });
 }
 
 function escHtml(s: string): string {
@@ -215,6 +224,9 @@ export default function InboxPage() {
   const [purpose, setPurpose] = useState<string>('');
   const [search, setSearch] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(highlightId || null);
+  const [mobileView, setMobileView] = useState<'list' | 'detail'>(highlightId ? 'detail' : 'list');
+  const [pushEnabled, setPushEnabled] = useState(false);
+  const [pushLoading, setPushLoading] = useState(false);
 
   // AI chat drawer
   const [aiOpen, setAiOpen] = useState(false);
@@ -224,6 +236,13 @@ export default function InboxPage() {
   const [aiThinking, setAiThinking] = useState(false);
   const aiBottomRef = useRef<HTMLDivElement>(null);
   const aiInputRef = useRef<HTMLTextAreaElement>(null);
+
+  const { data: settingsData } = useQuery<{ key: string; value: string }[]>({
+    queryKey: ['settings'],
+    queryFn: () => api(token, '/settings'),
+    staleTime: 300_000,
+  });
+  const timezone = settingsData?.find(s => s.key === 'timezone')?.value ?? 'UTC';
 
   const { data, isLoading, refetch } = useQuery({
     queryKey: ['inbox', purpose],
@@ -301,6 +320,39 @@ export default function InboxPage() {
   useEffect(() => {
     aiBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [aiMessages, aiThinking]);
+
+  useEffect(() => {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+    navigator.serviceWorker.ready.then(async (reg) => {
+      const sub = await reg.pushManager.getSubscription();
+      setPushEnabled(!!sub);
+    }).catch(() => {});
+  }, []);
+
+  async function togglePush() {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+    setPushLoading(true);
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      const existing = await reg.pushManager.getSubscription();
+      if (existing) {
+        await existing.unsubscribe();
+        await fetch('/push/subscribe', { method: 'DELETE', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ endpoint: existing.endpoint }) });
+        setPushEnabled(false);
+      } else {
+        const { publicKey } = await fetch('/push/vapid-public-key').then(r => r.json());
+        if (!publicKey) return;
+        const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: publicKey });
+        const j = sub.toJSON();
+        await fetch('/push/subscribe', { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ endpoint: sub.endpoint, keys: j.keys, label: 'inbox' }) });
+        setPushEnabled(true);
+      }
+    } catch (e) {
+      console.error('push toggle failed', e);
+    } finally {
+      setPushLoading(false);
+    }
+  }
 
   async function triggerAiRun(msg: string, history: { role: 'user' | 'agent'; content: string }[]) {
     setAiMessages(prev => [...prev, { role: 'user', content: msg }]);
@@ -497,29 +549,29 @@ export default function InboxPage() {
   return (
     <div className="flex flex-col h-[calc(100vh-64px)]">
       {/* Top bar */}
-      <div className="flex items-center justify-between gap-4 px-6 py-3 border-b border-border shrink-0">
+      <div className="flex items-center justify-between gap-2 px-4 md:px-6 py-3 border-b border-border shrink-0">
         <div className="flex items-center gap-3">
-          <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-indigo-500 to-violet-500 flex items-center justify-center">
+          <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-indigo-500 to-violet-500 flex items-center justify-center shrink-0">
             <Mail className="w-4 h-4 text-white" />
           </div>
           <div>
             <h1 className="text-base font-semibold leading-tight">Inbox</h1>
-            <p className="text-[11px] text-muted-foreground">Outbound emails — open tracking + reply sync every 15 min</p>
+            <p className="hidden md:block text-[11px] text-muted-foreground">Outbound emails — open tracking + reply sync every 15 min</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          {/* Stats pills */}
-          <span className="text-[11px] text-muted-foreground border border-border rounded-full px-2.5 py-0.5">
+        <div className="flex items-center gap-1.5 md:gap-2 flex-wrap justify-end">
+          {/* Stats pills — hidden on small screens */}
+          <span className="hidden sm:inline text-[11px] text-muted-foreground border border-border rounded-full px-2.5 py-0.5">
             {rows.length} sent
           </span>
-          <span className="text-[11px] text-emerald-400 border border-emerald-500/30 rounded-full px-2.5 py-0.5">
+          <span className="hidden sm:inline text-[11px] text-emerald-400 border border-emerald-500/30 rounded-full px-2.5 py-0.5">
             {rows.filter(isOpened).length} opened
           </span>
-          <span className="text-[11px] text-blue-400 border border-blue-400/30 rounded-full px-2.5 py-0.5">
+          <span className="hidden sm:inline text-[11px] text-blue-400 border border-blue-400/30 rounded-full px-2.5 py-0.5">
             {rows.filter((r) => r.replyCount > 0).length} replied
           </span>
           <button
-            onClick={() => { setComposeOpen(true); setSelectedId(null); setComposeSent(false); setComposeError(null); }}
+            onClick={() => { setComposeOpen(true); setSelectedId(null); setMobileView('detail'); setComposeSent(false); setComposeError(null); }}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-[11px] hover:bg-primary/90 transition-colors font-medium"
           >
             <Pencil className="w-3 h-3" /> Compose
@@ -528,13 +580,24 @@ export default function InboxPage() {
             onClick={() => refetch()}
             className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-border text-[11px] text-muted-foreground hover:text-foreground transition-colors"
           >
-            <RefreshCw className="w-3 h-3" /> Refresh
+            <RefreshCw className="w-3 h-3" />
+            <span className="hidden sm:inline">Refresh</span>
           </button>
+          {'PushManager' in window && (
+            <button
+              onClick={togglePush}
+              disabled={pushLoading}
+              title={pushEnabled ? 'Disable push notifications' : 'Enable push notifications for new replies'}
+              className="inline-flex items-center justify-center w-7 h-7 rounded-md border border-border text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+            >
+              {pushEnabled ? <Bell className="w-3.5 h-3.5 text-emerald-400" /> : <BellOff className="w-3.5 h-3.5" />}
+            </button>
+          )}
         </div>
       </div>
 
       {/* Filter tabs + search */}
-      <div className="flex items-center gap-2 px-6 py-2 border-b border-border shrink-0">
+      <div className="flex items-center gap-2 px-3 md:px-6 py-2 border-b border-border shrink-0 flex-wrap md:flex-nowrap">
         <div className="flex items-center gap-1.5 flex-1 min-w-0 flex-wrap">
           {(['', 'marketing', 'followup', 'offer', 'other'] as const).map((p) => (
             <button
@@ -557,7 +620,7 @@ export default function InboxPage() {
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="Search email or subject…"
-            className="h-7 pl-7 pr-7 w-52 rounded-md border border-border bg-muted/30 text-[11px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+            className="h-7 pl-7 pr-7 w-full sm:w-52 rounded-md border border-border bg-muted/30 text-[11px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
           />
           {search && (
             <button
@@ -573,7 +636,7 @@ export default function InboxPage() {
       {/* Two-panel body */}
       <div className="flex flex-1 min-h-0">
         {/* Left: email list */}
-        <div className="w-80 shrink-0 border-r border-border flex flex-col overflow-y-auto">
+        <div className={`${mobileView === 'detail' ? 'hidden md:flex' : 'flex'} w-full md:w-80 shrink-0 border-r border-border flex-col overflow-y-auto`}>
           {isLoading && (
             <div className="space-y-px">
               {[0, 1, 2, 3, 4, 5].map(i => (
@@ -611,7 +674,7 @@ export default function InboxPage() {
               <button
                 key={r.id}
                 id={`inbox-row-${r.id}`}
-                onClick={() => setSelectedId(isSelected ? null : r.id)}
+                onClick={() => { const next = isSelected ? null : r.id; setSelectedId(next); if (next) setMobileView('detail'); }}
                 className={`w-full text-left px-4 py-3 border-b border-border transition-colors hover:bg-muted/30 ${
                   isSelected ? 'bg-primary/10 border-l-2 border-l-primary' : ''
                 } ${isHighlighted && !isSelected ? 'bg-emerald-500/5' : ''}`}
@@ -672,14 +735,20 @@ export default function InboxPage() {
         </div>
 
         {/* Right area: detail panel + AI drawer sidebar */}
-        <div className="flex flex-1 min-w-0">
+        <div className={`${mobileView === 'list' ? 'hidden md:flex' : 'flex'} flex-1 min-w-0`}>
 
         {/* Detail panel */}
         <div className="flex-1 min-w-0 overflow-y-auto">
 
           {/* Compose panel */}
           {composeOpen && (
-            <div className="p-6 max-w-2xl">
+            <div className="p-4 md:p-6 max-w-2xl">
+              <button
+                onClick={() => { setComposeOpen(false); setMobileView('list'); }}
+                className="md:hidden flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground mb-3 -mt-1"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" /> Back to inbox
+              </button>
               <div className="flex items-center justify-between mb-5">
                 <div className="flex items-center gap-2">
                   <div className="h-7 w-7 rounded-lg bg-gradient-to-br from-indigo-500 to-violet-500 flex items-center justify-center">
@@ -811,10 +880,17 @@ export default function InboxPage() {
           )}
 
           {!composeOpen && selected && (
-            <div className="p-6 max-w-2xl">
+            <div className="p-4 md:p-6 max-w-2xl">
+              {/* Back button — mobile only */}
+              <button
+                onClick={() => setMobileView('list')}
+                className="md:hidden flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground mb-3 -mt-1"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" /> Back to inbox
+              </button>
               {/* Header */}
               <div className="mb-4">
-                <h2 className="text-lg font-semibold">{selected.subject}</h2>
+                <h2 className="text-base md:text-lg font-semibold">{selected.subject}</h2>
                 <div className="flex items-center gap-2 mt-1 flex-wrap">
                   <div className={`w-6 h-6 rounded-full ${avatarColor(selected.recipient)} flex items-center justify-center text-white text-[10px] font-semibold`}>
                     {initials(selected.recipient)}
@@ -827,7 +903,7 @@ export default function InboxPage() {
                   })()}
                   <span className="text-sm text-muted-foreground">To: {selected.recipient}</span>
                   <span className="text-xs text-muted-foreground">·</span>
-                  <span className="text-xs text-muted-foreground">{new Date(selected.sentAt).toLocaleString()}</span>
+                  <span className="text-xs text-muted-foreground">{fmtDate(selected.sentAt, timezone)}</span>
                   <span className={`text-[10px] px-1.5 py-0.5 rounded-full uppercase tracking-wider font-semibold ${purposeColor(selected.purpose)}`}>
                     {selected.purpose}
                   </span>
@@ -851,10 +927,10 @@ export default function InboxPage() {
                       <Eye className="w-3.5 h-3.5 shrink-0" />
                       <span>
                         {(selected.openCount ?? 0) > 0
-                          ? `Opened ${selected.openCount}x — first ${selected.firstOpenAt ? new Date(selected.firstOpenAt).toLocaleString() : '—'}${selected.lastOpenAt && selected.firstOpenAt !== selected.lastOpenAt ? ` · last ${new Date(selected.lastOpenAt).toLocaleString()}` : ''}`
+                          ? `Opened ${selected.openCount}x — first ${selected.firstOpenAt ? fmtDate(selected.firstOpenAt, timezone) : '—'}${selected.lastOpenAt && selected.firstOpenAt !== selected.lastOpenAt ? ` · last ${fmtDate(selected.lastOpenAt, timezone)}` : ''}`
                           : selected.metadata?.pixelOpened
-                          ? `Opened via tracking pixel${selected.metadata.pixelOpenedAt ? ` — ${new Date(selected.metadata.pixelOpenedAt as string).toLocaleString()}` : ''}`
-                          : `Marked as opened${selected.metadata?.manuallyOpenedAt ? ` — ${new Date(selected.metadata.manuallyOpenedAt as string).toLocaleString()}` : ''}`
+                          ? `Opened via tracking pixel${selected.metadata.pixelOpenedAt ? ` — ${fmtDate(selected.metadata.pixelOpenedAt as string, timezone)}` : ''}`
+                          : `Marked as opened${selected.metadata?.manuallyOpenedAt ? ` — ${fmtDate(selected.metadata.manuallyOpenedAt as string, timezone)}` : ''}`
                         }
                       </span>
                     </>
@@ -1047,7 +1123,7 @@ export default function InboxPage() {
                           </div>
                           <span className="text-xs font-medium">{reply.fromAddress}</span>
                         </div>
-                        <span className="text-[11px] text-muted-foreground">{new Date(reply.receivedAt).toLocaleString()}</span>
+                        <span className="text-[11px] text-muted-foreground">{fmtDate(reply.receivedAt, timezone)}</span>
                       </div>
                       <div
                         className="text-sm text-foreground/80 leading-relaxed"
