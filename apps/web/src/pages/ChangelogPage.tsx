@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.83.0',
+    date: '2026-05-20',
+    entries: [
+      { tag: 'feat', scope: 'livechat', description: 'Bulk close all chats: "Close all" button in the conversations sidebar closes every non-closed session matching the current filter (site + status). Confirms before acting, then invalidates the inbox.' },
+    ],
+  },
+  {
     version: 'v4.82.1',
     date: '2026-05-20',
     entries: [

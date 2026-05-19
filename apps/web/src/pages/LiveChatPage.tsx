@@ -1090,6 +1090,7 @@ function ConversationsTab() {
   const prevSessionsRef = useRef<Map<string, { status: string; lastMsgAt: string | null }>>(new Map());
   const isInitializedRef = useRef(false);
   const pendingDiffRef = useRef(false);
+  const [bulkCloseConfirm, setBulkCloseConfirm] = useState(false);
 
   const filter = STATUS_FILTERS.find((f) => f.key === filterKey)!;
 
@@ -1143,6 +1144,16 @@ function ConversationsTab() {
     queryFn: () => apiFetch(token, '/agents/livechat/sessions/pending-count'),
     refetchInterval: 60_000,
     staleTime: 5_000,
+  });
+
+  const bulkCloseMut = useMutation({
+    mutationFn: (body: { siteKey?: string; status?: string }) =>
+      apiFetch(token, '/agents/livechat/sessions/bulk-close', { method: 'POST', body }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['livechat-sessions'] });
+      qc.invalidateQueries({ queryKey: ['livechat-pending-count'] });
+      setBulkCloseConfirm(false);
+    },
   });
 
   const liveKey = ['livechat-live-visitors'] as const;
@@ -1340,6 +1351,32 @@ function ConversationsTab() {
             )}
             {statsPendingReview > 0 && (
               <span className="text-amber-600 font-medium">{statsPendingReview} pending review</span>
+            )}
+            {statsActive > 0 && filterKey !== 'closed' && (
+              <div className="ml-auto flex items-center gap-1">
+                {bulkCloseConfirm ? (
+                  <>
+                    <span className="text-destructive font-medium">Close {filterSite ? 'site' : 'all'}?</span>
+                    <button
+                      onClick={() => bulkCloseMut.mutate({ siteKey: filterSite ?? undefined, status: filter.status })}
+                      disabled={bulkCloseMut.isPending}
+                      className="text-destructive hover:text-destructive/80 font-medium px-1"
+                    >
+                      {bulkCloseMut.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Yes'}
+                    </button>
+                    <button onClick={() => setBulkCloseConfirm(false)} className="hover:text-foreground px-1">No</button>
+                  </>
+                ) : (
+                  <button
+                    onClick={() => setBulkCloseConfirm(true)}
+                    className="flex items-center gap-1 text-muted-foreground hover:text-destructive transition-colors"
+                    title="Close all visible sessions"
+                  >
+                    <CheckCheck className="w-3.5 h-3.5" />
+                    Close all
+                  </button>
+                )}
+              </div>
             )}
           </div>
         )}
