@@ -8,13 +8,13 @@ import {
 } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { Bot, InlineKeyboard } from 'grammy';
-import { eq, and, not, inArray } from 'drizzle-orm';
+import { eq, and, not, inArray, isNull, isNotNull, asc } from 'drizzle-orm';
 import { SettingsService } from '../settings/settings.service';
 import { ApprovalService } from '../agents/runtime/approval.service';
 import { AgentRuntimeService } from '../agents/runtime/agent-runtime.service';
 import { LlmRouterService } from '../llm/llm-router.service';
 import { DbService } from '../../db/db.service';
-import { pendingApprovals } from '../../db/schema';
+import { pendingApprovals, agentRuns, agents } from '../../db/schema';
 import { SelfImprovementService, KbProposalNotifyEvent } from '../knowledge-base/self-improvement.service';
 import { HrmApiService } from '../agents/hr/hrm-api.service';
 import { hrPayslipRuns } from '../../db/schema';
@@ -122,10 +122,8 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     return this.bot.api.sendMessage(this.ownerChatId, text, { reply_markup: keyboard });
   }
 
-  @OnEvent(TELEGRAM_EVENTS.APPROVAL_CREATED)
-  async onApprovalCreated(event: ApprovalCreatedEvent): Promise<void> {
+  private async sendApprovalToTelegram(event: ApprovalCreatedEvent): Promise<void> {
     if (!this.bot || !this.ownerChatId) return;
-
     const text = this.buildApprovalText(event.agentName, event.action, event.runId);
     const isConnection = event.action.type === 'send_connection_request';
     const env = this.appEnv;
@@ -141,17 +139,73 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
           .text('Reject', `approval:${env}:${id}:reject`)
           .text('Follow up', `approval:${env}:${id}:followup`);
 
-    try {
-      const sent = await this.bot.api.sendMessage(this.ownerChatId, text, {
-        reply_markup: keyboard,
-      });
+    const sent = await this.bot.api.sendMessage(this.ownerChatId, text, { reply_markup: keyboard });
+    await this.db.db
+      .update(pendingApprovals)
+      .set({ telegramMessageId: String(sent.message_id) })
+      .where(eq(pendingApprovals.id, event.approvalId));
+  }
 
-      await this.db.db
-        .update(pendingApprovals)
-        .set({ telegramMessageId: String(sent.message_id) })
-        .where(eq(pendingApprovals.id, event.approvalId));
+  @OnEvent(TELEGRAM_EVENTS.APPROVAL_CREATED)
+  async onApprovalCreated(event: ApprovalCreatedEvent): Promise<void> {
+    if (!this.bot || !this.ownerChatId) return;
+
+    // If another approval for this run is already active in Telegram, queue this one
+    const [active] = await this.db.db
+      .select({ id: pendingApprovals.id })
+      .from(pendingApprovals)
+      .where(and(
+        eq(pendingApprovals.runId, event.runId),
+        eq(pendingApprovals.status, 'PENDING'),
+        isNotNull(pendingApprovals.telegramMessageId),
+      ))
+      .limit(1);
+
+    if (active) return; // will be sent when the active approval is resolved
+
+    try {
+      await this.sendApprovalToTelegram(event);
     } catch (err) {
       this.logger.error(`Failed to send approval message: ${(err as Error).message}`);
+    }
+  }
+
+  @OnEvent(TELEGRAM_EVENTS.APPROVAL_RESOLVED)
+  async onApprovalResolved(event: { runId: string }): Promise<void> {
+    if (!this.bot || !this.ownerChatId) return;
+
+    // Send the next queued approval for this run (oldest first, not yet sent to Telegram)
+    const [next] = await this.db.db
+      .select({
+        id: pendingApprovals.id,
+        runId: pendingApprovals.runId,
+        agentKey: agents.key,
+        agentName: agents.name,
+        action: pendingApprovals.action,
+      })
+      .from(pendingApprovals)
+      .innerJoin(agentRuns, eq(pendingApprovals.runId, agentRuns.id))
+      .innerJoin(agents, eq(agentRuns.agentId, agents.id))
+      .where(and(
+        eq(pendingApprovals.runId, event.runId),
+        eq(pendingApprovals.status, 'PENDING'),
+        isNull(pendingApprovals.telegramMessageId),
+      ))
+      .orderBy(asc(pendingApprovals.createdAt))
+      .limit(1);
+
+    if (!next) return;
+
+    try {
+      await this.sendApprovalToTelegram({
+        approvalId: next.id,
+        runId: next.runId,
+        agentKey: next.agentKey,
+        agentName: next.agentName,
+        action: next.action as ProposedAction,
+      });
+    } catch (err) {
+      this.logger.error(`Failed to send queued approval: ${(err as Error).message}`);
     }
   }
 
