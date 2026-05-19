@@ -9,6 +9,7 @@ import { AgentRegistryService } from './agent-registry.service';
 import { AgentLogService } from './agent-log.service';
 import { QUEUE_NAMES } from '../../../common/queue/queue.constants';
 import type { AgentExecuteJobData, AgentFollowupJobData, ProposedAction } from './types';
+import { TELEGRAM_EVENTS } from '../../telegram/telegram.types';
 
 const APPROVAL_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 
@@ -85,6 +86,7 @@ export class ApprovalService {
 
     await this.logSvc.info(approval.runId, `Approval ${approvalId} approved`);
     this.events.emit('approval.removed', { id: approvalId });
+    this.events.emit(TELEGRAM_EVENTS.APPROVAL_RESOLVED, { runId: approval.runId });
 
     await this.executeQueue.add(
       'execute',
@@ -123,6 +125,7 @@ export class ApprovalService {
 
     await this.logSvc.info(approval.runId, `Approval ${approvalId} approved without note`);
     this.events.emit('approval.removed', { id: approvalId });
+    this.events.emit(TELEGRAM_EVENTS.APPROVAL_RESOLVED, { runId: approval.runId });
 
     await this.executeQueue.add(
       'execute',
@@ -159,6 +162,7 @@ export class ApprovalService {
       `Approval ${approvalId} rejected${reason ? `: "${reason}"` : ''}`,
     );
     this.events.emit('approval.removed', { id: approvalId });
+    this.events.emit(TELEGRAM_EVENTS.APPROVAL_RESOLVED, { runId: approval.runId });
 
     if (reason?.trim()) {
       const [runRow] = await this.db.db
@@ -211,6 +215,7 @@ export class ApprovalService {
 
     await this.logSvc.info(approval.runId, `Follow-up received: "${instruction}"`);
     this.events.emit('approval.removed', { id: approvalId });
+    this.events.emit(TELEGRAM_EVENTS.APPROVAL_RESOLVED, { runId: approval.runId });
 
     const runWithAgent = await this.getRunForApproval(approval.runId);
     await this.followupQueue.add(

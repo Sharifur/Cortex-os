@@ -24,6 +24,7 @@ export interface AgentFailedEvent {
 
 export const TELEGRAM_EVENTS = {
   APPROVAL_CREATED: 'approval.created',
+  APPROVAL_RESOLVED: 'approval.resolved',
   TASK_NOTIFY: 'task.notify',
   AGENT_FAILED: 'agent.failed',
 } as const;

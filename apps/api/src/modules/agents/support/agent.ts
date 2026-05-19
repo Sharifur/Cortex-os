@@ -468,6 +468,28 @@ export class SupportAgent implements IAgent, OnModuleInit {
       const isReply = action.type === 'post_reply';
 
       if (isReply && p.crmUuid) {
+        // Guard: empty draft must not be posted to CRM
+        if (!p.draft?.trim()) {
+          if (p.ticketId) {
+            await this.db.db.update(supportTickets)
+              .set({ category: p.category, priority: p.priority, updatedAt: now })
+              .where(eq(supportTickets.id, p.ticketId));
+          }
+          const errMsg = 'Draft was empty — reply not posted to CRM';
+          await this.writeTicketEvent({
+            ticketId: p.ticketId,
+            externalId: p.crmTicketId ? String(p.crmTicketId) : null,
+            eventType: 'reply_failed',
+            summary: `Reply skipped for ticket #${p.crmTicketId}: ${errMsg}`,
+            payload: { error: errMsg },
+            error: errMsg,
+          });
+          await this.telegram.sendMessage(
+            `Reply SKIPPED (empty draft): ${p.subject}\nFrom: ${p.userEmail}\n\nRe-run the agent or generate a reply manually.`,
+          );
+          return { success: false, data: { error: errMsg } };
+        }
+
         const result = await this.postCrmReply(p.crmUuid, p.draft);
         if (!result.ok) {
           // Save draft but do NOT mark as replied — CRM delivery failed
@@ -482,9 +504,10 @@ export class SupportAgent implements IAgent, OnModuleInit {
             eventType: 'reply_failed',
             summary: `CRM reply failed for ticket #${p.crmTicketId}: ${result.error}`,
             payload: { draft: p.draft, error: result.error },
+            error: result.error,
           });
           await this.telegram.sendMessage(
-            `CRM reply FAILED: ${p.subject}\nFrom: ${p.userEmail}\nError: ${result.error}\n\nDraft saved — use Send Reply in the admin panel or check support_agent_id in Settings.`,
+            `Reply FAILED: ${p.subject}\nFrom: ${p.userEmail}\nError: ${result.error}\n\nDraft saved — use Send Reply in the admin panel or check support_agent_id in Settings.\n\nDraft:\n${p.draft}`,
           );
           return { success: false, data: { error: result.error } };
         }
@@ -504,22 +527,42 @@ export class SupportAgent implements IAgent, OnModuleInit {
         await this.telegram.sendMessage(
           `Replied: ${p.subject}\nFrom: ${p.userEmail}\n\nSent:\n${p.draft}`,
         );
-      } else {
-        // Escalation or reply without CRM ID
+      } else if (isReply && !p.crmUuid) {
+        // Reply attempted but no CRM UUID — save draft, do NOT mark as replied
         if (p.ticketId) {
           await this.db.db.update(supportTickets)
-            .set({ category: p.category, priority: p.priority, lastDraft: p.draft, status: isReply ? 'replied' : 'escalated', repliedAt: isReply ? now : null, updatedAt: now })
+            .set({ category: p.category, priority: p.priority, lastDraft: p.draft, updatedAt: now })
+            .where(eq(supportTickets.id, p.ticketId));
+        }
+        const errMsg = 'No CRM UUID available — reply not posted to CRM';
+        await this.writeTicketEvent({
+          ticketId: p.ticketId,
+          externalId: p.crmTicketId ? String(p.crmTicketId) : null,
+          eventType: 'reply_failed',
+          summary: `Reply skipped for ticket #${p.crmTicketId}: ${errMsg}`,
+          payload: { draft: p.draft, error: errMsg },
+          error: errMsg,
+        });
+        await this.telegram.sendMessage(
+          `Reply FAILED (no CRM UUID): ${p.subject}\nFrom: ${p.userEmail}\n\nDraft saved — use Send Reply in the admin panel once the ticket syncs.\n\nDraft:\n${p.draft}`,
+        );
+        return { success: false, data: { error: errMsg } };
+      } else {
+        // Escalation
+        if (p.ticketId) {
+          await this.db.db.update(supportTickets)
+            .set({ category: p.category, priority: p.priority, lastDraft: p.draft, status: 'escalated', updatedAt: now })
             .where(eq(supportTickets.id, p.ticketId));
         }
         await this.writeTicketEvent({
           ticketId: p.ticketId,
           externalId: p.crmTicketId ? String(p.crmTicketId) : null,
           eventType: 'escalated',
-          summary: isReply ? 'Reply saved (no CRM ID)' : 'Ticket escalated to owner',
+          summary: 'Ticket escalated to owner',
           payload: { draft: p.draft, priority: p.priority },
         });
         await this.telegram.sendMessage(
-          `${isReply ? 'Draft saved (no CRM ID)' : 'Escalated'}: ${p.subject}\nFrom: ${p.userEmail}\n\nDraft:\n${p.draft}`,
+          `Escalated: ${p.subject}\nFrom: ${p.userEmail}\n\nDraft:\n${p.draft}`,
         );
       }
     }

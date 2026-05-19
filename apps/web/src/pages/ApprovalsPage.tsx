@@ -4,7 +4,7 @@ import { useMutation } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import {
   CheckCircle2, XCircle, MessageSquare, Clock,
-  AlertTriangle, ShieldAlert, Bot, Wifi, WifiOff,
+  AlertTriangle, ShieldAlert, Bot, Wifi, WifiOff, ExternalLink,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -128,6 +128,13 @@ function ApprovalCard({
   const risk = RISK_CONFIG[approval.action.riskLevel] ?? RISK_CONFIG.MEDIUM;
   const busy = approveMutation.isPending || rejectMutation.isPending || followupMutation.isPending;
 
+  // Extract LinkedIn post URL from summary if this is a LinkedIn agent action
+  const linkedInPostUrl = (() => {
+    if (approval.agentKey !== 'linkedin') return null;
+    const match = approval.action.summary.match(/https:\/\/www\.linkedin\.com\/feed\/update\/[^\s"]+/);
+    return match ? match[0] : null;
+  })();
+
   return (
     <div className={`rounded-xl border bg-card p-5 transition-colors ${selected ? 'border-primary/50 bg-primary/5' : 'border-border'}`}>
       <div className="flex items-start gap-3 mb-3">
@@ -160,9 +167,22 @@ function ApprovalCard({
                 </div>
               </div>
             </div>
-            <span className={`text-xs px-2 py-0.5 rounded font-medium shrink-0 ${risk.cls}`}>
-              {risk.label}
-            </span>
+            <div className="flex items-center gap-2 shrink-0">
+              {linkedInPostUrl && (
+                <a
+                  href={linkedInPostUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1 text-xs px-2 py-0.5 rounded border border-border text-muted-foreground hover:text-foreground hover:border-primary/50 transition-colors"
+                >
+                  <ExternalLink className="w-3 h-3" />
+                  View Post
+                </a>
+              )}
+              <span className={`text-xs px-2 py-0.5 rounded font-medium ${risk.cls}`}>
+                {risk.label}
+              </span>
+            </div>
           </div>
 
           <div className="rounded-lg bg-muted/40 border border-border px-4 py-3 mb-3">
