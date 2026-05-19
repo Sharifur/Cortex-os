@@ -24,6 +24,7 @@ import { LivechatInboundController } from './livechat-inbound.controller';
 import { LivechatIntentService } from './livechat-intent.service';
 import { LivechatEscalationService } from './livechat-escalation.service';
 import { LivechatMetricsService } from './livechat-metrics.service';
+import { LivechatInactivityService } from './livechat-inactivity.service';
 import { SesModule } from '../../ses/ses.module';
 import { SettingsModule } from '../../settings/settings.module';
 import { PurchaseVerifyService } from '../purchase-verify/purchase-verify.service';
@@ -48,6 +49,7 @@ import { PurchaseVerifyService } from '../purchase-verify/purchase-verify.servic
     LivechatIntentService,
     LivechatEscalationService,
     LivechatMetricsService,
+    LivechatInactivityService,
     PurchaseVerifyService,
   ],
   exports: [LivechatService, LivechatAgent, LivechatOriginCache, LivechatStreamService],

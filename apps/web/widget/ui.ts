@@ -797,6 +797,22 @@ function buildPanel(shadow: ShadowRoot, cfg: WidgetConfig, state: any, render: (
       return;
     }
     const content = textarea.value.trim();
+    // Auto-capture email if visitor types one and we don't have it yet.
+    const emailInMsg = /[^\s,;'"<>]+@[^\s,;'"<>]+\.[^\s,;'"<>]{2,}/.exec(content)?.[0];
+    if (emailInMsg) {
+      let emailAlreadySaved = false;
+      try { const v = localStorage.getItem(IDENTIFY_EMAIL_KEY); emailAlreadySaved = v === 'saved' || (!!v && v !== 'skipped'); } catch {}
+      if (!emailAlreadySaved) {
+        import('./api').then((m) => m.identify(cfg, { email: emailInMsg })).then(() => {
+          try { localStorage.setItem(IDENTIFY_EMAIL_KEY, 'saved'); localStorage.setItem(IDENTIFY_DISMISSED_KEY, 'saved'); } catch {}
+          // Fill the gate input if it's visible
+          const gateInput = panel.querySelector<HTMLInputElement>('.lc-gate-email');
+          if (gateInput) gateInput.value = emailInMsg;
+          const inlineInput = panel.querySelector<HTMLInputElement>('.lc-inline-identify[data-step="email"] .lc-inline-input');
+          if (inlineInput) { inlineInput.value = emailInMsg; (inlineInput as any).closest?.('form')?.requestSubmit?.(); }
+        }).catch(() => {});
+      }
+    }
     const stillUploading = pendingAttachments.some((a) => a.id.startsWith('pending-'));
     const readyAttachments = pendingAttachments.filter((a) => a.url && !a.id.startsWith('pending-'));
     if (stillUploading) {

@@ -69,6 +69,11 @@ export class LivechatTranscriptService {
     // Reply-To threads visitor replies back into this session via SES inbound.
     const replyTo = (await this.inbound.buildReplyTo(sessionId)) ?? undefined;
 
+    if (!replyTo) {
+      this.logger.warn(
+        `Transcript for session ${sessionId.slice(-8)} — Reply-To not set: livechat_reply_domain or livechat_reply_secret not configured in Settings. Visitor replies will go to the From address, not back to this chat.`,
+      );
+    }
     this.logger.debug(
       `Transcript send attempt — session: ${sessionId.slice(-8)} | to: "${visitorEmail}" | from: "${fromAddress}" | replyTo: "${replyTo ?? 'none'}" | bcc: "${bccList.join(', ') || 'none'}"`,
     );
