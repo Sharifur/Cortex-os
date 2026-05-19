@@ -31,8 +31,8 @@ export class TrackingController {
       const result = await this.db.db.execute(sql`
         UPDATE taskip_internal_emails
         SET open_count    = COALESCE(open_count, 0) + 1,
-            first_open_at = COALESCE(first_open_at, ${now}),
-            last_open_at  = ${now}
+            first_open_at = COALESCE(first_open_at, ${now.toISOString()}),
+            last_open_at  = ${now.toISOString()}
         WHERE id = ${token}
       `);
       const rowCount = (result as unknown as { rowCount?: number }).rowCount ?? 0;
