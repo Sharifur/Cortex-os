@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.82.1',
+    date: '2026-05-20',
+    entries: [
+      { tag: 'docs', scope: 'livechat', description: 'Rewrote LC-27 email-to-thread setup runbook with step-by-step MX record, SNS topic, SES Receipt Rule instructions, troubleshooting table, and anti-spoofing notes.' },
+    ],
+  },
+  {
     version: 'v4.82.0',
     date: '2026-05-20',
     entries: [
