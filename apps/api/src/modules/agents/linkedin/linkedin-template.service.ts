@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { inArray, eq, and, isNull, or } from 'drizzle-orm';
-import { DrizzleService } from '../../db/drizzle.service';
+import { eq, and, isNull, or } from 'drizzle-orm';
+import { DbService } from '../../../db/db.service';
 import { LlmRouterService } from '../../llm/llm-router.service';
 import { linkedinTemplates } from '../../../db/schema';
 
@@ -22,7 +22,7 @@ export class LinkedInTemplateService {
   private readonly logger = new Logger(LinkedInTemplateService.name);
 
   constructor(
-    private readonly db: DrizzleService,
+    private readonly db: DbService,
     private readonly llm: LlmRouterService,
   ) {}
 
@@ -67,9 +67,9 @@ export class LinkedInTemplateService {
       .where(and(...conditions))
       .limit(6);
 
-    // Prefer specific matches (targetRole or industry set) over generic ones
-    const specific = rows.filter(r => r.targetRole || r.industry);
-    const generic = rows.filter(r => !r.targetRole && !r.industry);
+    type Row = typeof linkedinTemplates.$inferSelect;
+    const specific = rows.filter((r: Row) => r.targetRole || r.industry);
+    const generic = rows.filter((r: Row) => !r.targetRole && !r.industry);
 
     const pool = specific.length >= 3 ? specific : [...specific, ...generic];
     return pool.slice(0, 5);
