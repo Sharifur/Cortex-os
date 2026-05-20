@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.84.7',
+    date: '2026-05-21',
+    entries: [
+      { tag: 'feat', scope: 'listing-outreach', description: 'Send Email button now opens a compose modal (like the inbox composer) pre-filled with To, Subject, and Body. User can edit everything, switch Gmail account, and send — no direct fire. Patches prospect status to emailed on success.' },
+      { tag: 'fix', scope: 'listing-outreach', description: 'Removed direct-send endpoint path — all outreach email sending goes through the compose modal.' },
+    ],
+  },
+  {
     version: 'v4.84.6',
     date: '2026-05-21',
     entries: [

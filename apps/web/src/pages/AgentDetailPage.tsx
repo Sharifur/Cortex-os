@@ -10,7 +10,7 @@ import {
   Bug, AlertTriangle, AlertCircle,
   Plus, Loader2, RefreshCw, Radio, Globe,
   CalendarClock, Zap, RotateCcw, ListTodo, ExternalLink,
-  ImageIcon, Upload, ChevronLeft, X, Copy, Check, Download, Pencil,
+  ImageIcon, Upload, ChevronLeft, X, Copy, Check, Download, Pencil, Send,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -3505,6 +3505,158 @@ interface Prospect {
   createdAt: string;
 }
 
+interface GmailAccount {
+  id: string;
+  label: string;
+  email: string;
+  displayName: string | null;
+  isDefault: boolean;
+}
+
+interface OutreachComposeProps {
+  token: string;
+  prospect: Prospect;
+  onClose: () => void;
+  onSent: () => void;
+}
+
+function OutreachComposeModal({ token, prospect, onClose, onSent }: OutreachComposeProps) {
+  const [to, setTo] = useState(prospect.contactEmail ?? '');
+  const [subject, setSubject] = useState(prospect.outreachSubject ?? '');
+  const [body, setBody] = useState(prospect.outreachBody ?? '');
+  const [accountId, setAccountId] = useState('');
+  const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const { data: accounts = [] } = useQuery<GmailAccount[]>({
+    queryKey: ['gmail-accounts'],
+    queryFn: () => fetch('/gmail/accounts', { headers: { Authorization: `Bearer ${token}` } }).then((r) => r.json()),
+    staleTime: 60_000,
+  });
+
+  useEffect(() => {
+    const def = accounts.find((a) => a.isDefault) ?? accounts[0];
+    if (def && !accountId) setAccountId(def.id);
+  }, [accounts]);
+
+  async function handleSend() {
+    if (!to.trim() || !subject.trim() || !body.trim()) return;
+    setSending(true);
+    setError(null);
+    try {
+      const res = await fetch('/taskip-internal/inbox/send', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          recipient: to.trim(),
+          subject: subject.trim(),
+          textBody: body.trim(),
+          purpose: 'other',
+          accountId: accountId || undefined,
+          plainText: true,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as { message?: string }).message ?? `HTTP ${res.status}`);
+
+      await fetch(`/listing-outreach/prospects/${prospect.id}`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'emailed' }),
+      });
+
+      setSent(true);
+      setTimeout(() => { onSent(); onClose(); }, 1200);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSending(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={onClose}>
+      <div className="w-full max-w-2xl bg-card border border-border rounded-xl shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+          <div className="flex items-center gap-2">
+            <div className="h-7 w-7 rounded-lg bg-gradient-to-br from-indigo-500 to-violet-500 flex items-center justify-center">
+              <Mail className="w-3.5 h-3.5 text-white" />
+            </div>
+            <h2 className="text-base font-semibold">Send Outreach Email</h2>
+          </div>
+          <button onClick={onClose} className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="rounded-b-xl overflow-hidden">
+          {accounts.length > 0 && (
+            <div className="flex items-center gap-3 px-4 py-2.5 border-b border-border">
+              <span className="text-xs text-muted-foreground w-16 shrink-0">From</span>
+              <div className="relative flex-1">
+                <select
+                  value={accountId}
+                  onChange={(e) => setAccountId(e.target.value)}
+                  className="w-full text-sm pl-0 pr-6 py-0 bg-transparent text-foreground focus:outline-none appearance-none cursor-pointer"
+                >
+                  {accounts.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.displayName ? `${a.displayName} <${a.email}>` : a.email}{a.isDefault ? ' (default)' : ''}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown className="absolute right-0 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
+              </div>
+            </div>
+          )}
+          <div className="flex items-center gap-3 px-4 py-2.5 border-b border-border">
+            <span className="text-xs text-muted-foreground w-16 shrink-0">To</span>
+            <input
+              type="email"
+              value={to}
+              onChange={(e) => setTo(e.target.value)}
+              className="flex-1 text-sm bg-transparent focus:outline-none placeholder:text-muted-foreground/50"
+            />
+          </div>
+          <div className="flex items-center gap-3 px-4 py-2.5 border-b border-border">
+            <span className="text-xs text-muted-foreground w-16 shrink-0">Subject</span>
+            <input
+              type="text"
+              value={subject}
+              onChange={(e) => setSubject(e.target.value)}
+              className="flex-1 text-sm bg-transparent focus:outline-none placeholder:text-muted-foreground/50"
+            />
+          </div>
+          <textarea
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            className="w-full px-4 py-3 text-sm bg-transparent focus:outline-none resize-none font-mono leading-relaxed"
+            style={{ minHeight: '220px' }}
+          />
+          <div className="px-4 py-2.5 border-t border-border flex items-center justify-between gap-2 bg-muted/10">
+            <span className="text-[11px] text-muted-foreground tabular-nums">
+              {body.trim() ? body.trim().split(/\s+/).length : 0} words
+            </span>
+            <div className="flex items-center gap-2">
+              {error && <span className="text-[11px] text-destructive">{error}</span>}
+              {sent && <span className="text-[11px] text-emerald-400">Sent — tracking replies…</span>}
+              <button
+                onClick={handleSend}
+                disabled={sending || !to.trim() || !subject.trim() || !body.trim()}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs hover:bg-primary/90 disabled:opacity-50 transition-colors"
+              >
+                {sending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                Send email
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 interface ProspectsPage {
   data: Prospect[];
   total: number;
@@ -3518,8 +3670,7 @@ function ProspectsTab({ token }: { token: string }) {
   const PAGE_SIZE = 20;
   const [expanded, setExpanded] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
-  const [sending, setSending] = useState<string | null>(null);
-  const [sendError, setSendError] = useState<Record<string, string>>({});
+  const [composingFor, setComposingFor] = useState<Prospect | null>(null);
   const [drafting, setDrafting] = useState<string | null>(null);
   const [draftError, setDraftError] = useState<Record<string, string>>({});
   const qc = useQueryClient();
@@ -3556,25 +3707,6 @@ function ProspectsTab({ token }: { token: string }) {
     qc.invalidateQueries({ queryKey: ['listing-prospects'] });
   }
 
-  async function sendEmail(id: string) {
-    setSending(id);
-    setSendError((prev) => { const n = { ...prev }; delete n[id]; return n; });
-    try {
-      const res = await fetch(`/listing-outreach/prospects/${id}/send`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ message: 'Send failed' }));
-        setSendError((prev) => ({ ...prev, [id]: (err as { message?: string }).message ?? 'Send failed' }));
-      } else {
-        qc.invalidateQueries({ queryKey: ['listing-prospects'] });
-      }
-    } finally {
-      setSending(null);
-    }
-  }
-
   async function generateDraft(id: string) {
     setDrafting(id);
     setDraftError((prev) => { const n = { ...prev }; delete n[id]; return n; });
@@ -3604,6 +3736,15 @@ function ProspectsTab({ token }: { token: string }) {
   const statuses = ['', 'discovered', 'researched', 'pending_approval', 'emailed', 'skipped', 'listed'];
 
   return (
+    <>
+    {composingFor && (
+      <OutreachComposeModal
+        token={token}
+        prospect={composingFor}
+        onClose={() => setComposingFor(null)}
+        onSent={() => { setComposingFor(null); qc.invalidateQueries({ queryKey: ['listing-prospects'] }); }}
+      />
+    )}
     <div className="space-y-4">
       <div className="flex items-center gap-2 flex-wrap">
         {statuses.map((s) => (
@@ -3777,19 +3918,12 @@ function ProspectsTab({ token }: { token: string }) {
                                 </div>
 
                                 {p.contactEmail && p.status !== 'emailed' && (
-                                  <div className="flex items-center gap-3">
-                                    <button
-                                      onClick={() => sendEmail(p.id)}
-                                      disabled={sending === p.id}
-                                      className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors"
-                                    >
-                                      {sending === p.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Mail className="w-3.5 h-3.5" />}
-                                      {sending === p.id ? 'Sending...' : 'Send Email'}
-                                    </button>
-                                    {sendError[p.id] && (
-                                      <span className="text-xs text-red-400">{sendError[p.id]}</span>
-                                    )}
-                                  </div>
+                                  <button
+                                    onClick={() => setComposingFor(p)}
+                                    className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 transition-colors"
+                                  >
+                                    <Mail className="w-3.5 h-3.5" /> Send Email
+                                  </button>
                                 )}
 
                                 {p.status === 'emailed' && p.contactEmail && (
@@ -3847,6 +3981,7 @@ function ProspectsTab({ token }: { token: string }) {
         </>
       )}
     </div>
+    </>
   );
 }
 
