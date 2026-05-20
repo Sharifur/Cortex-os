@@ -42,13 +42,8 @@ export class LivechatInboundController {
     @Headers('x-amz-sns-message-type') messageType: string,
     @Query('t') tokenInUrl?: string,
   ) {
-    const expected = await this.settings.getDecrypted('livechat_inbound_token');
-    if (!expected) throw new UnauthorizedException('Inbound webhook token not configured');
-    if (!tokenInUrl || !safeEqualString(tokenInUrl, expected)) {
-      throw new UnauthorizedException('Invalid inbound token');
-    }
-
-    // SNS subscription handshake — auto-confirm but only for AWS-issued URLs.
+    // SNS subscription handshake — confirm before token check so a fresh
+    // subscription (before the token is saved) can still be confirmed.
     if (messageType === 'SubscriptionConfirmation' && body.SubscribeURL) {
       try {
         const u = new URL(body.SubscribeURL);
@@ -62,6 +57,12 @@ export class LivechatInboundController {
       await fetch(body.SubscribeURL);
       this.logger.log('SNS livechat-inbound subscription confirmed');
       return;
+    }
+
+    const expected = await this.settings.getDecrypted('livechat_inbound_token');
+    if (!expected) throw new UnauthorizedException('Inbound webhook token not configured');
+    if (!tokenInUrl || !safeEqualString(tokenInUrl, expected)) {
+      throw new UnauthorizedException('Invalid inbound token');
     }
     if (messageType !== 'Notification') return;
 
