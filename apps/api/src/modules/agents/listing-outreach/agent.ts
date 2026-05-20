@@ -144,6 +144,7 @@ export class ListingOutreachAgent implements IAgent, OnModuleInit {
 
     const monthlyCount = monthlyRows.length;
     if (monthlyCount >= config.monthlyLimit) {
+      await _run.log?.('info', `Monthly limit reached (${monthlyCount}/${config.monthlyLimit}) — skipping run`);
       return {
         source: _trigger,
         snapshot: { prospects: [], config, atLimit: true, monthlyCount },
@@ -157,48 +158,84 @@ export class ListingOutreachAgent implements IAgent, OnModuleInit {
     const gmailAccounts = await this.gmail.listAccounts();
     const defaultAccount = gmailAccounts.find((a) => a.isDefault) ?? gmailAccounts[0] ?? null;
 
-    const prospects: ResearchedProspect[] = [];
+    await _run.log?.('info', `Starting discovery for ${config.products.length} product(s) — slots remaining: ${remaining}`);
 
-    for (const product of config.products) {
-      if (prospects.length >= remaining) break;
+    const allDiscovered: Array<{
+      product: (typeof config.products)[number];
+      url: string;
+      title: string;
+      description: string;
+      rank: number;
+      query: string;
+    }> = [];
 
-      const seen = new Set<string>();
-      const discovered: Array<{ url: string; title: string; description: string; rank: number; query: string }> = [];
+    await Promise.allSettled(
+      config.products.flatMap((product) =>
+        product.queries.map(async (query) => {
+          const results = await this.brave.search(query, 10);
+          for (const r of results) {
+            allDiscovered.push({ product, ...r, query });
+          }
+        }),
+      ),
+    );
 
-      for (const query of product.queries) {
-        const results = await this.brave.search(query, 10);
-        for (const r of results) {
-          discovered.push({ ...r, query });
-        }
+    await _run.log?.('info', `Brave Search complete — ${allDiscovered.length} raw results across all products`);
+
+    const seenKeys = new Set<string>();
+    const toResearch: Array<{
+      product: (typeof config.products)[number];
+      url: string;
+      title: string;
+      description: string;
+      rank: number;
+      query: string;
+      domain: string;
+    }> = [];
+
+    for (const item of allDiscovered) {
+      const domain = this.extractDomain(item.url);
+      if (!domain) continue;
+      const key = `${domain}::${item.product.domain}`;
+      if (seenKeys.has(key)) continue;
+      seenKeys.add(key);
+
+      const existing = await this.db.db
+        .select({ id: listingProspects.id, lastContactedAt: listingProspects.lastContactedAt })
+        .from(listingProspects)
+        .where(eq(listingProspects.domain, domain))
+        .limit(1);
+
+      if (existing.length && existing[0].lastContactedAt && existing[0].lastContactedAt > cooldownDate) {
+        continue;
       }
 
-      for (const item of discovered) {
-        if (prospects.length >= remaining) break;
+      toResearch.push({ ...item, domain });
+      if (toResearch.length >= remaining * 3) break;
+    }
 
-        const domain = this.extractDomain(item.url);
-        if (!domain || seen.has(domain)) continue;
-        seen.add(domain);
+    await _run.log?.('info', `Researching ${toResearch.length} candidate sites (concurrency: 5)`);
 
-        const existing = await this.db.db
-          .select({ id: listingProspects.id, lastContactedAt: listingProspects.lastContactedAt })
-          .from(listingProspects)
-          .where(eq(listingProspects.domain, domain))
-          .limit(1);
+    const researched: ResearchedProspect[] = [];
+    const chunks: (typeof toResearch)[] = [];
+    for (let i = 0; i < toResearch.length; i += 5) {
+      chunks.push(toResearch.slice(i, i + 5));
+    }
 
-        if (existing.length && existing[0].lastContactedAt && existing[0].lastContactedAt > cooldownDate) {
-          continue;
-        }
+    for (const chunk of chunks) {
+      const results = await Promise.allSettled(
+        chunk.map(async (item) => {
+          const [opr, scraped] = await Promise.all([
+            this.brave.getOpenPageRank(item.domain),
+            this.scrapeSite(item.url),
+          ]);
+          const score = this.calcScore(item.rank, opr, scraped);
 
-        const opr = await this.brave.getOpenPageRank(domain);
-        const scraped = await this.scrapeSite(item.url);
-        const score = this.calcScore(item.rank, opr, scraped);
-
-        if (score < config.minScore) {
-          await this.upsertProspect({
-            domain,
-            productDomain: product.domain,
-            productName: product.name,
-            outreachGoal: product.outreachGoal ?? 'both',
+          const id = await this.upsertProspect({
+            domain: item.domain,
+            productDomain: item.product.domain,
+            productName: item.product.name,
+            outreachGoal: item.product.outreachGoal ?? 'both',
             siteUrl: item.url,
             siteName: item.title,
             description: item.description,
@@ -206,51 +243,49 @@ export class ListingOutreachAgent implements IAgent, OnModuleInit {
             openPageRank: opr,
             searchRank: item.rank,
             searchQuery: item.query,
-            status: 'discovered',
+            status: score < config.minScore ? 'discovered' : 'researched',
+            gmailAccountId: score < config.minScore ? null : (defaultAccount?.id ?? null),
             ...scraped,
           });
-          continue;
+
+          if (score < config.minScore) return null;
+
+          return {
+            id,
+            domain: item.domain,
+            productDomain: item.product.domain,
+            productName: item.product.name,
+            outreachGoal: (item.product.outreachGoal ?? 'both') as 'listed' | 'partnership' | 'both',
+            siteName: item.title,
+            siteUrl: item.url,
+            description: item.description,
+            contactEmail: scraped.contactEmail,
+            linkedinProfileUrl: scraped.linkedinProfileUrl,
+            submitUrl: scraped.submitUrl,
+            contactFormUrl: scraped.contactFormUrl,
+            qualityScore: score,
+            openPageRank: opr,
+            searchRank: item.rank,
+            searchQuery: item.query,
+            gmailAccountEmail: defaultAccount?.email ?? '',
+            gmailAccountId: defaultAccount?.id ?? null,
+          } satisfies ResearchedProspect;
+        }),
+      );
+
+      for (const r of results) {
+        if (r.status === 'fulfilled' && r.value) {
+          researched.push(r.value);
         }
-
-        const id = await this.upsertProspect({
-          domain,
-          productDomain: product.domain,
-          productName: product.name,
-          outreachGoal: product.outreachGoal ?? 'both',
-          siteUrl: item.url,
-          siteName: item.title,
-          description: item.description,
-          qualityScore: score,
-          openPageRank: opr,
-          searchRank: item.rank,
-          searchQuery: item.query,
-          status: 'researched',
-          gmailAccountId: defaultAccount?.id ?? null,
-          ...scraped,
-        });
-
-        prospects.push({
-          id,
-          domain,
-          productDomain: product.domain,
-          productName: product.name,
-          outreachGoal: product.outreachGoal ?? 'both',
-          siteName: item.title,
-          siteUrl: item.url,
-          description: item.description,
-          contactEmail: scraped.contactEmail,
-          linkedinProfileUrl: scraped.linkedinProfileUrl,
-          submitUrl: scraped.submitUrl,
-          contactFormUrl: scraped.contactFormUrl,
-          qualityScore: score,
-          openPageRank: opr,
-          searchRank: item.rank,
-          searchQuery: item.query,
-          gmailAccountEmail: defaultAccount?.email ?? 'default',
-          gmailAccountId: defaultAccount?.id ?? null,
-        });
       }
+
+      await _run.log?.('info', `Researched chunk — ${researched.length} qualified prospects so far`);
     }
+
+    researched.sort((a, b) => b.qualityScore - a.qualityScore);
+    const prospects = researched.slice(0, remaining);
+
+    await _run.log?.('info', `Discovery complete — ${prospects.length} prospects queued for outreach`);
 
     return {
       source: _trigger,
@@ -495,14 +530,14 @@ Return ONLY the email body text, no subject line.${kbBlock}`;
   }> {
     const result = { contactEmail: null as string | null, linkedinProfileUrl: null as string | null, submitUrl: null as string | null, contactFormUrl: null as string | null };
 
-    const pagesToTry = ['', '/contact', '/about', '/team', '/submit', '/advertise', '/submit-tool', '/add-tool'];
+    const pagesToTry = ['', '/contact', '/about', '/submit-tool'];
 
     for (const path of pagesToTry) {
       if (result.contactEmail) break;
       try {
         const target = path ? new URL(path, url).href : url;
         const res = await axios.get(target, {
-          timeout: 8000,
+          timeout: 5000,
           maxContentLength: 1_500_000,
           headers: { 'User-Agent': 'CortexBot/1.0' },
           validateStatus: (s) => s < 400,

@@ -16,6 +16,15 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.84.3',
+    date: '2026-05-20',
+    entries: [
+      { tag: 'fix', scope: 'listing-outreach', description: 'Prospects tab now loads correctly — /listing-outreach was missing from Vite proxy paths, causing all API calls to return the HTML shell instead of data.' },
+      { tag: 'fix', scope: 'listing-outreach', description: 'buildContext parallelized: all Brave Search queries fire concurrently, site OPR + scraping runs in parallel chunks of 5. Scrape pages reduced from 8 to 4, timeout from 8s to 5s — run time drops from 10+ minutes to under 2 minutes.' },
+      { tag: 'fix', scope: 'listing-outreach', description: 'Progress logs now stream to the run log panel during discovery — shows search completion, candidate count, chunk progress, and final prospect count.' },
+    ],
+  },
+  {
     version: 'v4.84.2',
     date: '2026-05-20',
     entries: [
