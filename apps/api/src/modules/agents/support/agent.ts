@@ -1434,7 +1434,7 @@ export class SupportAgent implements IAgent, OnModuleInit {
       const agentIdRaw = await this.settings.getDecrypted('support_agent_id');
       if (!agentIdRaw) return { ok: false, error: 'support_agent_id not configured in Settings' };
       const body: Record<string, unknown> = { description: message, agent_id: Number(agentIdRaw) };
-      const res = await fetch(`${baseUrl.replace(/\/$/, '')}/api/public-v1/support-ticket/agent-reply/${crmUuid}`, {
+      const res = await fetch(`${baseUrl.replace(/\/$/, '')}/api/public-v1/support-ticket/${crmUuid}/agent-reply`, {
         method: 'POST',
         headers: await this.crmHeaders(),
         body: JSON.stringify(body),

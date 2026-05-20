@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.83.1',
+    date: '2026-05-20',
+    entries: [
+      { tag: 'fix', scope: 'support', description: 'Fixed send-reply 404: CRM agent-reply endpoint URL had UUID and action segment inverted; corrected to /support-ticket/{uuid}/agent-reply.' },
+    ],
+  },
+  {
     version: 'v4.83.0',
     date: '2026-05-20',
     entries: [
