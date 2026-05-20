@@ -2,7 +2,7 @@ export interface SettingDefinition {
   label: string;
   description?: string;
   isSecret: boolean;
-  group: 'general' | 'llm' | 'telegram' | 'ses' | 'gmail' | 'whatsapp' | 'linkedin' | 'reddit' | 'license' | 'storage' | 'insight' | 'safety' | 'hr' | 'geoip' | 'support' | 'image' | 'canva' | 'unipile';
+  group: 'general' | 'llm' | 'telegram' | 'ses' | 'gmail' | 'whatsapp' | 'linkedin' | 'reddit' | 'license' | 'storage' | 'insight' | 'safety' | 'hr' | 'geoip' | 'support' | 'image' | 'canva' | 'unipile' | 'listing';
   defaultValue?: string;
   provider?: 'openai' | 'gemini' | 'deepseek' | 'stability' | 'general';
   options?: Array<{ value: string; label: string; desc?: string }>;
@@ -555,6 +555,40 @@ export const SETTING_DEFINITIONS: Record<string, SettingDefinition> = {
     ],
   },
 
+  // Listing Outreach Agent
+  brave_search_api_key: {
+    label: 'Brave Search API Key',
+    description: 'API key from api.search.brave.com. Costs $5 per 1 000 requests but includes $5 free credit monthly — roughly 1 000 free requests/month. This agent uses ~120/month so credit covers it fully.',
+    isSecret: true,
+    group: 'listing',
+  },
+  open_page_rank_api_key: {
+    label: 'Open PageRank API Key',
+    description: 'Free key from openpagerank.com. Improves quality scoring by adding domain authority (0-10) to each discovered site.',
+    isSecret: true,
+    group: 'listing',
+  },
+  listing_outreach_monthly_limit: {
+    label: 'Monthly Outreach Limit',
+    description: 'Max number of listing sites to contact per calendar month.',
+    isSecret: false,
+    group: 'listing',
+    defaultValue: '20',
+  },
+  listing_outreach_per_run_limit: {
+    label: 'Per Run Limit',
+    description: 'Max new prospects to process per weekly run.',
+    isSecret: false,
+    group: 'listing',
+    defaultValue: '10',
+  },
+  listing_outreach_min_score: {
+    label: 'Minimum Quality Score',
+    description: 'Sites scoring below this threshold (0-100) are recorded but not actioned.',
+    isSecret: false,
+    group: 'listing',
+    defaultValue: '30',
+  },
   // Canva Agent
   canva_dna_max_tokens: {
     label: 'Design DNA Max Tokens',

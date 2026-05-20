@@ -8,9 +8,9 @@ import {
   Mail, Cpu, Layers, Info, BookOpen,
   CheckCircle2, Circle, MessageSquare,
   Bug, AlertTriangle, AlertCircle,
-  Plus, Loader2, RefreshCw, Radio,
+  Plus, Loader2, RefreshCw, Radio, Globe,
   CalendarClock, Zap, RotateCcw, ListTodo, ExternalLink,
-  ImageIcon, Upload, ChevronLeft, X, Copy, Check, Download, Pencil,
+  ImageIcon, Upload, ChevronLeft, X, Copy, Check, Download, Pencil, Send,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -2668,6 +2668,8 @@ function SettingsTab({ agent, token }: { agent: AgentDetail; token: string }) {
     } />
   );
 
+  if (agent.key === 'listing_outreach') return <ListingOutreachSettingsTab agent={agent} token={token} />;
+
   if (agent.key === 'canva') return <CanvaAgentPage agent={agent} token={token} />;
 
   if (agent.key === 'shorts') return <ShortsSettingsTab agent={agent} token={token} />;
@@ -3467,6 +3469,820 @@ function Phase4GeneralSubTab({ agent, token }: { agent: AgentDetail; token: stri
         </Button>
         {!agent.registered && <p className="text-xs text-yellow-500 mt-2">Agent is not registered.</p>}
       </div>
+    </div>
+  );
+}
+
+// ─── Listing Outreach Prospects Tab ──────────────────────────────────────────
+
+const STATUS_COLORS: Record<string, string> = {
+  discovered: 'bg-muted text-muted-foreground',
+  researched: 'bg-blue-500/10 text-blue-400',
+  pending_approval: 'bg-yellow-500/10 text-yellow-400',
+  emailed: 'bg-emerald-500/10 text-emerald-400',
+  skipped: 'bg-red-500/10 text-red-400',
+  listed: 'bg-purple-500/10 text-purple-400',
+};
+
+interface Prospect {
+  id: string;
+  domain: string;
+  productDomain: string;
+  productName: string | null;
+  siteName: string | null;
+  siteUrl: string;
+  contactEmail: string | null;
+  linkedinProfileUrl: string | null;
+  submitUrl: string | null;
+  status: string;
+  qualityScore: number | null;
+  openPageRank: string | null;
+  searchRank: number | null;
+  outreachGoal: string;
+  outreachSubject: string | null;
+  outreachBody: string | null;
+  lastContactedAt: string | null;
+  createdAt: string;
+}
+
+interface GmailAccount {
+  id: string;
+  label: string;
+  email: string;
+  displayName: string | null;
+  isDefault: boolean;
+}
+
+interface OutreachComposeProps {
+  token: string;
+  prospect: Prospect;
+  onClose: () => void;
+  onSent: () => void;
+}
+
+function OutreachComposeModal({ token, prospect, onClose, onSent }: OutreachComposeProps) {
+  const [to, setTo] = useState(prospect.contactEmail ?? '');
+  const [subject, setSubject] = useState(prospect.outreachSubject ?? '');
+  const [body, setBody] = useState(prospect.outreachBody ?? '');
+  const [accountId, setAccountId] = useState('');
+  const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const { data: accounts = [], isLoading: accountsLoading } = useQuery<GmailAccount[]>({
+    queryKey: ['gmail-accounts'],
+    queryFn: async () => {
+      const res = await fetch('/gmail/accounts', { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) throw new Error(`${res.status}`);
+      return res.json();
+    },
+    staleTime: 60_000,
+  });
+
+  useEffect(() => {
+    const def = accounts.find((a) => a.isDefault) ?? accounts[0];
+    if (def && !accountId) setAccountId(def.id);
+  }, [accounts]);
+
+  async function handleSend() {
+    if (!to.trim() || !subject.trim() || !body.trim()) return;
+    setSending(true);
+    setError(null);
+    try {
+      const res = await fetch('/taskip-internal/inbox/send', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          recipient: to.trim(),
+          subject: subject.trim(),
+          textBody: body.trim(),
+          purpose: 'other',
+          accountId: accountId || undefined,
+          plainText: true,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as { message?: string }).message ?? `HTTP ${res.status}`);
+
+      await fetch(`/listing-outreach/prospects/${prospect.id}`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'emailed' }),
+      });
+
+      setSent(true);
+      setTimeout(() => { onSent(); onClose(); }, 1200);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSending(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={onClose}>
+      <div className="w-full max-w-2xl bg-card border border-border rounded-xl shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+          <div className="flex items-center gap-2">
+            <div className="h-7 w-7 rounded-lg bg-gradient-to-br from-indigo-500 to-violet-500 flex items-center justify-center">
+              <Mail className="w-3.5 h-3.5 text-white" />
+            </div>
+            <h2 className="text-base font-semibold">Send Outreach Email</h2>
+          </div>
+          <button onClick={onClose} className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="rounded-b-xl overflow-hidden">
+          <div className="flex items-center gap-3 px-4 py-2.5 border-b border-border">
+            <span className="text-xs text-muted-foreground w-16 shrink-0">From</span>
+            {accountsLoading ? (
+              <Skeleton className="h-4 w-48" />
+            ) : accounts.length > 0 ? (
+              <div className="relative flex-1">
+                <select
+                  value={accountId}
+                  onChange={(e) => setAccountId(e.target.value)}
+                  className="w-full text-sm pl-0 pr-6 py-0 bg-transparent text-foreground focus:outline-none appearance-none cursor-pointer"
+                >
+                  {accounts.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.displayName ? `${a.displayName} <${a.email}>` : a.email}{a.isDefault ? ' (default)' : ''}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown className="absolute right-0 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
+              </div>
+            ) : (
+              <span className="text-xs text-muted-foreground">No Gmail accounts connected — add one in Integrations</span>
+            )}
+          </div>
+          <div className="flex items-center gap-3 px-4 py-2.5 border-b border-border">
+            <span className="text-xs text-muted-foreground w-16 shrink-0">To</span>
+            <input
+              type="email"
+              value={to}
+              onChange={(e) => setTo(e.target.value)}
+              className="flex-1 text-sm bg-transparent focus:outline-none placeholder:text-muted-foreground/50"
+            />
+          </div>
+          <div className="flex items-center gap-3 px-4 py-2.5 border-b border-border">
+            <span className="text-xs text-muted-foreground w-16 shrink-0">Subject</span>
+            <input
+              type="text"
+              value={subject}
+              onChange={(e) => setSubject(e.target.value)}
+              className="flex-1 text-sm bg-transparent focus:outline-none placeholder:text-muted-foreground/50"
+            />
+          </div>
+          <textarea
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            className="w-full px-4 py-3 text-sm bg-transparent focus:outline-none resize-none font-mono leading-relaxed"
+            style={{ minHeight: '220px' }}
+          />
+          <div className="px-4 py-2.5 border-t border-border flex items-center justify-between gap-2 bg-muted/10">
+            <span className="text-[11px] text-muted-foreground tabular-nums">
+              {body.trim() ? body.trim().split(/\s+/).length : 0} words
+            </span>
+            <div className="flex items-center gap-2">
+              {error && <span className="text-[11px] text-destructive">{error}</span>}
+              {sent && <span className="text-[11px] text-emerald-400">Sent — tracking replies…</span>}
+              <button
+                onClick={handleSend}
+                disabled={sending || !to.trim() || !subject.trim() || !body.trim()}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs hover:bg-primary/90 disabled:opacity-50 transition-colors"
+              >
+                {sending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                Send email
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+interface ProspectsPage {
+  data: Prospect[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+function ProspectsTab({ token }: { token: string }) {
+  const [statusFilter, setStatusFilter] = useState('');
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 20;
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [copied, setCopied] = useState<string | null>(null);
+  const [composingFor, setComposingFor] = useState<Prospect | null>(null);
+  const [drafting, setDrafting] = useState<string | null>(null);
+  const [draftError, setDraftError] = useState<Record<string, string>>({});
+  const qc = useQueryClient();
+
+  const { data, isLoading } = useQuery<ProspectsPage>({
+    queryKey: ['listing-prospects', statusFilter, page],
+    queryFn: async () => {
+      const qs = new URLSearchParams({ page: String(page), pageSize: String(PAGE_SIZE) });
+      if (statusFilter) qs.set('status', statusFilter);
+      const res = await fetch(`/listing-outreach/prospects?${qs}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error('Failed');
+      return res.json();
+    },
+    staleTime: 30_000,
+  });
+
+  const prospects = data?.data ?? [];
+  const total = data?.total ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+  function changeFilter(s: string) {
+    setStatusFilter(s);
+    setPage(1);
+  }
+
+  async function updateStatus(id: string, status: string) {
+    await fetch(`/listing-outreach/prospects/${id}`, {
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status }),
+    });
+    qc.invalidateQueries({ queryKey: ['listing-prospects'] });
+  }
+
+  async function generateDraft(id: string) {
+    setDrafting(id);
+    setDraftError((prev) => { const n = { ...prev }; delete n[id]; return n; });
+    try {
+      const res = await fetch(`/listing-outreach/prospects/${id}/draft`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ message: 'Draft failed' }));
+        setDraftError((prev) => ({ ...prev, [id]: (err as { message?: string }).message ?? 'Draft failed' }));
+      } else {
+        qc.invalidateQueries({ queryKey: ['listing-prospects'] });
+      }
+    } finally {
+      setDrafting(null);
+    }
+  }
+
+  function copyText(key: string, text: string) {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(key);
+      setTimeout(() => setCopied(null), 2000);
+    });
+  }
+
+  const statuses = ['', 'discovered', 'researched', 'pending_approval', 'emailed', 'skipped', 'listed'];
+
+  return (
+    <>
+    {composingFor && (
+      <OutreachComposeModal
+        token={token}
+        prospect={composingFor}
+        onClose={() => setComposingFor(null)}
+        onSent={() => { setComposingFor(null); qc.invalidateQueries({ queryKey: ['listing-prospects'] }); }}
+      />
+    )}
+    <div className="space-y-4">
+      <div className="flex items-center gap-2 flex-wrap">
+        {statuses.map((s) => (
+          <button
+            key={s}
+            onClick={() => changeFilter(s)}
+            className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+              statusFilter === s
+                ? 'bg-primary text-primary-foreground border-primary'
+                : 'border-border text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            {s || 'All'}
+          </button>
+        ))}
+        <span className="ml-auto text-xs text-muted-foreground">{total} prospects</span>
+      </div>
+
+      {isLoading && (
+        <div className="space-y-2">
+          {[...Array(5)].map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}
+        </div>
+      )}
+
+      {!isLoading && prospects.length === 0 && (
+        <div className="text-center py-16 text-muted-foreground text-sm">
+          No prospects yet. Trigger the agent to start discovery.
+        </div>
+      )}
+
+      {!isLoading && prospects.length > 0 && (
+        <>
+          <div className="rounded-xl border border-border overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/40 border-b border-border">
+                <tr>
+                  <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Site</th>
+                  <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Product</th>
+                  <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Score</th>
+                  <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Contact</th>
+                  <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Status</th>
+                  <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Last contacted</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {prospects.map((p) => (
+                  <>
+                    <tr
+                      key={p.id}
+                      onClick={() => setExpanded(expanded === p.id ? null : p.id)}
+                      className="hover:bg-muted/20 transition-colors cursor-pointer"
+                    >
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-1.5">
+                          <ChevronRight className={`w-3.5 h-3.5 text-muted-foreground shrink-0 transition-transform ${expanded === p.id ? 'rotate-90' : ''}`} />
+                          <div>
+                            <div className="font-medium text-sm leading-tight">{p.siteName || p.domain}</div>
+                            <a
+                              href={p.siteUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1 mt-0.5"
+                            >
+                              <Globe className="w-3 h-3" />
+                              {p.domain}
+                              <ExternalLink className="w-2.5 h-2.5" />
+                            </a>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="text-xs">{p.productName || p.productDomain}</div>
+                        <div className="text-xs text-muted-foreground capitalize">{p.outreachGoal}</div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="font-mono text-sm">{p.qualityScore ?? '—'}</div>
+                        {p.openPageRank && (
+                          <div className="text-xs text-muted-foreground">OPR {p.openPageRank}</div>
+                        )}
+                      </td>
+                      <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                        {p.contactEmail ? (
+                          <a href={`mailto:${p.contactEmail}`} className="text-xs text-primary hover:underline">{p.contactEmail}</a>
+                        ) : p.submitUrl ? (
+                          <a href={p.submitUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-muted-foreground hover:text-foreground">Submit form</a>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">—</span>
+                        )}
+                        {p.linkedinProfileUrl && (
+                          <a href={p.linkedinProfileUrl} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="block text-xs text-blue-400 hover:underline mt-0.5">LinkedIn</a>
+                        )}
+                      </td>
+                      <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                        <select
+                          value={p.status}
+                          onChange={(e) => updateStatus(p.id, e.target.value)}
+                          className={`text-xs px-2 py-0.5 rounded-full border-0 font-medium cursor-pointer ${STATUS_COLORS[p.status] ?? 'bg-muted text-muted-foreground'}`}
+                        >
+                          {['discovered', 'researched', 'pending_approval', 'emailed', 'skipped', 'listed'].map((s) => (
+                            <option key={s} value={s}>{s.replace('_', ' ')}</option>
+                          ))}
+                        </select>
+                      </td>
+                      <td className="px-4 py-3 text-xs text-muted-foreground">
+                        {p.lastContactedAt ? new Date(p.lastContactedAt).toLocaleDateString() : '—'}
+                      </td>
+                    </tr>
+
+                    {expanded === p.id && (
+                      <tr key={`${p.id}-detail`} className="bg-muted/10 border-t border-border/50">
+                        <td colSpan={6} className="px-6 py-4">
+                          <div className="space-y-4 max-w-2xl">
+
+                            <div>
+                              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Outreach approach</p>
+                              <div className="flex flex-wrap gap-2 text-xs">
+                                {p.contactEmail && (
+                                  <span className="px-2 py-1 bg-emerald-500/10 text-emerald-400 rounded">
+                                    Email → {p.contactEmail}
+                                  </span>
+                                )}
+                                {p.submitUrl && (
+                                  <a href={p.submitUrl} target="_blank" rel="noopener noreferrer" className="px-2 py-1 bg-blue-500/10 text-blue-400 rounded hover:underline flex items-center gap-1">
+                                    Submit form <ExternalLink className="w-2.5 h-2.5" />
+                                  </a>
+                                )}
+                                {p.contactFormUrl && !p.submitUrl && (
+                                  <a href={p.contactFormUrl} target="_blank" rel="noopener noreferrer" className="px-2 py-1 bg-blue-500/10 text-blue-400 rounded hover:underline flex items-center gap-1">
+                                    Contact form <ExternalLink className="w-2.5 h-2.5" />
+                                  </a>
+                                )}
+                                {p.linkedinProfileUrl && (
+                                  <a href={p.linkedinProfileUrl} target="_blank" rel="noopener noreferrer" className="px-2 py-1 bg-indigo-500/10 text-indigo-400 rounded hover:underline flex items-center gap-1">
+                                    LinkedIn profile <ExternalLink className="w-2.5 h-2.5" />
+                                  </a>
+                                )}
+                                {!p.contactEmail && !p.submitUrl && !p.contactFormUrl && !p.linkedinProfileUrl && (
+                                  <span className="text-muted-foreground">No contact found — manual research needed</span>
+                                )}
+                              </div>
+                            </div>
+
+                            {p.outreachSubject || p.outreachBody ? (
+                              <>
+                                <div>
+                                  <div className="flex items-center justify-between mb-1.5">
+                                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Subject line</p>
+                                    <button
+                                      onClick={() => p.outreachSubject && copyText(`${p.id}-sub`, p.outreachSubject)}
+                                      className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
+                                    >
+                                      {copied === `${p.id}-sub` ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                                      {copied === `${p.id}-sub` ? 'Copied' : 'Copy'}
+                                    </button>
+                                  </div>
+                                  <p className="text-sm bg-muted/40 border border-border rounded px-3 py-2">{p.outreachSubject}</p>
+                                </div>
+                                <div>
+                                  <div className="flex items-center justify-between mb-1.5">
+                                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Message body</p>
+                                    <button
+                                      onClick={() => p.outreachBody && copyText(`${p.id}-body`, p.outreachBody)}
+                                      className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
+                                    >
+                                      {copied === `${p.id}-body` ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                                      {copied === `${p.id}-body` ? 'Copied' : 'Copy'}
+                                    </button>
+                                  </div>
+                                  <pre className="text-sm bg-muted/40 border border-border rounded px-3 py-2 whitespace-pre-wrap font-sans leading-relaxed">{p.outreachBody}</pre>
+                                </div>
+
+                                {p.contactEmail && p.status !== 'emailed' && (
+                                  <button
+                                    onClick={() => setComposingFor(p)}
+                                    className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 transition-colors"
+                                  >
+                                    <Mail className="w-3.5 h-3.5" /> Send Email
+                                  </button>
+                                )}
+
+                                {p.status === 'emailed' && p.contactEmail && (
+                                  <p className="text-xs text-emerald-400 flex items-center gap-1">
+                                    <Check className="w-3.5 h-3.5" /> Email sent
+                                  </p>
+                                )}
+                              </>
+                            ) : (
+                              <div className="flex items-center gap-3">
+                                <button
+                                  onClick={() => generateDraft(p.id)}
+                                  disabled={drafting === p.id}
+                                  className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg border border-border text-xs text-muted-foreground hover:text-foreground hover:border-foreground/40 disabled:opacity-50 transition-colors"
+                                >
+                                  {drafting === p.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
+                                  {drafting === p.id ? 'Generating...' : 'Generate Draft'}
+                                </button>
+                                {draftError[p.id] && (
+                                  <span className="text-xs text-red-400">{draftError[p.id]}</span>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between pt-1">
+              <button
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page === 1}
+                className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-border text-xs text-muted-foreground hover:text-foreground disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" /> Previous
+              </button>
+              <span className="text-xs text-muted-foreground">
+                Page {page} of {totalPages} &middot; {total} total
+              </span>
+              <button
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={page === totalPages}
+                className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-border text-xs text-muted-foreground hover:text-foreground disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                Next <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+    </>
+  );
+}
+
+// ─── Listing Outreach Settings Tab ───────────────────────────────────────────
+
+interface LOProduct {
+  domain: string;
+  name: string;
+  queries: string[];
+  outreachGoal: 'listed' | 'partnership' | 'both';
+}
+
+function ListingOutreachGeneralSubTab({ agent, token }: { agent: AgentDetail; token: string }) {
+  const qc = useQueryClient();
+  const navigate = useNavigate();
+  const cfg = (agent.config ?? {}) as Record<string, unknown>;
+
+  const initialProducts: LOProduct[] = (cfg.products as LOProduct[] | undefined) ?? [
+    { domain: 'taskip.net', name: 'Taskip', queries: [], outreachGoal: 'both' },
+  ];
+
+  const [products, setProducts] = useState<LOProduct[]>(initialProducts);
+  const [monthlyLimit, setMonthlyLimit] = useState(String(cfg.monthlyLimit ?? 20));
+  const [perRunLimit, setPerRunLimit] = useState(String(cfg.perRunLimit ?? 10));
+  const [minScore, setMinScore] = useState(String(cfg.minScore ?? 30));
+  const [cooldownDays, setCooldownDays] = useState(String(cfg.cooldownDays ?? 30));
+  const [newQueryInputs, setNewQueryInputs] = useState<Record<number, string>>({});
+  const [saved, setSaved] = useState(false);
+
+  const configMutation = useMutation({
+    mutationFn: (config: Record<string, unknown>) =>
+      apiFetch(token, `/agents/${agent.key}`, { method: 'PATCH', body: JSON.stringify({ config }) }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['agent', agent.key] });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    },
+  });
+
+  const toggleMutation = useMutation({
+    mutationFn: () =>
+      apiFetch(token, `/agents/${agent.key}`, { method: 'PATCH', body: JSON.stringify({ enabled: !agent.enabled }) }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['agent', agent.key] }),
+  });
+
+  const triggerMutation = useMutation({
+    mutationFn: () =>
+      apiFetch(token, `/agents/${agent.key}/trigger`, { method: 'POST', body: JSON.stringify({ triggerType: 'MANUAL' }) }),
+    onSuccess: (run: { id: string }) => navigate(`/runs/${run.id}`),
+  });
+
+  function saveConfig() {
+    const { llm } = stripLlm(cfg);
+    const config: Record<string, unknown> = {
+      products,
+      monthlyLimit: Number(monthlyLimit),
+      perRunLimit: Number(perRunLimit),
+      minScore: Number(minScore),
+      cooldownDays: Number(cooldownDays),
+    };
+    if (llm) config.llm = llm;
+    configMutation.mutate(config);
+  }
+
+  function updateProduct(i: number, patch: Partial<LOProduct>) {
+    setProducts((prev) => prev.map((p, idx) => idx === i ? { ...p, ...patch } : p));
+  }
+
+  function addQuery(i: number) {
+    const q = (newQueryInputs[i] ?? '').trim();
+    if (!q) return;
+    updateProduct(i, { queries: [...products[i].queries, q] });
+    setNewQueryInputs((prev) => ({ ...prev, [i]: '' }));
+  }
+
+  function removeQuery(productIdx: number, queryIdx: number) {
+    const next = products[productIdx].queries.filter((_, qi) => qi !== queryIdx);
+    updateProduct(productIdx, { queries: next });
+  }
+
+  function addProduct() {
+    setProducts((prev) => [...prev, { domain: '', name: '', queries: [], outreachGoal: 'both' }]);
+  }
+
+  function removeProduct(i: number) {
+    setProducts((prev) => prev.filter((_, idx) => idx !== i));
+  }
+
+  return (
+    <div className="space-y-5">
+      {/* Enable / Trigger row */}
+      <div className="flex items-center gap-3">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => toggleMutation.mutate()}
+          disabled={toggleMutation.isPending}
+        >
+          {agent.enabled ? 'Disable' : 'Enable'}
+        </Button>
+        <Button
+          size="sm"
+          onClick={() => triggerMutation.mutate()}
+          disabled={triggerMutation.isPending}
+        >
+          {triggerMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> : <Play className="w-3.5 h-3.5 mr-1.5" />}
+          Trigger now
+        </Button>
+      </div>
+
+      {/* Products */}
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold">Products</h3>
+          <button
+            onClick={addProduct}
+            className="flex items-center gap-1 text-xs text-primary hover:underline"
+          >
+            <Plus className="w-3.5 h-3.5" /> Add product
+          </button>
+        </div>
+
+        {products.map((product, i) => (
+          <div key={i} className="rounded-xl border border-border bg-card p-4 space-y-3">
+            <div className="flex items-start justify-between gap-2">
+              <div className="grid grid-cols-2 gap-3 flex-1">
+                <div>
+                  <label className="text-xs text-muted-foreground mb-1 block">Domain</label>
+                  <Input
+                    value={product.domain}
+                    onChange={(e) => updateProduct(i, { domain: e.target.value })}
+                    placeholder="taskip.net"
+                    className="h-8 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground mb-1 block">Product name</label>
+                  <Input
+                    value={product.name}
+                    onChange={(e) => updateProduct(i, { name: e.target.value })}
+                    placeholder="Taskip"
+                    className="h-8 text-sm"
+                  />
+                </div>
+              </div>
+              {products.length > 1 && (
+                <button
+                  onClick={() => removeProduct(i)}
+                  className="mt-5 text-muted-foreground hover:text-destructive transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">Outreach goal</label>
+              <select
+                value={product.outreachGoal}
+                onChange={(e) => updateProduct(i, { outreachGoal: e.target.value as LOProduct['outreachGoal'] })}
+                className="h-8 text-sm rounded-md border border-input bg-background px-2 w-full"
+              >
+                <option value="both">Both — listing + partnership</option>
+                <option value="listed">Listing only</option>
+                <option value="partnership">Partnership / backlinks only</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="text-xs text-muted-foreground mb-2 block">Search queries</label>
+              <div className="space-y-1.5">
+                {product.queries.map((q, qi) => (
+                  <div key={qi} className="flex items-center gap-2 group">
+                    <span className="flex-1 text-xs bg-muted/40 border border-border rounded px-2 py-1.5">{q}</span>
+                    <button
+                      onClick={() => removeQuery(i, qi)}
+                      className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+                <div className="flex items-center gap-2 mt-2">
+                  <Input
+                    value={newQueryInputs[i] ?? ''}
+                    onChange={(e) => setNewQueryInputs((prev) => ({ ...prev, [i]: e.target.value }))}
+                    onKeyDown={(e) => e.key === 'Enter' && addQuery(i)}
+                    placeholder="Add search query..."
+                    className="h-7 text-xs"
+                  />
+                  <button
+                    onClick={() => addQuery(i)}
+                    className="text-xs text-primary hover:underline whitespace-nowrap"
+                  >
+                    Add
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Limits */}
+      <div className="rounded-xl border border-border bg-card p-4">
+        <h3 className="text-sm font-semibold mb-3">Outreach limits</h3>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">Monthly limit</label>
+            <Input value={monthlyLimit} onChange={(e) => setMonthlyLimit(e.target.value)} className="h-8 text-sm" type="number" min={1} />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">Per run limit</label>
+            <Input value={perRunLimit} onChange={(e) => setPerRunLimit(e.target.value)} className="h-8 text-sm" type="number" min={1} />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">Min quality score (0–100)</label>
+            <Input value={minScore} onChange={(e) => setMinScore(e.target.value)} className="h-8 text-sm" type="number" min={0} max={100} />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">Cooldown days</label>
+            <Input value={cooldownDays} onChange={(e) => setCooldownDays(e.target.value)} className="h-8 text-sm" type="number" min={1} />
+          </div>
+        </div>
+      </div>
+
+      <Button onClick={saveConfig} disabled={configMutation.isPending} className="w-full">
+        {configMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />}
+        {saved ? 'Saved' : 'Save config'}
+      </Button>
+    </div>
+  );
+}
+
+function ListingOutreachSettingsTab({ agent, token }: { agent: AgentDetail; token: string }) {
+  const [activeSub, setActiveSub] = useState<Phase4TabKey>('setup');
+
+  const { data: settings = [] } = useQuery<{ key: string; value: string | null; stored: boolean }[]>({
+    queryKey: ['settings'],
+    queryFn: async () => {
+      const res = await fetch('/settings', { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) throw new Error('Failed');
+      return res.json();
+    },
+    staleTime: 30_000,
+  });
+
+  const getSetting = (key: string) => settings.find((s) => s.key === key);
+
+  return (
+    <div>
+      <div className="flex items-center gap-1 border border-border rounded-lg p-1 mb-5 bg-muted/30 w-fit">
+        {PHASE4_TABS.map(({ key, label, icon: Icon }) => (
+          <button
+            key={key}
+            onClick={() => setActiveSub(key)}
+            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-md text-sm font-medium transition-colors ${
+              activeSub === key ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            <Icon className="w-3.5 h-3.5" />
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {activeSub === 'setup' && (
+        <Phase4SetupSubTab
+          agent={agent}
+          title="Listing Outreach Agent — Setup Checklist"
+          description="Discovers top-ranked SaaS and AI tool listing sites via Brave Search. Scrapes contact emails, scores each site by domain authority and search rank, drafts outreach emails with your KB voice profile, and routes each one through Telegram for approval before sending."
+          steps={<>
+            <SetupStep n={1} title="Add Brave Search API key" done={getSetting('brave_search_api_key')?.stored === true}>
+              <ol className="list-decimal list-inside space-y-0.5 ml-1">
+                <li>Sign up at <strong>api.search.brave.com</strong> — $5/1k requests, includes $5 free credit/month (~1k requests)</li>
+                <li>Agent uses ~120 requests/month so free credit covers it</li>
+                <li>In <strong>Integrations → Listing Outreach</strong>, paste your subscription token</li>
+              </ol>
+            </SetupStep>
+            <SetupStep n={2} title="Optional: Open PageRank API key" done={getSetting('open_page_rank_api_key')?.stored === true}>
+              <p>Sign up free at <strong>openpagerank.com</strong> for domain authority scoring. Without it, quality scoring still works via search rank and contact signals.</p>
+            </SetupStep>
+            <SetupStep n={3} title="Configure outreach limits" done={true}>
+              <p>Defaults work out of the box. Customise in the <strong>General</strong> tab — products, queries, monthly limit, min quality score.</p>
+            </SetupStep>
+            <SetupStep n={4} title="Enable and trigger manually" done={agent.enabled}>
+              <p>Enable the agent, then trigger it. Each qualifying site appears in Telegram with its quality score, contact email (if found), and a drafted outreach email. Approve to send, reject to skip, follow-up to redraft.</p>
+            </SetupStep>
+          </>}
+        />
+      )}
+      {activeSub === 'general' && <ListingOutreachGeneralSubTab agent={agent} token={token} />}
+      {activeSub === 'runtime' && <RuntimeSubTab agent={agent} />}
     </div>
   );
 }
@@ -7115,7 +7931,7 @@ export default function AgentDetailPage() {
   const { key } = useParams<{ key: string }>();
   const token = useAuthStore((s) => s.token)!;
   const qc = useQueryClient();
-  const [activeTab, setActiveTab] = useState<'runs' | 'settings' | 'webhooks'>('runs');
+  const [activeTab, setActiveTab] = useState<'runs' | 'settings' | 'webhooks' | 'prospects'>('runs');
   const color = agentColor(key!);
 
   const [editingName, setEditingName] = useState(false);
@@ -7265,11 +8081,25 @@ export default function AgentDetailPage() {
                 Webhooks
               </button>
             )}
+            {key === 'listing_outreach' && (
+              <button
+                onClick={() => setActiveTab('prospects')}
+                className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
+                  activeTab === 'prospects'
+                    ? 'border-primary text-foreground'
+                    : 'border-transparent text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                <Globe className="w-4 h-4" />
+                Prospects
+              </button>
+            )}
           </div>
 
           {activeTab === 'runs' && <RunsTab agentKey={key!} token={token} />}
           {activeTab === 'settings' && <SettingsTab agent={agent} token={token} />}
           {activeTab === 'webhooks' && key === 'support' && <WebhookLogsTab token={token} />}
+          {activeTab === 'prospects' && key === 'listing_outreach' && <ProspectsTab token={token} />}
         </>
       )}
     </div>

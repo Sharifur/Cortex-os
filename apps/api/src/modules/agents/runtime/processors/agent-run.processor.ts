@@ -76,6 +76,9 @@ export class AgentRunProcessor extends WorkerHost {
         triggerType: runRow.triggerType as TriggerEvent['type'],
         triggerPayload: runRow.triggerPayload,
         context: runRow.context as never,
+        log: async (level: 'info' | 'warn' | 'error', message: string, meta?: unknown) => {
+          await this.logSvc[level](runId, message, meta as Record<string, unknown> | undefined);
+        },
       };
 
       const context = await agent.buildContext(trigger, runCtx);

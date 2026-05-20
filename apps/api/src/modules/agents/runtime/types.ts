@@ -35,6 +35,7 @@ export interface RunContext {
   triggerType: TriggerType;
   triggerPayload: unknown;
   context: AgentContext | null;
+  log?: (level: 'info' | 'warn' | 'error', message: string, meta?: unknown) => Promise<void>;
 }
 
 export interface ActionResult {

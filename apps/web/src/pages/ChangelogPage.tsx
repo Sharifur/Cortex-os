@@ -16,6 +16,71 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.84.7',
+    date: '2026-05-21',
+    entries: [
+      { tag: 'feat', scope: 'listing-outreach', description: 'Send Email button now opens a compose modal (like the inbox composer) pre-filled with To, Subject, and Body. User can edit everything, switch Gmail account, and send — no direct fire. Patches prospect status to emailed on success.' },
+      { tag: 'fix', scope: 'listing-outreach', description: 'Removed direct-send endpoint path — all outreach email sending goes through the compose modal.' },
+    ],
+  },
+  {
+    version: 'v4.84.6',
+    date: '2026-05-21',
+    entries: [
+      { tag: 'feat', scope: 'listing-outreach', description: 'Generate Draft button in expanded prospect rows: when no draft exists, a lightning bolt button calls POST /listing-outreach/prospects/:id/draft which runs the LLM + self-critique inline and saves subject + body to the row. Table refreshes immediately with the new draft.' },
+    ],
+  },
+  {
+    version: 'v4.84.5',
+    date: '2026-05-21',
+    entries: [
+      { tag: 'feat', scope: 'listing-outreach', description: 'Prospects tab now paginates: 20 rows per page with Previous/Next controls and total count. Filter pills reset to page 1 on change.' },
+      { tag: 'feat', scope: 'listing-outreach', description: 'Send Email button in expanded prospect rows: visible when the prospect has a contact email + outreach draft and has not been emailed yet. Sends the pre-filled subject and body directly from the page without going through Telegram approval.' },
+    ],
+  },
+  {
+    version: 'v4.84.4',
+    date: '2026-05-21',
+    entries: [
+      { tag: 'feat', scope: 'listing-outreach', description: 'Prospect rows are now expandable: click any row to see outreach approach badges (email / submit form / contact form / LinkedIn), the drafted subject line, and the full message body — each with a Copy button. Shows "No draft yet" for rows pending a run.' },
+      { tag: 'feat', scope: 'listing-outreach', description: 'decide() now writes outreach_subject and outreach_body back to the listing_prospects row after LLM draft + self-critique so the Prospects tab can display the draft without re-running.' },
+      { tag: 'chore', scope: 'listing-outreach', description: 'Migration 0089 adds outreach_subject and outreach_body columns to listing_prospects.' },
+    ],
+  },
+  {
+    version: 'v4.84.3',
+    date: '2026-05-20',
+    entries: [
+      { tag: 'fix', scope: 'listing-outreach', description: 'Prospects tab now loads correctly — /listing-outreach was missing from Vite proxy paths, causing all API calls to return the HTML shell instead of data.' },
+      { tag: 'fix', scope: 'listing-outreach', description: 'buildContext parallelized: all Brave Search queries fire concurrently, site OPR + scraping runs in parallel chunks of 5. Scrape pages reduced from 8 to 4, timeout from 8s to 5s — run time drops from 10+ minutes to under 2 minutes.' },
+      { tag: 'fix', scope: 'listing-outreach', description: 'Progress logs now stream to the run log panel during discovery — shows search completion, candidate count, chunk progress, and final prospect count.' },
+    ],
+  },
+  {
+    version: 'v4.84.2',
+    date: '2026-05-20',
+    entries: [
+      { tag: 'feat', scope: 'listing-outreach', description: 'General tab in Listing Outreach settings now has a proper products editor: add/remove products, set domain, name, outreach goal, and manage search queries per product with inline add/remove. Limits (monthly, per-run, min score, cooldown) are also editable there.' },
+      { tag: 'chore', scope: 'listing-outreach', description: 'Removed the unused Search Queries field from Integrations — queries are now configured per-product in the agent General tab.' },
+    ],
+  },
+  {
+    version: 'v4.84.1',
+    date: '2026-05-20',
+    entries: [
+      { tag: 'feat', scope: 'listing-outreach', description: 'Prospects tab on the Listing Outreach Agent detail page: shows all discovered sites in a table with domain, product, quality score, contact email, LinkedIn link, and status. Status can be changed inline via dropdown. Filter by status via pill buttons at the top.' },
+    ],
+  },
+  {
+    version: 'v4.84.0',
+    date: '2026-05-20',
+    entries: [
+      { tag: 'feat', scope: 'listing-outreach', description: 'New Listing Outreach Agent: discovers top-ranked SaaS and AI tool listing sites via Brave Search, scrapes contact emails, scores site quality (search rank + Open PageRank + contact signals, 0-100), drafts KB-voiced outreach emails, and routes each one through Telegram for approval before sending.' },
+      { tag: 'feat', scope: 'listing-outreach', description: 'Per-product config: taskip.net (SaaS PM tool, outreach goal: both) and xgenious.com (dev agency, outreach goal: partnership) each have their own query sets. Compound unique key (domain, product_domain) ensures the same listing site can be targeted for each product independently.' },
+      { tag: 'fix', scope: 'listing-outreach', description: 'Setup checklist steps 2 and 3 now reflect live settings state — Open PageRank API key step marks done when the key is stored, outreach limits step always marks done since defaults work out of the box.' },
+    ],
+  },
+  {
     version: 'v4.83.3',
     date: '2026-05-20',
     entries: [

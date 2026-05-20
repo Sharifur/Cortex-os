@@ -35,6 +35,7 @@ const TABS = [
   { key: 'storage', label: 'Storage (R2)', icon: <Database className="w-4 h-4" /> },
   { key: 'insight', label: 'Taskip Insight', icon: <Sparkles className="w-4 h-4" /> },
   { key: 'safety', label: 'Safety', icon: <Shield className="w-4 h-4" /> },
+  { key: 'listing', label: 'Listing Outreach', icon: <Globe className="w-4 h-4" /> },
 ];
 
 async function fetchSettings(token: string): Promise<SettingRow[]> {
@@ -1131,6 +1132,51 @@ function SafetyTab({ rows, token }: { rows: SettingRow[]; token: string }) {
   );
 }
 
+function ListingOutreachTab({ rows, token }: { rows: SettingRow[]; token: string }) {
+  return (
+    <IntegrationLayout
+      integrationKey="listing"
+      rows={rows}
+      token={token}
+      docs={
+        <>
+          <h2 className="text-sm font-semibold mb-4">Listing Outreach — Setup Guide</h2>
+          <p className="text-xs text-muted-foreground mb-4">
+            Discovers top-ranked SaaS and AI tool listing sites via Brave Search, scrapes contact emails,
+            drafts outreach emails with your KB voice profile, and routes each one through Telegram for approval.
+            LinkedIn profile URLs found on listing site pages are surfaced for your manual follow-up.
+          </p>
+          <div className="space-y-4">
+            <SetupStep n={1} title="Get a Brave Search API key">
+              <p>Go to <strong>api.search.brave.com</strong> and sign up. Plans cost $5 per 1 000 requests but include <strong>$5 free credit every month</strong> — enough for ~1 000 requests.</p>
+              <p>This agent uses roughly 120 requests/month (3 queries × 10 results × 4 runs), so the monthly credit covers it fully.</p>
+              <p>Copy your subscription token and paste it as <strong>Brave Search API Key</strong> above.</p>
+            </SetupStep>
+            <SetupStep n={2} title="Optional: Open PageRank API key">
+              <p>Sign up free at <strong>openpagerank.com</strong> to get a domain authority score (0-10) for each discovered site.</p>
+              <p>Without this key, quality scoring still works using search rank and contact presence signals.</p>
+            </SetupStep>
+            <SetupStep n={3} title="Configure outreach limits">
+              <p>Set <strong>Monthly Outreach Limit</strong> (default 20) and <strong>Per Run Limit</strong> (default 10) to control outreach volume.</p>
+              <p>Sites below <strong>Minimum Quality Score</strong> (default 30/100) are recorded but not actioned.</p>
+            </SetupStep>
+            <SetupStep n={4} title="Customise search queries">
+              <p>Edit <strong>Search Queries</strong> as a JSON array, e.g.:</p>
+              <code className="bg-muted px-1.5 py-1 rounded block mt-1 text-xs break-all">
+                {"[\"top AI tools list 2025\",\"best SaaS tools directory\",\"client portal software\"]"}
+              </code>
+            </SetupStep>
+            <SetupStep n={5} title="Enable agent and approve first run">
+              <p>In <strong>Agents → Listing Outreach</strong>, enable the agent and trigger it manually.</p>
+              <p>Each prospect appears in Telegram with site name, quality score, contact email, and a drafted outreach email — approve or reject each one.</p>
+            </SetupStep>
+          </div>
+        </>
+      }
+    />
+  );
+}
+
 function StorageTab({ rows, token }: { rows: SettingRow[]; token: string }) {
   return (
     <IntegrationLayout
@@ -1554,6 +1600,7 @@ export default function IntegrationsPage() {
           {activeTab === 'storage' && <StorageTab rows={grouped['storage'] ?? []} token={token} />}
           {activeTab === 'insight' && <InsightTab rows={grouped['insight'] ?? []} token={token} />}
           {activeTab === 'safety' && <SafetyTab rows={grouped['safety'] ?? []} token={token} />}
+          {activeTab === 'listing' && <ListingOutreachTab rows={grouped['listing'] ?? []} token={token} />}
         </>
       )}
     </div>
