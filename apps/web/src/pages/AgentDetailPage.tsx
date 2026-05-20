@@ -3639,7 +3639,238 @@ function ProspectsTab({ token }: { token: string }) {
 
 // ─── Listing Outreach Settings Tab ───────────────────────────────────────────
 
+interface LOProduct {
+  domain: string;
+  name: string;
+  queries: string[];
+  outreachGoal: 'listed' | 'partnership' | 'both';
+}
+
+function ListingOutreachGeneralSubTab({ agent, token }: { agent: AgentDetail; token: string }) {
+  const qc = useQueryClient();
+  const navigate = useNavigate();
+  const cfg = (agent.config ?? {}) as Record<string, unknown>;
+
+  const initialProducts: LOProduct[] = (cfg.products as LOProduct[] | undefined) ?? [
+    { domain: 'taskip.net', name: 'Taskip', queries: [], outreachGoal: 'both' },
+  ];
+
+  const [products, setProducts] = useState<LOProduct[]>(initialProducts);
+  const [monthlyLimit, setMonthlyLimit] = useState(String(cfg.monthlyLimit ?? 20));
+  const [perRunLimit, setPerRunLimit] = useState(String(cfg.perRunLimit ?? 10));
+  const [minScore, setMinScore] = useState(String(cfg.minScore ?? 30));
+  const [cooldownDays, setCooldownDays] = useState(String(cfg.cooldownDays ?? 30));
+  const [newQueryInputs, setNewQueryInputs] = useState<Record<number, string>>({});
+  const [saved, setSaved] = useState(false);
+
+  const configMutation = useMutation({
+    mutationFn: (config: Record<string, unknown>) =>
+      apiFetch(token, `/agents/${agent.key}`, { method: 'PATCH', body: JSON.stringify({ config }) }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['agent', agent.key] });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    },
+  });
+
+  const toggleMutation = useMutation({
+    mutationFn: () =>
+      apiFetch(token, `/agents/${agent.key}`, { method: 'PATCH', body: JSON.stringify({ enabled: !agent.enabled }) }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['agent', agent.key] }),
+  });
+
+  const triggerMutation = useMutation({
+    mutationFn: () =>
+      apiFetch(token, `/agents/${agent.key}/trigger`, { method: 'POST', body: JSON.stringify({ triggerType: 'MANUAL' }) }),
+    onSuccess: (run: { id: string }) => navigate(`/runs/${run.id}`),
+  });
+
+  function saveConfig() {
+    const { llm } = stripLlm(cfg);
+    const config: Record<string, unknown> = {
+      products,
+      monthlyLimit: Number(monthlyLimit),
+      perRunLimit: Number(perRunLimit),
+      minScore: Number(minScore),
+      cooldownDays: Number(cooldownDays),
+    };
+    if (llm) config.llm = llm;
+    configMutation.mutate(config);
+  }
+
+  function updateProduct(i: number, patch: Partial<LOProduct>) {
+    setProducts((prev) => prev.map((p, idx) => idx === i ? { ...p, ...patch } : p));
+  }
+
+  function addQuery(i: number) {
+    const q = (newQueryInputs[i] ?? '').trim();
+    if (!q) return;
+    updateProduct(i, { queries: [...products[i].queries, q] });
+    setNewQueryInputs((prev) => ({ ...prev, [i]: '' }));
+  }
+
+  function removeQuery(productIdx: number, queryIdx: number) {
+    const next = products[productIdx].queries.filter((_, qi) => qi !== queryIdx);
+    updateProduct(productIdx, { queries: next });
+  }
+
+  function addProduct() {
+    setProducts((prev) => [...prev, { domain: '', name: '', queries: [], outreachGoal: 'both' }]);
+  }
+
+  function removeProduct(i: number) {
+    setProducts((prev) => prev.filter((_, idx) => idx !== i));
+  }
+
+  return (
+    <div className="space-y-5">
+      {/* Enable / Trigger row */}
+      <div className="flex items-center gap-3">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => toggleMutation.mutate()}
+          disabled={toggleMutation.isPending}
+        >
+          {agent.enabled ? 'Disable' : 'Enable'}
+        </Button>
+        <Button
+          size="sm"
+          onClick={() => triggerMutation.mutate()}
+          disabled={triggerMutation.isPending}
+        >
+          {triggerMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> : <Play className="w-3.5 h-3.5 mr-1.5" />}
+          Trigger now
+        </Button>
+      </div>
+
+      {/* Products */}
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold">Products</h3>
+          <button
+            onClick={addProduct}
+            className="flex items-center gap-1 text-xs text-primary hover:underline"
+          >
+            <Plus className="w-3.5 h-3.5" /> Add product
+          </button>
+        </div>
+
+        {products.map((product, i) => (
+          <div key={i} className="rounded-xl border border-border bg-card p-4 space-y-3">
+            <div className="flex items-start justify-between gap-2">
+              <div className="grid grid-cols-2 gap-3 flex-1">
+                <div>
+                  <label className="text-xs text-muted-foreground mb-1 block">Domain</label>
+                  <Input
+                    value={product.domain}
+                    onChange={(e) => updateProduct(i, { domain: e.target.value })}
+                    placeholder="taskip.net"
+                    className="h-8 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground mb-1 block">Product name</label>
+                  <Input
+                    value={product.name}
+                    onChange={(e) => updateProduct(i, { name: e.target.value })}
+                    placeholder="Taskip"
+                    className="h-8 text-sm"
+                  />
+                </div>
+              </div>
+              {products.length > 1 && (
+                <button
+                  onClick={() => removeProduct(i)}
+                  className="mt-5 text-muted-foreground hover:text-destructive transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">Outreach goal</label>
+              <select
+                value={product.outreachGoal}
+                onChange={(e) => updateProduct(i, { outreachGoal: e.target.value as LOProduct['outreachGoal'] })}
+                className="h-8 text-sm rounded-md border border-input bg-background px-2 w-full"
+              >
+                <option value="both">Both — listing + partnership</option>
+                <option value="listed">Listing only</option>
+                <option value="partnership">Partnership / backlinks only</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="text-xs text-muted-foreground mb-2 block">Search queries</label>
+              <div className="space-y-1.5">
+                {product.queries.map((q, qi) => (
+                  <div key={qi} className="flex items-center gap-2 group">
+                    <span className="flex-1 text-xs bg-muted/40 border border-border rounded px-2 py-1.5">{q}</span>
+                    <button
+                      onClick={() => removeQuery(i, qi)}
+                      className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+                <div className="flex items-center gap-2 mt-2">
+                  <Input
+                    value={newQueryInputs[i] ?? ''}
+                    onChange={(e) => setNewQueryInputs((prev) => ({ ...prev, [i]: e.target.value }))}
+                    onKeyDown={(e) => e.key === 'Enter' && addQuery(i)}
+                    placeholder="Add search query..."
+                    className="h-7 text-xs"
+                  />
+                  <button
+                    onClick={() => addQuery(i)}
+                    className="text-xs text-primary hover:underline whitespace-nowrap"
+                  >
+                    Add
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Limits */}
+      <div className="rounded-xl border border-border bg-card p-4">
+        <h3 className="text-sm font-semibold mb-3">Outreach limits</h3>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">Monthly limit</label>
+            <Input value={monthlyLimit} onChange={(e) => setMonthlyLimit(e.target.value)} className="h-8 text-sm" type="number" min={1} />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">Per run limit</label>
+            <Input value={perRunLimit} onChange={(e) => setPerRunLimit(e.target.value)} className="h-8 text-sm" type="number" min={1} />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">Min quality score (0–100)</label>
+            <Input value={minScore} onChange={(e) => setMinScore(e.target.value)} className="h-8 text-sm" type="number" min={0} max={100} />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">Cooldown days</label>
+            <Input value={cooldownDays} onChange={(e) => setCooldownDays(e.target.value)} className="h-8 text-sm" type="number" min={1} />
+          </div>
+        </div>
+      </div>
+
+      <Button onClick={saveConfig} disabled={configMutation.isPending} className="w-full">
+        {configMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />}
+        {saved ? 'Saved' : 'Save config'}
+      </Button>
+    </div>
+  );
+}
+
 function ListingOutreachSettingsTab({ agent, token }: { agent: AgentDetail; token: string }) {
+  const [activeSub, setActiveSub] = useState<Phase4TabKey>('setup');
+
   const { data: settings = [] } = useQuery<{ key: string; value: string | null; stored: boolean }[]>({
     queryKey: ['settings'],
     queryFn: async () => {
@@ -3653,31 +3884,50 @@ function ListingOutreachSettingsTab({ agent, token }: { agent: AgentDetail; toke
   const getSetting = (key: string) => settings.find((s) => s.key === key);
 
   return (
-    <Phase4SettingsTab agent={agent} token={token} setupContent={
-      <Phase4SetupSubTab
-        agent={agent}
-        title="Listing Outreach Agent — Setup Checklist"
-        description="Discovers top-ranked SaaS and AI tool listing sites via Brave Search. Scrapes contact emails, scores each site by domain authority and search rank, drafts outreach emails with your KB voice profile, and routes each one through Telegram for approval before sending."
-        steps={<>
-          <SetupStep n={1} title="Add Brave Search API key" done={getSetting('brave_search_api_key')?.stored === true}>
-            <ol className="list-decimal list-inside space-y-0.5 ml-1">
-              <li>Sign up at <strong>api.search.brave.com</strong> — $5/1k requests, includes $5 free credit/month (~1k requests)</li>
-              <li>Agent uses ~120 requests/month so free credit covers it</li>
-              <li>In <strong>Integrations → Listing Outreach</strong>, paste your subscription token</li>
-            </ol>
-          </SetupStep>
-          <SetupStep n={2} title="Optional: Open PageRank API key" done={getSetting('open_page_rank_api_key')?.stored === true}>
-            <p>Sign up free at <strong>openpagerank.com</strong> for domain authority scoring. Without it, quality scoring still works via search rank and contact signals.</p>
-          </SetupStep>
-          <SetupStep n={3} title="Configure outreach limits" done={true}>
-            <p>In <strong>Integrations → Listing Outreach</strong>, set <code className="bg-muted px-1 rounded">Monthly Outreach Limit</code> (default 20) and <code className="bg-muted px-1 rounded">Minimum Quality Score</code> (default 30/100). Defaults work out of the box.</p>
-          </SetupStep>
-          <SetupStep n={4} title="Enable and trigger manually" done={agent.enabled}>
-            <p>Enable the agent, then trigger it. Each qualifying site appears in Telegram with its quality score, contact email (if found), and a drafted outreach email. Approve to send, reject to skip, follow-up to redraft.</p>
-          </SetupStep>
-        </>}
-      />
-    } />
+    <div>
+      <div className="flex items-center gap-1 border border-border rounded-lg p-1 mb-5 bg-muted/30 w-fit">
+        {PHASE4_TABS.map(({ key, label, icon: Icon }) => (
+          <button
+            key={key}
+            onClick={() => setActiveSub(key)}
+            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-md text-sm font-medium transition-colors ${
+              activeSub === key ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            <Icon className="w-3.5 h-3.5" />
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {activeSub === 'setup' && (
+        <Phase4SetupSubTab
+          agent={agent}
+          title="Listing Outreach Agent — Setup Checklist"
+          description="Discovers top-ranked SaaS and AI tool listing sites via Brave Search. Scrapes contact emails, scores each site by domain authority and search rank, drafts outreach emails with your KB voice profile, and routes each one through Telegram for approval before sending."
+          steps={<>
+            <SetupStep n={1} title="Add Brave Search API key" done={getSetting('brave_search_api_key')?.stored === true}>
+              <ol className="list-decimal list-inside space-y-0.5 ml-1">
+                <li>Sign up at <strong>api.search.brave.com</strong> — $5/1k requests, includes $5 free credit/month (~1k requests)</li>
+                <li>Agent uses ~120 requests/month so free credit covers it</li>
+                <li>In <strong>Integrations → Listing Outreach</strong>, paste your subscription token</li>
+              </ol>
+            </SetupStep>
+            <SetupStep n={2} title="Optional: Open PageRank API key" done={getSetting('open_page_rank_api_key')?.stored === true}>
+              <p>Sign up free at <strong>openpagerank.com</strong> for domain authority scoring. Without it, quality scoring still works via search rank and contact signals.</p>
+            </SetupStep>
+            <SetupStep n={3} title="Configure outreach limits" done={true}>
+              <p>Defaults work out of the box. Customise in the <strong>General</strong> tab — products, queries, monthly limit, min quality score.</p>
+            </SetupStep>
+            <SetupStep n={4} title="Enable and trigger manually" done={agent.enabled}>
+              <p>Enable the agent, then trigger it. Each qualifying site appears in Telegram with its quality score, contact email (if found), and a drafted outreach email. Approve to send, reject to skip, follow-up to redraft.</p>
+            </SetupStep>
+          </>}
+        />
+      )}
+      {activeSub === 'general' && <ListingOutreachGeneralSubTab agent={agent} token={token} />}
+      {activeSub === 'runtime' && <RuntimeSubTab agent={agent} />}
+    </div>
   );
 }
 

@@ -589,14 +589,6 @@ export const SETTING_DEFINITIONS: Record<string, SettingDefinition> = {
     group: 'listing',
     defaultValue: '30',
   },
-  listing_outreach_queries: {
-    label: 'Search Queries (reference only)',
-    description: 'Queries are configured per product inside the agent Config JSON under each product\'s "queries" array. This field is for reference. Default products: taskip.net (SaaS PM tool) and xgenious.com (dev agency), each with 5 targeted queries.',
-    isSecret: false,
-    group: 'listing',
-    defaultValue: 'Configured per product in agent Config JSON',
-  },
-
   // Canva Agent
   canva_dna_max_tokens: {
     label: 'Design DNA Max Tokens',

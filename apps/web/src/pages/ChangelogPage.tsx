@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.84.2',
+    date: '2026-05-20',
+    entries: [
+      { tag: 'feat', scope: 'listing-outreach', description: 'General tab in Listing Outreach settings now has a proper products editor: add/remove products, set domain, name, outreach goal, and manage search queries per product with inline add/remove. Limits (monthly, per-run, min score, cooldown) are also editable there.' },
+      { tag: 'chore', scope: 'listing-outreach', description: 'Removed the unused Search Queries field from Integrations — queries are now configured per-product in the agent General tab.' },
+    ],
+  },
+  {
     version: 'v4.84.1',
     date: '2026-05-20',
     entries: [
