@@ -80,6 +80,19 @@ async function bootstrap() {
     }) as never,
   );
 
+  // SNS sends Content-Type: text/plain with a JSON body — parse it the same way.
+  fastify.addContentTypeParser(
+    'text/plain',
+    { parseAs: 'string' },
+    ((req: unknown, body: string, done: (err: Error | null, parsed?: unknown) => void) => {
+      try {
+        done(null, body && body.length ? JSON.parse(body) : {});
+      } catch {
+        done(null, {});
+      }
+    }) as never,
+  );
+
   // Multipart upload support for live-chat attachments. Limit per file: 10 MB.
   // Other endpoints continue to use the JSON parser registered above.
   // (cast: @fastify/multipart's TypeProvider augmentation conflicts with the
