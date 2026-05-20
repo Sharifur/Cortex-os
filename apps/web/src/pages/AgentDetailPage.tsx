@@ -3792,7 +3792,7 @@ function ProspectsTab({ token }: { token: string }) {
                                   </div>
                                 )}
 
-                                {p.status === 'emailed' && (
+                                {p.status === 'emailed' && p.contactEmail && (
                                   <p className="text-xs text-emerald-400 flex items-center gap-1">
                                     <Check className="w-3.5 h-3.5" /> Email sent
                                   </p>
