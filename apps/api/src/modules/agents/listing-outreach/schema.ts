@@ -1,0 +1,33 @@
+import { pgTable, text, timestamp, integer, numeric, uniqueIndex } from 'drizzle-orm/pg-core';
+import { createId } from '@paralleldrive/cuid2';
+
+export const listingProspects = pgTable('listing_prospects', {
+  id: text('id').primaryKey().$defaultFn(() => createId()),
+  domain: text('domain').notNull(),
+  productDomain: text('product_domain').notNull().default(''),
+  productName: text('product_name'),
+  siteName: text('site_name'),
+  siteUrl: text('site_url').notNull(),
+  description: text('description'),
+  contactEmail: text('contact_email'),
+  linkedinProfileUrl: text('linkedin_profile_url'),
+  linkedinName: text('linkedin_name'),
+  linkedinHeadline: text('linkedin_headline'),
+  outreachGoal: text('outreach_goal').notNull().default('both'),
+  status: text('status').notNull().default('discovered'),
+  qualityScore: integer('quality_score'),
+  openPageRank: numeric('open_page_rank', { precision: 4, scale: 1 }),
+  searchRank: integer('search_rank'),
+  submitUrl: text('submit_url'),
+  contactFormUrl: text('contact_form_url'),
+  emailId: text('email_id'),
+  searchQuery: text('search_query'),
+  gmailAccountId: text('gmail_account_id'),
+  lastContactedAt: timestamp('last_contacted_at', { withTimezone: true }),
+  nextContactAt: timestamp('next_contact_at', { withTimezone: true }),
+  notes: text('notes'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (t) => ({
+  domainProductUniq: uniqueIndex('listing_prospects_domain_product_idx').on(t.domain, t.productDomain),
+}));

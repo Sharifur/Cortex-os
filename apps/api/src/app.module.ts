@@ -46,6 +46,7 @@ import { TrackingModule } from './modules/tracking/tracking.module';
 import { EmailSanitizerModule } from './modules/email-sanitizer/email-sanitizer.module';
 import { PostRenderModule } from './modules/post-render/post-render.module';
 import { DesignStudioModule } from './modules/design-studio/design-studio.module';
+import { ListingOutreachModule } from './modules/agents/listing-outreach/listing-outreach.module';
 
 @Module({
   imports: [
@@ -114,6 +115,7 @@ import { DesignStudioModule } from './modules/design-studio/design-studio.module
     EmailSanitizerModule,
     PostRenderModule,
     DesignStudioModule,
+    ListingOutreachModule,
   ],
 })
 export class AppModule {}

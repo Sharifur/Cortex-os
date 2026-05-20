@@ -16,6 +16,15 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.84.0',
+    date: '2026-05-20',
+    entries: [
+      { tag: 'feat', scope: 'listing-outreach', description: 'New Listing Outreach Agent: discovers top-ranked SaaS and AI tool listing sites via Brave Search, scrapes contact emails, scores site quality (search rank + Open PageRank + contact signals, 0-100), drafts KB-voiced outreach emails, and routes each one through Telegram for approval before sending.' },
+      { tag: 'feat', scope: 'listing-outreach', description: 'Per-product config: taskip.net (SaaS PM tool, outreach goal: both) and xgenious.com (dev agency, outreach goal: partnership) each have their own query sets. Compound unique key (domain, product_domain) ensures the same listing site can be targeted for each product independently.' },
+      { tag: 'fix', scope: 'listing-outreach', description: 'Setup checklist steps 2 and 3 now reflect live settings state — Open PageRank API key step marks done when the key is stored, outreach limits step always marks done since defaults work out of the box.' },
+    ],
+  },
+  {
     version: 'v4.83.3',
     date: '2026-05-20',
     entries: [

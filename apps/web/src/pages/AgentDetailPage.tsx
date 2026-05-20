@@ -2668,6 +2668,8 @@ function SettingsTab({ agent, token }: { agent: AgentDetail; token: string }) {
     } />
   );
 
+  if (agent.key === 'listing_outreach') return <ListingOutreachSettingsTab agent={agent} token={token} />;
+
   if (agent.key === 'canva') return <CanvaAgentPage agent={agent} token={token} />;
 
   if (agent.key === 'shorts') return <ShortsSettingsTab agent={agent} token={token} />;
@@ -3468,6 +3470,50 @@ function Phase4GeneralSubTab({ agent, token }: { agent: AgentDetail; token: stri
         {!agent.registered && <p className="text-xs text-yellow-500 mt-2">Agent is not registered.</p>}
       </div>
     </div>
+  );
+}
+
+// ─── Listing Outreach Settings Tab ───────────────────────────────────────────
+
+function ListingOutreachSettingsTab({ agent, token }: { agent: AgentDetail; token: string }) {
+  const { data: settings = [] } = useQuery<{ key: string; value: string | null; stored: boolean }[]>({
+    queryKey: ['settings'],
+    queryFn: async () => {
+      const res = await fetch('/settings', { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) throw new Error('Failed');
+      return res.json();
+    },
+    staleTime: 30_000,
+  });
+
+  const getSetting = (key: string) => settings.find((s) => s.key === key);
+
+  return (
+    <Phase4SettingsTab agent={agent} token={token} setupContent={
+      <Phase4SetupSubTab
+        agent={agent}
+        title="Listing Outreach Agent — Setup Checklist"
+        description="Discovers top-ranked SaaS and AI tool listing sites via Brave Search. Scrapes contact emails, scores each site by domain authority and search rank, drafts outreach emails with your KB voice profile, and routes each one through Telegram for approval before sending."
+        steps={<>
+          <SetupStep n={1} title="Add Brave Search API key" done={getSetting('brave_search_api_key')?.stored === true}>
+            <ol className="list-decimal list-inside space-y-0.5 ml-1">
+              <li>Sign up at <strong>api.search.brave.com</strong> — $5/1k requests, includes $5 free credit/month (~1k requests)</li>
+              <li>Agent uses ~120 requests/month so free credit covers it</li>
+              <li>In <strong>Integrations → Listing Outreach</strong>, paste your subscription token</li>
+            </ol>
+          </SetupStep>
+          <SetupStep n={2} title="Optional: Open PageRank API key" done={getSetting('open_page_rank_api_key')?.stored === true}>
+            <p>Sign up free at <strong>openpagerank.com</strong> for domain authority scoring. Without it, quality scoring still works via search rank and contact signals.</p>
+          </SetupStep>
+          <SetupStep n={3} title="Configure outreach limits" done={true}>
+            <p>In <strong>Integrations → Listing Outreach</strong>, set <code className="bg-muted px-1 rounded">Monthly Outreach Limit</code> (default 20) and <code className="bg-muted px-1 rounded">Minimum Quality Score</code> (default 30/100). Defaults work out of the box.</p>
+          </SetupStep>
+          <SetupStep n={4} title="Enable and trigger manually" done={agent.enabled}>
+            <p>Enable the agent, then trigger it. Each qualifying site appears in Telegram with its quality score, contact email (if found), and a drafted outreach email. Approve to send, reject to skip, follow-up to redraft.</p>
+          </SetupStep>
+        </>}
+      />
+    } />
   );
 }
 

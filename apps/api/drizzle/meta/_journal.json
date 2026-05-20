@@ -610,6 +610,20 @@
       "when": 1779219313482,
       "tag": "0086_livechat_inactivity",
       "breakpoints": true
+    },
+    {
+      "idx": 87,
+      "version": "6",
+      "when": 1779219400000,
+      "tag": "0087_listing_prospects",
+      "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "6",
+      "when": 1779219500000,
+      "tag": "0088_listing_prospect_per_product",
+      "breakpoints": true
     }
   ]
 }

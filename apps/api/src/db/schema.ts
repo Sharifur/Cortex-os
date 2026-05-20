@@ -28,3 +28,4 @@ export * from '../modules/gmail/schema';
 export * from '../modules/ses/ses-suppressions.schema';
 export * from '../modules/post-render/schema';
 export * from '../modules/design-studio/schema';
+export * from '../modules/agents/listing-outreach/schema';
