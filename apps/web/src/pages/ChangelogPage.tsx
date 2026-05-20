@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.83.2',
+    date: '2026-05-20',
+    entries: [
+      { tag: 'fix', scope: 'livechat', description: 'SNS SubscriptionConfirmation now handled before token auth check — previously a fresh subscription would stay pending because the 401 prevented cortex from fetching the SubscribeURL.' },
+    ],
+  },
+  {
     version: 'v4.83.1',
     date: '2026-05-20',
     entries: [
