@@ -3529,9 +3529,13 @@ function OutreachComposeModal({ token, prospect, onClose, onSent }: OutreachComp
   const [sent, setSent] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const { data: accounts = [] } = useQuery<GmailAccount[]>({
+  const { data: accounts = [], isLoading: accountsLoading } = useQuery<GmailAccount[]>({
     queryKey: ['gmail-accounts'],
-    queryFn: () => fetch('/gmail/accounts', { headers: { Authorization: `Bearer ${token}` } }).then((r) => r.json()),
+    queryFn: async () => {
+      const res = await fetch('/gmail/accounts', { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) throw new Error(`${res.status}`);
+      return res.json();
+    },
     staleTime: 60_000,
   });
 
@@ -3591,9 +3595,11 @@ function OutreachComposeModal({ token, prospect, onClose, onSent }: OutreachComp
         </div>
 
         <div className="rounded-b-xl overflow-hidden">
-          {accounts.length > 0 && (
-            <div className="flex items-center gap-3 px-4 py-2.5 border-b border-border">
-              <span className="text-xs text-muted-foreground w-16 shrink-0">From</span>
+          <div className="flex items-center gap-3 px-4 py-2.5 border-b border-border">
+            <span className="text-xs text-muted-foreground w-16 shrink-0">From</span>
+            {accountsLoading ? (
+              <Skeleton className="h-4 w-48" />
+            ) : accounts.length > 0 ? (
               <div className="relative flex-1">
                 <select
                   value={accountId}
@@ -3608,8 +3614,10 @@ function OutreachComposeModal({ token, prospect, onClose, onSent }: OutreachComp
                 </select>
                 <ChevronDown className="absolute right-0 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
               </div>
-            </div>
-          )}
+            ) : (
+              <span className="text-xs text-muted-foreground">No Gmail accounts connected — add one in Integrations</span>
+            )}
+          </div>
           <div className="flex items-center gap-3 px-4 py-2.5 border-b border-border">
             <span className="text-xs text-muted-foreground w-16 shrink-0">To</span>
             <input
