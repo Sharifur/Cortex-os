@@ -16,6 +16,15 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.84.4',
+    date: '2026-05-21',
+    entries: [
+      { tag: 'feat', scope: 'listing-outreach', description: 'Prospect rows are now expandable: click any row to see outreach approach badges (email / submit form / contact form / LinkedIn), the drafted subject line, and the full message body — each with a Copy button. Shows "No draft yet" for rows pending a run.' },
+      { tag: 'feat', scope: 'listing-outreach', description: 'decide() now writes outreach_subject and outreach_body back to the listing_prospects row after LLM draft + self-critique so the Prospects tab can display the draft without re-running.' },
+      { tag: 'chore', scope: 'listing-outreach', description: 'Migration 0089 adds outreach_subject and outreach_body columns to listing_prospects.' },
+    ],
+  },
+  {
     version: 'v4.84.3',
     date: '2026-05-20',
     entries: [

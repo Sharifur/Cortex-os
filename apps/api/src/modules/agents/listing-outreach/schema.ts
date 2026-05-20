@@ -23,6 +23,8 @@ export const listingProspects = pgTable('listing_prospects', {
   emailId: text('email_id'),
   searchQuery: text('search_query'),
   gmailAccountId: text('gmail_account_id'),
+  outreachSubject: text('outreach_subject'),
+  outreachBody: text('outreach_body'),
   lastContactedAt: timestamp('last_contacted_at', { withTimezone: true }),
   nextContactAt: timestamp('next_contact_at', { withTimezone: true }),
   notes: text('notes'),

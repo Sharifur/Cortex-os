@@ -381,6 +381,11 @@ Return ONLY the email body text, no subject line.${kbBlock}`;
           body,
         ].filter(Boolean);
 
+        await this.db.db
+          .update(listingProspects)
+          .set({ outreachSubject: subject, outreachBody: body, status: 'pending_approval', updatedAt: new Date() })
+          .where(eq(listingProspects.id, p.id));
+
         actions.push({
           type: 'send_listing_outreach',
           summary: summaryParts.join('\n'),
