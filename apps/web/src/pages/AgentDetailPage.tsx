@@ -3520,6 +3520,8 @@ function ProspectsTab({ token }: { token: string }) {
   const [copied, setCopied] = useState<string | null>(null);
   const [sending, setSending] = useState<string | null>(null);
   const [sendError, setSendError] = useState<Record<string, string>>({});
+  const [drafting, setDrafting] = useState<string | null>(null);
+  const [draftError, setDraftError] = useState<Record<string, string>>({});
   const qc = useQueryClient();
 
   const { data, isLoading } = useQuery<ProspectsPage>({
@@ -3570,6 +3572,25 @@ function ProspectsTab({ token }: { token: string }) {
       }
     } finally {
       setSending(null);
+    }
+  }
+
+  async function generateDraft(id: string) {
+    setDrafting(id);
+    setDraftError((prev) => { const n = { ...prev }; delete n[id]; return n; });
+    try {
+      const res = await fetch(`/listing-outreach/prospects/${id}/draft`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ message: 'Draft failed' }));
+        setDraftError((prev) => ({ ...prev, [id]: (err as { message?: string }).message ?? 'Draft failed' }));
+      } else {
+        qc.invalidateQueries({ queryKey: ['listing-prospects'] });
+      }
+    } finally {
+      setDrafting(null);
     }
   }
 
@@ -3778,7 +3799,19 @@ function ProspectsTab({ token }: { token: string }) {
                                 )}
                               </>
                             ) : (
-                              <p className="text-xs text-muted-foreground">No draft yet — trigger the agent to generate outreach emails.</p>
+                              <div className="flex items-center gap-3">
+                                <button
+                                  onClick={() => generateDraft(p.id)}
+                                  disabled={drafting === p.id}
+                                  className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg border border-border text-xs text-muted-foreground hover:text-foreground hover:border-foreground/40 disabled:opacity-50 transition-colors"
+                                >
+                                  {drafting === p.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
+                                  {drafting === p.id ? 'Generating...' : 'Generate Draft'}
+                                </button>
+                                {draftError[p.id] && (
+                                  <span className="text-xs text-red-400">{draftError[p.id]}</span>
+                                )}
+                              </div>
                             )}
                           </div>
                         </td>

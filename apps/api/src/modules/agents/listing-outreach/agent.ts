@@ -534,6 +534,76 @@ Return ONLY the email body text, no subject line.${kbBlock}`;
       },
       {
         method: 'POST',
+        path: '/listing-outreach/prospects/:id/draft',
+        requiresAuth: true,
+        handler: async (params) => {
+          const { id } = params as { id: string };
+          const [prospect] = await this.db.db.select().from(listingProspects).where(eq(listingProspects.id, id)).limit(1);
+          if (!prospect) throw new Error('Prospect not found');
+
+          const [agentRow] = await this.db.db.select().from(agents).where(eq(agents.key, this.key)).limit(1);
+          const config: ListingConfig = { ...DEFAULT_CONFIG, ...((agentRow?.config as Partial<ListingConfig>) ?? {}) };
+
+          const [alwaysOn, samples, blocklist, rejections] = await Promise.all([
+            this.kb.getAlwaysOnContext(this.key),
+            this.kb.getWritingSamples(this.key),
+            this.kb.getBlocklistRules(this.key),
+            this.kb.getRecentRejections(this.key, 3),
+          ]);
+
+          const kbBlock = this.kb.buildKbPromptBlock({
+            voiceProfile: alwaysOn.find((e) => e.entryType === 'voice_profile') ?? null,
+            facts: alwaysOn.filter((e) => e.entryType === 'fact'),
+            catalog: alwaysOn.filter((e) => e.entryType === 'product' || e.entryType === 'service' || e.entryType === 'offer'),
+            references: [],
+            positiveSamples: samples.filter((s) => s.polarity === 'positive'),
+            negativeSamples: samples.filter((s) => s.polarity === 'negative'),
+            rejections,
+          });
+
+          const product = config.products.find((pr) => pr.domain === prospect.productDomain) ?? config.products[0];
+          const productName = prospect.productName ?? product.name;
+          const outreachGoal = prospect.outreachGoal as 'listed' | 'partnership' | 'both';
+          const siteName = prospect.siteName ?? prospect.domain;
+
+          const goalLabel = outreachGoal === 'listed'
+            ? `get ${productName} listed`
+            : outreachGoal === 'partnership'
+            ? `explore a partnership or backlink opportunity for ${productName}`
+            : `get ${productName} listed and explore partnership possibilities`;
+
+          const emailSystemPrompt = `You write short, direct outreach emails to website editors and founders.
+Product: ${productName} (${prospect.productDomain})
+Goal: ${goalLabel} on ${siteName} (${prospect.domain}).
+Rules: 2-3 short paragraphs max. No fluff. No long intros. Explain briefly what ${productName} is and why it fits their audience. End with a clear, low-pressure CTA.
+Return ONLY the email body text, no subject line.${kbBlock}`;
+
+          const response = await this.llm.complete({
+            messages: [
+              { role: 'system', content: emailSystemPrompt },
+              { role: 'user', content: `Site: ${siteName}\nURL: ${prospect.siteUrl}\nDescription: ${prospect.description ?? ''}\nSearch query: "${prospect.searchQuery ?? ''}"` },
+            ],
+            ...agentLlmOpts(config),
+            agentKey: this.key,
+            maxTokens: 300,
+          });
+
+          let body = response.content.trim();
+          if (!body) throw new Error('LLM returned empty draft');
+
+          body = await this.selfCritique(body, alwaysOn.find((e) => e.entryType === 'voice_profile')?.content, blocklist);
+          const subject = `${productName} — ${outreachGoal === 'listed' ? 'can we get listed on' : 'partnership opportunity with'} ${siteName}`;
+
+          await this.db.db
+            .update(listingProspects)
+            .set({ outreachSubject: subject, outreachBody: body, updatedAt: new Date() })
+            .where(eq(listingProspects.id, id));
+
+          return { ok: true, subject, body };
+        },
+      },
+      {
+        method: 'POST',
         path: '/listing-outreach/prospects/:id/send',
         requiresAuth: true,
         handler: async (params) => {

@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.84.6',
+    date: '2026-05-21',
+    entries: [
+      { tag: 'feat', scope: 'listing-outreach', description: 'Generate Draft button in expanded prospect rows: when no draft exists, a lightning bolt button calls POST /listing-outreach/prospects/:id/draft which runs the LLM + self-critique inline and saves subject + body to the row. Table refreshes immediately with the new draft.' },
+    ],
+  },
+  {
     version: 'v4.84.5',
     date: '2026-05-21',
     entries: [
