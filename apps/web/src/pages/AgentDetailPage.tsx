@@ -3505,17 +3505,29 @@ interface Prospect {
   createdAt: string;
 }
 
+interface ProspectsPage {
+  data: Prospect[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
 function ProspectsTab({ token }: { token: string }) {
   const [statusFilter, setStatusFilter] = useState('');
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 20;
   const [expanded, setExpanded] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
+  const [sending, setSending] = useState<string | null>(null);
+  const [sendError, setSendError] = useState<Record<string, string>>({});
   const qc = useQueryClient();
 
-  const { data: prospects = [], isLoading } = useQuery<Prospect[]>({
-    queryKey: ['listing-prospects', statusFilter],
+  const { data, isLoading } = useQuery<ProspectsPage>({
+    queryKey: ['listing-prospects', statusFilter, page],
     queryFn: async () => {
-      const params = statusFilter ? `?status=${statusFilter}` : '';
-      const res = await fetch(`/listing-outreach/prospects${params}`, {
+      const qs = new URLSearchParams({ page: String(page), pageSize: String(PAGE_SIZE) });
+      if (statusFilter) qs.set('status', statusFilter);
+      const res = await fetch(`/listing-outreach/prospects?${qs}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) throw new Error('Failed');
@@ -3524,6 +3536,15 @@ function ProspectsTab({ token }: { token: string }) {
     staleTime: 30_000,
   });
 
+  const prospects = data?.data ?? [];
+  const total = data?.total ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+  function changeFilter(s: string) {
+    setStatusFilter(s);
+    setPage(1);
+  }
+
   async function updateStatus(id: string, status: string) {
     await fetch(`/listing-outreach/prospects/${id}`, {
       method: 'PATCH',
@@ -3531,6 +3552,25 @@ function ProspectsTab({ token }: { token: string }) {
       body: JSON.stringify({ status }),
     });
     qc.invalidateQueries({ queryKey: ['listing-prospects'] });
+  }
+
+  async function sendEmail(id: string) {
+    setSending(id);
+    setSendError((prev) => { const n = { ...prev }; delete n[id]; return n; });
+    try {
+      const res = await fetch(`/listing-outreach/prospects/${id}/send`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ message: 'Send failed' }));
+        setSendError((prev) => ({ ...prev, [id]: (err as { message?: string }).message ?? 'Send failed' }));
+      } else {
+        qc.invalidateQueries({ queryKey: ['listing-prospects'] });
+      }
+    } finally {
+      setSending(null);
+    }
   }
 
   function copyText(key: string, text: string) {
@@ -3548,7 +3588,7 @@ function ProspectsTab({ token }: { token: string }) {
         {statuses.map((s) => (
           <button
             key={s}
-            onClick={() => setStatusFilter(s)}
+            onClick={() => changeFilter(s)}
             className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
               statusFilter === s
                 ? 'bg-primary text-primary-foreground border-primary'
@@ -3558,7 +3598,7 @@ function ProspectsTab({ token }: { token: string }) {
             {s || 'All'}
           </button>
         ))}
-        <span className="ml-auto text-xs text-muted-foreground">{prospects.length} prospects</span>
+        <span className="ml-auto text-xs text-muted-foreground">{total} prospects</span>
       </div>
 
       {isLoading && (
@@ -3574,160 +3614,204 @@ function ProspectsTab({ token }: { token: string }) {
       )}
 
       {!isLoading && prospects.length > 0 && (
-        <div className="rounded-xl border border-border overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-muted/40 border-b border-border">
-              <tr>
-                <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Site</th>
-                <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Product</th>
-                <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Score</th>
-                <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Contact</th>
-                <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Status</th>
-                <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Last contacted</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {prospects.map((p) => (
-                <>
-                  <tr
-                    key={p.id}
-                    onClick={() => setExpanded(expanded === p.id ? null : p.id)}
-                    className="hover:bg-muted/20 transition-colors cursor-pointer"
-                  >
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-1.5">
-                        <ChevronRight className={`w-3.5 h-3.5 text-muted-foreground shrink-0 transition-transform ${expanded === p.id ? 'rotate-90' : ''}`} />
-                        <div>
-                          <div className="font-medium text-sm leading-tight">{p.siteName || p.domain}</div>
-                          <a
-                            href={p.siteUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            onClick={(e) => e.stopPropagation()}
-                            className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1 mt-0.5"
-                          >
-                            <Globe className="w-3 h-3" />
-                            {p.domain}
-                            <ExternalLink className="w-2.5 h-2.5" />
-                          </a>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="text-xs">{p.productName || p.productDomain}</div>
-                      <div className="text-xs text-muted-foreground capitalize">{p.outreachGoal}</div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="font-mono text-sm">{p.qualityScore ?? '—'}</div>
-                      {p.openPageRank && (
-                        <div className="text-xs text-muted-foreground">OPR {p.openPageRank}</div>
-                      )}
-                    </td>
-                    <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-                      {p.contactEmail ? (
-                        <a href={`mailto:${p.contactEmail}`} className="text-xs text-primary hover:underline">{p.contactEmail}</a>
-                      ) : p.submitUrl ? (
-                        <a href={p.submitUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-muted-foreground hover:text-foreground">Submit form</a>
-                      ) : (
-                        <span className="text-xs text-muted-foreground">—</span>
-                      )}
-                      {p.linkedinProfileUrl && (
-                        <a href={p.linkedinProfileUrl} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="block text-xs text-blue-400 hover:underline mt-0.5">LinkedIn</a>
-                      )}
-                    </td>
-                    <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-                      <select
-                        value={p.status}
-                        onChange={(e) => updateStatus(p.id, e.target.value)}
-                        className={`text-xs px-2 py-0.5 rounded-full border-0 font-medium cursor-pointer ${STATUS_COLORS[p.status] ?? 'bg-muted text-muted-foreground'}`}
-                      >
-                        {['discovered', 'researched', 'pending_approval', 'emailed', 'skipped', 'listed'].map((s) => (
-                          <option key={s} value={s}>{s.replace('_', ' ')}</option>
-                        ))}
-                      </select>
-                    </td>
-                    <td className="px-4 py-3 text-xs text-muted-foreground">
-                      {p.lastContactedAt ? new Date(p.lastContactedAt).toLocaleDateString() : '—'}
-                    </td>
-                  </tr>
-
-                  {expanded === p.id && (
-                    <tr key={`${p.id}-detail`} className="bg-muted/10 border-t border-border/50">
-                      <td colSpan={6} className="px-6 py-4">
-                        <div className="space-y-4 max-w-2xl">
-
-                          {/* Approach */}
+        <>
+          <div className="rounded-xl border border-border overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/40 border-b border-border">
+                <tr>
+                  <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Site</th>
+                  <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Product</th>
+                  <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Score</th>
+                  <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Contact</th>
+                  <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Status</th>
+                  <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Last contacted</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {prospects.map((p) => (
+                  <>
+                    <tr
+                      key={p.id}
+                      onClick={() => setExpanded(expanded === p.id ? null : p.id)}
+                      className="hover:bg-muted/20 transition-colors cursor-pointer"
+                    >
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-1.5">
+                          <ChevronRight className={`w-3.5 h-3.5 text-muted-foreground shrink-0 transition-transform ${expanded === p.id ? 'rotate-90' : ''}`} />
                           <div>
-                            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Outreach approach</p>
-                            <div className="flex flex-wrap gap-2 text-xs">
-                              {p.contactEmail && (
-                                <span className="px-2 py-1 bg-emerald-500/10 text-emerald-400 rounded">
-                                  Email → {p.contactEmail}
-                                </span>
-                              )}
-                              {p.submitUrl && (
-                                <a href={p.submitUrl} target="_blank" rel="noopener noreferrer" className="px-2 py-1 bg-blue-500/10 text-blue-400 rounded hover:underline flex items-center gap-1">
-                                  Submit form <ExternalLink className="w-2.5 h-2.5" />
-                                </a>
-                              )}
-                              {p.contactFormUrl && !p.submitUrl && (
-                                <a href={p.contactFormUrl} target="_blank" rel="noopener noreferrer" className="px-2 py-1 bg-blue-500/10 text-blue-400 rounded hover:underline flex items-center gap-1">
-                                  Contact form <ExternalLink className="w-2.5 h-2.5" />
-                                </a>
-                              )}
-                              {p.linkedinProfileUrl && (
-                                <a href={p.linkedinProfileUrl} target="_blank" rel="noopener noreferrer" className="px-2 py-1 bg-indigo-500/10 text-indigo-400 rounded hover:underline flex items-center gap-1">
-                                  LinkedIn profile <ExternalLink className="w-2.5 h-2.5" />
-                                </a>
-                              )}
-                              {!p.contactEmail && !p.submitUrl && !p.contactFormUrl && !p.linkedinProfileUrl && (
-                                <span className="text-muted-foreground">No contact found — manual research needed</span>
-                              )}
-                            </div>
+                            <div className="font-medium text-sm leading-tight">{p.siteName || p.domain}</div>
+                            <a
+                              href={p.siteUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1 mt-0.5"
+                            >
+                              <Globe className="w-3 h-3" />
+                              {p.domain}
+                              <ExternalLink className="w-2.5 h-2.5" />
+                            </a>
                           </div>
-
-                          {/* Draft email */}
-                          {p.outreachSubject || p.outreachBody ? (
-                            <>
-                              <div>
-                                <div className="flex items-center justify-between mb-1.5">
-                                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Subject line</p>
-                                  <button
-                                    onClick={() => p.outreachSubject && copyText(`${p.id}-sub`, p.outreachSubject)}
-                                    className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
-                                  >
-                                    {copied === `${p.id}-sub` ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
-                                    {copied === `${p.id}-sub` ? 'Copied' : 'Copy'}
-                                  </button>
-                                </div>
-                                <p className="text-sm bg-muted/40 border border-border rounded px-3 py-2">{p.outreachSubject}</p>
-                              </div>
-                              <div>
-                                <div className="flex items-center justify-between mb-1.5">
-                                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Message body</p>
-                                  <button
-                                    onClick={() => p.outreachBody && copyText(`${p.id}-body`, p.outreachBody)}
-                                    className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
-                                  >
-                                    {copied === `${p.id}-body` ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
-                                    {copied === `${p.id}-body` ? 'Copied' : 'Copy'}
-                                  </button>
-                                </div>
-                                <pre className="text-sm bg-muted/40 border border-border rounded px-3 py-2 whitespace-pre-wrap font-sans leading-relaxed">{p.outreachBody}</pre>
-                              </div>
-                            </>
-                          ) : (
-                            <p className="text-xs text-muted-foreground">No draft yet — trigger the agent to generate outreach emails.</p>
-                          )}
                         </div>
                       </td>
+                      <td className="px-4 py-3">
+                        <div className="text-xs">{p.productName || p.productDomain}</div>
+                        <div className="text-xs text-muted-foreground capitalize">{p.outreachGoal}</div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="font-mono text-sm">{p.qualityScore ?? '—'}</div>
+                        {p.openPageRank && (
+                          <div className="text-xs text-muted-foreground">OPR {p.openPageRank}</div>
+                        )}
+                      </td>
+                      <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                        {p.contactEmail ? (
+                          <a href={`mailto:${p.contactEmail}`} className="text-xs text-primary hover:underline">{p.contactEmail}</a>
+                        ) : p.submitUrl ? (
+                          <a href={p.submitUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-muted-foreground hover:text-foreground">Submit form</a>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">—</span>
+                        )}
+                        {p.linkedinProfileUrl && (
+                          <a href={p.linkedinProfileUrl} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="block text-xs text-blue-400 hover:underline mt-0.5">LinkedIn</a>
+                        )}
+                      </td>
+                      <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                        <select
+                          value={p.status}
+                          onChange={(e) => updateStatus(p.id, e.target.value)}
+                          className={`text-xs px-2 py-0.5 rounded-full border-0 font-medium cursor-pointer ${STATUS_COLORS[p.status] ?? 'bg-muted text-muted-foreground'}`}
+                        >
+                          {['discovered', 'researched', 'pending_approval', 'emailed', 'skipped', 'listed'].map((s) => (
+                            <option key={s} value={s}>{s.replace('_', ' ')}</option>
+                          ))}
+                        </select>
+                      </td>
+                      <td className="px-4 py-3 text-xs text-muted-foreground">
+                        {p.lastContactedAt ? new Date(p.lastContactedAt).toLocaleDateString() : '—'}
+                      </td>
                     </tr>
-                  )}
-                </>
-              ))}
-            </tbody>
-          </table>
-        </div>
+
+                    {expanded === p.id && (
+                      <tr key={`${p.id}-detail`} className="bg-muted/10 border-t border-border/50">
+                        <td colSpan={6} className="px-6 py-4">
+                          <div className="space-y-4 max-w-2xl">
+
+                            <div>
+                              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Outreach approach</p>
+                              <div className="flex flex-wrap gap-2 text-xs">
+                                {p.contactEmail && (
+                                  <span className="px-2 py-1 bg-emerald-500/10 text-emerald-400 rounded">
+                                    Email → {p.contactEmail}
+                                  </span>
+                                )}
+                                {p.submitUrl && (
+                                  <a href={p.submitUrl} target="_blank" rel="noopener noreferrer" className="px-2 py-1 bg-blue-500/10 text-blue-400 rounded hover:underline flex items-center gap-1">
+                                    Submit form <ExternalLink className="w-2.5 h-2.5" />
+                                  </a>
+                                )}
+                                {p.contactFormUrl && !p.submitUrl && (
+                                  <a href={p.contactFormUrl} target="_blank" rel="noopener noreferrer" className="px-2 py-1 bg-blue-500/10 text-blue-400 rounded hover:underline flex items-center gap-1">
+                                    Contact form <ExternalLink className="w-2.5 h-2.5" />
+                                  </a>
+                                )}
+                                {p.linkedinProfileUrl && (
+                                  <a href={p.linkedinProfileUrl} target="_blank" rel="noopener noreferrer" className="px-2 py-1 bg-indigo-500/10 text-indigo-400 rounded hover:underline flex items-center gap-1">
+                                    LinkedIn profile <ExternalLink className="w-2.5 h-2.5" />
+                                  </a>
+                                )}
+                                {!p.contactEmail && !p.submitUrl && !p.contactFormUrl && !p.linkedinProfileUrl && (
+                                  <span className="text-muted-foreground">No contact found — manual research needed</span>
+                                )}
+                              </div>
+                            </div>
+
+                            {p.outreachSubject || p.outreachBody ? (
+                              <>
+                                <div>
+                                  <div className="flex items-center justify-between mb-1.5">
+                                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Subject line</p>
+                                    <button
+                                      onClick={() => p.outreachSubject && copyText(`${p.id}-sub`, p.outreachSubject)}
+                                      className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
+                                    >
+                                      {copied === `${p.id}-sub` ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                                      {copied === `${p.id}-sub` ? 'Copied' : 'Copy'}
+                                    </button>
+                                  </div>
+                                  <p className="text-sm bg-muted/40 border border-border rounded px-3 py-2">{p.outreachSubject}</p>
+                                </div>
+                                <div>
+                                  <div className="flex items-center justify-between mb-1.5">
+                                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Message body</p>
+                                    <button
+                                      onClick={() => p.outreachBody && copyText(`${p.id}-body`, p.outreachBody)}
+                                      className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
+                                    >
+                                      {copied === `${p.id}-body` ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                                      {copied === `${p.id}-body` ? 'Copied' : 'Copy'}
+                                    </button>
+                                  </div>
+                                  <pre className="text-sm bg-muted/40 border border-border rounded px-3 py-2 whitespace-pre-wrap font-sans leading-relaxed">{p.outreachBody}</pre>
+                                </div>
+
+                                {p.contactEmail && p.status !== 'emailed' && (
+                                  <div className="flex items-center gap-3">
+                                    <button
+                                      onClick={() => sendEmail(p.id)}
+                                      disabled={sending === p.id}
+                                      className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors"
+                                    >
+                                      {sending === p.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Mail className="w-3.5 h-3.5" />}
+                                      {sending === p.id ? 'Sending...' : 'Send Email'}
+                                    </button>
+                                    {sendError[p.id] && (
+                                      <span className="text-xs text-red-400">{sendError[p.id]}</span>
+                                    )}
+                                  </div>
+                                )}
+
+                                {p.status === 'emailed' && (
+                                  <p className="text-xs text-emerald-400 flex items-center gap-1">
+                                    <Check className="w-3.5 h-3.5" /> Email sent
+                                  </p>
+                                )}
+                              </>
+                            ) : (
+                              <p className="text-xs text-muted-foreground">No draft yet — trigger the agent to generate outreach emails.</p>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between pt-1">
+              <button
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page === 1}
+                className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-border text-xs text-muted-foreground hover:text-foreground disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" /> Previous
+              </button>
+              <span className="text-xs text-muted-foreground">
+                Page {page} of {totalPages} &middot; {total} total
+              </span>
+              <button
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={page === totalPages}
+                className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-border text-xs text-muted-foreground hover:text-foreground disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                Next <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+        </>
       )}
     </div>
   );

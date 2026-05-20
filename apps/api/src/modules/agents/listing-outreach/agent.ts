@@ -492,13 +492,31 @@ Return ONLY the email body text, no subject line.${kbBlock}`;
         path: '/listing-outreach/prospects',
         requiresAuth: true,
         handler: async (params) => {
-          const { status, limit } = params as { status?: string; limit?: string };
-          const rows = await this.db.db
-            .select()
-            .from(listingProspects)
-            .orderBy(sql`quality_score DESC NULLS LAST, created_at DESC`)
-            .limit(Math.min(Number(limit) || 100, 200));
-          return status ? rows.filter((r) => r.status === status) : rows;
+          const { status, page, pageSize } = params as { status?: string; page?: string; pageSize?: string };
+          const size = Math.min(Number(pageSize) || 20, 100);
+          const offset = (Math.max(Number(page) || 1, 1) - 1) * size;
+          const where = status ? eq(listingProspects.status, status) : undefined;
+
+          const [rows, countResult] = await Promise.all([
+            this.db.db
+              .select()
+              .from(listingProspects)
+              .where(where)
+              .orderBy(sql`quality_score DESC NULLS LAST, created_at DESC`)
+              .limit(size)
+              .offset(offset),
+            this.db.db
+              .select({ count: sql<string>`COUNT(*)` })
+              .from(listingProspects)
+              .where(where),
+          ]);
+
+          return {
+            data: rows,
+            total: Number(countResult[0]?.count ?? 0),
+            page: Math.max(Number(page) || 1, 1),
+            pageSize: size,
+          };
         },
       },
       {
@@ -512,6 +530,39 @@ Return ONLY the email body text, no subject line.${kbBlock}`;
             .set({ ...(status ? { status } : {}), ...(notes ? { notes } : {}), updatedAt: new Date() })
             .where(eq(listingProspects.id, id));
           return { ok: true };
+        },
+      },
+      {
+        method: 'POST',
+        path: '/listing-outreach/prospects/:id/send',
+        requiresAuth: true,
+        handler: async (params) => {
+          const { id } = params as { id: string };
+          const [prospect] = await this.db.db.select().from(listingProspects).where(eq(listingProspects.id, id)).limit(1);
+          if (!prospect) throw new Error('Prospect not found');
+          if (!prospect.contactEmail) throw new Error('No contact email on this prospect');
+          if (!prospect.outreachSubject || !prospect.outreachBody) throw new Error('No outreach draft — run the agent first');
+
+          const result = await this.emails.send({
+            purpose: 'other',
+            recipient: prospect.contactEmail,
+            subject: prospect.outreachSubject,
+            body: prospect.outreachBody,
+            accountId: prospect.gmailAccountId ?? undefined,
+          });
+
+          await this.db.db
+            .update(listingProspects)
+            .set({
+              status: 'emailed',
+              emailId: result.id,
+              lastContactedAt: new Date(),
+              nextContactAt: new Date(Date.now() + 30 * 86400000),
+              updatedAt: new Date(),
+            })
+            .where(eq(listingProspects.id, id));
+
+          return { ok: true, emailId: result.id };
         },
       },
       {

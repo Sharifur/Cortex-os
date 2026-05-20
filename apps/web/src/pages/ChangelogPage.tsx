@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.84.5',
+    date: '2026-05-21',
+    entries: [
+      { tag: 'feat', scope: 'listing-outreach', description: 'Prospects tab now paginates: 20 rows per page with Previous/Next controls and total count. Filter pills reset to page 1 on change.' },
+      { tag: 'feat', scope: 'listing-outreach', description: 'Send Email button in expanded prospect rows: visible when the prospect has a contact email + outreach draft and has not been emailed yet. Sends the pre-filled subject and body directly from the page without going through Telegram approval.' },
+    ],
+  },
+  {
     version: 'v4.84.4',
     date: '2026-05-21',
     entries: [
