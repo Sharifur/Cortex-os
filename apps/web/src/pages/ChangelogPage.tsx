@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.84.1',
+    date: '2026-05-20',
+    entries: [
+      { tag: 'feat', scope: 'listing-outreach', description: 'Prospects tab on the Listing Outreach Agent detail page: shows all discovered sites in a table with domain, product, quality score, contact email, LinkedIn link, and status. Status can be changed inline via dropdown. Filter by status via pill buttons at the top.' },
+    ],
+  },
+  {
     version: 'v4.84.0',
     date: '2026-05-20',
     entries: [

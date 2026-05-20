@@ -8,7 +8,7 @@ import {
   Mail, Cpu, Layers, Info, BookOpen,
   CheckCircle2, Circle, MessageSquare,
   Bug, AlertTriangle, AlertCircle,
-  Plus, Loader2, RefreshCw, Radio,
+  Plus, Loader2, RefreshCw, Radio, Globe,
   CalendarClock, Zap, RotateCcw, ListTodo, ExternalLink,
   ImageIcon, Upload, ChevronLeft, X, Copy, Check, Download, Pencil,
 } from 'lucide-react';
@@ -3469,6 +3469,170 @@ function Phase4GeneralSubTab({ agent, token }: { agent: AgentDetail; token: stri
         </Button>
         {!agent.registered && <p className="text-xs text-yellow-500 mt-2">Agent is not registered.</p>}
       </div>
+    </div>
+  );
+}
+
+// ─── Listing Outreach Prospects Tab ──────────────────────────────────────────
+
+const STATUS_COLORS: Record<string, string> = {
+  discovered: 'bg-muted text-muted-foreground',
+  researched: 'bg-blue-500/10 text-blue-400',
+  pending_approval: 'bg-yellow-500/10 text-yellow-400',
+  emailed: 'bg-emerald-500/10 text-emerald-400',
+  skipped: 'bg-red-500/10 text-red-400',
+  listed: 'bg-purple-500/10 text-purple-400',
+};
+
+interface Prospect {
+  id: string;
+  domain: string;
+  productDomain: string;
+  productName: string | null;
+  siteName: string | null;
+  siteUrl: string;
+  contactEmail: string | null;
+  linkedinProfileUrl: string | null;
+  submitUrl: string | null;
+  status: string;
+  qualityScore: number | null;
+  openPageRank: string | null;
+  searchRank: number | null;
+  outreachGoal: string;
+  lastContactedAt: string | null;
+  createdAt: string;
+}
+
+function ProspectsTab({ token }: { token: string }) {
+  const [statusFilter, setStatusFilter] = useState('');
+  const qc = useQueryClient();
+
+  const { data: prospects = [], isLoading } = useQuery<Prospect[]>({
+    queryKey: ['listing-prospects', statusFilter],
+    queryFn: async () => {
+      const params = statusFilter ? `?status=${statusFilter}` : '';
+      const res = await fetch(`/listing-outreach/prospects${params}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error('Failed');
+      return res.json();
+    },
+    staleTime: 30_000,
+  });
+
+  async function updateStatus(id: string, status: string) {
+    await fetch(`/listing-outreach/prospects/${id}`, {
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status }),
+    });
+    qc.invalidateQueries({ queryKey: ['listing-prospects'] });
+  }
+
+  const statuses = ['', 'discovered', 'researched', 'pending_approval', 'emailed', 'skipped', 'listed'];
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2 flex-wrap">
+        {statuses.map((s) => (
+          <button
+            key={s}
+            onClick={() => setStatusFilter(s)}
+            className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+              statusFilter === s
+                ? 'bg-primary text-primary-foreground border-primary'
+                : 'border-border text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            {s || 'All'}
+          </button>
+        ))}
+        <span className="ml-auto text-xs text-muted-foreground">{prospects.length} prospects</span>
+      </div>
+
+      {isLoading && (
+        <div className="space-y-2">
+          {[...Array(5)].map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}
+        </div>
+      )}
+
+      {!isLoading && prospects.length === 0 && (
+        <div className="text-center py-16 text-muted-foreground text-sm">
+          No prospects yet. Trigger the agent to start discovery.
+        </div>
+      )}
+
+      {!isLoading && prospects.length > 0 && (
+        <div className="rounded-xl border border-border overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-muted/40 border-b border-border">
+              <tr>
+                <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Site</th>
+                <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Product</th>
+                <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Score</th>
+                <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Contact</th>
+                <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Status</th>
+                <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Last contacted</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {prospects.map((p) => (
+                <tr key={p.id} className="hover:bg-muted/20 transition-colors">
+                  <td className="px-4 py-3">
+                    <div className="font-medium">{p.siteName || p.domain}</div>
+                    <a
+                      href={p.siteUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1 mt-0.5"
+                    >
+                      <Globe className="w-3 h-3" />
+                      {p.domain}
+                      <ExternalLink className="w-2.5 h-2.5" />
+                    </a>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="text-xs">{p.productName || p.productDomain}</div>
+                    <div className="text-xs text-muted-foreground capitalize">{p.outreachGoal}</div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="font-mono text-sm">{p.qualityScore ?? '—'}</div>
+                    {p.openPageRank && (
+                      <div className="text-xs text-muted-foreground">OPR {p.openPageRank}</div>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    {p.contactEmail ? (
+                      <a href={`mailto:${p.contactEmail}`} className="text-xs text-primary hover:underline">{p.contactEmail}</a>
+                    ) : p.submitUrl ? (
+                      <a href={p.submitUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-muted-foreground hover:text-foreground">Submit form</a>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">—</span>
+                    )}
+                    {p.linkedinProfileUrl && (
+                      <a href={p.linkedinProfileUrl} target="_blank" rel="noopener noreferrer" className="block text-xs text-blue-400 hover:underline mt-0.5">LinkedIn</a>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    <select
+                      value={p.status}
+                      onChange={(e) => updateStatus(p.id, e.target.value)}
+                      className={`text-xs px-2 py-0.5 rounded-full border-0 font-medium cursor-pointer ${STATUS_COLORS[p.status] ?? 'bg-muted text-muted-foreground'}`}
+                    >
+                      {['discovered', 'researched', 'pending_approval', 'emailed', 'skipped', 'listed'].map((s) => (
+                        <option key={s} value={s}>{s.replace('_', ' ')}</option>
+                      ))}
+                    </select>
+                  </td>
+                  <td className="px-4 py-3 text-xs text-muted-foreground">
+                    {p.lastContactedAt ? new Date(p.lastContactedAt).toLocaleDateString() : '—'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
@@ -7161,7 +7325,7 @@ export default function AgentDetailPage() {
   const { key } = useParams<{ key: string }>();
   const token = useAuthStore((s) => s.token)!;
   const qc = useQueryClient();
-  const [activeTab, setActiveTab] = useState<'runs' | 'settings' | 'webhooks'>('runs');
+  const [activeTab, setActiveTab] = useState<'runs' | 'settings' | 'webhooks' | 'prospects'>('runs');
   const color = agentColor(key!);
 
   const [editingName, setEditingName] = useState(false);
@@ -7311,11 +7475,25 @@ export default function AgentDetailPage() {
                 Webhooks
               </button>
             )}
+            {key === 'listing_outreach' && (
+              <button
+                onClick={() => setActiveTab('prospects')}
+                className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
+                  activeTab === 'prospects'
+                    ? 'border-primary text-foreground'
+                    : 'border-transparent text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                <Globe className="w-4 h-4" />
+                Prospects
+              </button>
+            )}
           </div>
 
           {activeTab === 'runs' && <RunsTab agentKey={key!} token={token} />}
           {activeTab === 'settings' && <SettingsTab agent={agent} token={token} />}
           {activeTab === 'webhooks' && key === 'support' && <WebhookLogsTab token={token} />}
+          {activeTab === 'prospects' && key === 'listing_outreach' && <ProspectsTab token={token} />}
         </>
       )}
     </div>
