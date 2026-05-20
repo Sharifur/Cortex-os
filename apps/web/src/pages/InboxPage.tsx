@@ -512,6 +512,7 @@ export default function InboxPage() {
           purpose: 'followup',
           accountId: replyAccountId || undefined,
           plainText: replyPlainText,
+          emailId: selected.id,
         }),
       });
       const data = await res.json().catch(() => ({}));

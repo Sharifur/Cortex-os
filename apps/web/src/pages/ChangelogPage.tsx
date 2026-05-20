@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.83.3',
+    date: '2026-05-20',
+    entries: [
+      { tag: 'fix', scope: 'inbox', description: 'Reply from Inbox now threads correctly — passes In-Reply-To + References headers and Gmail threadId so replies land in the original thread instead of starting a new one.' },
+    ],
+  },
+  {
     version: 'v4.83.2',
     date: '2026-05-20',
     entries: [

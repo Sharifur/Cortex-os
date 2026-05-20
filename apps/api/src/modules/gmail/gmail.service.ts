@@ -15,6 +15,8 @@ export interface GmailSendParams {
   subject: string;
   textBody: string;
   htmlBody?: string;
+  inReplyTo?: string;
+  threadId?: string;
 }
 
 export interface GmailMessage {
@@ -219,6 +221,7 @@ export class GmailService {
         subject,
         text: params.textBody,
         ...(params.htmlBody ? { html: params.htmlBody } : {}),
+        ...(params.inReplyTo ? { inReplyTo: params.inReplyTo, references: params.inReplyTo } : {}),
       });
       this.logger.log(`Gmail/IMAP (${acc.email}) sent to ${params.to} — messageId: ${info.messageId}`);
       return info.messageId ?? '';
@@ -226,6 +229,9 @@ export class GmailService {
 
     // OAuth2 → Gmail API users.messages.send
     const gmail = this.gmailApi(acc);
+    const replyHeaders = params.inReplyTo
+      ? [`In-Reply-To: ${params.inReplyTo}`, `References: ${params.inReplyTo}`]
+      : [];
     let rawParts: string[];
     if (params.htmlBody) {
       const boundary = `boundary_${Date.now().toString(36)}`;
@@ -233,6 +239,7 @@ export class GmailService {
         `From: ${fromHeader}`,
         `To: ${params.to}`,
         `Subject: ${subject}`,
+        ...replyHeaders,
         `MIME-Version: 1.0`,
         `Content-Type: multipart/alternative; boundary="${boundary}"`,
         ``,
@@ -253,6 +260,7 @@ export class GmailService {
         `From: ${fromHeader}`,
         `To: ${params.to}`,
         `Subject: ${subject}`,
+        ...replyHeaders,
         `MIME-Version: 1.0`,
         `Content-Type: text/plain; charset=UTF-8`,
         ``,
@@ -260,7 +268,10 @@ export class GmailService {
       ];
     }
     const raw = Buffer.from(rawParts.join('\r\n')).toString('base64url');
-    const res = await gmail.users.messages.send({ userId: 'me', requestBody: { raw } });
+    const res = await gmail.users.messages.send({
+      userId: 'me',
+      requestBody: { raw, ...(params.threadId ? { threadId: params.threadId } : {}) },
+    });
     const messageId = res.data.id ?? '';
     this.logger.log(`Gmail/OAuth (${acc.email}) sent to ${params.to} — messageId: ${messageId}`);
     return messageId;
