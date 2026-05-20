@@ -65,6 +65,7 @@ export interface SendTrackedEmailInput {
   metadata?: Record<string, unknown>;
   plainText?: boolean;
   accountId?: string;
+  emailId?: string;
 }
 
 @Injectable()
@@ -98,6 +99,20 @@ export class TaskipInternalEmailService {
       return { id, gmailMessageId: null, status: 'failed', error: 'suppressed' };
     }
 
+    let inReplyTo: string | undefined;
+    let gmailReplyThreadId: string | undefined;
+    if (input.emailId) {
+      const orig = await this.db.db.execute(sql`
+        SELECT gmail_message_id AS "gmailMessageId", gmail_thread_id AS "gmailThreadId"
+        FROM taskip_internal_emails WHERE id = ${input.emailId} LIMIT 1
+      `);
+      const row = (orig as unknown as Array<{ gmailMessageId: string | null; gmailThreadId: string | null }>)[0];
+      if (row) {
+        inReplyTo = row.gmailMessageId ?? undefined;
+        gmailReplyThreadId = row.gmailThreadId ?? undefined;
+      }
+    }
+
     const textBody = input.body;
     const from = await this.gmail.getFromAddress(input.accountId);
     const id = createId();
@@ -122,6 +137,7 @@ export class TaskipInternalEmailService {
         subject: input.subject,
         textBody,
         htmlBody,
+        ...(inReplyTo ? { inReplyTo, threadId: gmailReplyThreadId } : {}),
       }, input.accountId);
 
       // For OAuth: getMessage returns Gmail's internal threadId (different from messageId).
