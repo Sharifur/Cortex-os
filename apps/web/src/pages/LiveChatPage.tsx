@@ -1148,7 +1148,7 @@ function ConversationsTab() {
 
   const bulkCloseMut = useMutation({
     mutationFn: (body: { siteKey?: string; status?: string }) =>
-      apiFetch(token, '/agents/livechat/sessions/bulk-close', { method: 'POST', body }),
+      apiFetch(token, '/agents/livechat/sessions/bulk-close', { method: 'POST', body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' } }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['livechat-sessions'] });
       qc.invalidateQueries({ queryKey: ['livechat-pending-count'] });
