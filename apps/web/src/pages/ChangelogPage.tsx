@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.84.9',
+    date: '2026-05-21',
+    entries: [
+      { tag: 'feat', scope: 'live-chat', description: 'Site filter dropdown now always visible below the search bar in the Conversations sidebar — no longer hidden behind the filter icon. Highlights in primary color when a site is active.' },
+    ],
+  },
+  {
     version: 'v4.84.8',
     date: '2026-05-21',
     entries: [

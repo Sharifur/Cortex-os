@@ -1381,8 +1381,8 @@ function ConversationsTab() {
           </div>
         )}
 
-        {/* Inline search */}
-        <div className="px-3 py-2 border-b border-border">
+        {/* Inline search + site filter */}
+        <div className="px-3 py-2 border-b border-border space-y-1.5">
           <div className="relative">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
             <input
@@ -1401,6 +1401,22 @@ function ConversationsTab() {
               </button>
             )}
           </div>
+          {sites.length > 0 && (
+            <select
+              value={filterSite ?? ''}
+              onChange={(e) => setFilterSite(e.target.value || null)}
+              className={`w-full text-xs bg-muted/40 border rounded-md px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary/50 ${
+                filterSite ? 'border-primary text-foreground' : 'border-border text-muted-foreground'
+              }`}
+            >
+              <option value="">All sites</option>
+              {sites.map((s) => (
+                <option key={s.id} value={s.key}>
+                  {s.label} ({s.key})
+                </option>
+              ))}
+            </select>
+          )}
         </div>
 
         <LiveVisitorsPanel
