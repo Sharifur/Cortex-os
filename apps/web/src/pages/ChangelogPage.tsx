@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.84.8',
+    date: '2026-05-21',
+    entries: [
+      { tag: 'fix', scope: 'listing-outreach', description: 'Added contactFormUrl field to Prospect type in AgentDetailPage — was missing from the TypeScript interface, causing a build failure in production (tsc error TS2339).' },
+    ],
+  },
+  {
     version: 'v4.84.7',
     date: '2026-05-21',
     entries: [

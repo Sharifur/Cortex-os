@@ -3494,6 +3494,7 @@ interface Prospect {
   contactEmail: string | null;
   linkedinProfileUrl: string | null;
   submitUrl: string | null;
+  contactFormUrl: string | null;
   status: string;
   qualityScore: number | null;
   openPageRank: string | null;
