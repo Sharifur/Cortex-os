@@ -146,7 +146,7 @@ async function bootstrap() {
     },
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-Id', 'X-Webhook-Secret', 'X-Hub-Signature-256', 'X-Hub-Signature'],
-    credentials: false,
+    credentials: true,
     maxAge: 86400,
   });
 

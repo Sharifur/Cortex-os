@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.84.10',
+    date: '2026-05-23',
+    entries: [
+      { tag: 'fix', scope: 'cors', description: 'Set Access-Control-Allow-Credentials: true in global CORS config so livechat widget requests with credentials: include pass the preflight check.' },
+    ],
+  },
+  {
     version: 'v4.84.9',
     date: '2026-05-21',
     entries: [
