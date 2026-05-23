@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.84.11',
+    date: '2026-05-23',
+    entries: [
+      { tag: 'fix', scope: 'livechat', description: 'Block disposable and obviously fake emails (mailinator, guerrillamail, yopmail, 10minutemail, etc.) and dummy local-parts containing test/dummy/fake from the identify endpoint. Returns 400 with a clear message.' },
+    ],
+  },
+  {
     version: 'v4.84.10',
     date: '2026-05-23',
     entries: [
