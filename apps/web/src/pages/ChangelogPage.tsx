@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.84.15',
+    date: '2026-05-24',
+    entries: [
+      { tag: 'fix', scope: 'tracking', description: 'Email tracking pixel now ignores opens within 5 minutes of send time. Gmail pre-fetches the pixel immediately after send, and sender self-views in the sent folder also fire the pixel — both were inflating open counts. Opens after the 5-minute grace period count normally.' },
+    ],
+  },
+  {
     version: 'v4.84.14',
     date: '2026-05-24',
     entries: [
