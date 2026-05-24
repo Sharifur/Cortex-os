@@ -98,6 +98,36 @@ function extractRequestOrigin(req: FastifyRequest): string | null {
   return null;
 }
 
+const DISPOSABLE_DOMAINS = new Set([
+  'mailinator.com', 'guerrillamail.com', 'guerrillamail.net', 'guerrillamail.org',
+  'tempmail.com', 'temp-mail.org', 'throwam.com', 'throwam.net',
+  '10minutemail.com', '10minutemail.net', 'minutemail.com',
+  'yopmail.com', 'yopmail.fr', 'yopmail.net',
+  'trashmail.com', 'trashmail.at', 'trashmail.io', 'trashmail.me', 'trashmail.net',
+  'dispostable.com', 'sharklasers.com', 'guerrillamailblock.com',
+  'spamgourmet.com', 'spamgourmet.net', 'spamgourmet.org',
+  'maildrop.cc', 'mailnull.com', 'mailnull.net',
+  'fakeinbox.com', 'fakemailgenerator.com', 'fakemail.fr',
+  'getnada.com', 'getairmail.com', 'inboxkitten.com',
+  'mohmal.com', 'moakt.com', 'emailondeck.com',
+  'spamevader.com', 'spamfree24.org', 'mailtemp.info',
+  'tempr.email', 'spam4.me', 'throwam.com', 'discard.email',
+  'nwytg.com', 'armyspy.com', 'cuvox.de', 'dayrep.com',
+  'einrot.com', 'fleckens.hu', 'gustr.com', 'jourrapide.com',
+  'rhyta.com', 'superrito.com', 'teleworm.us',
+]);
+
+const DUMMY_LOCAL_PATTERNS = /^(test|dummy|fake|temp|trial|demo|sample|noreply|no-reply|example|placeholder|asdf|qwerty|aaa+|bbb+|ccc+|abc|xyz|foo|bar|baz|user\d*|admin\d*|random|nobody)\d*$/i;
+
+function isDisposableOrDummyEmail(email: string): boolean {
+  const [local, domain] = email.toLowerCase().split('@');
+  if (!local || !domain) return false;
+  if (DISPOSABLE_DOMAINS.has(domain)) return true;
+  if (DUMMY_LOCAL_PATTERNS.test(local)) return true;
+  if (local.includes('test') || local.includes('dummy') || local.includes('fake')) return true;
+  return false;
+}
+
 function extractClientIp(req: FastifyRequest): string | null {
   const cf = req.headers['cf-connecting-ip'];
   if (typeof cf === 'string' && cf.trim()) return cf.trim();
@@ -336,6 +366,9 @@ export class LivechatPublicController {
     const name = body.name?.trim().slice(0, 100) ?? undefined;
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       throw new BadRequestException('Invalid email address');
+    }
+    if (email && isDisposableOrDummyEmail(email)) {
+      throw new BadRequestException('Please use a real email address');
     }
     const origin = extractRequestOrigin(req);
     const site = await this.livechat.resolveSiteForRequest(body.siteKey, origin);
