@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.84.12',
+    date: '2026-05-24',
+    entries: [
+      { tag: 'fix', scope: 'inbox', description: 'Clicking a reply email (Re: ...) in the inbox list no longer jumps back to the previously highlighted email. The highlight useEffect now applies only once on initial load and does not reset user selection on every data refetch. Email body also reads from the fresh detail query when available.' },
+    ],
+  },
+  {
     version: 'v4.84.11',
     date: '2026-05-23',
     entries: [

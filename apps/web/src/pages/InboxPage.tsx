@@ -225,6 +225,7 @@ export default function InboxPage() {
   const [search, setSearch] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(highlightId || null);
   const [mobileView, setMobileView] = useState<'list' | 'detail'>(highlightId ? 'detail' : 'list');
+  const highlightApplied = useRef(false);
   const [pushEnabled, setPushEnabled] = useState(false);
   const [pushLoading, setPushLoading] = useState(false);
 
@@ -383,7 +384,12 @@ export default function InboxPage() {
   }
 
   useEffect(() => {
-    if (highlightId && data) {
+    highlightApplied.current = false;
+  }, [highlightId]);
+
+  useEffect(() => {
+    if (highlightId && data && !highlightApplied.current) {
+      highlightApplied.current = true;
       setSelectedId(highlightId);
       setTimeout(() => {
         document.getElementById(`inbox-row-${highlightId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -1015,7 +1021,9 @@ export default function InboxPage() {
               <div className="rounded-xl border border-border bg-card p-5 mb-4">
                 <div
                   className="text-sm leading-relaxed text-foreground/90 prose-sm"
-                  dangerouslySetInnerHTML={{ __html: bodyToHtml(selected.body) }}
+                  dangerouslySetInnerHTML={{ __html: bodyToHtml(
+                    (detailQuery.data?.email.id === selected.id ? detailQuery.data.email.body : null) ?? selected.body ?? ''
+                  ) }}
                 />
               </div>
 
