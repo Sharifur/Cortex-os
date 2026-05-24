@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.84.13',
+    date: '2026-05-24',
+    entries: [
+      { tag: 'fix', scope: 'support', description: 'CRM agent-reply now tries three URL candidates in order (uuid/agent-reply, numericId/agent-reply, numericId/reply) and stops on first success. Each attempt is logged so server logs show the exact URL the CRM accepts or rejects. Misleading "check support_agent_id" hint removed from failure message.' },
+    ],
+  },
+  {
     version: 'v4.84.12',
     date: '2026-05-24',
     entries: [
