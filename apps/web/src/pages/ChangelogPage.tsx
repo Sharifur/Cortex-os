@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.84.14',
+    date: '2026-05-24',
+    entries: [
+      { tag: 'fix', scope: 'integrations', description: 'Added listing integration test endpoint — /integrations/listing/test now validates the Brave Search API key with a live probe and reports Open PageRank configuration status. Previously returned "Unknown integration: listing".' },
+    ],
+  },
+  {
     version: 'v4.84.13',
     date: '2026-05-24',
     entries: [

@@ -29,6 +29,7 @@ export class IntegrationsService {
       case 'gmail':     return this.testGmail();
       case 'license':   return this.testLicense();
       case 'storage':   return this.testStorage();
+      case 'listing':   return this.testListing();
       default:          return { ok: false, message: `Unknown integration: ${key}` };
     }
   }
@@ -243,6 +244,33 @@ export class IntegrationsService {
 
   private async testStorage(): Promise<TestResult> {
     return this.storageService.testConnection();
+  }
+
+  private async testListing(): Promise<TestResult> {
+    const [braveKey, oprKey] = await Promise.all([
+      this.settings.getDecrypted('brave_search_api_key'),
+      this.settings.getDecrypted('open_page_rank_api_key'),
+    ]);
+    if (!braveKey) return { ok: false, message: 'Brave Search API key not configured' };
+
+    try {
+      const res = await fetch('https://api.search.brave.com/res/v1/web/search?q=test&count=1', {
+        headers: {
+          'Accept': 'application/json',
+          'Accept-Encoding': 'gzip',
+          'X-Subscription-Token': braveKey,
+        },
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        return { ok: false, message: `Brave Search: HTTP ${res.status} — ${text.slice(0, 120)}` };
+      }
+      const oprStatus = oprKey ? 'Open PageRank configured' : 'Open PageRank not set (optional)';
+      return { ok: true, message: `Brave Search connected. ${oprStatus}.` };
+    } catch (err) {
+      return { ok: false, message: err instanceof Error ? err.message : String(err) };
+    }
   }
 
   private async testGmail(): Promise<TestResult> {
