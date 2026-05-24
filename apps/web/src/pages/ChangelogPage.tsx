@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.84.17',
+    date: '2026-05-24',
+    entries: [
+      { tag: 'feat', scope: 'taskip-internal', description: 'Chat now acknowledges refinement instructions before regenerating. When you type "write from different angle", "rewrite covering module X", etc. after a draft was shown, the agent starts its response with a one-line "Revising: ..." summary of what it is changing, then produces the revised SPAR output — without re-fetching workspace data.' },
+    ],
+  },
+  {
     version: 'v4.84.16',
     date: '2026-05-24',
     entries: [
