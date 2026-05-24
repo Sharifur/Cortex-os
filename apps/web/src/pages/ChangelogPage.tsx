@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.84.18',
+    date: '2026-05-24',
+    entries: [
+      { tag: 'feat', scope: 'chat', description: 'Five chat UX improvements for Taskip Internal: (1) self-score badge on email cards is now color-coded green/amber/red based on the N/5 score; (2) refinement chips ("Try blunt style", "Different angle", "Make it shorter", "More empathetic") appear below the last email draft for one-tap rewrites; (3) the thinking indicator shows a live step label ("Analyzing workspace...", "Calling tool...", "Checking spam score...", "Rewriting for deliverability...") pulled from run logs; (4) email cards show "Draft N of N / ← Previous" when multiple drafts exist in the conversation; (5) all-skipped responses ("recently contacted", "already engaged") render as an amber notice card instead of a plain text bubble.' },
+    ],
+  },
+  {
     version: 'v4.84.17',
     date: '2026-05-24',
     entries: [
