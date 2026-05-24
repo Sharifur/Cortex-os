@@ -668,11 +668,18 @@ function EmailDraftCard({
         />
         <div className="flex items-center justify-between gap-2 px-4 py-3 border-t border-border bg-muted/20">
           <div className="flex items-center gap-2">
-            {selfScore && (
-              <span className="inline-flex items-center gap-1 text-[10px] text-emerald-500 font-medium">
-                <Check className="w-3 h-3" /> {selfScore}
-              </span>
-            )}
+            {selfScore && (() => {
+              const numMatch = selfScore.match(/^(\d)/);
+              const num = numMatch ? parseInt(numMatch[1]) : 0;
+              const scoreColor = num >= 4 ? 'text-emerald-500' : num === 3 ? 'text-amber-400' : 'text-rose-400';
+              const scoreBg = num >= 4 ? 'bg-emerald-500/10 border-emerald-500/25' : num === 3 ? 'bg-amber-500/10 border-amber-500/25' : 'bg-rose-500/10 border-rose-500/25';
+              return (
+                <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border ${scoreBg} ${scoreColor}`} title={selfScore}>
+                  {num >= 4 && <Check className="w-3 h-3" />}
+                  {selfScore.split(' — ')[0].split(' — ')[0]}
+                </span>
+              );
+            })()}
             {spamResult && (() => {
               const gradeStyles: Record<string, string> = {
                 INBOX_STRONG: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/25',
@@ -745,7 +752,7 @@ function EmailDraftCard({
 
 // ─── Typing indicator ─────────────────────────────────────────────────────────
 
-function TypingBubble({ color }: { color: ReturnType<typeof agentColor> }) {
+function TypingBubble({ color, label }: { color: ReturnType<typeof agentColor>; label?: string }) {
   return (
     <div className="flex items-end gap-2">
       <div className={`w-7 h-7 rounded-lg ${color.iconBg} flex items-center justify-center shrink-0`}>
@@ -760,6 +767,7 @@ function TypingBubble({ color }: { color: ReturnType<typeof agentColor> }) {
               style={{ animation: `bounce 1.2s ${i * 0.2}s infinite` }}
             />
           ))}
+          {label && <span className="text-[10px] text-muted-foreground/60 ml-2">{label}</span>}
         </div>
       </div>
     </div>
@@ -1462,7 +1470,7 @@ function ContentConfirmCard({
 // ─── Message bubble ───────────────────────────────────────────────────────────
 
 function MessageBubble({
-  msg, color, agentName, onFeedback, onReply, onApprove, onReject, token, agentKey, onQuickReply, isLast, prevMsgContent,
+  msg, color, agentName, onFeedback, onReply, onApprove, onReject, token, agentKey, onQuickReply, isLast, prevMsgContent, draftIndex, totalDrafts, prevDraftId,
 }: {
   msg: ConvMessage & { pending?: boolean; feedback?: 'up' | 'down' };
   color: ReturnType<typeof agentColor>;
@@ -1476,11 +1484,14 @@ function MessageBubble({
   onQuickReply?: (text: string) => void;
   isLast?: boolean;
   prevMsgContent?: string;
+  draftIndex?: number;
+  totalDrafts?: number;
+  prevDraftId?: string;
 }) {
   const isUser = msg.role === 'user';
 
   return (
-    <div className={`flex items-end gap-2 ${isUser ? 'flex-row-reverse' : ''}`}>
+    <div id={`msg-${msg.id}`} className={`flex items-end gap-2 ${isUser ? 'flex-row-reverse' : ''}`}>
       {!isUser && (
         <div className={`w-7 h-7 rounded-lg ${color.iconBg} flex items-center justify-center shrink-0`}>
           <Bot className={`w-3.5 h-3.5 ${color.iconText}`} />
@@ -1555,6 +1566,23 @@ function MessageBubble({
               return <EmailDraftCard subject={draft.subject} body={draft.body} recipient={draft.recipient} token={token} agentKey={agentKey} />;
             } catch { /* fall through */ }
           }
+          // Skip notice card (all workspaces skipped — no draft generated)
+          if (!isUser) {
+            const hasEmailBlock = /\*{0,2}Email:\*{0,2}[ \t]*\n/i.test(msg.content) || /\*{0,2}Signal:/i.test(msg.content);
+            const hasSkipPattern = /(?:recently contacted|already (?:engaged|replied)|all .{0,30}skipped|skip(?:ping|ped) .{0,40}(?:contacted|replied|engaged))/i.test(msg.content);
+            if (!hasEmailBlock && hasSkipPattern && msg.content.length < 600) {
+              return (
+                <div className="rounded-xl border border-amber-500/20 bg-amber-500/8 px-4 py-3 max-w-xl">
+                  <div className="flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                    <div className="text-sm text-foreground/80 leading-relaxed">
+                      <div dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }} />
+                    </div>
+                  </div>
+                </div>
+              );
+            }
+          }
           // Inline email draft in LLM text reply
           if (!isUser) {
             const inline = extractInlineEmail(msg.content);
@@ -1567,9 +1595,35 @@ function MessageBubble({
                     </div>
                   )}
                   <EmailDraftCard subject={inline.subject} subjectAlt={inline.subjectAlt} body={inline.body} selfScore={inline.selfScore} recipient={inline.to} token={token} agentKey={agentKey} />
+                  {draftIndex != null && totalDrafts != null && totalDrafts > 1 && (
+                    <div className="flex items-center gap-2 px-1">
+                      <span className="text-[10px] text-muted-foreground/50">Draft {draftIndex + 1} of {totalDrafts}</span>
+                      {prevDraftId && (
+                        <button
+                          onClick={() => document.getElementById(`msg-${prevDraftId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
+                          className="text-[10px] text-primary hover:underline"
+                        >
+                          ← Previous
+                        </button>
+                      )}
+                    </div>
+                  )}
                   {inline.after && (
                     <div className={`rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${color.bubble} text-foreground rounded-bl-sm`}>
                       <div dangerouslySetInnerHTML={{ __html: renderMarkdown(inline.after) }} />
+                    </div>
+                  )}
+                  {isLast && agentKey === 'taskip_internal' && onQuickReply && (
+                    <div className="flex flex-wrap gap-1.5 mt-0.5">
+                      {['Try blunt style', 'Different angle', 'Make it shorter', 'More empathetic'].map((chip) => (
+                        <button
+                          key={chip}
+                          onClick={() => onQuickReply(chip)}
+                          className="px-2.5 py-1 rounded-full text-[11px] border border-border bg-muted/40 hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                        >
+                          {chip}
+                        </button>
+                      ))}
                     </div>
                   )}
                 </div>
@@ -2278,6 +2332,30 @@ function ChatTab({
     return { totalSlides, renderId, doneCount, slideUrls };
   }, [activeRunLogs]);
 
+  const activeStepLabel = useMemo(() => {
+    if (!activeRunLogs?.logs?.length) return 'Thinking...';
+    const logs = [...activeRunLogs.logs].reverse();
+    const last = logs.find((l) => {
+      const et = (l.meta as Record<string, unknown> | null)?.['event_type'];
+      return et === 'llm_call' || et === 'tool_call_start' || et === 'spam_check_start' || et === 'spam_rewrite_triggered';
+    });
+    if (!last) return 'Thinking...';
+    const et = (last.meta as Record<string, unknown> | null)?.['event_type'];
+    if (et === 'spam_check_start') return 'Checking spam score...';
+    if (et === 'spam_rewrite_triggered') return 'Rewriting for deliverability...';
+    if (et === 'tool_call_start') return `Calling ${String((last.meta as Record<string, unknown>)?.['tool'] ?? 'tool')}...`;
+    if (et === 'llm_call') {
+      const iter = Number((last.meta as Record<string, unknown>)?.['iteration'] ?? 0);
+      return iter === 0 ? 'Analyzing workspace...' : 'Processing...';
+    }
+    return 'Thinking...';
+  }, [activeRunLogs]);
+
+  const draftMsgIds = useMemo(
+    () => messages.filter((m) => m.role === 'agent' && extractInlineEmail(m.content)).map((m) => m.id),
+    [messages],
+  );
+
   const { isGeneratingSlides, generatingSlideCount } = useMemo(() => {
     if (!isThinking || renderProgress) return { isGeneratingSlides: false, generatingSlideCount: 6 };
     const agentMsgs = messages.filter(m => m.role === 'agent');
@@ -2592,6 +2670,8 @@ function ChatTab({
           const approval = msg.runId ? approvalByRunId[msg.runId] : undefined;
           const isLast = idx === messages.length - 1;
           const prevMsgContent = idx > 0 ? messages[idx - 1].content : undefined;
+          const draftIdx = draftMsgIds.indexOf(msg.id);
+          const isDraftMsg = draftIdx !== -1;
           return (
             <MessageBubble
               key={msg.id}
@@ -2607,6 +2687,9 @@ function ChatTab({
               isLast={isLast}
               onQuickReply={isLast ? (text) => triggerMutation.mutate(text) : undefined}
               prevMsgContent={prevMsgContent}
+              draftIndex={isDraftMsg ? draftIdx : undefined}
+              totalDrafts={isDraftMsg ? draftMsgIds.length : undefined}
+              prevDraftId={isDraftMsg && draftIdx > 0 ? draftMsgIds[draftIdx - 1] : undefined}
             />
           );
         })}
@@ -2616,7 +2699,7 @@ function ChatTab({
             ? <RenderProgressBubble color={color} progress={renderProgress} />
             : isGeneratingSlides
               ? <SlideSkeletonBubble color={color} count={generatingSlideCount} />
-              : <TypingBubble color={color} />
+              : <TypingBubble color={color} label={agent.key === 'taskip_internal' ? activeStepLabel : undefined} />
         )}
         <div ref={bottomRef} />
         </div>

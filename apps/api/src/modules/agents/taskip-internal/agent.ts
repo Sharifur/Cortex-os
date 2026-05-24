@@ -755,6 +755,20 @@ function buildContinuationHint(query: string, lastAgentMsg: string | null | unde
     return `\n\nCONTINUATION MODE ACTIVE: Apply "${toneOverride}" tone override and resume the pending action from the prior turn.${toneNote}`;
   }
 
+  // ─── Rewrite / refinement on a prior SPAR draft ──────────────────────────
+  const hasPriorDraft = /\*{0,2}(Signal:|Self-score:)/i.test(lastAgentMsg);
+  const looksLikeRefinement = hasPriorDraft
+    && !affirmative
+    && !numbers?.length
+    && /\b(write|rewrite|draft|different|angle|module|section|from|focus|include|cover|mention|change|update|revise|use|try|show)\b/i.test(query);
+
+  if (looksLikeRefinement) {
+    return `\n\nREFINEMENT MODE: The user wants to revise the prior draft. Their instruction: "${query.slice(0, 300)}"
+Start your response with exactly ONE acknowledgment line (under 20 words) summarising what you are changing. Format: "Revising: [what you are doing]."
+Then immediately produce the revised SPAR output (Signal, Persona, Angle, Style...).
+Do NOT call insight_get_lifecycle or other read tools — reuse the workspace data from your prior turn.${toneNote}`;
+  }
+
   return null;
 }
 

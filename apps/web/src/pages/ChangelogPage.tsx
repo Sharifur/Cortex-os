@@ -16,6 +16,41 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.84.18',
+    date: '2026-05-24',
+    entries: [
+      { tag: 'feat', scope: 'chat', description: 'Five chat UX improvements for Taskip Internal: (1) self-score badge on email cards is now color-coded green/amber/red based on the N/5 score; (2) refinement chips ("Try blunt style", "Different angle", "Make it shorter", "More empathetic") appear below the last email draft for one-tap rewrites; (3) the thinking indicator shows a live step label ("Analyzing workspace...", "Calling tool...", "Checking spam score...", "Rewriting for deliverability...") pulled from run logs; (4) email cards show "Draft N of N / ← Previous" when multiple drafts exist in the conversation; (5) all-skipped responses ("recently contacted", "already engaged") render as an amber notice card instead of a plain text bubble.' },
+    ],
+  },
+  {
+    version: 'v4.84.17',
+    date: '2026-05-24',
+    entries: [
+      { tag: 'feat', scope: 'taskip-internal', description: 'Chat now acknowledges refinement instructions before regenerating. When you type "write from different angle", "rewrite covering module X", etc. after a draft was shown, the agent starts its response with a one-line "Revising: ..." summary of what it is changing, then produces the revised SPAR output — without re-fetching workspace data.' },
+    ],
+  },
+  {
+    version: 'v4.84.16',
+    date: '2026-05-24',
+    entries: [
+      { tag: 'feat', scope: 'listing-outreach', description: 'Added 5 quality filters to listing prospect discovery: non-directory content (news, jobs, podcasts) is skipped early before scraping; non-English pages skipped via ASCII ratio check; OPR floor < 0.5 excludes micro-sites; prospects with no contact path (email, submit URL, or contact form) discarded after scrape; rejected prospects now enter a 90-day cooldown before re-discovery. Rejection with reason now triggers an automatic re-draft incorporating the feedback, stored in the prospect record and notified via Telegram.' },
+    ],
+  },
+  {
+    version: 'v4.84.15',
+    date: '2026-05-24',
+    entries: [
+      { tag: 'fix', scope: 'tracking', description: 'Email tracking pixel now ignores opens within 5 minutes of send time. Gmail pre-fetches the pixel immediately after send, and sender self-views in the sent folder also fire the pixel — both were inflating open counts. Opens after the 5-minute grace period count normally.' },
+    ],
+  },
+  {
+    version: 'v4.84.14',
+    date: '2026-05-24',
+    entries: [
+      { tag: 'fix', scope: 'integrations', description: 'Added listing integration test endpoint — /integrations/listing/test now validates the Brave Search API key with a live probe and reports Open PageRank configuration status. Previously returned "Unknown integration: listing".' },
+    ],
+  },
+  {
     version: 'v4.84.13',
     date: '2026-05-24',
     entries: [
