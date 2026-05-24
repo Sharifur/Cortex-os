@@ -413,7 +413,7 @@ export class SupportAgent implements IAgent, OnModuleInit {
 
     if (action.type === 'request_purchase_code') {
       if (p.crmUuid) {
-        const result = await this.postCrmReply(p.crmUuid, p.draft);
+        const result = await this.postCrmReply(p.crmUuid, p.draft, p.crmTicketId);
         if (!result.ok) {
           await this.telegram.sendMessage(`CRM reply FAILED (purchase code request): ${p.subject}\nError: ${result.error}`);
         }
@@ -439,7 +439,7 @@ export class SupportAgent implements IAgent, OnModuleInit {
 
     if (action.type === 'request_server_access') {
       if (p.crmUuid) {
-        const result = await this.postCrmReply(p.crmUuid, p.draft);
+        const result = await this.postCrmReply(p.crmUuid, p.draft, p.crmTicketId);
         if (!result.ok) {
           await this.telegram.sendMessage(`CRM reply FAILED (server access request): ${p.subject}\nError: ${result.error}`);
         }
@@ -490,7 +490,7 @@ export class SupportAgent implements IAgent, OnModuleInit {
           return { success: false, data: { error: errMsg } };
         }
 
-        const result = await this.postCrmReply(p.crmUuid, p.draft);
+        const result = await this.postCrmReply(p.crmUuid, p.draft, p.crmTicketId);
         if (!result.ok) {
           // Save draft but do NOT mark as replied — CRM delivery failed
           if (p.ticketId) {
@@ -507,7 +507,7 @@ export class SupportAgent implements IAgent, OnModuleInit {
             error: result.error,
           });
           await this.telegram.sendMessage(
-            `Reply FAILED: ${p.subject}\nFrom: ${p.userEmail}\nError: ${result.error}\n\nDraft saved — use Send Reply in the admin panel or check support_agent_id in Settings.\n\nDraft:\n${p.draft}`,
+            `Reply FAILED: ${p.subject}\nFrom: ${p.userEmail}\nError: ${result.error}\n\nDraft saved — use Send Reply in the admin panel.\n\nDraft:\n${p.draft}`,
           );
           return { success: false, data: { error: result.error } };
         }
@@ -841,7 +841,7 @@ export class SupportAgent implements IAgent, OnModuleInit {
           if (!ticket) throw new Error('Ticket not found');
           if (!ticket.lastDraft?.trim()) throw new Error('No draft to send — generate a draft first');
           if (!ticket.crmUuid) throw new Error('Ticket has no CRM UUID — webhook may need to re-deliver it');
-          const result = await this.postCrmReply(ticket.crmUuid, ticket.lastDraft);
+          const result = await this.postCrmReply(ticket.crmUuid, ticket.lastDraft, ticket.externalId ? Number(ticket.externalId) : null);
           if (!result.ok) throw new Error(result.error ?? 'CRM reply failed');
           await this.db.db.update(supportTickets).set({ status: 'replied', repliedAt: new Date(), updatedAt: new Date() }).where(eq(supportTickets.id, id));
           await this.writeTicketEvent({ ticketId: id, externalId: ticket.externalId, eventType: 'reply_sent', summary: `Reply sent via dashboard: ${ticket.lastDraft.slice(0, 120)}`, payload: { draft: ticket.lastDraft } });
@@ -1427,26 +1427,43 @@ export class SupportAgent implements IAgent, OnModuleInit {
     }
   }
 
-  private async postCrmReply(crmUuid: string, message: string): Promise<{ ok: boolean; error?: string }> {
+  private async postCrmReply(crmUuid: string, message: string, crmTicketId?: number | null): Promise<{ ok: boolean; error?: string }> {
     try {
       const baseUrl = await this.settings.getDecrypted('support_crm_base_url');
       if (!baseUrl) return { ok: false, error: 'support_crm_base_url not configured' };
       const agentIdRaw = await this.settings.getDecrypted('support_agent_id');
       if (!agentIdRaw) return { ok: false, error: 'support_agent_id not configured in Settings' };
       const body: Record<string, unknown> = { description: message, agent_id: Number(agentIdRaw) };
-      const res = await fetch(`${baseUrl.replace(/\/$/, '')}/api/public-v1/support-ticket/${crmUuid}/agent-reply`, {
-        method: 'POST',
-        headers: await this.crmHeaders(),
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(10000),
-      });
-      if (res.ok) {
-        this.logger.log(`CRM reply posted for ticket uuid=${crmUuid}`);
-        return { ok: true };
+      const base = baseUrl.replace(/\/$/, '');
+      const headers = await this.crmHeaders();
+
+      const candidates: string[] = [
+        `${base}/api/public-v1/support-ticket/${crmUuid}/agent-reply`,
+      ];
+      if (crmTicketId) {
+        candidates.push(`${base}/api/public-v1/support-ticket/${crmTicketId}/agent-reply`);
+        candidates.push(`${base}/api/public-v1/support-ticket/${crmTicketId}/reply`);
       }
-      const text = await res.text().catch(() => '');
-      this.logger.warn(`postCrmReply(${crmUuid}) failed: HTTP ${res.status} — ${text}`);
-      return { ok: false, error: `HTTP ${res.status}: ${text.slice(0, 200)}` };
+
+      for (const url of candidates) {
+        this.logger.log(`postCrmReply attempt: POST ${url}`);
+        const res = await fetch(url, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(10000),
+        });
+        if (res.ok) {
+          this.logger.log(`CRM reply posted via ${url}`);
+          return { ok: true };
+        }
+        const text = await res.text().catch(() => '');
+        this.logger.warn(`postCrmReply ${url} → HTTP ${res.status} — ${text.slice(0, 300)}`);
+        if (res.status !== 404) {
+          return { ok: false, error: `HTTP ${res.status}: ${text.slice(0, 200)}` };
+        }
+      }
+      return { ok: false, error: `HTTP 404 on all candidate URLs: ${candidates.join(', ')}` };
     } catch (err) {
       this.logger.warn(`postCrmReply(${crmUuid}) error: ${err}`);
       return { ok: false, error: String(err) };
