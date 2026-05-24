@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.84.16',
+    date: '2026-05-24',
+    entries: [
+      { tag: 'feat', scope: 'listing-outreach', description: 'Added 5 quality filters to listing prospect discovery: non-directory content (news, jobs, podcasts) is skipped early before scraping; non-English pages skipped via ASCII ratio check; OPR floor < 0.5 excludes micro-sites; prospects with no contact path (email, submit URL, or contact form) discarded after scrape; rejected prospects now enter a 90-day cooldown before re-discovery. Rejection with reason now triggers an automatic re-draft incorporating the feedback, stored in the prospect record and notified via Telegram.' },
+    ],
+  },
+  {
     version: 'v4.84.15',
     date: '2026-05-24',
     entries: [

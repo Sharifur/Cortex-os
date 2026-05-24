@@ -1,4 +1,5 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { OnEvent } from '@nestjs/event-emitter';
 import { eq, gte, sql } from 'drizzle-orm';
 import axios from 'axios';
 import * as cheerio from 'cheerio';
@@ -69,6 +70,66 @@ interface ListingSnapshot {
   config: ListingConfig;
   atLimit: boolean;
   monthlyCount: number;
+}
+
+// Well-known domains with near-zero chance of accepting cold outreach.
+const ENTERPRISE_DOMAIN_BLOCKLIST = new Set([
+  // Atlassian suite
+  'trello.com', 'atlassian.com', 'jira.com', 'confluence.com', 'bitbucket.org',
+  // Automation / integration platforms
+  'zapier.com', 'make.com', 'integromat.com', 'n8n.io', 'workato.com',
+  // CRM / support giants
+  'zendesk.com', 'salesforce.com', 'hubspot.com', 'intercom.com', 'freshdesk.com',
+  'freshworks.com', 'zoho.com', 'pipedrive.com', 'monday.com',
+  // Project management incumbents
+  'asana.com', 'notion.com', 'clickup.com', 'basecamp.com', 'wrike.com',
+  'airtable.com', 'smartsheet.com', 'teamwork.com', 'linear.app',
+  // Dev / productivity platforms
+  'github.com', 'gitlab.com', 'slack.com', 'discord.com', 'microsoft.com',
+  'google.com', 'apple.com', 'amazon.com', 'shopify.com', 'stripe.com',
+  'twilio.com', 'sendgrid.com', 'mailchimp.com', 'convertkit.com',
+  // Other big SaaS
+  'dropbox.com', 'box.com', 'evernote.com', 'todoist.com', 'things.app',
+  'miro.com', 'figma.com', 'canva.com', 'loom.com', 'calendly.com',
+  'typeform.com', 'surveymonkey.com', 'docusign.com', 'webflow.com',
+  // News / media — filter 3
+  'techcrunch.com', 'forbes.com', 'wired.com', 'venturebeat.com', 'inc.com',
+  'entrepreneur.com', 'businessinsider.com', 'theverge.com', 'mashable.com',
+  'zdnet.com', 'cnet.com', 'pcmag.com', 'infoq.com', 'thenextweb.com',
+  'siliconangle.com', 'techradar.com', 'computerworld.com', 'infoworld.com',
+  'fastcompany.com', 'hbr.org', 'bloomberg.com', 'reuters.com', 'nytimes.com',
+  'wsj.com', 'ft.com', 'economist.com',
+  // Social platforms — filter 4
+  'twitter.com', 'x.com', 'linkedin.com', 'youtube.com', 'facebook.com',
+  'instagram.com', 'tiktok.com', 'reddit.com', 'pinterest.com', 'quora.com',
+  'medium.com', 'substack.com', 'producthunt.com', 'appsumo.com',
+  'indiehackers.com', 'hackernews.com', 'ycombinator.com',
+]);
+
+// Keywords in title/description that indicate non-directory content (filter 5)
+const REJECT_TITLE_KEYWORDS = [
+  'news', 'magazine', 'journal', 'jobs', 'careers', 'hiring', 'recruitment',
+  'podcast', 'webinar', 'conference', 'event', 'press release', 'blog post',
+  'breaking', 'report', 'study', 'research paper',
+];
+
+// Keywords that confirm the page is a directory/listing site (filter 5 positive)
+const REQUIRE_CONTENT_KEYWORDS = [
+  'directory', 'listing', 'tools', 'alternatives', 'top ', 'best ', 'reviews',
+  'compare', 'software', 'saas', 'apps', 'productivity', 'platform', 'solution',
+];
+
+function isLikelyDirectory(title: string, description: string): boolean {
+  const combined = (title + ' ' + description).toLowerCase();
+  const hasReject = REJECT_TITLE_KEYWORDS.some(kw => combined.includes(kw));
+  if (hasReject) return false;
+  return REQUIRE_CONTENT_KEYWORDS.some(kw => combined.includes(kw));
+}
+
+function isLikelyEnglish(text: string): boolean {
+  if (!text || text.length < 20) return true;
+  const ascii = text.split('').filter(c => c.charCodeAt(0) < 128).length;
+  return ascii / text.length >= 0.7;
 }
 
 const DEFAULT_CONFIG: ListingConfig = {
@@ -154,6 +215,7 @@ export class ListingOutreachAgent implements IAgent, OnModuleInit {
 
     const remaining = Math.min(config.monthlyLimit - monthlyCount, config.perRunLimit);
     const cooldownDate = new Date(Date.now() - config.cooldownDays * 86400000);
+    const rejectionCooldownDate = new Date(Date.now() - 90 * 86400000);
 
     const gmailAccounts = await this.gmail.listAccounts();
     const defaultAccount = gmailAccounts.find((a) => a.isDefault) ?? gmailAccounts[0] ?? null;
@@ -196,18 +258,34 @@ export class ListingOutreachAgent implements IAgent, OnModuleInit {
     for (const item of allDiscovered) {
       const domain = this.extractDomain(item.url);
       if (!domain) continue;
+      if (ENTERPRISE_DOMAIN_BLOCKLIST.has(domain)) {
+        this.logger.log(`Skipping enterprise domain: ${domain}`);
+        continue;
+      }
+      // Filter 5: non-directory content (news, jobs, podcasts, etc.)
+      if (!isLikelyDirectory(item.title, item.description)) {
+        this.logger.log(`Skipping non-directory content: ${domain} — "${item.title}"`);
+        continue;
+      }
+      // Filter 7: non-English title/description
+      if (!isLikelyEnglish(item.title + ' ' + item.description)) {
+        this.logger.log(`Skipping non-English domain: ${domain}`);
+        continue;
+      }
       const key = `${domain}::${item.product.domain}`;
       if (seenKeys.has(key)) continue;
       seenKeys.add(key);
 
       const existing = await this.db.db
-        .select({ id: listingProspects.id, lastContactedAt: listingProspects.lastContactedAt })
+        .select({ id: listingProspects.id, lastContactedAt: listingProspects.lastContactedAt, status: listingProspects.status, updatedAt: listingProspects.updatedAt })
         .from(listingProspects)
         .where(eq(listingProspects.domain, domain))
         .limit(1);
 
-      if (existing.length && existing[0].lastContactedAt && existing[0].lastContactedAt > cooldownDate) {
-        continue;
+      if (existing.length) {
+        if (existing[0].lastContactedAt && existing[0].lastContactedAt > cooldownDate) continue;
+        // Filter 9: rejected cooldown — skip if rejected within 90 days
+        if (existing[0].status === 'rejected' && existing[0].updatedAt && existing[0].updatedAt > rejectionCooldownDate) continue;
       }
 
       toResearch.push({ ...item, domain });
@@ -229,6 +307,23 @@ export class ListingOutreachAgent implements IAgent, OnModuleInit {
             this.brave.getOpenPageRank(item.domain),
             this.scrapeSite(item.url),
           ]);
+
+          // OPR ≥ 7 = high-authority brand (enterprise or major directory that won't accept cold outreach)
+          if (opr !== null && opr >= 7) {
+            this.logger.log(`Skipping high-authority domain ${item.domain} (OPR: ${opr})`);
+            return null;
+          }
+          // Filter 2: OPR < 0.5 = too small to have meaningful audience
+          if (opr !== null && opr < 0.5) {
+            this.logger.log(`Skipping low-authority domain ${item.domain} (OPR: ${opr})`);
+            return null;
+          }
+          // Filter 1: no contact path found after scraping
+          if (!scraped.contactEmail && !scraped.submitUrl && !scraped.contactFormUrl) {
+            this.logger.log(`Skipping no-contact-path domain: ${item.domain}`);
+            return null;
+          }
+
           const score = this.calcScore(item.rank, opr, scraped);
 
           const id = await this.upsertProspect({
@@ -830,6 +925,95 @@ If not: rewrite and return {"ok":false,"revised":"improved email body"}`,
       // fail-open
     }
     return draft;
+  }
+
+  @OnEvent('kb.rejection')
+  async onRejection(event: { agentKey: string; draft: string; reason: string }): Promise<void> {
+    if (event.agentKey !== this.key) return;
+
+    // Summary format: "[ProductName → domain] ..."
+    const match = event.draft.match(/\[.+?\s*→\s*([^\]\s]+)\]/);
+    if (!match) return;
+    const domain = match[1].trim();
+
+    const [prospect] = await this.db.db
+      .select()
+      .from(listingProspects)
+      .where(eq(listingProspects.domain, domain))
+      .limit(1);
+
+    if (!prospect) return;
+
+    await this.db.db
+      .update(listingProspects)
+      .set({ status: 'rejected', notes: event.reason, updatedAt: new Date() })
+      .where(eq(listingProspects.id, prospect.id));
+
+    try {
+      const [agentRow] = await this.db.db.select().from(agents).where(eq(agents.key, this.key)).limit(1);
+      const config: ListingConfig = { ...DEFAULT_CONFIG, ...((agentRow?.config as Partial<ListingConfig>) ?? {}) };
+
+      const [alwaysOn, samples, blocklist] = await Promise.all([
+        this.kb.getAlwaysOnContext(this.key),
+        this.kb.getWritingSamples(this.key),
+        this.kb.getBlocklistRules(this.key),
+      ]);
+
+      const kbBlock = this.kb.buildKbPromptBlock({
+        voiceProfile: alwaysOn.find((e) => e.entryType === 'voice_profile') ?? null,
+        facts: alwaysOn.filter((e) => e.entryType === 'fact'),
+        catalog: alwaysOn.filter((e) => e.entryType === 'product' || e.entryType === 'service' || e.entryType === 'offer'),
+        references: [],
+        positiveSamples: samples.filter((s) => s.polarity === 'positive'),
+        negativeSamples: samples.filter((s) => s.polarity === 'negative'),
+        rejections: [],
+      });
+
+      const productName = prospect.productName ?? 'Taskip';
+      const siteName = prospect.siteName ?? domain;
+      const outreachGoal = prospect.outreachGoal as 'listed' | 'partnership' | 'both';
+
+      const goalLabel = outreachGoal === 'listed'
+        ? `get ${productName} listed`
+        : outreachGoal === 'partnership'
+        ? `explore a partnership or backlink opportunity for ${productName}`
+        : `get ${productName} listed and explore partnership possibilities`;
+
+      const response = await this.llm.complete({
+        messages: [
+          {
+            role: 'system',
+            content: `You write short, direct outreach emails to website editors and founders.
+Product: ${productName} (${prospect.productDomain})
+Goal: ${goalLabel} on ${siteName} (${domain}).
+The previous draft was rejected. Rejection reason: "${event.reason}"
+Address the feedback directly. Rules: 2-3 short paragraphs max. No fluff. No long intros.
+Return ONLY the email body text, no subject line.${kbBlock}`,
+          },
+          {
+            role: 'user',
+            content: `Site: ${siteName}\nURL: ${prospect.siteUrl}\nDescription: ${prospect.description ?? ''}\nPrevious draft:\n${prospect.outreachBody ?? ''}`,
+          },
+        ],
+        ...agentLlmOpts(config),
+        agentKey: this.key,
+        maxTokens: 300,
+      });
+
+      const body = response.content.trim();
+      if (!body) return;
+
+      await this.db.db
+        .update(listingProspects)
+        .set({ outreachBody: body, status: 'researched', updatedAt: new Date() })
+        .where(eq(listingProspects.id, prospect.id));
+
+      await this.telegram.sendMessage(
+        `Re-drafted outreach for ${siteName} (${domain})\nRejection reason: "${event.reason}"\n---\n${body}`,
+      );
+    } catch (err) {
+      this.logger.warn(`Re-draft failed for ${domain}: ${err}`);
+    }
   }
 
   private async getConfig(): Promise<ListingConfig> {
