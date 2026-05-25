@@ -8,7 +8,9 @@ import {
   Mail,
   Twitter,
   Linkedin,
+  Instagram,
   MessageSquare,
+  MessageCircle,
   Plus,
   Trash2,
   Copy,
@@ -28,6 +30,9 @@ const STATUS_COLORS: Record<string, string> = {
   researched: 'bg-blue-500/10 text-blue-400',
   pending_approval: 'bg-yellow-500/10 text-yellow-400',
   emailed: 'bg-emerald-500/10 text-emerald-400',
+  contacted: 'bg-teal-500/10 text-teal-400',
+  linkedin_dm: 'bg-blue-600/10 text-blue-300',
+  instagram_dm: 'bg-pink-500/10 text-pink-400',
   skipped: 'bg-red-500/10 text-red-400',
   listed: 'bg-purple-500/10 text-purple-400',
 };
@@ -410,11 +415,16 @@ export default function ListingProspectDetailPage() {
     setEditNotes(false);
   }
 
-  async function generateDraft() {
+  async function generateDraft(channel?: string) {
     setDrafting(true);
     setDraftError(null);
     try {
-      const res = await fetch(`/listing-outreach/prospects/${id}/draft`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
+      const body = channel ? JSON.stringify({ channel }) : undefined;
+      const res = await fetch(`/listing-outreach/prospects/${id}/draft`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, ...(body ? { 'Content-Type': 'application/json' } : {}) },
+        body,
+      });
       if (!res.ok) {
         const err = await res.json().catch(() => ({ message: 'Draft failed' }));
         setDraftError((err as { message?: string }).message ?? 'Draft failed');
@@ -510,7 +520,7 @@ export default function ListingProspectDetailPage() {
               onChange={(e) => updateStatus(e.target.value)}
               className={`text-xs px-3 py-1.5 rounded-full border-0 font-medium cursor-pointer ${STATUS_COLORS[prospect.status] ?? 'bg-muted text-muted-foreground'}`}
             >
-              {['discovered', 'researched', 'pending_approval', 'emailed', 'skipped', 'listed'].map((s) => (
+              {['discovered', 'researched', 'pending_approval', 'emailed', 'contacted', 'linkedin_dm', 'instagram_dm', 'skipped', 'listed'].map((s) => (
                 <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>
               ))}
             </select>
@@ -623,15 +633,43 @@ export default function ListingProspectDetailPage() {
 
         {/* Outreach draft */}
         <div className="rounded-xl border border-border bg-card p-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Outreach Draft</h2>
-            <div className="flex items-center gap-2">
-              {prospect.outreachSubject && prospect.outreachBody && (
+          <div className="flex items-start justify-between gap-3">
+            <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mt-0.5">Outreach Draft</h2>
+            <div className="flex items-center gap-1.5 flex-wrap justify-end">
+              {/* Channel override buttons — always visible */}
+              <button
+                onClick={() => generateDraft('reddit')}
+                disabled={drafting}
+                className="flex items-center gap-1 px-2 py-1 rounded border border-border text-[11px] text-orange-400 hover:bg-orange-500/10 disabled:opacity-50 transition-colors"
+                title="Draft as Reddit comment"
+              >
+                {drafting ? <Loader2 className="w-3 h-3 animate-spin" /> : <MessageCircle className="w-3 h-3" />}
+                Reddit
+              </button>
+              <button
+                onClick={() => generateDraft('linkedin')}
+                disabled={drafting}
+                className="flex items-center gap-1 px-2 py-1 rounded border border-border text-[11px] text-blue-400 hover:bg-blue-500/10 disabled:opacity-50 transition-colors"
+                title="Draft for LinkedIn DM"
+              >
+                {drafting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Linkedin className="w-3 h-3" />}
+                LinkedIn
+              </button>
+              <button
+                onClick={() => generateDraft('instagram')}
+                disabled={drafting}
+                className="flex items-center gap-1 px-2 py-1 rounded border border-border text-[11px] text-pink-400 hover:bg-pink-500/10 disabled:opacity-50 transition-colors"
+                title="Draft for Instagram DM"
+              >
+                {drafting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Instagram className="w-3 h-3" />}
+                Instagram
+              </button>
+              {prospect.outreachSubject && prospect.outreachBody ? (
                 <>
                   <button
-                    onClick={generateDraft}
+                    onClick={() => generateDraft()}
                     disabled={drafting}
-                    className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
+                    className="flex items-center gap-1 px-2 py-1 rounded border border-border text-[11px] text-muted-foreground hover:text-foreground disabled:opacity-50 transition-colors"
                   >
                     {drafting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Zap className="w-3 h-3" />}
                     Regenerate
@@ -645,10 +683,9 @@ export default function ListingProspectDetailPage() {
                     </button>
                   )}
                 </>
-              )}
-              {!prospect.outreachSubject && (
+              ) : (
                 <button
-                  onClick={generateDraft}
+                  onClick={() => generateDraft()}
                   disabled={drafting}
                   className="flex items-center gap-1.5 px-3 py-1 rounded-lg border border-border text-xs text-muted-foreground hover:text-foreground hover:border-foreground/40 disabled:opacity-50 transition-colors"
                 >
@@ -661,11 +698,18 @@ export default function ListingProspectDetailPage() {
 
           {draftError && <p className="text-xs text-destructive">{draftError}</p>}
 
-          {prospect.outreachSubject ? (
+          {prospect.outreachSubject ? (() => {
+            const isRedditDraft = prospect.outreachSubject.startsWith('Reddit comment:');
+            const isLinkedinDraft = prospect.outreachSubject.startsWith('LinkedIn:');
+            const isInstagramDraft = prospect.outreachSubject.startsWith('Instagram DM:');
+            const isFormDraft = prospect.outreachSubject.startsWith('Form:');
+            const subjectLabel = isRedditDraft ? 'Thread' : isLinkedinDraft ? 'LinkedIn note' : isInstagramDraft ? 'Instagram DM' : isFormDraft ? 'Form text' : 'Subject';
+            const bodyLabel = isRedditDraft ? 'Comment' : isLinkedinDraft || isInstagramDraft ? 'Message' : isFormDraft ? 'Submission' : 'Body';
+            return (
             <div className="space-y-3">
               <div>
                 <div className="flex items-center justify-between mb-1">
-                  <p className="text-xs text-muted-foreground">Subject</p>
+                  <p className="text-xs text-muted-foreground">{subjectLabel}</p>
                   <button onClick={() => prospect.outreachSubject && copyText('sub', prospect.outreachSubject)} className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1">
                     {copied === 'sub' ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
                     {copied === 'sub' ? 'Copied' : 'Copy'}
@@ -676,7 +720,7 @@ export default function ListingProspectDetailPage() {
               {prospect.outreachBody && (
                 <div>
                   <div className="flex items-center justify-between mb-1">
-                    <p className="text-xs text-muted-foreground">Body</p>
+                    <p className="text-xs text-muted-foreground">{bodyLabel}</p>
                     <button onClick={() => prospect.outreachBody && copyText('body', prospect.outreachBody)} className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1">
                       {copied === 'body' ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
                       {copied === 'body' ? 'Copied' : 'Copy'}
@@ -691,7 +735,8 @@ export default function ListingProspectDetailPage() {
                 </p>
               )}
             </div>
-          ) : (
+            );
+          })() : (
             <p className="text-xs text-muted-foreground">No draft yet. Generate one or trigger the agent.</p>
           )}
         </div>

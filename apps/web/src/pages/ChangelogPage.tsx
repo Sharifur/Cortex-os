@@ -16,6 +16,17 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.85.1',
+    date: '2026-05-25',
+    entries: [
+      { tag: 'feat', scope: 'listing-outreach', description: 'Platform-specific outreach drafts: auto-detects Reddit, Twitter/X, Instagram, Pinterest, LinkedIn by prospect domain and generates channel-native copy (Reddit peer comment, Twitter <=50 words, Instagram DM, Pinterest board pitch, LinkedIn note) instead of always using email format.' },
+      { tag: 'feat', scope: 'listing-outreach', description: 'Channel override buttons on prospect detail page (Reddit, LinkedIn, Instagram) allow manual regeneration in a specific channel regardless of available contact info.' },
+      { tag: 'feat', scope: 'listing-outreach', description: 'Draft labels adapt to channel: Subject/Body for email, Thread/Comment for Reddit, LinkedIn note/Message for LinkedIn, Instagram DM/Message for Instagram, Form text/Submission for submit-form channel.' },
+      { tag: 'fix', scope: 'listing-outreach', description: 'Removed [Editor Name] placeholder — drafts now use actual contact name when known or a plain "Hi" greeting. Banned "partnership opportunity" framing; mutual feature value ("we will also feature your site") used instead.' },
+      { tag: 'fix', scope: 'listing-outreach', description: 'Site name in subject lines now strips trailing page title after "|" (e.g. "20 Best X | Hubflo" -> "Hubflo") for cleaner, less robotic subjects.' },
+    ],
+  },
+  {
     version: 'v4.85.0',
     date: '2026-05-25',
     entries: [
