@@ -10,7 +10,7 @@ import {
   Bug, AlertTriangle, AlertCircle,
   Plus, Loader2, RefreshCw, Radio, Globe,
   CalendarClock, Zap, RotateCcw, ListTodo, ExternalLink,
-  ImageIcon, Upload, ChevronLeft, X, Copy, Check, Download, Pencil, Send,
+  ImageIcon, Upload, ChevronLeft, X, Copy, Check, Download, Pencil, Send, Trash2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -3674,21 +3674,26 @@ interface ProspectsPage {
 }
 
 function ProspectsTab({ token }: { token: string }) {
-  const [statusFilter, setStatusFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('pending');
+  const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 20;
-  const [expanded, setExpanded] = useState<string | null>(null);
-  const [copied, setCopied] = useState<string | null>(null);
-  const [composingFor, setComposingFor] = useState<Prospect | null>(null);
-  const [drafting, setDrafting] = useState<string | null>(null);
-  const [draftError, setDraftError] = useState<Record<string, string>>({});
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const qc = useQueryClient();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 300);
+    return () => clearTimeout(t);
+  }, [search]);
 
   const { data, isLoading } = useQuery<ProspectsPage>({
-    queryKey: ['listing-prospects', statusFilter, page],
+    queryKey: ['listing-prospects', statusFilter, debouncedSearch, page],
     queryFn: async () => {
       const qs = new URLSearchParams({ page: String(page), pageSize: String(PAGE_SIZE) });
       if (statusFilter) qs.set('status', statusFilter);
+      if (debouncedSearch) qs.set('search', debouncedSearch);
       const res = await fetch(`/listing-outreach/prospects?${qs}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -3716,57 +3721,49 @@ function ProspectsTab({ token }: { token: string }) {
     qc.invalidateQueries({ queryKey: ['listing-prospects'] });
   }
 
-  async function generateDraft(id: string) {
-    setDrafting(id);
-    setDraftError((prev) => { const n = { ...prev }; delete n[id]; return n; });
-    try {
-      const res = await fetch(`/listing-outreach/prospects/${id}/draft`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ message: 'Draft failed' }));
-        setDraftError((prev) => ({ ...prev, [id]: (err as { message?: string }).message ?? 'Draft failed' }));
-      } else {
-        qc.invalidateQueries({ queryKey: ['listing-prospects'] });
-      }
-    } finally {
-      setDrafting(null);
-    }
-  }
-
-  function copyText(key: string, text: string) {
-    navigator.clipboard.writeText(text).then(() => {
-      setCopied(key);
-      setTimeout(() => setCopied(null), 2000);
+  async function deleteProspect(id: string) {
+    await fetch(`/listing-outreach/prospects/${id}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
     });
+    setDeletingId(null);
+    qc.invalidateQueries({ queryKey: ['listing-prospects'] });
   }
 
-  const statuses = ['', 'discovered', 'researched', 'pending_approval', 'emailed', 'skipped', 'listed'];
+  const statuses = [
+    { value: 'pending', label: 'Pending' },
+    { value: '', label: 'All' },
+    { value: 'discovered', label: 'Discovered' },
+    { value: 'researched', label: 'Researched' },
+    { value: 'pending_approval', label: 'Approval' },
+    { value: 'emailed', label: 'Emailed' },
+    { value: 'skipped', label: 'Skipped' },
+    { value: 'listed', label: 'Listed' },
+  ];
 
   return (
-    <>
-    {composingFor && (
-      <OutreachComposeModal
-        token={token}
-        prospect={composingFor}
-        onClose={() => setComposingFor(null)}
-        onSent={() => { setComposingFor(null); qc.invalidateQueries({ queryKey: ['listing-prospects'] }); }}
-      />
-    )}
     <div className="space-y-4">
       <div className="flex items-center gap-2 flex-wrap">
+        <div className="relative">
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+            placeholder="Search domain, email..."
+            className="h-7 pl-3 pr-3 text-xs rounded-md border border-input bg-background focus:outline-none focus:ring-1 focus:ring-ring w-44"
+          />
+        </div>
         {statuses.map((s) => (
           <button
-            key={s}
-            onClick={() => changeFilter(s)}
+            key={s.value}
+            onClick={() => changeFilter(s.value)}
             className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
-              statusFilter === s
+              statusFilter === s.value
                 ? 'bg-primary text-primary-foreground border-primary'
                 : 'border-border text-muted-foreground hover:text-foreground'
             }`}
           >
-            {s || 'All'}
+            {s.label}
           </button>
         ))}
         <span className="ml-auto text-xs text-muted-foreground">{total} prospects</span>
@@ -3780,7 +3777,7 @@ function ProspectsTab({ token }: { token: string }) {
 
       {!isLoading && prospects.length === 0 && (
         <div className="text-center py-16 text-muted-foreground text-sm">
-          No prospects yet. Trigger the agent to start discovery.
+          {search || statusFilter ? 'No prospects match the current filters.' : 'No prospects yet. Trigger the agent to start discovery.'}
         </div>
       )}
 
@@ -3796,171 +3793,84 @@ function ProspectsTab({ token }: { token: string }) {
                   <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Contact</th>
                   <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Status</th>
                   <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Last contacted</th>
+                  <th className="px-4 py-2.5"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
                 {prospects.map((p) => (
-                  <>
-                    <tr
-                      key={p.id}
-                      onClick={() => setExpanded(expanded === p.id ? null : p.id)}
-                      className="hover:bg-muted/20 transition-colors cursor-pointer"
-                    >
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-1.5">
-                          <ChevronRight className={`w-3.5 h-3.5 text-muted-foreground shrink-0 transition-transform ${expanded === p.id ? 'rotate-90' : ''}`} />
-                          <div>
-                            <div className="font-medium text-sm leading-tight">{p.siteName || p.domain}</div>
-                            <a
-                              href={p.siteUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              onClick={(e) => e.stopPropagation()}
-                              className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1 mt-0.5"
-                            >
-                              <Globe className="w-3 h-3" />
-                              {p.domain}
-                              <ExternalLink className="w-2.5 h-2.5" />
-                            </a>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="text-xs">{p.productName || p.productDomain}</div>
-                        <div className="text-xs text-muted-foreground capitalize">{p.outreachGoal}</div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="font-mono text-sm">{p.qualityScore ?? '—'}</div>
-                        {p.openPageRank && (
-                          <div className="text-xs text-muted-foreground">OPR {p.openPageRank}</div>
-                        )}
-                      </td>
-                      <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-                        {p.contactEmail ? (
-                          <a href={`mailto:${p.contactEmail}`} className="text-xs text-primary hover:underline">{p.contactEmail}</a>
-                        ) : p.submitUrl ? (
-                          <a href={p.submitUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-muted-foreground hover:text-foreground">Submit form</a>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">—</span>
-                        )}
-                        {p.linkedinProfileUrl && (
-                          <a href={p.linkedinProfileUrl} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="block text-xs text-blue-400 hover:underline mt-0.5">LinkedIn</a>
-                        )}
-                      </td>
-                      <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-                        <select
-                          value={p.status}
-                          onChange={(e) => updateStatus(p.id, e.target.value)}
-                          className={`text-xs px-2 py-0.5 rounded-full border-0 font-medium cursor-pointer ${STATUS_COLORS[p.status] ?? 'bg-muted text-muted-foreground'}`}
+                  <tr
+                    key={p.id}
+                    onClick={() => navigate(`/listing-outreach/prospects/${p.id}`)}
+                    className="hover:bg-muted/20 transition-colors cursor-pointer"
+                  >
+                    <td className="px-4 py-3">
+                      <div>
+                        <div className="font-medium text-sm leading-tight">{p.siteName || p.domain}</div>
+                        <a
+                          href={p.siteUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1 mt-0.5"
                         >
-                          {['discovered', 'researched', 'pending_approval', 'emailed', 'skipped', 'listed'].map((s) => (
-                            <option key={s} value={s}>{s.replace('_', ' ')}</option>
-                          ))}
-                        </select>
-                      </td>
-                      <td className="px-4 py-3 text-xs text-muted-foreground">
-                        {p.lastContactedAt ? new Date(p.lastContactedAt).toLocaleDateString() : '—'}
-                      </td>
-                    </tr>
-
-                    {expanded === p.id && (
-                      <tr key={`${p.id}-detail`} className="bg-muted/10 border-t border-border/50">
-                        <td colSpan={6} className="px-6 py-4">
-                          <div className="space-y-4 max-w-2xl">
-
-                            <div>
-                              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Outreach approach</p>
-                              <div className="flex flex-wrap gap-2 text-xs">
-                                {p.contactEmail && (
-                                  <span className="px-2 py-1 bg-emerald-500/10 text-emerald-400 rounded">
-                                    Email → {p.contactEmail}
-                                  </span>
-                                )}
-                                {p.submitUrl && (
-                                  <a href={p.submitUrl} target="_blank" rel="noopener noreferrer" className="px-2 py-1 bg-blue-500/10 text-blue-400 rounded hover:underline flex items-center gap-1">
-                                    Submit form <ExternalLink className="w-2.5 h-2.5" />
-                                  </a>
-                                )}
-                                {p.contactFormUrl && !p.submitUrl && (
-                                  <a href={p.contactFormUrl} target="_blank" rel="noopener noreferrer" className="px-2 py-1 bg-blue-500/10 text-blue-400 rounded hover:underline flex items-center gap-1">
-                                    Contact form <ExternalLink className="w-2.5 h-2.5" />
-                                  </a>
-                                )}
-                                {p.linkedinProfileUrl && (
-                                  <a href={p.linkedinProfileUrl} target="_blank" rel="noopener noreferrer" className="px-2 py-1 bg-indigo-500/10 text-indigo-400 rounded hover:underline flex items-center gap-1">
-                                    LinkedIn profile <ExternalLink className="w-2.5 h-2.5" />
-                                  </a>
-                                )}
-                                {!p.contactEmail && !p.submitUrl && !p.contactFormUrl && !p.linkedinProfileUrl && (
-                                  <span className="text-muted-foreground">No contact found — manual research needed</span>
-                                )}
-                              </div>
-                            </div>
-
-                            {p.outreachSubject || p.outreachBody ? (
-                              <>
-                                <div>
-                                  <div className="flex items-center justify-between mb-1.5">
-                                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Subject line</p>
-                                    <button
-                                      onClick={() => p.outreachSubject && copyText(`${p.id}-sub`, p.outreachSubject)}
-                                      className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
-                                    >
-                                      {copied === `${p.id}-sub` ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
-                                      {copied === `${p.id}-sub` ? 'Copied' : 'Copy'}
-                                    </button>
-                                  </div>
-                                  <p className="text-sm bg-muted/40 border border-border rounded px-3 py-2">{p.outreachSubject}</p>
-                                </div>
-                                <div>
-                                  <div className="flex items-center justify-between mb-1.5">
-                                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Message body</p>
-                                    <button
-                                      onClick={() => p.outreachBody && copyText(`${p.id}-body`, p.outreachBody)}
-                                      className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
-                                    >
-                                      {copied === `${p.id}-body` ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
-                                      {copied === `${p.id}-body` ? 'Copied' : 'Copy'}
-                                    </button>
-                                  </div>
-                                  <pre className="text-sm bg-muted/40 border border-border rounded px-3 py-2 whitespace-pre-wrap font-sans leading-relaxed">{p.outreachBody}</pre>
-                                </div>
-
-                                {p.contactEmail && p.status !== 'emailed' && (
-                                  <button
-                                    onClick={() => setComposingFor(p)}
-                                    className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 transition-colors"
-                                  >
-                                    <Mail className="w-3.5 h-3.5" /> Send Email
-                                  </button>
-                                )}
-
-                                {p.status === 'emailed' && p.contactEmail && (
-                                  <p className="text-xs text-emerald-400 flex items-center gap-1">
-                                    <Check className="w-3.5 h-3.5" /> Email sent
-                                  </p>
-                                )}
-                              </>
-                            ) : (
-                              <div className="flex items-center gap-3">
-                                <button
-                                  onClick={() => generateDraft(p.id)}
-                                  disabled={drafting === p.id}
-                                  className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg border border-border text-xs text-muted-foreground hover:text-foreground hover:border-foreground/40 disabled:opacity-50 transition-colors"
-                                >
-                                  {drafting === p.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
-                                  {drafting === p.id ? 'Generating...' : 'Generate Draft'}
-                                </button>
-                                {draftError[p.id] && (
-                                  <span className="text-xs text-red-400">{draftError[p.id]}</span>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-                  </>
+                          <Globe className="w-3 h-3" />
+                          {p.domain}
+                          <ExternalLink className="w-2.5 h-2.5" />
+                        </a>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="text-xs">{p.productName || p.productDomain}</div>
+                      <div className="text-xs text-muted-foreground capitalize">{p.outreachGoal}</div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="font-mono text-sm">{p.qualityScore ?? '—'}</div>
+                      {p.openPageRank && (
+                        <div className="text-xs text-muted-foreground">OPR {p.openPageRank}</div>
+                      )}
+                    </td>
+                    <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                      {p.contactEmail ? (
+                        <a href={`mailto:${p.contactEmail}`} className="text-xs text-primary hover:underline">{p.contactEmail}</a>
+                      ) : p.submitUrl ? (
+                        <a href={p.submitUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-muted-foreground hover:text-foreground">Submit form</a>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
+                      {p.linkedinProfileUrl && (
+                        <a href={p.linkedinProfileUrl} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="block text-xs text-blue-400 hover:underline mt-0.5">LinkedIn</a>
+                      )}
+                    </td>
+                    <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                      <select
+                        value={p.status}
+                        onChange={(e) => updateStatus(p.id, e.target.value)}
+                        className={`text-xs px-2 py-0.5 rounded-full border-0 font-medium cursor-pointer ${STATUS_COLORS[p.status] ?? 'bg-muted text-muted-foreground'}`}
+                      >
+                        {['discovered', 'researched', 'pending_approval', 'emailed', 'skipped', 'listed'].map((s) => (
+                          <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>
+                        ))}
+                      </select>
+                    </td>
+                    <td className="px-4 py-3 text-xs text-muted-foreground">
+                      {p.lastContactedAt ? new Date(p.lastContactedAt).toLocaleDateString() : '—'}
+                    </td>
+                    <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                      {deletingId === p.id ? (
+                        <div className="flex items-center gap-1">
+                          <button onClick={() => deleteProspect(p.id)} className="text-[10px] px-1.5 py-0.5 rounded bg-destructive text-destructive-foreground hover:bg-destructive/90">Del</button>
+                          <button onClick={() => setDeletingId(null)} className="text-[10px] px-1.5 py-0.5 rounded border border-border hover:bg-muted">No</button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => setDeletingId(p.id)}
+                          className="p-1 rounded text-muted-foreground/40 hover:text-destructive hover:bg-destructive/10 transition-colors"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </td>
+                  </tr>
                 ))}
               </tbody>
             </table>
@@ -3990,7 +3900,6 @@ function ProspectsTab({ token }: { token: string }) {
         </>
       )}
     </div>
-    </>
   );
 }
 

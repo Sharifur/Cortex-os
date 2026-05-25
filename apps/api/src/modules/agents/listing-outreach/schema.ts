@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, integer, numeric, uniqueIndex } from 'drizzle-orm/pg-core';
+import { pgTable, text, timestamp, integer, numeric, uniqueIndex, index } from 'drizzle-orm/pg-core';
 import { createId } from '@paralleldrive/cuid2';
 
 export const listingProspects = pgTable('listing_prospects', {
@@ -32,4 +32,15 @@ export const listingProspects = pgTable('listing_prospects', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 }, (t) => ({
   domainProductUniq: uniqueIndex('listing_prospects_domain_product_idx').on(t.domain, t.productDomain),
+}));
+
+export const listingProspectActivities = pgTable('listing_prospect_activities', {
+  id: text('id').primaryKey().$defaultFn(() => createId()),
+  prospectId: text('prospect_id').notNull(),
+  type: text('type').notNull().default('manual'),
+  summary: text('summary').notNull(),
+  content: text('content'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (t) => ({
+  prospectIdx: index('listing_prospect_activities_prospect_idx').on(t.prospectId),
 }));

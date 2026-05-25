@@ -1,12 +1,12 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
-import { eq, gte, sql } from 'drizzle-orm';
+import { eq, gte, sql, ilike, or, desc, and } from 'drizzle-orm';
 import axios from 'axios';
 import * as cheerio from 'cheerio';
 import { createId } from '@paralleldrive/cuid2';
 import { DbService } from '../../../db/db.service';
 import { agents } from '../../../db/schema';
-import { listingProspects } from './schema';
+import { listingProspects, listingProspectActivities } from './schema';
 import { AgentRegistryService } from '../runtime/agent-registry.service';
 import { LlmRouterService } from '../../llm/llm-router.service';
 import { TelegramService } from '../../telegram/telegram.service';
@@ -587,10 +587,27 @@ Return ONLY the email body text, no subject line.${kbBlock}`;
         path: '/listing-outreach/prospects',
         requiresAuth: true,
         handler: async (params) => {
-          const { status, page, pageSize } = params as { status?: string; page?: string; pageSize?: string };
+          const { status, search, page, pageSize } = params as { status?: string; search?: string; page?: string; pageSize?: string };
           const size = Math.min(Number(pageSize) || 20, 100);
           const offset = (Math.max(Number(page) || 1, 1) - 1) * size;
-          const where = status ? eq(listingProspects.status, status) : undefined;
+
+          const conditions: ReturnType<typeof eq>[] = [];
+          if (status === 'pending') {
+            conditions.push(sql`${listingProspects.status} IN ('discovered', 'researched', 'pending_approval')` as unknown as ReturnType<typeof eq>);
+          } else if (status) {
+            conditions.push(eq(listingProspects.status, status));
+          }
+          if (search) {
+            conditions.push(
+              or(
+                ilike(listingProspects.domain, `%${search}%`),
+                ilike(listingProspects.siteName, `%${search}%`),
+                ilike(listingProspects.contactEmail, `%${search}%`),
+                ilike(listingProspects.productName, `%${search}%`),
+              ) as unknown as ReturnType<typeof eq>,
+            );
+          }
+          const where = conditions.length === 1 ? conditions[0] : conditions.length > 1 ? and(...conditions) : undefined;
 
           const [rows, countResult] = await Promise.all([
             this.db.db
@@ -615,16 +632,63 @@ Return ONLY the email body text, no subject line.${kbBlock}`;
         },
       },
       {
+        method: 'GET',
+        path: '/listing-outreach/prospects/:id',
+        requiresAuth: true,
+        handler: async (params) => {
+          const { id } = params as { id: string };
+          const [prospect] = await this.db.db.select().from(listingProspects).where(eq(listingProspects.id, id)).limit(1);
+          if (!prospect) throw new Error('Prospect not found');
+          return prospect;
+        },
+      },
+      {
         method: 'PATCH',
         path: '/listing-outreach/prospects/:id',
         requiresAuth: true,
         handler: async (params) => {
           const { id, status, notes } = params as { id: string; status?: string; notes?: string };
+          const [current] = await this.db.db.select({ status: listingProspects.status }).from(listingProspects).where(eq(listingProspects.id, id)).limit(1);
           await this.db.db
             .update(listingProspects)
-            .set({ ...(status ? { status } : {}), ...(notes ? { notes } : {}), updatedAt: new Date() })
+            .set({ ...(status ? { status } : {}), ...(notes !== undefined ? { notes } : {}), updatedAt: new Date() })
             .where(eq(listingProspects.id, id));
+          if (status && current && current.status !== status) {
+            await this.db.db.insert(listingProspectActivities).values({
+              prospectId: id,
+              type: 'status_change',
+              summary: `Status changed from ${current.status} to ${status}`,
+            });
+          }
           return { ok: true };
+        },
+      },
+      {
+        method: 'GET',
+        path: '/listing-outreach/prospects/:id/activities',
+        requiresAuth: true,
+        handler: async (params) => {
+          const { id } = params as { id: string };
+          const rows = await this.db.db
+            .select()
+            .from(listingProspectActivities)
+            .where(eq(listingProspectActivities.prospectId, id))
+            .orderBy(desc(listingProspectActivities.createdAt));
+          return rows;
+        },
+      },
+      {
+        method: 'POST',
+        path: '/listing-outreach/prospects/:id/activities',
+        requiresAuth: true,
+        handler: async (params) => {
+          const { id, type, summary, content } = params as { id: string; type: string; summary: string; content?: string };
+          if (!summary?.trim()) throw new Error('summary is required');
+          const [row] = await this.db.db
+            .insert(listingProspectActivities)
+            .values({ prospectId: id, type: type || 'manual', summary: summary.trim(), content: content ?? null })
+            .returning();
+          return row;
         },
       },
       {
@@ -726,6 +790,13 @@ Return ONLY the email body text, no subject line.${kbBlock}`;
               updatedAt: new Date(),
             })
             .where(eq(listingProspects.id, id));
+
+          await this.db.db.insert(listingProspectActivities).values({
+            prospectId: id,
+            type: 'email_sent',
+            summary: `Email sent to ${prospect.contactEmail}`,
+            content: JSON.stringify({ to: prospect.contactEmail, subject: prospect.outreachSubject, body: prospect.outreachBody }),
+          });
 
           return { ok: true, emailId: result.id };
         },

@@ -16,6 +16,16 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.85.0',
+    date: '2026-05-25',
+    entries: [
+      { tag: 'feat', scope: 'listing-outreach', description: 'Prospects tab improvements: search by domain/email/product, default filter shows pending prospects (discovered + researched + pending_approval), delete button per row, click row navigates to dedicated prospect detail page.' },
+      { tag: 'feat', scope: 'listing-outreach', description: 'New prospect detail page at /listing-outreach/prospects/:id with full info, status management, notes editing, outreach draft (generate / regenerate / send email), and activity feed.' },
+      { tag: 'feat', scope: 'listing-outreach', description: 'Activity tracking on prospect detail page: email sent (stores subject + body, expandable preview), Twitter/X DM, LinkedIn message, manual notes, status changes — all recorded in listing_prospect_activities table.' },
+      { tag: 'feat', scope: 'listing-outreach', description: 'Added dedicated Prospects page in sidebar (/listing-outreach/prospects) with search, status filters, inline status updates, delete, and click-to-detail navigation.' },
+    ],
+  },
+  {
     version: 'v4.84.18',
     date: '2026-05-24',
     entries: [
