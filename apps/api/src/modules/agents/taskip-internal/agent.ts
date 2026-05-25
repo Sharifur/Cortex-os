@@ -557,6 +557,8 @@ Follow the body rules for the style you selected in Step 4b:
 
 **Rules that apply to ALL styles:**
 
+CRITICAL — greeting name: Every style spec above shows "[first name]" as a placeholder. You MUST replace it with the owner's actual first name from the workspace record. Extract the first name from the owner's full name or email prefix. NEVER output "[first name]", "[recipient]", or any bracket placeholder literally in the email draft. If you cannot determine a first name, use "Hi," with no name.
+
 Banned words/phrases: "cohort", "score", "trial", "expired", "platform", "onboarding", "system", "automated", "just wanted to", "hope this finds you", "feel free to reach out", "don't hesitate", "let me know if you have any questions", "get what you're owed", "ensure you get", "what you're owed", "following up could help", "speed up the process", "outstanding invoice", "overdue", "unpaid invoice", "payment is due", "reminder to pay"
 
 Product framing — NEVER:
@@ -592,7 +594,7 @@ If score >= 4: output the draft.
 **Style:** [A/B/C/D/E/F — Name] — [one sentence why this style fits this person]
 **Prior outreach angle:** [angle used before, or "none"]
 
-**To:** [recipient email address — exact email from the workspace owner record]
+**To:** the owner's actual email address (exact value from workspace record — not a placeholder)
 
 **Subject A:** [option 1]
 **Subject B:** [option 2]

@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.85.2',
+    date: '2026-05-25',
+    entries: [
+      { tag: 'fix', scope: 'taskip-internal', description: 'Email drafts now always replace the first name placeholder with the owner\'s actual first name from the workspace record. Bracket placeholders ([first name], [recipient]) are explicitly banned — falls back to plain "Hi," only if no name is available.' },
+    ],
+  },
+  {
     version: 'v4.85.1',
     date: '2026-05-25',
     entries: [
