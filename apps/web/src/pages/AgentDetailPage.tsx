@@ -3480,6 +3480,9 @@ const STATUS_COLORS: Record<string, string> = {
   researched: 'bg-blue-500/10 text-blue-400',
   pending_approval: 'bg-yellow-500/10 text-yellow-400',
   emailed: 'bg-emerald-500/10 text-emerald-400',
+  contacted: 'bg-teal-500/10 text-teal-400',
+  linkedin_dm: 'bg-blue-600/10 text-blue-300',
+  instagram_dm: 'bg-pink-500/10 text-pink-400',
   skipped: 'bg-red-500/10 text-red-400',
   listed: 'bg-purple-500/10 text-purple-400',
 };
@@ -3737,6 +3740,9 @@ function ProspectsTab({ token }: { token: string }) {
     { value: 'researched', label: 'Researched' },
     { value: 'pending_approval', label: 'Approval' },
     { value: 'emailed', label: 'Emailed' },
+    { value: 'contacted', label: 'Contacted' },
+    { value: 'linkedin_dm', label: 'LinkedIn DM' },
+    { value: 'instagram_dm', label: 'Instagram DM' },
     { value: 'skipped', label: 'Skipped' },
     { value: 'listed', label: 'Listed' },
   ];
@@ -3847,7 +3853,7 @@ function ProspectsTab({ token }: { token: string }) {
                         onChange={(e) => updateStatus(p.id, e.target.value)}
                         className={`text-xs px-2 py-0.5 rounded-full border-0 font-medium cursor-pointer ${STATUS_COLORS[p.status] ?? 'bg-muted text-muted-foreground'}`}
                       >
-                        {['discovered', 'researched', 'pending_approval', 'emailed', 'skipped', 'listed'].map((s) => (
+                        {['discovered', 'researched', 'pending_approval', 'emailed', 'contacted', 'linkedin_dm', 'instagram_dm', 'skipped', 'listed'].map((s) => (
                           <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>
                         ))}
                       </select>

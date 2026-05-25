@@ -696,7 +696,7 @@ Return ONLY the email body text, no subject line.${kbBlock}`;
         path: '/listing-outreach/prospects/:id/draft',
         requiresAuth: true,
         handler: async (params) => {
-          const { id } = params as { id: string };
+          const { id, channel: channelOverride } = params as { id: string; channel?: string };
           const [prospect] = await this.db.db.select().from(listingProspects).where(eq(listingProspects.id, id)).limit(1);
           if (!prospect) throw new Error('Prospect not found');
 
@@ -723,35 +723,211 @@ Return ONLY the email body text, no subject line.${kbBlock}`;
           const product = config.products.find((pr) => pr.domain === prospect.productDomain) ?? config.products[0];
           const productName = prospect.productName ?? product.name;
           const outreachGoal = prospect.outreachGoal as 'listed' | 'partnership' | 'both';
-          const siteName = prospect.siteName ?? prospect.domain;
+          const rawSiteName = prospect.siteName ?? prospect.domain;
+          const cleanSiteName = rawSiteName.includes('|')
+            ? rawSiteName.split('|').pop()!.trim()
+            : rawSiteName;
+          const contactName = prospect.linkedinName?.trim() || null;
 
           const goalLabel = outreachGoal === 'listed'
             ? `get ${productName} listed`
             : outreachGoal === 'partnership'
             ? `explore a partnership or backlink opportunity for ${productName}`
-            : `get ${productName} listed and explore partnership possibilities`;
+            : `get ${productName} listed and explore a partnership`;
 
-          const emailSystemPrompt = `You write short, direct outreach emails to website editors and founders.
+          const siteContext = [
+            `Site: ${rawSiteName}`,
+            `Domain: ${prospect.domain}`,
+            `URL: ${prospect.siteUrl}`,
+            `Description: ${prospect.description ?? '(none)'}`,
+            `Search query that found this site: "${prospect.searchQuery ?? ''}"`,
+            contactName ? `Contact name: ${contactName}` : '',
+          ].filter(Boolean).join('\n');
+
+          // Determine outreach channel — override takes priority over auto-detect
+          const hasEmail = !!prospect.contactEmail;
+          const hasLinkedin = !!prospect.linkedinProfileUrl;
+          const hasSubmitForm = !!prospect.submitUrl || !!prospect.contactFormUrl;
+
+          const domainIs = (d: string) => prospect.domain === d || prospect.domain.endsWith(`.${d}`);
+          const isReddit = domainIs('reddit.com');
+          const isTwitter = domainIs('twitter.com') || domainIs('x.com');
+          const isInstagram = domainIs('instagram.com');
+          const isPinterest = domainIs('pinterest.com');
+          const isLinkedinSite = domainIs('linkedin.com');
+
+          type Channel = 'email' | 'linkedin' | 'instagram' | 'form' | 'reddit' | 'twitter' | 'pinterest';
+          let channel: Channel;
+          if (channelOverride && ['email', 'linkedin', 'instagram', 'form', 'reddit', 'twitter', 'pinterest'].includes(channelOverride)) {
+            channel = channelOverride as Channel;
+          } else if (isReddit) {
+            channel = 'reddit';
+          } else if (isTwitter) {
+            channel = 'twitter';
+          } else if (isInstagram) {
+            channel = 'instagram';
+          } else if (isPinterest) {
+            channel = 'pinterest';
+          } else if (isLinkedinSite || (hasLinkedin && !hasEmail)) {
+            channel = 'linkedin';
+          } else if (hasSubmitForm && !hasEmail) {
+            channel = 'form';
+          } else {
+            channel = 'email';
+          }
+
+          let systemPrompt: string;
+          let subject: string;
+          let maxTokens = 350;
+
+          // Subject lines — conversational, never "partnership opportunity"
+          const subjectByGoal = {
+            listed: `Can ${productName} be added to your list?`,
+            partnership: `Mutual feature idea — ${productName} + ${cleanSiteName}`,
+            both: `Quick question about your ${cleanSiteName} list`,
+          };
+          const defaultSubject = subjectByGoal[outreachGoal] ?? subjectByGoal.both;
+
+          if (channel === 'linkedin') {
+            const firstName = contactName ? contactName.split(' ')[0] : null;
+            const liGreeting = firstName ? `Hi ${firstName}` : 'Hi';
+            systemPrompt = `You write short, direct LinkedIn outreach messages to website editors and founders.
+
 Product: ${productName} (${prospect.productDomain})
-Goal: ${goalLabel} on ${siteName} (${prospect.domain}).
-Rules: 2-3 short paragraphs max. No fluff. No long intros. Explain briefly what ${productName} is and why it fits their audience. End with a clear, low-pressure CTA.
-Return ONLY the email body text, no subject line.${kbBlock}`;
+Outreach goal: ${goalLabel} on ${cleanSiteName} (${prospect.domain}).
+Mutual value: we will also feature ${cleanSiteName} on the ${productName} blog / tools list if relevant.
+Greeting to use: "${liGreeting},"
+
+Rules:
+- LinkedIn message, NOT an email. Human and conversational.
+- Start with the exact greeting above.
+- 2 short paragraphs max — LinkedIn readers skim.
+- Para 1: one specific thing about their site/list that shows you read it. Then one sentence on ${productName} and why it fits their audience.
+- Para 2: the ask — would they be open to adding ${productName}? Mention the mutual feature offer in one natural sentence. No pressure.
+- No buzzwords like "synergy", "partnership opportunity", "collaboration". Keep it human.
+- Return ONLY the message body, under 120 words.${kbBlock}`;
+            subject = `LinkedIn: ${defaultSubject}`;
+            maxTokens = 180;
+          } else if (channel === 'instagram') {
+            const firstName = contactName ? contactName.split(' ')[0] : null;
+            const igGreeting = firstName ? `Hey ${firstName}` : 'Hey';
+            systemPrompt = `You write short, casual Instagram DM outreach messages to website owners and content creators.
+
+Product: ${productName} (${prospect.productDomain})
+Outreach goal: ${goalLabel} on ${cleanSiteName} (${prospect.domain}).
+Mutual value: we will also feature ${cleanSiteName} on the ${productName} blog / tools list if relevant.
+Greeting to use: "${igGreeting},"
+
+Rules:
+- Instagram DM — casual, warm, brief. Not a formal email.
+- Start with the exact greeting above.
+- 2 sentences max — Instagram DMs should be very short.
+- Sentence 1: one quick compliment or specific observation about their content / site, then mention ${productName} and why it fits their audience in one breath.
+- Sentence 2: low-pressure ask — would they consider featuring it? Offer to share details.
+- No corporate language. Conversational and direct.
+- Return ONLY the DM body, under 60 words.${kbBlock}`;
+            subject = `Instagram DM: ${defaultSubject}`;
+            maxTokens = 120;
+          } else if (channel === 'reddit') {
+            systemPrompt = `You write genuine, helpful Reddit comment replies that organically mention a product.
+
+Product: ${productName} (${prospect.productDomain})
+Reddit post: "${rawSiteName}"
+Post description: ${prospect.description ?? '(see site context)'}
+
+Rules:
+- This is a Reddit comment, NOT an email. No greeting, no sign-off, no "Hi there".
+- Reddit hates self-promotion — lead with genuine value. Answer or acknowledge the post's actual question/problem first.
+- 2–3 short paragraphs.
+- Para 1: directly engage with what the post is asking or complaining about. Show you read it.
+- Para 2: mention ${productName} naturally as one option worth trying — not as a pitch. One sentence. Include the URL (${prospect.productDomain}).
+- Para 3 (optional): one honest caveat or differentiator that makes the mention credible, not salesy.
+- Never say "I work for" or "full disclosure" unless it genuinely adds trust. Keep it peer-to-peer.
+- Return ONLY the comment text, no subject.${kbBlock}`;
+            subject = `Reddit comment: ${rawSiteName}`;
+            maxTokens = 200;
+          } else if (channel === 'twitter') {
+            systemPrompt = `You write short Twitter/X reply or DM messages that organically mention a product.
+
+Product: ${productName} (${prospect.productDomain})
+Context: ${rawSiteName} — ${prospect.description ?? ''}
+
+Rules:
+- Twitter reply or DM — very short, casual, no corporate tone.
+- If it's a tweet/thread: reply that adds genuine value to the conversation, then mention ${productName} as a natural suggestion in one sentence.
+- If it's a DM: 2 sentences max. One observation, one soft pitch.
+- Include the URL (${prospect.productDomain}).
+- No hashtags unless they fit naturally.
+- Return ONLY the message text, under 50 words.${kbBlock}`;
+            subject = `Twitter/X: ${defaultSubject}`;
+            maxTokens = 100;
+          } else if (channel === 'pinterest') {
+            systemPrompt = `You write short Pinterest pin descriptions or DM messages to pitch a product for inclusion in a board or resource list.
+
+Product: ${productName} (${prospect.productDomain})
+Context: ${rawSiteName} — ${prospect.description ?? ''}
+Outreach goal: ${goalLabel}.
+
+Rules:
+- Pinterest DM or board submission — brief, visual-language friendly.
+- 2–3 sentences. No formal greeting unless it's a DM.
+- Sentence 1: acknowledge their board/content niche specifically.
+- Sentence 2: pitch ${productName} as a resource that fits their audience.
+- Sentence 3: include URL (${prospect.productDomain}) and a soft ask.
+- Return ONLY the message text, under 60 words.${kbBlock}`;
+            subject = `Pinterest: ${defaultSubject}`;
+            maxTokens = 120;
+          } else if (channel === 'form') {
+            systemPrompt = `You write short, direct website submit/contact form submissions to request a product listing.
+
+Product: ${productName} (${prospect.productDomain})
+Outreach goal: ${goalLabel} on ${cleanSiteName} (${prospect.domain}).
+Mutual value: we will also feature ${cleanSiteName} on the ${productName} blog / tools list.
+
+Rules:
+- Contact form submission — no greeting, no sign-off, ruthlessly brief.
+- 2–3 sentences max.
+- Sentence 1: what ${productName} is and which audience it serves, tied to something specific about this site.
+- Sentence 2: the ask — get listed / featured.
+- Sentence 3 (optional): mutual offer (we'll feature them too) + product URL.
+- No fluff. Return ONLY the form body text.${kbBlock}`;
+            subject = `Form: ${defaultSubject}`;
+            maxTokens = 130;
+          } else {
+            // Email (default)
+            const greeting = contactName ? `Hi ${contactName.split(' ')[0]}` : 'Hi';
+            systemPrompt = `You write short, direct, personalised outreach emails to website editors and bloggers — the goal is to get a product added to their list/roundup.
+
+Product: ${productName} (${prospect.productDomain})
+Outreach goal: ${goalLabel} on ${cleanSiteName} (${prospect.domain}).
+Mutual value: we will also feature ${cleanSiteName} on the ${productName} blog / tools list — mention this naturally if it adds value.
+Greeting to use: "${greeting},"
+
+Rules:
+- Start with the exact greeting — no placeholders like [Name].
+- NEVER use "partnership opportunity" or corporate pitch language. This should read like a human asking a genuine question.
+- First sentence: one specific reference to this site's topic, list, or audience — shows you looked at it.
+- Para 2: one sentence on what ${productName} is and why it fits their readers specifically.
+- Para 3 (CTA): ask directly if they'd consider adding ${productName}. Optionally mention the mutual feature offer in one natural sentence. One sentence max for the CTA.
+- 2–3 paragraphs total. Under 120 words.
+- Return ONLY the email body, no subject line.${kbBlock}`;
+            subject = defaultSubject;
+          }
 
           const response = await this.llm.complete({
             messages: [
-              { role: 'system', content: emailSystemPrompt },
-              { role: 'user', content: `Site: ${siteName}\nURL: ${prospect.siteUrl}\nDescription: ${prospect.description ?? ''}\nSearch query: "${prospect.searchQuery ?? ''}"` },
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: siteContext },
             ],
             ...agentLlmOpts(config),
             agentKey: this.key,
-            maxTokens: 300,
+            maxTokens,
           });
 
           let body = response.content.trim();
           if (!body) throw new Error('LLM returned empty draft');
 
           body = await this.selfCritique(body, alwaysOn.find((e) => e.entryType === 'voice_profile')?.content, blocklist);
-          const subject = `${productName} — ${outreachGoal === 'listed' ? 'can we get listed on' : 'partnership opportunity with'} ${siteName}`;
 
           await this.db.db
             .update(listingProspects)
