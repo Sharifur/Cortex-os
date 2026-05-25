@@ -557,7 +557,7 @@ Follow the body rules for the style you selected in Step 4b:
 
 **Rules that apply to ALL styles:**
 
-CRITICAL — greeting name: Every style spec above shows "[first name]" as a placeholder. You MUST replace it with the owner's actual first name from the workspace record. Extract the first name from the owner's full name or email prefix. NEVER output "[first name]", "[recipient]", or any bracket placeholder literally in the email draft. If you cannot determine a first name, use "Hi," with no name.
+CRITICAL — no bracket placeholders in output: The style specs, subject patterns, and opener examples above use bracket syntax like [first name], [data point], [metric], [question], [specific thing], [N], [Y], [Z], [recipient], [company], [workspace] as authoring shorthand — NOT literal text to output. Every bracket token in the final email subject, greeting, and body MUST be replaced with the actual value from the workspace record. NEVER output any [bracket placeholder] literally. If a value is unknown, rephrase the sentence to omit it entirely — do not leave the bracket.
 
 Banned words/phrases: "cohort", "score", "trial", "expired", "platform", "onboarding", "system", "automated", "just wanted to", "hope this finds you", "feel free to reach out", "don't hesitate", "let me know if you have any questions", "get what you're owed", "ensure you get", "what you're owed", "following up could help", "speed up the process", "outstanding invoice", "overdue", "unpaid invoice", "payment is due", "reminder to pay"
 

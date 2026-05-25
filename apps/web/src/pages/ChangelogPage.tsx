@@ -16,10 +16,10 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
-    version: 'v4.85.2',
+    version: 'v4.85.3',
     date: '2026-05-25',
     entries: [
-      { tag: 'fix', scope: 'taskip-internal', description: 'Email drafts now always replace the first name placeholder with the owner\'s actual first name from the workspace record. Bracket placeholders ([first name], [recipient]) are explicitly banned — falls back to plain "Hi," only if no name is available.' },
+      { tag: 'fix', scope: 'taskip-internal', description: 'Expanded placeholder ban in email drafts to cover all bracket tokens used in prompt templates ([first name], [data point], [metric], [question], [specific thing], [recipient], [company], [workspace], etc.). Every token must be replaced with the actual workspace value — if unknown, the sentence is rephrased to omit it rather than leaving a bracket.' },
     ],
   },
   {
