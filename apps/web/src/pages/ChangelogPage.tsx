@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.85.5',
+    date: '2026-05-26',
+    entries: [
+      { tag: 'fix', scope: 'build', description: 'Fixed Docker build failure: BullMQ forRootAsync now passes parsed connection options (host/port/password) instead of an IORedis instance, resolving TS2322 type mismatch between project ioredis and BullMQ\'s bundled ioredis in app.module.ts and worker.ts.' },
+    ],
+  },
+  {
     version: 'v4.85.4',
     date: '2026-05-26',
     entries: [
