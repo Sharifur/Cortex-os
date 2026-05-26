@@ -367,7 +367,7 @@ export default function ListingProspectDetailPage() {
   const [composing, setComposing] = useState(false);
   const [addingActivity, setAddingActivity] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
-  const [drafting, setDrafting] = useState(false);
+  const [draftingChannel, setDraftingChannel] = useState<string | null>(null);
   const [draftError, setDraftError] = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [editNotes, setEditNotes] = useState(false);
@@ -416,7 +416,8 @@ export default function ListingProspectDetailPage() {
   }
 
   async function generateDraft(channel?: string) {
-    setDrafting(true);
+    const key = channel ?? 'default';
+    setDraftingChannel(key);
     setDraftError(null);
     try {
       const body = channel ? JSON.stringify({ channel }) : undefined;
@@ -432,7 +433,7 @@ export default function ListingProspectDetailPage() {
         qc.invalidateQueries({ queryKey: ['listing-prospect', id] });
       }
     } finally {
-      setDrafting(false);
+      setDraftingChannel(null);
     }
   }
 
@@ -638,40 +639,49 @@ export default function ListingProspectDetailPage() {
             <div className="flex items-center gap-1.5 flex-wrap justify-end">
               {/* Channel override buttons — always visible */}
               <button
+                onClick={() => generateDraft('email')}
+                disabled={draftingChannel !== null}
+                className="flex items-center gap-1 px-2 py-1 rounded border border-border text-[11px] text-emerald-400 hover:bg-emerald-500/10 disabled:opacity-50 transition-colors"
+                title="Draft as email"
+              >
+                {draftingChannel === 'email' ? <Loader2 className="w-3 h-3 animate-spin" /> : <Mail className="w-3 h-3" />}
+                Email
+              </button>
+              <button
                 onClick={() => generateDraft('reddit')}
-                disabled={drafting}
+                disabled={draftingChannel !== null}
                 className="flex items-center gap-1 px-2 py-1 rounded border border-border text-[11px] text-orange-400 hover:bg-orange-500/10 disabled:opacity-50 transition-colors"
                 title="Draft as Reddit comment"
               >
-                {drafting ? <Loader2 className="w-3 h-3 animate-spin" /> : <MessageCircle className="w-3 h-3" />}
+                {draftingChannel === 'reddit' ? <Loader2 className="w-3 h-3 animate-spin" /> : <MessageCircle className="w-3 h-3" />}
                 Reddit
               </button>
               <button
                 onClick={() => generateDraft('linkedin')}
-                disabled={drafting}
+                disabled={draftingChannel !== null}
                 className="flex items-center gap-1 px-2 py-1 rounded border border-border text-[11px] text-blue-400 hover:bg-blue-500/10 disabled:opacity-50 transition-colors"
                 title="Draft for LinkedIn DM"
               >
-                {drafting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Linkedin className="w-3 h-3" />}
+                {draftingChannel === 'linkedin' ? <Loader2 className="w-3 h-3 animate-spin" /> : <Linkedin className="w-3 h-3" />}
                 LinkedIn
               </button>
               <button
                 onClick={() => generateDraft('instagram')}
-                disabled={drafting}
+                disabled={draftingChannel !== null}
                 className="flex items-center gap-1 px-2 py-1 rounded border border-border text-[11px] text-pink-400 hover:bg-pink-500/10 disabled:opacity-50 transition-colors"
                 title="Draft for Instagram DM"
               >
-                {drafting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Instagram className="w-3 h-3" />}
+                {draftingChannel === 'instagram' ? <Loader2 className="w-3 h-3 animate-spin" /> : <Instagram className="w-3 h-3" />}
                 Instagram
               </button>
               {prospect.outreachSubject && prospect.outreachBody ? (
                 <>
                   <button
                     onClick={() => generateDraft()}
-                    disabled={drafting}
+                    disabled={draftingChannel !== null}
                     className="flex items-center gap-1 px-2 py-1 rounded border border-border text-[11px] text-muted-foreground hover:text-foreground disabled:opacity-50 transition-colors"
                   >
-                    {drafting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Zap className="w-3 h-3" />}
+                    {draftingChannel === 'default' ? <Loader2 className="w-3 h-3 animate-spin" /> : <Zap className="w-3 h-3" />}
                     Regenerate
                   </button>
                   {prospect.contactEmail && prospect.status !== 'emailed' && (
@@ -686,11 +696,11 @@ export default function ListingProspectDetailPage() {
               ) : (
                 <button
                   onClick={() => generateDraft()}
-                  disabled={drafting}
+                  disabled={draftingChannel !== null}
                   className="flex items-center gap-1.5 px-3 py-1 rounded-lg border border-border text-xs text-muted-foreground hover:text-foreground hover:border-foreground/40 disabled:opacity-50 transition-colors"
                 >
-                  {drafting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Zap className="w-3 h-3" />}
-                  {drafting ? 'Generating...' : 'Generate Draft'}
+                  {draftingChannel === 'default' ? <Loader2 className="w-3 h-3 animate-spin" /> : <Zap className="w-3 h-3" />}
+                  {draftingChannel === 'default' ? 'Generating...' : 'Generate Draft'}
                 </button>
               )}
             </div>
