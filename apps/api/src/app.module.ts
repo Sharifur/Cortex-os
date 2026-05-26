@@ -3,7 +3,6 @@ import { ConfigModule } from '@nestjs/config';
 import { BullModule } from '@nestjs/bullmq';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { LoggerModule } from 'nestjs-pino';
-import IORedis from 'ioredis';
 import { DbModule } from './db/db.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { HealthModule } from './modules/health/health.module';
@@ -63,14 +62,22 @@ import { ListingOutreachModule } from './modules/agents/listing-outreach/listing
     }),
 
     BullModule.forRootAsync({
-      useFactory: () => ({
-        connection: new IORedis(process.env.REDIS_URL!, {
-          maxRetriesPerRequest: null,
-          enableReadyCheck: false,
-          connectTimeout: 3000,
-          lazyConnect: true,
-        }),
-      }),
+      useFactory: () => {
+        const u = new URL(process.env.REDIS_URL!);
+        return {
+          connection: {
+            host: u.hostname,
+            port: Number(u.port) || 6379,
+            ...(u.password && { password: decodeURIComponent(u.password) }),
+            ...(u.username && { username: decodeURIComponent(u.username) }),
+            ...(u.pathname && u.pathname !== '/' && { db: Number(u.pathname.slice(1)) }),
+            maxRetriesPerRequest: null,
+            enableReadyCheck: false,
+            connectTimeout: 3000,
+            lazyConnect: true,
+          },
+        };
+      },
     }),
 
     DbModule,
