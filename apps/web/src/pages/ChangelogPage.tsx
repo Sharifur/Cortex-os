@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.85.4',
+    date: '2026-05-26',
+    entries: [
+      { tag: 'feat', scope: 'listing-outreach', description: 'Added Email channel override button on prospect detail page for generating email-format outreach drafts on demand.' },
+      { tag: 'fix', scope: 'listing-outreach', description: 'Per-channel loading state on draft buttons: only the clicked button shows a spinner; all others disable without showing a spinner.' },
+    ],
+  },
+  {
     version: 'v4.85.3',
     date: '2026-05-25',
     entries: [
