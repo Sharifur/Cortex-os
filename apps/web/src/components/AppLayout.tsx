@@ -318,17 +318,34 @@ function UserMenu() {
 
 function Sidebar({
   approvalCount,
+  livechatCount,
+  inboxCount,
   onNavigate,
   collapsed,
   onToggleCollapse,
 }: {
   approvalCount: number;
+  livechatCount: number;
+  inboxCount: number;
   onNavigate?: () => void;
   collapsed?: boolean;
   onToggleCollapse?: () => void;
 }) {
   const role = useAuthStore((s) => s.role);
   const visibleNav = NAV.filter((item) => !(item as any).superAdminOnly || !role || role === 'super_admin');
+
+  function getBadge(to: string): number {
+    if (to === '/approvals') return approvalCount;
+    if (to === '/livechat') return livechatCount;
+    if (to === '/inbox') return inboxCount;
+    return 0;
+  }
+
+  function getBadgeColor(to: string): string {
+    if (to === '/livechat') return 'bg-sky-500/15 text-sky-400';
+    if (to === '/inbox') return 'bg-indigo-500/15 text-indigo-400';
+    return 'bg-yellow-500/15 text-yellow-500';
+  }
 
   return (
     <>
@@ -345,7 +362,7 @@ function Sidebar({
           <>
             <Bot className="w-5 h-5 text-primary shrink-0" />
             <span className="font-semibold text-sm">Cortex OS</span>
-            <span className="text-muted-foreground text-xs">v4.85.5</span>
+            <span className="text-muted-foreground text-xs">v4.85.6</span>
             {onToggleCollapse && (
               <button
                 onClick={onToggleCollapse}
@@ -359,32 +376,36 @@ function Sidebar({
         )}
       </div>
       <nav className="flex-1 p-3 space-y-0.5 overflow-y-auto">
-        {visibleNav.map((item) => (
-          <NavLink
-            key={item.to}
-            to={item.to}
-            onClick={onNavigate}
-            title={collapsed ? item.label : undefined}
-            className={({ isActive }) =>
-              `flex items-center gap-2.5 ${collapsed ? 'justify-center px-2' : 'px-3'} py-2 rounded-lg text-sm transition-colors ${
-                isActive
-                  ? 'bg-accent text-foreground font-medium'
-                  : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
-              }`
-            }
-          >
-            {item.icon}
-            {!collapsed && item.label}
-            {!collapsed && item.badge && approvalCount > 0 && (
-              <span className="ml-auto text-xs bg-yellow-500/15 text-yellow-500 px-1.5 py-0.5 rounded-full font-medium">
-                {approvalCount}
-              </span>
-            )}
-            {collapsed && item.badge && approvalCount > 0 && (
-              <span className="absolute right-1 top-1 w-2 h-2 bg-yellow-500 rounded-full" />
-            )}
-          </NavLink>
-        ))}
+        {visibleNav.map((item) => {
+          const badgeCount = getBadge(item.to);
+          const badgeColor = getBadgeColor(item.to);
+          return (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              onClick={onNavigate}
+              title={collapsed ? item.label : undefined}
+              className={({ isActive }) =>
+                `relative flex items-center gap-2.5 ${collapsed ? 'justify-center px-2' : 'px-3'} py-2 rounded-lg text-sm transition-colors ${
+                  isActive
+                    ? 'bg-accent text-foreground font-medium'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
+                }`
+              }
+            >
+              {item.icon}
+              {!collapsed && item.label}
+              {!collapsed && badgeCount > 0 && (
+                <span className={`ml-auto text-xs px-1.5 py-0.5 rounded-full font-medium ${badgeColor}`}>
+                  {badgeCount}
+                </span>
+              )}
+              {collapsed && badgeCount > 0 && (
+                <span className="absolute right-1 top-1 w-2 h-2 bg-sky-500 rounded-full" />
+              )}
+            </NavLink>
+          );
+        })}
       </nav>
     </>
   );
@@ -477,6 +498,20 @@ export default function AppLayout() {
   const setRole = useAuthStore((s) => s.setRole);
   const navigate = useNavigate();
   const approvalCount = useApprovalCount(token);
+
+  const { data: notifSummary } = useQuery<NotifSummary>({
+    queryKey: ['notifications-summary'],
+    queryFn: async () => {
+      const since = getFailuresSince();
+      const res = await fetch(`/notifications/summary?failuresSince=${encodeURIComponent(since)}`, { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) return { waitingChats: 0, pendingApprovals: 0, agentFailures: 0, kbProposals: 0, kbGaps: 0, newInboxReplies: 0, total: 0 };
+      return res.json();
+    },
+    refetchInterval: 5 * 60_000,
+    staleTime: 0,
+  });
+  const livechatCount = notifSummary?.waitingChats ?? 0;
+  const inboxCount = notifSummary?.newInboxReplies ?? 0;
   const [drawerOpen, setDrawerOpen] = useState(false);
   const location = useLocation();
 
@@ -526,6 +561,8 @@ export default function AppLayout() {
       <aside className={`hidden md:flex ${sidebarCollapsed ? 'w-14' : 'w-56'} shrink-0 border-r border-border flex-col h-full transition-[width] duration-150`}>
         <Sidebar
           approvalCount={approvalCount}
+          livechatCount={livechatCount}
+          inboxCount={inboxCount}
           collapsed={sidebarCollapsed}
           onToggleCollapse={() => setSidebarCollapsed((c) => !c)}
         />
@@ -547,7 +584,7 @@ export default function AppLayout() {
           <div className="flex items-center gap-2">
             <Bot className="w-5 h-5 text-primary" />
             <span className="font-semibold text-sm">Cortex OS</span>
-            <span className="text-muted-foreground text-xs">v4.85.5</span>
+            <span className="text-muted-foreground text-xs">v4.85.6</span>
           </div>
           <button
             onClick={() => setDrawerOpen(false)}
@@ -558,28 +595,32 @@ export default function AppLayout() {
           </button>
         </div>
         <nav className="flex-1 p-3 space-y-0.5 overflow-y-auto">
-          {NAV.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              onClick={() => setDrawerOpen(false)}
-              className={({ isActive }) =>
-                `flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors ${
-                  isActive
-                    ? 'bg-accent text-foreground font-medium'
-                    : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
-                }`
-              }
-            >
-              {item.icon}
-              {item.label}
-              {item.badge && approvalCount > 0 && (
-                <span className="ml-auto text-xs bg-yellow-500/15 text-yellow-500 px-1.5 py-0.5 rounded-full font-medium">
-                  {approvalCount}
-                </span>
-              )}
-            </NavLink>
-          ))}
+          {NAV.map((item) => {
+            const mBadge = item.to === '/approvals' ? approvalCount : item.to === '/livechat' ? livechatCount : item.to === '/inbox' ? inboxCount : 0;
+            const mColor = item.to === '/livechat' ? 'bg-sky-500/15 text-sky-400' : item.to === '/inbox' ? 'bg-indigo-500/15 text-indigo-400' : 'bg-yellow-500/15 text-yellow-500';
+            return (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                onClick={() => setDrawerOpen(false)}
+                className={({ isActive }) =>
+                  `flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors ${
+                    isActive
+                      ? 'bg-accent text-foreground font-medium'
+                      : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
+                  }`
+                }
+              >
+                {item.icon}
+                {item.label}
+                {mBadge > 0 && (
+                  <span className={`ml-auto text-xs px-1.5 py-0.5 rounded-full font-medium ${mColor}`}>
+                    {mBadge}
+                  </span>
+                )}
+              </NavLink>
+            );
+          })}
         </nav>
       </aside>
 

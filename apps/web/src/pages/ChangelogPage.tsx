@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.85.6',
+    date: '2026-05-27',
+    entries: [
+      { tag: 'feat', scope: 'nav', description: 'Live Chat and Inbox nav items now show badge counts: Live Chat shows pending human-assist chats (waitingChats), Inbox shows new unread replies (newInboxReplies). Both badges use distinct colors and update every 5 min alongside the notification bell.' },
+      { tag: 'fix', scope: 'inbox', description: 'Manual reply sent from Inbox detail view no longer appears as a separate top-level inbox item. Reply rows are tagged with parentEmailId in metadata and filtered out of the inbox list, so the thread stays clean.' },
+    ],
+  },
+  {
     version: 'v4.85.5',
     date: '2026-05-26',
     entries: [
