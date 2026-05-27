@@ -304,6 +304,19 @@ export class TaskipTrialAgent implements IAgent, OnModuleInit {
             .limit(100);
         },
       },
+      {
+        method: 'PATCH',
+        path: '/taskip-trial/sequences/:id/cancel',
+        requiresAuth: true,
+        handler: async (req) => {
+          const { id } = (req as { params: { id: string } }).params;
+          await this.db.db.execute(sql`
+            UPDATE taskip_trial_sequences SET status = 'cancelled'
+            WHERE id = ${id} AND status = 'active'
+          `);
+          return { ok: true, id };
+        },
+      },
     ];
   }
 

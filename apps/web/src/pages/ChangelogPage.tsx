@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.86.1',
+    date: '2026-05-27',
+    entries: [
+      { tag: 'feat', scope: 'trial-sequences', description: 'Added Trial Sequences management page at /trial-sequences. Shows all onboarding sequences grouped by status (active, completed, cancelled) with step progress dots, sent angle labels, next-send timing, industry tag, and sender account. Active sequences can be cancelled directly from the page. Auto-refreshes every 30s.' },
+      { tag: 'feat', scope: 'taskip-trial', description: 'Added PATCH /taskip-trial/sequences/:id/cancel API endpoint to cancel active sequences.' },
+    ],
+  },
+  {
     version: 'v4.86.0',
     date: '2026-05-27',
     entries: [

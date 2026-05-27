@@ -33,6 +33,7 @@ import NotFoundPage from '@/pages/NotFoundPage';
 import GmailOAuthCallbackPage from '@/pages/GmailOAuthCallbackPage';
 import ListingProspectDetailPage from '@/pages/ListingProspectDetailPage';
 import ListingProspectsPage from '@/pages/ListingProspectsPage';
+import TrialSequencesPage from '@/pages/TrialSequencesPage';
 import AppLayout from '@/components/AppLayout';
 import { useAuthStore } from '@/stores/authStore';
 
@@ -94,6 +95,7 @@ export default function App() {
             <Route path="/post-renders" element={<PostRendersPage />} />
             <Route path="/listing-outreach/prospects" element={<ListingProspectsPage />} />
             <Route path="/listing-outreach/prospects/:id" element={<ListingProspectDetailPage />} />
+            <Route path="/trial-sequences" element={<TrialSequencesPage />} />
             <Route path="/profile" element={<ProfilePage />} />
             <Route path="/change-password" element={<ChangePasswordPage />} />
             <Route path="*" element={<NotFoundPage />} />
