@@ -1,13 +1,17 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { inArray, eq, and, gt } from 'drizzle-orm';
+import { inArray, eq, and, gt, lte, sql } from 'drizzle-orm';
 import { DbService } from '../../../db/db.service';
 import { agents } from '../../../db/schema';
-import { taskipTrialEmailLog, taskipTrialSuppressed } from './schema';
+import { taskipTrialEmailLog, taskipTrialSuppressed, taskipTrialSequences } from './schema';
 import { AgentRegistryService } from '../runtime/agent-registry.service';
 import { LlmRouterService } from '../../llm/llm-router.service';
 import { SesService } from '../../ses/ses.service';
 import { GmailService } from '../../gmail/gmail.service';
+import { SettingsService } from '../../settings/settings.service';
 import { TaskipDbService, TaskipUser } from './taskip-db.service';
+import { TaskipInsightService } from '../taskip-internal/taskip-insight.service';
+import { safeEqualString } from '../../../common/webhooks/verify';
+import { createId } from '@paralleldrive/cuid2';
 import type {
   IAgent,
   TriggerSpec,
@@ -45,33 +49,29 @@ interface EmailDraft {
   body: string;
 }
 
-interface TrialSnapshot {
-  drafts: EmailDraft[];
-  config: AgentConfig;
-}
+const SEQUENCE_ANGLES = [
+  'welcome_first_win',
+  'core_feature',
+  'team_collaboration',
+  'checkin_questions',
+  'advanced_unlock',
+  'social_proof',
+  'upgrade_cta',
+] as const;
+
+type SequenceAngle = typeof SEQUENCE_ANGLES[number];
+
+const ANGLE_INSTRUCTIONS: Record<SequenceAngle, string> = {
+  welcome_first_win: 'Welcome them and highlight the single most immediate value they can get from Taskip right now — one concrete action they can take today to see results.',
+  core_feature: 'Highlight the single most valuable feature for their use case. Be specific about what it does and why it matters to their type of business.',
+  team_collaboration: 'Encourage them to expand usage — invite a team member, collaborate on a project, or delegate a task. Make it feel like a natural next step.',
+  checkin_questions: 'Check in warmly since they haven\'t logged in recently. Ask one open question about whether anything is blocking them or if they need help getting started.',
+  advanced_unlock: 'Surface a power feature or workflow they haven\'t used yet. Make it feel like an insider tip.',
+  social_proof: 'Share a brief customer win story relevant to their industry or company size. Keep it under 2 sentences. End with a question.',
+  upgrade_cta: 'Their trial is ending soon. Make the upgrade case clearly and warmly — one key reason to stay, one clear next step. No pressure.',
+};
 
 const SEGMENT_PROMPTS: Record<string, { system: string; user: (u: TaskipUser) => string }> = {
-  trial_day_3: {
-    system: `You are Sharifur Rahman, founder of Taskip. Write short, warm, personal emails in first person.
-Rules: under 80 words, no marketing fluff, end with a question that invites a reply.
-Output JSON: { "subject": "...", "body": "..." }`,
-    user: (u) => `User ${u.name} signed up 3 days ago. Their trial started on ${u.createdAt}.
-Write a brief founder check-in email. Ask how they're finding Taskip so far. Mention Taspi (Taskip's AI agent) naturally if relevant.`,
-  },
-  trial_day_5_low_activity: {
-    system: `You are Sharifur Rahman, founder of Taskip. Write short, warm, personal emails in first person.
-Rules: under 80 words, offer to help, no hard sell.
-Output JSON: { "subject": "...", "body": "..." }`,
-    user: (u) => `User ${u.name} signed up 5 days ago but hasn't explored much yet.
-Write a helpful nudge email offering to help them get started. Mention Taspi (Taskip's AI agent).`,
-  },
-  trial_expiring_24h: {
-    system: `You are Sharifur Rahman, founder of Taskip. Write short, warm urgency emails.
-Rules: under 80 words, warm urgency (no pressure), highlight one key benefit.
-Output JSON: { "subject": "...", "body": "..." }`,
-    user: (u) => `User ${u.name} has trial expiring at ${u.trialEndsAt}.
-Write a last-chance email. Keep it warm, not pushy. Mention Taspi if relevant.`,
-  },
   paid_at_risk: {
     system: `You are Sharifur Rahman, founder of Taskip. Write short re-engagement emails.
 Rules: under 80 words, acknowledge absence warmly, ask what happened.
@@ -88,6 +88,21 @@ Write a brief win-back note. Keep it genuine. Ask what we could have done better
   },
 };
 
+interface SequenceRow {
+  id: string;
+  workspaceUuid: string;
+  email: string;
+  industry: string | null;
+  step: number;
+  status: string;
+  gmailAccountId: string | null;
+  sentAngles: unknown;
+  activatedAt: Date;
+  nextStepAt: Date;
+  lastStepAt: Date | null;
+  createdAt: Date;
+}
+
 @Injectable()
 export class TaskipTrialAgent implements IAgent, OnModuleInit {
   readonly key = 'taskip_trial';
@@ -100,6 +115,8 @@ export class TaskipTrialAgent implements IAgent, OnModuleInit {
     private ses: SesService,
     private gmail: GmailService,
     private taskipDb: TaskipDbService,
+    private settings: SettingsService,
+    private insight: TaskipInsightService,
     private registry: AgentRegistryService,
   ) {}
 
@@ -109,15 +126,37 @@ export class TaskipTrialAgent implements IAgent, OnModuleInit {
 
   triggers(): TriggerSpec[] {
     return [
-      { type: 'CRON', cron: '0 4 * * *' }, // 10:00 Asia/Dhaka = 04:00 UTC
+      { type: 'CRON', cron: '0 4 * * *' },
+      { type: 'WEBHOOK', webhookPath: '/taskip-trial/trial-activated' },
       { type: 'WEBHOOK', webhookPath: '/taskip-trial/webhook' },
     ];
   }
 
   async buildContext(trigger: TriggerEvent, run: RunContext): Promise<AgentContext> {
-    const config = await this.getConfig();
-    const segmentsToRun = this.resolveSegments(trigger, config);
+    if (trigger.type === 'WEBHOOK' && (trigger.payload as { _route?: string })?._route === '/taskip-trial/trial-activated') {
+      return {
+        source: { trigger: trigger.type, payload: trigger.payload },
+        snapshot: { mode: 'webhook_registered' },
+        followups: [],
+      };
+    }
 
+    const config = await this.getConfig();
+
+    // Sequence sweep: due rows
+    const dueRows = await this.db.db
+      .select()
+      .from(taskipTrialSequences)
+      .where(
+        and(
+          eq(taskipTrialSequences.status, 'active'),
+          lte(taskipTrialSequences.nextStepAt, new Date()),
+        ),
+      )
+      .limit(30) as SequenceRow[];
+
+    // Legacy segment sweep (paid_at_risk, churned_30d only)
+    const segmentsToRun = this.resolveSegments(trigger, config);
     const usersBySegment: Record<string, TaskipUser[]> = {};
     for (const segment of segmentsToRun) {
       const users = await this.taskipDb.getUsersForSegment(segment, config.dailyCap);
@@ -125,27 +164,64 @@ export class TaskipTrialAgent implements IAgent, OnModuleInit {
       usersBySegment[segment] = filtered;
     }
 
-    const totalUsers = Object.values(usersBySegment).reduce((s, arr) => s + arr.length, 0);
-    this.logger.log(`buildContext: ${totalUsers} eligible users across ${segmentsToRun.join(', ')}`);
+    // Fetch live Insight data for each due sequence row
+    const sequenceDrafts: SequenceDraftContext[] = [];
+    for (const row of dueRows) {
+      try {
+        const [overview, lifecycle] = await Promise.allSettled([
+          this.insight.getOverview(row.workspaceUuid),
+          this.insight.getLifecycle(row.workspaceUuid),
+        ]);
+        sequenceDrafts.push({
+          row,
+          overview: overview.status === 'fulfilled' ? overview.value : null,
+          lifecycle: lifecycle.status === 'fulfilled' ? lifecycle.value : null,
+        });
+      } catch (err) {
+        this.logger.warn(`Insight fetch failed for ${row.workspaceUuid}: ${(err as Error).message}`);
+        sequenceDrafts.push({ row, overview: null, lifecycle: null });
+      }
+    }
+
+    this.logger.log(`buildContext: ${sequenceDrafts.length} sequence rows due, legacy segments: ${segmentsToRun.join(', ')}`);
 
     return {
       source: { trigger: trigger.type, payload: trigger.payload, segmentsToRun },
-      snapshot: { usersBySegment, config } as unknown,
+      snapshot: { sequenceDrafts, usersBySegment, config } as unknown,
       followups: (run.context as AgentContext | null)?.followups ?? [],
     };
   }
 
   async decide(ctx: AgentContext): Promise<ProposedAction[]> {
-    const snapshot = ctx.snapshot as { usersBySegment: Record<string, TaskipUser[]>; config: AgentConfig };
-    const { usersBySegment, config } = snapshot;
+    const snapshot = ctx.snapshot as {
+      mode?: string;
+      sequenceDrafts?: SequenceDraftContext[];
+      usersBySegment?: Record<string, TaskipUser[]>;
+      config?: AgentConfig;
+    };
 
+    if (snapshot.mode === 'webhook_registered') return [];
+
+    const { sequenceDrafts = [], usersBySegment = {}, config } = snapshot;
+    const resolvedConfig = config ?? await this.getConfig();
     const actions: ProposedAction[] = [];
     const followupNote = ctx.followups.at(-1)?.text;
 
+    // Sequence emails
+    for (const draft of sequenceDrafts) {
+      try {
+        const action = await this.buildSequenceAction(draft, resolvedConfig, followupNote);
+        if (action) actions.push(action);
+      } catch (err) {
+        this.logger.warn(`Sequence draft failed for ${draft.row.workspaceUuid}: ${(err as Error).message}`);
+      }
+    }
+
+    // Legacy segments
     for (const [segment, users] of Object.entries(usersBySegment)) {
       for (const user of users) {
         try {
-          const draft = await this.draftEmail(user, segment, config, followupNote);
+          const draft = await this.draftLegacyEmail(user, segment, resolvedConfig, followupNote);
           actions.push({
             type: 'send_email',
             summary: `Send "${draft.subject}" to ${user.email} [${segment}]`,
@@ -162,14 +238,305 @@ export class TaskipTrialAgent implements IAgent, OnModuleInit {
   }
 
   requiresApproval(action: ProposedAction): boolean {
-    return action.type === 'send_email';
+    return action.type === 'send_email' || action.type === 'send_trial_sequence_email';
   }
 
   async execute(action: ProposedAction): Promise<ActionResult> {
-    if (action.type !== 'send_email') {
-      return { success: false, error: `Unknown action: ${action.type}` };
+    if (action.type === 'send_trial_sequence_email') {
+      return this.executeSequenceEmail(action);
+    }
+    if (action.type === 'send_email') {
+      return this.executeLegacyEmail(action);
+    }
+    return { success: false, error: `Unknown action: ${action.type}` };
+  }
+
+  apiRoutes(): AgentApiRoute[] {
+    return [
+      {
+        method: 'POST',
+        path: '/taskip-trial/trial-activated',
+        requiresAuth: false,
+        verifySignature: async (_body, headers) => {
+          const secret = await this.settings.getDecrypted('taskip_trial_webhook_secret');
+          if (!secret) return { ok: false, reason: 'webhook_secret_not_configured' };
+          const sent = ((headers as Record<string, string>)['x-webhook-secret'] ?? '').trim();
+          return safeEqualString(sent, secret) ? true : { ok: false, reason: 'invalid_secret' };
+        },
+        handler: async (body) => {
+          const { workspaceUuid, email, industry } = body as {
+            workspaceUuid: string;
+            email: string;
+            industry?: string;
+          };
+          if (!workspaceUuid || !email) {
+            throw new Error('workspaceUuid and email are required');
+          }
+          await this.db.db.execute(sql`
+            INSERT INTO taskip_trial_sequences (id, workspace_uuid, email, industry, next_step_at)
+            VALUES (${createId()}, ${workspaceUuid}, ${email}, ${industry ?? null}, NOW())
+            ON CONFLICT (workspace_uuid) DO NOTHING
+          `);
+          this.logger.log(`Trial sequence registered: ${workspaceUuid} <${email}>`);
+          return { ok: true };
+        },
+      },
+      {
+        method: 'POST',
+        path: '/taskip-trial/run-segment',
+        requiresAuth: true,
+        handler: async (req) => {
+          const { segment } = (req as { body: { segment: string } }).body;
+          const config = await this.getConfig();
+          if (!SEGMENT_PROMPTS[segment]) throw new Error(`Unknown segment: ${segment}`);
+          return this.taskipDb.getUsersForSegment(segment, config.dailyCap);
+        },
+      },
+      {
+        method: 'GET',
+        path: '/taskip-trial/sequences',
+        requiresAuth: true,
+        handler: async () => {
+          return this.db.db
+            .select()
+            .from(taskipTrialSequences)
+            .orderBy(taskipTrialSequences.createdAt)
+            .limit(100);
+        },
+      },
+    ];
+  }
+
+  mcpTools(): McpToolDefinition[] {
+    return [
+      {
+        name: 'list_segment_users',
+        description: 'List users matching a Taskip segment',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            segment: { type: 'string', enum: Object.keys(SEGMENT_PROMPTS) },
+            limit: { type: 'number', default: 10 },
+          },
+          required: ['segment'],
+        },
+        handler: async (input) => {
+          const { segment, limit = 10 } = input as { segment: string; limit?: number };
+          return this.taskipDb.getUsersForSegment(segment, limit);
+        },
+      },
+      {
+        name: 'mark_user_suppressed',
+        description: 'Mark a user email as suppressed (skip in future runs)',
+        inputSchema: {
+          type: 'object',
+          properties: { email: { type: 'string' }, reason: { type: 'string' } },
+          required: ['email'],
+        },
+        handler: async (input) => {
+          const { email, reason = 'manual' } = input as { email: string; reason?: string };
+          await this.db.db.insert(taskipTrialSuppressed).values({ email, reason });
+          return { suppressed: true, email };
+        },
+      },
+      {
+        name: 'cancel_trial_sequence',
+        description: 'Cancel a trial onboarding sequence by workspace UUID',
+        inputSchema: {
+          type: 'object',
+          properties: { workspaceUuid: { type: 'string' } },
+          required: ['workspaceUuid'],
+        },
+        handler: async (input) => {
+          const { workspaceUuid } = input as { workspaceUuid: string };
+          await this.db.db.execute(sql`
+            UPDATE taskip_trial_sequences SET status = 'cancelled'
+            WHERE workspace_uuid = ${workspaceUuid}
+          `);
+          return { cancelled: true, workspaceUuid };
+        },
+      },
+    ];
+  }
+
+  // ─── Sequence logic ───────────────────────────────────────────────────────
+
+  private async buildSequenceAction(
+    draft: SequenceDraftContext,
+    config: AgentConfig,
+    followupNote?: string,
+  ): Promise<ProposedAction | null> {
+    const { row, overview, lifecycle } = draft;
+    const sentAngles = Array.isArray(row.sentAngles) ? (row.sentAngles as SequenceAngle[]) : [];
+    const remainingAngles = SEQUENCE_ANGLES.filter(a => !sentAngles.includes(a));
+
+    if (!remainingAngles.length) {
+      this.logger.log(`All angles exhausted for ${row.workspaceUuid} — completing sequence`);
+      await this.db.db.execute(sql`
+        UPDATE taskip_trial_sequences SET status = 'completed'
+        WHERE id = ${row.id}
+      `);
+      return null;
     }
 
+    // upgrade_cta only allowed from step 5+
+    const eligibleAngles = row.step < 5
+      ? remainingAngles.filter(a => a !== 'upgrade_cta')
+      : remainingAngles;
+
+    if (!eligibleAngles.length) {
+      // Only upgrade_cta remains but step < 5: advance without sending
+      await this.db.db.execute(sql`
+        UPDATE taskip_trial_sequences SET next_step_at = NOW() + INTERVAL '1 day'
+        WHERE id = ${row.id}
+      `);
+      return null;
+    }
+
+    // Build user context from available data
+    const ownerName = lifecycle?.owner?.first_name ?? row.email.split('@')[0];
+    const lastActiveAt = overview?.session?.last_active_at ?? null;
+    const daysSinceActive = lastActiveAt
+      ? Math.floor((Date.now() - new Date(lastActiveAt).getTime()) / 86_400_000)
+      : null;
+    const featureCount = (overview?.volume_metrics?.tasks_total as number | undefined) ?? 0;
+    const cohort = overview?.cohort ?? lifecycle?.workspace?.cohort ?? null;
+    const lifecycleState = lifecycle?.workspace?.lifecycle_state ?? 'trial';
+    const industry = row.industry;
+    const step = row.step;
+
+    // LLM selects best angle + drafts email
+    const systemPrompt = `You are Sharifur Rahman, founder of Taskip — a SaaS platform for agency and service businesses.
+Write short, warm, personal founder emails in first person.
+Rules:
+- Under 120 words
+- No marketing fluff or buzzwords
+- Never start with "Hi [" or use any bracket placeholders
+- End with a genuine question that invites a reply
+- Output only valid JSON: { "angle": "<angle_label>", "subject": "...", "body": "..." }
+- The "angle" field must be one of: ${eligibleAngles.join(', ')}`;
+
+    const inactivityNote = daysSinceActive !== null && daysSinceActive >= 2
+      ? `User has not logged in for ${daysSinceActive} days.`
+      : 'User has been recently active.';
+
+    const industryNote = industry ? `User's industry: ${industry}.` : '';
+
+    const userPrompt = `Trial user: ${ownerName} <${row.email}>
+Step: ${step + 1} of 7
+${industryNote}
+Lifecycle state: ${lifecycleState}
+Engagement cohort: ${cohort ?? 'unknown'}
+${inactivityNote}
+Feature usage signal: ${featureCount} tasks created so far.
+Angles already sent: ${sentAngles.join(', ') || 'none'}
+Available angles to pick from: ${eligibleAngles.join(', ')}
+
+Angle guidance:
+${eligibleAngles.map(a => `- ${a}: ${ANGLE_INSTRUCTIONS[a]}`).join('\n')}
+${followupNote ? `\nRevision instruction: ${followupNote}` : ''}
+
+Pick the best angle for this user's current state and write the email.`;
+
+    const response = await this.llm.complete({
+      ...agentLlmOpts(config),
+      agentKey: this.key,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      maxTokens: 500,
+      temperature: 0.7,
+    });
+
+    let parsed: { angle: SequenceAngle; subject: string; body: string };
+    try {
+      const json = response.content.replace(/```json\n?|```/g, '').trim();
+      parsed = JSON.parse(json);
+    } catch {
+      throw new Error(`LLM non-JSON for ${row.workspaceUuid}: ${response.content.slice(0, 100)}`);
+    }
+
+    if (!parsed.angle || !eligibleAngles.includes(parsed.angle)) {
+      parsed.angle = eligibleAngles[0];
+    }
+
+    const angleReason = buildAngleReason(parsed.angle, daysSinceActive, featureCount, row.step, industry);
+
+    return {
+      type: 'send_trial_sequence_email',
+      summary: `Trial step ${step + 1} [${parsed.angle}] for ${row.email}\nReason: ${angleReason}\nSubject: ${parsed.subject}`,
+      payload: {
+        sequenceId: row.id,
+        workspaceUuid: row.workspaceUuid,
+        email: row.email,
+        step: row.step,
+        angleLabel: parsed.angle,
+        angleReason,
+        subject: parsed.subject,
+        body: parsed.body,
+        gmailAccountId: row.gmailAccountId ?? null,
+      },
+      riskLevel: 'low',
+    };
+  }
+
+  private async executeSequenceEmail(action: ProposedAction): Promise<ActionResult> {
+    const {
+      sequenceId,
+      email,
+      subject,
+      body,
+      gmailAccountId,
+      step,
+      angleLabel,
+    } = action.payload as {
+      sequenceId: string;
+      workspaceUuid: string;
+      email: string;
+      step: number;
+      angleLabel: SequenceAngle;
+      angleReason: string;
+      subject: string;
+      body: string;
+      gmailAccountId: string | null;
+    };
+
+    const fromAddress = await this.gmail.getFromAddress(gmailAccountId ?? undefined);
+    const messageId = await this.gmail.sendEmail(
+      { to: email, from: fromAddress, subject, textBody: body },
+      gmailAccountId ?? undefined,
+    );
+
+    const newStep = step + 1;
+    const completed = newStep >= 7;
+    const usedAccountId = gmailAccountId ?? fromAddress.match(/<(.+)>/)?.[1] ?? fromAddress;
+
+    await this.db.db.execute(sql`
+      UPDATE taskip_trial_sequences SET
+        step = ${newStep},
+        status = ${completed ? 'completed' : 'active'},
+        gmail_account_id = COALESCE(gmail_account_id, ${usedAccountId}),
+        sent_angles = sent_angles || ${JSON.stringify([angleLabel])}::jsonb,
+        last_step_at = NOW(),
+        next_step_at = NOW() + INTERVAL '1 day'
+      WHERE id = ${sequenceId}
+    `);
+
+    await this.db.db.insert(taskipTrialEmailLog).values({
+      runId: '',
+      userId: sequenceId,
+      email,
+      segment: `sequence_step_${step + 1}_${angleLabel}`,
+      subject,
+      body,
+      sesMessageId: messageId,
+    });
+
+    return { success: true, data: { messageId, step: newStep, angleLabel, completed } };
+  }
+
+  private async executeLegacyEmail(action: ProposedAction): Promise<ActionResult> {
     const draft = action.payload as EmailDraft;
     const config = await this.getConfig();
 
@@ -179,7 +546,7 @@ export class TaskipTrialAgent implements IAgent, OnModuleInit {
     if (provider === 'gmail' && await this.gmail.isConfigured()) {
       messageId = await this.gmail.sendEmail({
         to: draft.email,
-        from: config.gmail?.from ?? process.env.GMAIL_FROM ?? draft.email,
+        from: config.gmail?.from ?? draft.email,
         subject: draft.subject,
         textBody: draft.body,
       });
@@ -206,103 +573,9 @@ export class TaskipTrialAgent implements IAgent, OnModuleInit {
     return { success: true, data: { messageId, provider, to: draft.email } };
   }
 
-  mcpTools(): McpToolDefinition[] {
-    return [
-      {
-        name: 'list_segment_users',
-        description: 'List users matching a Taskip segment',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            segment: { type: 'string', enum: Object.keys(SEGMENT_PROMPTS) },
-            limit: { type: 'number', default: 10 },
-          },
-          required: ['segment'],
-        },
-        handler: async (input) => {
-          const { segment, limit = 10 } = input as { segment: string; limit?: number };
-          return this.taskipDb.getUsersForSegment(segment, limit);
-        },
-      },
-      {
-        name: 'draft_email_for_user',
-        description: 'Draft a personalized email for a Taskip user',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            userId: { type: 'string' },
-            segment: { type: 'string' },
-            instruction: { type: 'string' },
-          },
-          required: ['userId', 'segment'],
-        },
-        handler: async (input) => {
-          const { userId, segment, instruction } = input as { userId: string; segment: string; instruction?: string };
-          const config = await this.getConfig();
-          const [user] = await this.taskipDb.getUsersForSegment(segment, 100)
-            .then(users => users.filter(u => u.id === userId));
-          if (!user) throw new Error(`User ${userId} not found in segment ${segment}`);
-          return this.draftEmail(user, segment, config, instruction);
-        },
-      },
-      {
-        name: 'mark_user_suppressed',
-        description: 'Mark a user email as suppressed (skip in future runs)',
-        inputSchema: {
-          type: 'object',
-          properties: { email: { type: 'string' }, reason: { type: 'string' } },
-          required: ['email'],
-        },
-        handler: async (input) => {
-          const { email, reason = 'manual' } = input as { email: string; reason?: string };
-          await this.db.db.insert(taskipTrialSuppressed).values({ email, reason });
-          return { suppressed: true, email };
-        },
-      },
-    ];
-  }
+  // ─── Legacy segment logic ─────────────────────────────────────────────────
 
-  apiRoutes(): AgentApiRoute[] {
-    return [
-      {
-        method: 'POST',
-        path: '/taskip-trial/run-segment',
-        requiresAuth: true,
-        handler: async (req) => {
-          const { segment } = (req as { body: { segment: string } }).body;
-          const config = await this.getConfig();
-          if (!config.segments[segment]) throw new Error(`Unknown segment: ${segment}`);
-          return this.taskipDb.getUsersForSegment(segment, config.dailyCap);
-        },
-      },
-      {
-        method: 'GET',
-        path: '/taskip-trial/segments/:key/users',
-        requiresAuth: true,
-        handler: async (req) => {
-          const { key } = (req as { params: { key: string } }).params;
-          const config = await this.getConfig();
-          return this.taskipDb.getUsersForSegment(key, config.dailyCap);
-        },
-      },
-      {
-        method: 'POST',
-        path: '/taskip-trial/draft/:userId',
-        requiresAuth: true,
-        handler: async (req) => {
-          const { userId } = (req as { params: { userId: string } }).params;
-          const { segment } = (req as { body: { segment: string } }).body;
-          const config = await this.getConfig();
-          const users = await this.taskipDb.getUsersForSegment(segment, 100);
-          const user = users.find(u => u.id === userId);
-          if (!user) throw new Error(`User ${userId} not in segment ${segment}`);
-          return this.draftEmail(user, segment, config);
-        },
-      },
-    ];
-  }
-
-  private async draftEmail(
+  private async draftLegacyEmail(
     user: TaskipUser,
     segment: string,
     config: AgentConfig,
@@ -356,9 +629,6 @@ export class TaskipTrialAgent implements IAgent, OnModuleInit {
   private defaultConfig(): AgentConfig {
     return {
       segments: {
-        trial_day_3: { enabled: true, templatePromptId: 'trial_d3' },
-        trial_day_5_low_activity: { enabled: true, templatePromptId: 'trial_d5_low' },
-        trial_expiring_24h: { enabled: true, templatePromptId: 'trial_expiring' },
         paid_at_risk: { enabled: true, templatePromptId: 'paid_at_risk' },
         churned_30d: { enabled: false, templatePromptId: 'churned_d30' },
       },
@@ -371,12 +641,7 @@ export class TaskipTrialAgent implements IAgent, OnModuleInit {
   }
 
   private resolveSegments(trigger: TriggerEvent, config: AgentConfig): string[] {
-    if (trigger.type === 'WEBHOOK') {
-      const payload = trigger.payload as { segment?: string } | null;
-      const seg = payload?.segment;
-      if (seg && config.segments[seg]?.enabled) return [seg];
-      return [];
-    }
+    if (trigger.type === 'WEBHOOK') return [];
     return Object.entries(config.segments)
       .filter(([, v]) => v.enabled)
       .map(([k]) => k);
@@ -409,5 +674,35 @@ export class TaskipTrialAgent implements IAgent, OnModuleInit {
     const recentSet = new Set(recentEmails.map(r => r.userId));
 
     return users.filter(u => !suppressedSet.has(u.email) && !recentSet.has(u.id));
+  }
+}
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+interface SequenceDraftContext {
+  row: SequenceRow;
+  overview: import('../taskip-internal/taskip-insight.service').InsightWorkspaceOverview | null;
+  lifecycle: import('../taskip-internal/taskip-insight.service').InsightLifecycleSnapshot | null;
+}
+
+function buildAngleReason(
+  angle: SequenceAngle,
+  daysSinceActive: number | null,
+  featureCount: number,
+  step: number,
+  industry: string | null,
+): string {
+  const industryPart = industry ? ` (${industry} user)` : '';
+  switch (angle) {
+    case 'welcome_first_win': return `Step 1 welcome${industryPart}`;
+    case 'core_feature': return `Highlighting key feature${industryPart}`;
+    case 'team_collaboration': return `Encouraging team expansion${industryPart}`;
+    case 'checkin_questions':
+      return daysSinceActive !== null
+        ? `No login for ${daysSinceActive} days${industryPart}`
+        : `Checking in${industryPart}`;
+    case 'advanced_unlock': return `Low feature usage (${featureCount} tasks)${industryPart}`;
+    case 'social_proof': return `Social proof nudge at step ${step + 1}${industryPart}`;
+    case 'upgrade_cta': return `Trial ending soon — upgrade push${industryPart}`;
   }
 }

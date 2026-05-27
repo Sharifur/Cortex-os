@@ -5,9 +5,11 @@ import { AgentsModule } from '../agents.module';
 import { LlmModule } from '../../llm/llm.module';
 import { SesModule } from '../../ses/ses.module';
 import { GmailModule } from '../../gmail/gmail.module';
+import { SettingsModule } from '../../settings/settings.module';
+import { TaskipInsightService } from '../taskip-internal/taskip-insight.service';
 
 @Module({
-  imports: [AgentsModule, LlmModule, SesModule, GmailModule],
-  providers: [TaskipTrialAgent, TaskipDbService],
+  imports: [AgentsModule, LlmModule, SesModule, GmailModule, SettingsModule],
+  providers: [TaskipTrialAgent, TaskipDbService, TaskipInsightService],
 })
 export class TaskipTrialModule {}

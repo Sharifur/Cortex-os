@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.86.0',
+    date: '2026-05-27',
+    entries: [
+      { tag: 'feat', scope: 'taskip-trial', description: '7-day hyper-personalized trial onboarding sequence. Triggered via POST /taskip-trial/trial-activated webhook; CRON sweep drafts one email per day per user using live Insight data (last_active_at, cohort, feature usage, industry). LLM picks from 7 angle pool (welcome_first_win, core_feature, team_collaboration, checkin_questions, advanced_unlock, social_proof, upgrade_cta) — sent_angles JSONB prevents repeating the same angle. gmail_account_id locked to sequence at step 0 for consistency. Each email requires Telegram approval showing angle label and computed reason before send.' },
+      { tag: 'chore', scope: 'taskip-trial', description: 'Retired day3/day5/trial_expiring_24h CRON segments; replaced by new sequence. paid_at_risk and churned_30d legacy segments remain active.' },
+    ],
+  },
+  {
     version: 'v4.85.6',
     date: '2026-05-27',
     entries: [
