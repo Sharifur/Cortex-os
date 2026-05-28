@@ -154,6 +154,10 @@ export class TaskipInternalEmailService {
         this.logger.warn(`getMessage failed for ${messageId} — using messageId as threadId`);
       }
 
+      const metadata = input.emailId
+        ? JSON.stringify({ ...(input.metadata ?? {}), parentEmailId: input.emailId })
+        : (input.metadata ? JSON.stringify(input.metadata) : null);
+
       await this.db.db.execute(sql`
         INSERT INTO taskip_internal_emails
           (id, purpose, workspace_uuid, recipient, subject, body,
@@ -162,7 +166,7 @@ export class TaskipInternalEmailService {
           (${id}, ${input.purpose}, ${input.workspaceUuid ?? null},
            ${input.recipient}, ${input.subject}, ${input.body},
            ${messageId}, ${threadId}, ${input.accountId ?? null}, 'sent',
-           ${input.metadata ?? null},
+           ${metadata}::jsonb,
            NOW())
       `);
 
@@ -204,6 +208,7 @@ export class TaskipInternalEmailService {
              last_open_at  AS "lastOpenAt"
       FROM taskip_internal_emails
       WHERE TRUE ${purposeClause} ${uuidClause} ${recipientClause}
+        AND (metadata IS NULL OR metadata->>'parentEmailId' IS NULL)
       ORDER BY sent_at DESC
       LIMIT ${limit}
     `).catch(() =>
@@ -216,6 +221,7 @@ export class TaskipInternalEmailService {
                0 AS "openCount", NULL AS "firstOpenAt", NULL AS "lastOpenAt"
         FROM taskip_internal_emails
         WHERE TRUE ${purposeClause} ${uuidClause} ${recipientClause}
+          AND (metadata IS NULL OR metadata->>'parentEmailId' IS NULL)
         ORDER BY sent_at DESC
         LIMIT ${limit}
       `)

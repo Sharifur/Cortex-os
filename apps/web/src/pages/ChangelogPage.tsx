@@ -16,6 +16,30 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.86.1',
+    date: '2026-05-27',
+    entries: [
+      { tag: 'feat', scope: 'trial-sequences', description: 'Added Trial Sequences management page at /trial-sequences. Shows all onboarding sequences grouped by status (active, completed, cancelled) with step progress dots, sent angle labels, next-send timing, industry tag, and sender account. Active sequences can be cancelled directly from the page. Auto-refreshes every 30s.' },
+      { tag: 'feat', scope: 'taskip-trial', description: 'Added PATCH /taskip-trial/sequences/:id/cancel API endpoint to cancel active sequences.' },
+    ],
+  },
+  {
+    version: 'v4.86.0',
+    date: '2026-05-27',
+    entries: [
+      { tag: 'feat', scope: 'taskip-trial', description: '7-day hyper-personalized trial onboarding sequence. Triggered via POST /taskip-trial/trial-activated webhook; CRON sweep drafts one email per day per user using live Insight data (last_active_at, cohort, feature usage, industry). LLM picks from 7 angle pool (welcome_first_win, core_feature, team_collaboration, checkin_questions, advanced_unlock, social_proof, upgrade_cta) — sent_angles JSONB prevents repeating the same angle. gmail_account_id locked to sequence at step 0 for consistency. Each email requires Telegram approval showing angle label and computed reason before send.' },
+      { tag: 'chore', scope: 'taskip-trial', description: 'Retired day3/day5/trial_expiring_24h CRON segments; replaced by new sequence. paid_at_risk and churned_30d legacy segments remain active.' },
+    ],
+  },
+  {
+    version: 'v4.85.6',
+    date: '2026-05-27',
+    entries: [
+      { tag: 'feat', scope: 'nav', description: 'Live Chat and Inbox nav items now show badge counts: Live Chat shows pending human-assist chats (waitingChats), Inbox shows new unread replies (newInboxReplies). Both badges use distinct colors and update every 5 min alongside the notification bell.' },
+      { tag: 'fix', scope: 'inbox', description: 'Manual reply sent from Inbox detail view no longer appears as a separate top-level inbox item. Reply rows are tagged with parentEmailId in metadata and filtered out of the inbox list, so the thread stays clean.' },
+    ],
+  },
+  {
     version: 'v4.85.5',
     date: '2026-05-26',
     entries: [
