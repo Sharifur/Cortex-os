@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.87.0',
+    date: '2026-05-28',
+    entries: [
+      { tag: 'feat', scope: 'inbox', description: 'AI Draft Assistant now passes the original email body + strong engagement signal to the agent. When recipient opened but did not reply, the prompt explicitly instructs the LLM to write as a continuation (not a cold restart), reduce friction, and end with one specific question — not a generic re-introduction.' },
+      { tag: 'feat', scope: 'inbox', description: 'Added "Send this draft" button in the AI Draft Assistant panel. When the agent returns a parseable email draft (Email: ... Self-score: format), a "Draft ready" CTA appears above the chat input. One click sends the draft as a reply using the existing send endpoint — no copy-paste required.' },
+    ],
+  },
+  {
     version: 'v4.86.1',
     date: '2026-05-27',
     entries: [

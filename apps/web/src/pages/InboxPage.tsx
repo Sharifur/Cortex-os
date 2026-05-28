@@ -5,7 +5,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
-  Mail, Eye, EyeOff, MessageSquare, RefreshCw, Bot, Loader2, Clock, ChevronRight, ChevronLeft, Reply, Send, X, Search, Pencil, ChevronDown, Trash2, Bell, BellOff,
+  Mail, Eye, EyeOff, MessageSquare, RefreshCw, Bot, Loader2, Clock, ChevronRight, ChevronLeft, Reply, Send, X, Search, Pencil, ChevronDown, Trash2, Bell, BellOff, Check,
 } from 'lucide-react';
 
 interface GmailAccount {
@@ -137,6 +137,12 @@ function timeAgo(iso: string): string {
   return `${Math.floor(h / 24)}d ago`;
 }
 
+function extractEmailDraftBody(content: string): string | null {
+  const m = content.match(/\*{0,2}Email:\*{0,2}\s*\n([\s\S]+?)(?:\*{0,2}Self-score:|---|\n\n\*{0,2}(?:Score|Note|Summary)|$)/i);
+  if (m?.[1]?.trim()) return m[1].trim();
+  return null;
+}
+
 function fmtDate(iso: string, tz: string): string {
   return parseUtc(iso).toLocaleString(undefined, { timeZone: tz });
 }
@@ -235,6 +241,9 @@ export default function InboxPage() {
   const [aiInput, setAiInput] = useState('');
   const [aiRunId, setAiRunId] = useState<string | null>(null);
   const [aiThinking, setAiThinking] = useState(false);
+  const [lastDraft, setLastDraft] = useState<string | null>(null);
+  const [draftSending, setDraftSending] = useState(false);
+  const [draftSent, setDraftSent] = useState(false);
   const aiBottomRef = useRef<HTMLDivElement>(null);
   const aiInputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -316,6 +325,8 @@ export default function InboxPage() {
     setAiMessages(prev => [...prev, { role: 'agent', content }]);
     setAiThinking(false);
     setAiRunId(null);
+    const draft = extractEmailDraftBody(content);
+    if (draft) setLastDraft(draft);
   }, [aiRunQuery.data, aiRunId]);
 
   useEffect(() => {
@@ -381,6 +392,34 @@ export default function InboxPage() {
     if (!msg || aiThinking) return;
     setAiInput('');
     triggerAiRun(msg, aiMessages);
+  }
+
+  async function handleSendAiDraft() {
+    if (!selected || !lastDraft || draftSending) return;
+    setDraftSending(true);
+    try {
+      const res = await fetch('/taskip-internal/inbox/send', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          recipient: selected.recipient,
+          subject: selected.subject.startsWith('Re:') ? selected.subject : `Re: ${selected.subject}`,
+          textBody: lastDraft,
+          purpose: 'followup',
+          accountId: replyAccountId || undefined,
+          emailId: selected.id,
+        }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setDraftSent(true);
+      setLastDraft(null);
+      qc.invalidateQueries({ queryKey: ['inbox'] });
+      qc.invalidateQueries({ queryKey: ['inbox-detail', selected.id] });
+    } catch (e) {
+      setAiMessages(prev => [...prev, { role: 'agent', content: `Send failed: ${e instanceof Error ? e.message : String(e)}` }]);
+    } finally {
+      setDraftSending(false);
+    }
   }
 
   useEffect(() => {
@@ -494,6 +533,8 @@ export default function InboxPage() {
     setReplyBody('');
     setReplySent(false);
     setReplyError(null);
+    setLastDraft(null);
+    setDraftSent(false);
   }, [selectedId]);
 
   useEffect(() => {
@@ -535,20 +576,42 @@ export default function InboxPage() {
 
   function handleDraftReply(r: InboxRow) {
     const opens = r.openCount ?? 0;
-    const openInfo = isOpened(r)
-      ? opens > 0 ? `opened it ${opens} time${opens > 1 ? 's' : ''} (first opened ${timeAgo(r.firstOpenAt!)})` : 'opened it (manually marked)'
-      : 'has not opened it yet';
-    const replyInfo = r.replyCount > 0
-      ? ` They replied ${r.replyCount} time${r.replyCount > 1 ? 's' : ''}, last ${timeAgo(r.lastReplyAt!)}.`
-      : '';
+    const opened = isOpened(r);
+    const replied = r.replyCount > 0;
+
+    let engagementSignal: string;
+    if (opened && !replied) {
+      const openDetail = opens > 0
+        ? `${opens} time${opens > 1 ? 's' : ''} (first ${timeAgo(r.firstOpenAt!)})`
+        : '(manually marked)';
+      engagementSignal = `IMPORTANT: They opened this email ${openDetail} but have NOT replied. They already saw it — do NOT re-introduce context they already have. Write as if continuing a conversation they chose not to respond to. Acknowledge their time, reduce reply friction, end with ONE specific low-effort question.`;
+    } else if (replied) {
+      engagementSignal = `They replied ${r.replyCount} time${r.replyCount > 1 ? 's' : ''}, last ${timeAgo(r.lastReplyAt!)}.`;
+    } else {
+      engagementSignal = `They have not opened or replied yet. Keep it warm and curiosity-driven.`;
+    }
+
     const insightHint = r.workspaceUuid
-      ? ` Before drafting, call insight_get_lifecycle with workspace_uuid="${r.workspaceUuid}" to get the latest engagement stats for this workspace, then use those in the draft.`
+      ? ` Before drafting, call insight_get_lifecycle with workspace_uuid="${r.workspaceUuid}" to get latest engagement stats and use them to personalise the tone.`
       : '';
-    const query = `Draft a follow-up email to ${r.recipient} about the email "${r.subject}" sent ${timeAgo(r.sentAt)}. They ${openInfo}.${replyInfo}${insightHint} Use the SPAR system.`;
+
+    const query = `Draft a follow-up reply to ${r.recipient} for this email I sent (subject: "${r.subject}", sent ${timeAgo(r.sentAt)}).
+
+Original email body:
+---
+${r.body.slice(0, 800)}
+---
+
+Engagement context: ${engagementSignal}${insightHint}
+
+Show me the draft first — do not send yet. Keep it SHORT (40-60 words max). Reference the original email naturally. Do not restate what I already said. End with one specific question.`;
+
     setAiMessages([]);
     setAiRunId(null);
     setAiThinking(false);
     setAiInput('');
+    setLastDraft(null);
+    setDraftSent(false);
     setAiOpen(true);
     triggerAiRun(query, []);
   }
@@ -1205,6 +1268,24 @@ export default function InboxPage() {
             )}
             <div ref={aiBottomRef} />
           </div>
+
+          {/* Send draft CTA — shown when agent produced a parseable draft */}
+          {(lastDraft || draftSent) && (
+            <div className="shrink-0 border-t border-border px-4 py-3 bg-muted/20 space-y-2">
+              <p className="text-[11px] text-muted-foreground font-medium">Draft ready</p>
+              <button
+                onClick={handleSendAiDraft}
+                disabled={draftSending || draftSent || !lastDraft}
+                className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-60 transition-colors"
+              >
+                {draftSent
+                  ? <><Check className="w-4 h-4" /> Sent!</>
+                  : draftSending
+                  ? <><Loader2 className="w-4 h-4 animate-spin" /> Sending…</>
+                  : <><Send className="w-4 h-4" /> Send this draft</>}
+              </button>
+            </div>
+          )}
 
           {/* Input */}
           <div className="shrink-0 border-t border-border p-3">
