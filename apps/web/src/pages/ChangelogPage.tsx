@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.89.3',
+    date: '2026-05-31',
+    entries: [
+      { tag: 'fix', scope: 'linkedin', description: 'LinkedIn agent now runs ALTER TABLE on startup to ensure blocked_countries column exists before any query executes. Fixes persistent column-not-found errors when migration 0084 was tracked as applied but the column was never actually created in production.' },
+    ],
+  },
+  {
     version: 'v4.89.2',
     date: '2026-05-31',
     entries: [

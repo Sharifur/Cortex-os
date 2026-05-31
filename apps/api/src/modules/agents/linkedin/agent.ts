@@ -221,8 +221,11 @@ export class LinkedInAgent implements IAgent, OnModuleInit {
     private logSvc: AgentLogService,
   ) {}
 
-  onModuleInit() {
+  async onModuleInit() {
     this.registry.register(this);
+    await this.db.db.execute(sql`
+      ALTER TABLE linkedin_accounts ADD COLUMN IF NOT EXISTS blocked_countries text[] NOT NULL DEFAULT '{}'
+    `).catch((err: unknown) => this.logger.warn(`blocked_countries column check: ${err}`));
   }
 
   triggers(): TriggerSpec[] {
