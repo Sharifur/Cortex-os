@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.90.0',
+    date: '2026-06-01',
+    entries: [
+      { tag: 'feat', scope: 'livechat', description: 'Operators can now delete their own sent messages in live chat. A trash icon appears on hover next to operator messages. Deleting removes the message immediately for the operator and broadcasts a message_removed event to the visitor in real time.' },
+    ],
+  },
+  {
     version: 'v4.89.3',
     date: '2026-05-31',
     entries: [

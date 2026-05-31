@@ -1972,6 +1972,15 @@ function SessionPane({
       }),
     onError: handleMutationError('Flag failed'),
   });
+  const deleteMsgMut = useMutation({
+    mutationFn: (messageId: string) =>
+      apiFetch(token, `/agents/livechat/messages/${messageId}`, { method: 'DELETE' }),
+    onSuccess: (_data, messageId) => {
+      setLiveMessages((prev) => prev.filter((m) => m.id !== messageId));
+      qc.invalidateQueries({ queryKey: ['livechat-session', sessionId] });
+    },
+    onError: handleMutationError('Delete failed'),
+  });
 
   const [pendingAttachments, setPendingAttachments] = useState<AttachmentSummary[]>([]);
   const [uploadingPreviews, setUploadingPreviews] = useState<{ id: string; name: string; objectUrl: string; mimeType: string }[]>([]);
@@ -2216,6 +2225,7 @@ function SessionPane({
                     onReject={() => rejectMut.mutate(m.id)}
                     onEditApprove={(content) => editApproveMut.mutate({ messageId: m.id, content })}
                     onFlag={(correction) => flagMut.mutate({ messageId: m.id, correction })}
+                    onDelete={() => deleteMsgMut.mutate(m.id)}
                     busy={approveMut.isPending || rejectMut.isPending || editApproveMut.isPending}
                     onReply={(msg) => { setReplyTo({ id: msg.id, content: msg.content, role: msg.role }); setComposerTab('reply'); composerRef.current?.focus(); }}
                     sessionLanguage={language}
@@ -2745,6 +2755,7 @@ function MessageBubble({
   onReject,
   onEditApprove,
   onFlag,
+  onDelete,
   onReply,
   onTranslate,
   translation,
@@ -2760,6 +2771,7 @@ function MessageBubble({
   onReject?: () => void;
   onEditApprove?: (content: string) => void;
   onFlag?: (correction: string) => void;
+  onDelete?: () => void;
   onReply?: (msg: MessageRow) => void;
   onTranslate?: () => void;
   translation?: string;
@@ -2907,6 +2919,15 @@ function MessageBubble({
             {onReply && (
               <button onClick={() => onReply(message)} className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded text-muted-foreground hover:text-foreground" title="Reply">
                 <CornerUpLeft className="w-3 h-3" />
+              </button>
+            )}
+            {isOperator && onDelete && (
+              <button
+                onClick={() => { if (window.confirm('Delete this message?')) onDelete(); }}
+                className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded text-muted-foreground hover:text-red-400"
+                title="Delete message"
+              >
+                <Trash2 className="w-3 h-3" />
               </button>
             )}
             {isAi && !flagSubmitted && (
