@@ -1443,15 +1443,18 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
     return [
       {
         name: 'lookup_user',
-        description: 'Find a Taskip workspace by owner email address via the Insight API. Returns workspace stats including owner details, cohort, score, and 60-day activity.',
+        description: 'Find a Taskip workspace by owner email address OR company/workspace name via the Insight API. Pass an email address for exact lookup, or a company/workspace name for name-based search. Returns workspace stats including owner details, cohort, score, and 60-day activity.',
         inputSchema: {
           type: 'object',
-          properties: { emailOrId: { type: 'string', description: 'owner email address' } },
+          properties: { emailOrId: { type: 'string', description: 'owner email address or company/workspace name' } },
           required: ['emailOrId'],
         },
         handler: async (input) => {
           const { emailOrId } = input as { emailOrId: string };
-          return this.insight.searchByEmail(emailOrId);
+          const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailOrId.trim());
+          return isEmail
+            ? this.insight.searchByEmail(emailOrId.trim())
+            : this.insight.search({ name: emailOrId.trim() });
         },
       },
       {

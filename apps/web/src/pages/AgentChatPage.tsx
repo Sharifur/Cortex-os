@@ -175,7 +175,9 @@ function extractInlineEmail(text: string): InlineEmail | null {
     const makeSubjectRe = (letter: string) =>
       new RegExp(`\\*{0,2}Subject\\s*${letter}:\\*{0,2}\\s*([^\\n]+)`, 'i');
 
-    const subjectMatch = text.match(makeSubjectRe(pick));
+    const subjectMatch = text.match(makeSubjectRe(pick))
+      ?? text.match(makeSubjectRe(other))
+      ?? text.match(/\*{0,2}Subject:\*{0,2}\s*([^\n]+)/i);
     const altMatch = text.match(makeSubjectRe(other));
 
     const subject = subjectMatch ? cleanSubject(subjectMatch[1]) : '';
