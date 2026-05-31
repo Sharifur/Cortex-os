@@ -242,6 +242,17 @@ export class LivechatConversationsController {
     return { ok: true };
   }
 
+  @Delete('messages/:id')
+  @HttpCode(HttpStatus.OK)
+  async deleteMessage(@Param('id') id: string) {
+    const msg = await this.livechat.getMessageById(id);
+    if (!msg) throw new NotFoundException(`Message not found: ${id}`);
+    await this.livechat.deleteMessage(id);
+    this.stream.publish(msg.sessionId, { type: 'message_removed', sessionId: msg.sessionId, messageId: id });
+    this.stream.publishToOperators({ type: 'session_upserted', sessionId: msg.sessionId });
+    return { ok: true };
+  }
+
   @Post('messages/:id/flag')
   @HttpCode(HttpStatus.OK)
   async flagMessage(@Param('id') id: string, @Body() body: { correction: string }) {
