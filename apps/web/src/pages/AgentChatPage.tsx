@@ -106,13 +106,16 @@ const EMAIL_DRAFT_PREFIX = '__EMAIL_DRAFT__:';
 const SLIDE_RENDER_PREFIX = '__SLIDE_RENDER__:';
 
 interface InlineEmail {
-  before: string;       // reasoning block shown above the card
-  subject: string;      // recommended subject
-  subjectAlt?: string;  // alternate subject (B when A recommended, or vice versa)
+  before: string;
+  subject: string;
+  subjectAlt?: string;
   body: string;
+  bodyAlt?: string;
+  labelA?: string;
+  labelB?: string;
   after: string;
-  selfScore?: string;   // e.g. "5/5"
-  to?: string;          // recipient email from **To:** line
+  selfScore?: string;
+  to?: string;
 }
 
 function cleanSubject(raw: string): string {
@@ -126,7 +129,8 @@ function stripSubjectLines(text: string): string {
     .split('\n')
     .filter(line => !/^\*{0,2}Subject\s*[AB]?\s*:/i.test(line.trim()) &&
                     !/^\*{0,2}Recommended:/i.test(line.trim()) &&
-                    !/^\*{0,2}To:\*{0,2}\s/i.test(line.trim()))
+                    !/^\*{0,2}To:\*{0,2}\s/i.test(line.trim()) &&
+                    !/^\*{0,2}Variant\s*[AB]/i.test(line.trim()))
     .join('\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
@@ -151,28 +155,86 @@ function extractInlineEmail(text: string): InlineEmail | null {
     }
   }
 
+  // ── New variant format: **Variant A — label:** / **Variant B — label:** ────────
+  const variantARe = /\*{0,2}Variant\s*A\s*(?:—([^:*\n]*))?\*{0,2}:\*{0,2}[ \t]*\n/i;
+  const variantBRe = /\*{0,2}Variant\s*B\s*(?:—([^:*\n]*))?\*{0,2}:\*{0,2}[ \t]*\n/i;
+  const variantAMatch = variantARe.exec(text);
+  const variantBMatch = variantBRe.exec(text);
+
+  if (variantAMatch) {
+    const recommendedMatch = text.match(/\*{0,2}Recommended:\*{0,2}\s*([AB])\b/i);
+    const pick = recommendedMatch ? recommendedMatch[1].toUpperCase() : 'A';
+    const other = pick === 'A' ? 'B' : 'A';
+
+    const makeSubjectRe = (letter: string) =>
+      new RegExp(`\\*{0,2}Subject\\s*${letter}:\\*{0,2}\\s*([^\\n]+)`, 'i');
+    const subjectMatch = text.match(makeSubjectRe(pick))
+      ?? text.match(makeSubjectRe(other))
+      ?? text.match(/\*{0,2}Subject:\*{0,2}\s*([^\n]+)/i);
+    const altMatch = text.match(makeSubjectRe(other));
+    const subject = subjectMatch ? cleanSubject(subjectMatch[1]) : '';
+    const subjectAlt = altMatch ? cleanSubject(altMatch[1]) : undefined;
+
+    const labelARaw = variantAMatch[1]?.trim();
+    const labelBRaw = variantBMatch ? variantBMatch[1]?.trim() : undefined;
+    const labelA = labelARaw || 'Variant A';
+    const labelB = labelBRaw || 'Variant B';
+
+    const aBodyStart = variantAMatch.index + variantAMatch[0].length;
+    const afterA = text.slice(aBodyStart);
+    const bMarkerInAfterA = variantBRe.exec(afterA);
+    const bodyA = (bMarkerInAfterA ? afterA.slice(0, bMarkerInAfterA.index) : afterA)
+      .replace(/\n\*{0,2}Self-score:[\s\S]*/i, '').trim();
+
+    let bodyB: string | undefined;
+    if (variantBMatch) {
+      const bBodyStart = variantBMatch.index + variantBMatch[0].length;
+      const afterB = text.slice(bBodyStart);
+      const selfScoreIdx = afterB.search(/\n\*{0,2}Self-score:/i);
+      bodyB = (selfScoreIdx >= 0 ? afterB.slice(0, selfScoreIdx) : afterB).trim();
+    }
+
+    let selfScore: string | undefined;
+    const selfScoreMatch = text.match(/Self-score:\*{0,2}\s*(\d\/\d)/i);
+    if (selfScoreMatch) selfScore = selfScoreMatch[1];
+
+    const rawBefore = text.slice(0, variantAMatch.index).replace(/\n?---\s*$/, '');
+    const before = stripSubjectLines(rawBefore);
+
+    const toMatch = text.match(/\*{0,2}To:\*{0,2}\s*([^\s\n]+)/i);
+    const to = toMatch ? toMatch[1].trim() : undefined;
+
+    // Pick which is primary vs alt based on recommendation
+    const primaryBody = pick === 'A' ? bodyA : (bodyB ?? bodyA);
+    const altBody = pick === 'A' ? bodyB : bodyA;
+    const primaryLabel = pick === 'A' ? labelA : labelB;
+    const altLabel = pick === 'A' ? labelB : labelA;
+
+    if (subject && primaryBody) return {
+      before, subject, subjectAlt, body: primaryBody, bodyAlt: altBody,
+      labelA: primaryLabel, labelB: altLabel,
+      after: '', selfScore, to,
+    };
+  }
+
   if (emailMarkerIdx >= 0) {
     const bodyStart = emailMarkerIdx + lastMatchLen;
     const afterEmail = text.slice(bodyStart);
 
-    // Body ends at **Self-score:**, **Recommended:**, or another **bold:** meta-line
     const selfScoreRe = /\n\*{0,2}Self-score:/i;
     const selfScoreIdx = afterEmail.search(selfScoreRe);
     const body = (selfScoreIdx >= 0 ? afterEmail.slice(0, selfScoreIdx) : afterEmail).trim();
 
-    // Extract self-score value e.g. "5/5"
     let selfScore: string | undefined;
     if (selfScoreIdx >= 0) {
       const scoreMatch = afterEmail.slice(selfScoreIdx).match(/Self-score:\*{0,2}\s*(\d\/\d)/i);
       if (scoreMatch) selfScore = scoreMatch[1];
     }
 
-    // Recommended: pick A or B — match first letter after the colon, ignoring — dashes
     const recommendedMatch = text.match(/\*{0,2}Recommended:\*{0,2}\s*([AB])\b/i);
     const pick = recommendedMatch ? recommendedMatch[1].toUpperCase() : 'A';
     const other = pick === 'A' ? 'B' : 'A';
 
-    // Subject regex: **Subject A:** or **SubjectA:** (with or without space)
     const makeSubjectRe = (letter: string) =>
       new RegExp(`\\*{0,2}Subject\\s*${letter}:\\*{0,2}\\s*([^\\n]+)`, 'i');
 
@@ -184,11 +246,9 @@ function extractInlineEmail(text: string): InlineEmail | null {
     const subject = subjectMatch ? cleanSubject(subjectMatch[1]) : '';
     const subjectAlt = altMatch ? cleanSubject(altMatch[1]) : undefined;
 
-    // "before" = reasoning block only (strip Subject A/B/Recommended lines)
     const rawBefore = text.slice(0, emailMarkerIdx).replace(/\n?---\s*$/, '');
     const before = stripSubjectLines(rawBefore);
 
-    // Extract **To:** recipient email
     const toMatch = text.match(/\*{0,2}To:\*{0,2}\s*([^\s\n]+)/i);
     const to = toMatch ? toMatch[1].trim() : undefined;
 
@@ -582,11 +642,14 @@ function SendEmailModal({
 // ─── Email draft card ─────────────────────────────────────────────────────────
 
 function EmailDraftCard({
-  subject, subjectAlt, body, recipient, selfScore, token, agentKey,
+  subject, subjectAlt, body, bodyAlt, labelA, labelB, recipient, selfScore, token, agentKey,
 }: {
   subject: string;
   subjectAlt?: string;
   body: string;
+  bodyAlt?: string;
+  labelA?: string;
+  labelB?: string;
   recipient?: string;
   selfScore?: string;
   token: string;
@@ -599,6 +662,7 @@ function EmailDraftCard({
   const [sentEmailId, setSentEmailId] = useState<string | undefined>();
   const [spamResult, setSpamResult] = useState<{ score: number; grade: string } | null>(null);
   const trackedSend = agentKey === 'taskip_internal';
+  const hasVariants = !!(subjectAlt || bodyAlt);
 
   useEffect(() => {
     if (agentKey !== 'taskip_internal' || !subject || !body) return;
@@ -613,12 +677,16 @@ function EmailDraftCard({
   }, [subject, body, agentKey, token, recipient]);
 
   const activeSubject = useAlt && subjectAlt ? subjectAlt : subject;
+  const activeBody = useAlt && bodyAlt ? bodyAlt : body;
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(`Subject: ${activeSubject}\n\n${body}`).catch(() => {});
+    navigator.clipboard.writeText(`Subject: ${activeSubject}\n\n${activeBody}`).catch(() => {});
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
+
+  const tabLabelA = labelA ?? 'A';
+  const tabLabelB = labelB ?? 'B';
 
   return (
     <>
@@ -626,7 +694,7 @@ function EmailDraftCard({
         <SendEmailModal
           to={recipient}
           subject={activeSubject}
-          body={body}
+          body={activeBody}
           token={token}
           trackedSend={trackedSend}
           onClose={() => setShowSendModal(false)}
@@ -634,31 +702,31 @@ function EmailDraftCard({
         />
       )}
       <div className="rounded-xl border border-border bg-card overflow-hidden w-full max-w-xl text-sm">
-        {/* Subject row with optional A/B toggle */}
-        <div className="px-4 py-3 border-b border-border bg-muted/30">
-          <div className="flex items-start justify-between gap-2">
-            <div className="flex items-baseline gap-2 min-w-0">
-              <span className="text-muted-foreground shrink-0 text-xs font-medium w-14">Subject:</span>
-              <span className="font-medium text-foreground">{activeSubject}</span>
-            </div>
-            {subjectAlt && (
-              <div className="flex items-center gap-0.5 shrink-0">
-                <button
-                  onClick={() => setUseAlt(false)}
-                  className={`px-2 py-0.5 rounded-l text-xs border border-border transition-colors ${!useAlt ? 'bg-primary text-primary-foreground border-primary' : 'text-muted-foreground hover:text-foreground'}`}
-                >A</button>
-                <button
-                  onClick={() => setUseAlt(true)}
-                  className={`px-2 py-0.5 rounded-r text-xs border-y border-r border-border transition-colors ${useAlt ? 'bg-primary text-primary-foreground border-primary' : 'text-muted-foreground hover:text-foreground'}`}
-                >B</button>
-              </div>
-            )}
+        {/* A/B variant tabs — shown above subject when variants exist */}
+        {hasVariants && (
+          <div className="flex border-b border-border">
+            <button
+              onClick={() => setUseAlt(false)}
+              className={`flex items-center gap-1.5 px-4 py-2 text-xs font-medium transition-colors flex-1 justify-center ${!useAlt ? 'bg-card text-foreground border-b-2 border-primary' : 'text-muted-foreground hover:text-foreground bg-muted/30'}`}
+            >
+              <span className="flex items-center justify-center w-4 h-4 rounded-full text-[10px] font-bold bg-primary/15 text-primary">A</span>
+              {tabLabelA}
+            </button>
+            <button
+              onClick={() => setUseAlt(true)}
+              className={`flex items-center gap-1.5 px-4 py-2 text-xs font-medium transition-colors flex-1 justify-center border-l border-border ${useAlt ? 'bg-card text-foreground border-b-2 border-primary' : 'text-muted-foreground hover:text-foreground bg-muted/30'}`}
+            >
+              <span className="flex items-center justify-center w-4 h-4 rounded-full text-[10px] font-bold bg-muted text-muted-foreground">B</span>
+              {tabLabelB}
+            </button>
           </div>
-          {subjectAlt && (
-            <p className="text-[10px] text-muted-foreground mt-1 ml-16">
-              {useAlt ? subject : subjectAlt}
-            </p>
-          )}
+        )}
+        {/* Subject row */}
+        <div className="px-4 py-3 border-b border-border bg-muted/30">
+          <div className="flex items-baseline gap-2 min-w-0">
+            <span className="text-muted-foreground shrink-0 text-xs font-medium w-14">Subject:</span>
+            <span className="font-medium text-foreground">{activeSubject}</span>
+          </div>
         </div>
         {recipient && (
           <div className="flex items-baseline gap-2 px-4 py-2 border-b border-border bg-muted/20">
@@ -668,7 +736,7 @@ function EmailDraftCard({
         )}
         <div
           className="px-4 py-4 text-foreground leading-relaxed prose-sm max-w-none"
-          dangerouslySetInnerHTML={{ __html: renderMarkdown(body) }}
+          dangerouslySetInnerHTML={{ __html: renderMarkdown(activeBody) }}
         />
         <div className="flex items-center justify-between gap-2 px-4 py-3 border-t border-border bg-muted/20">
           <div className="flex items-center gap-2">
@@ -1598,7 +1666,7 @@ function MessageBubble({
                       <div dangerouslySetInnerHTML={{ __html: renderMarkdown(inline.before) }} />
                     </div>
                   )}
-                  <EmailDraftCard subject={inline.subject} subjectAlt={inline.subjectAlt} body={inline.body} selfScore={inline.selfScore} recipient={inline.to} token={token} agentKey={agentKey} />
+                  <EmailDraftCard subject={inline.subject} subjectAlt={inline.subjectAlt} body={inline.body} bodyAlt={inline.bodyAlt} labelA={inline.labelA} labelB={inline.labelB} selfScore={inline.selfScore} recipient={inline.to} token={token} agentKey={agentKey} />
                   {draftIndex != null && totalDrafts != null && totalDrafts > 1 && (
                     <div className="flex items-center gap-2 px-1">
                       <span className="text-[10px] text-muted-foreground/50">Draft {draftIndex + 1} of {totalDrafts}</span>

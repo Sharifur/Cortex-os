@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.89.0',
+    date: '2026-05-31',
+    entries: [
+      { tag: 'feat', scope: 'taskip-internal', description: 'Email draft card now supports two full body variants (A and B), not just subject swap. SPAR system prompt outputs Variant A and Variant B with labelled tone tabs (e.g. "Full structured" / "Founder voice"). Switching tabs changes both the subject line and the body. Copy and Send use whichever variant is active.' },
+    ],
+  },
+  {
     version: 'v4.88.3',
     date: '2026-05-31',
     entries: [
