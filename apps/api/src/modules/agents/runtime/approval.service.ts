@@ -7,6 +7,7 @@ import { DbService } from '../../../db/db.service';
 import { pendingApprovals, agentRuns, agents } from '../../../db/schema';
 import { AgentRegistryService } from './agent-registry.service';
 import { AgentLogService } from './agent-log.service';
+import { CorrectionCaptureService } from './correction-capture.service';
 import { QUEUE_NAMES } from '../../../common/queue/queue.constants';
 import type { AgentExecuteJobData, AgentFollowupJobData, ProposedAction } from './types';
 import { TELEGRAM_EVENTS } from '../../telegram/telegram.types';
@@ -20,6 +21,7 @@ export class ApprovalService {
     private registry: AgentRegistryService,
     private logSvc: AgentLogService,
     private events: EventEmitter2,
+    private capture: CorrectionCaptureService,
     @InjectQueue(QUEUE_NAMES.AGENT_EXECUTE) private executeQueue: Queue,
     @InjectQueue(QUEUE_NAMES.AGENT_FOLLOWUP) private followupQueue: Queue,
   ) {}
@@ -88,6 +90,15 @@ export class ApprovalService {
     this.events.emit('approval.removed', { id: approvalId });
     this.events.emit(TELEGRAM_EVENTS.APPROVAL_RESOLVED, { runId: approval.runId });
 
+    void this.capture.onApproved({
+      approvalId,
+      runId: approval.runId,
+      agentKey: run.agentKey,
+      action: approval.action as ProposedAction,
+      createdAt: approval.createdAt,
+      followupMessages: (approval.followupMessages as Array<{ from: string; text: string; at: string }>) ?? [],
+    });
+
     await this.executeQueue.add(
       'execute',
       {
@@ -126,6 +137,15 @@ export class ApprovalService {
     await this.logSvc.info(approval.runId, `Approval ${approvalId} approved without note`);
     this.events.emit('approval.removed', { id: approvalId });
     this.events.emit(TELEGRAM_EVENTS.APPROVAL_RESOLVED, { runId: approval.runId });
+
+    void this.capture.onApproved({
+      approvalId,
+      runId: approval.runId,
+      agentKey: run.agentKey,
+      action: patchedAction,
+      createdAt: approval.createdAt,
+      followupMessages: (approval.followupMessages as Array<{ from: string; text: string; at: string }>) ?? [],
+    });
 
     await this.executeQueue.add(
       'execute',
@@ -182,6 +202,16 @@ export class ApprovalService {
             reason,
           });
         }
+
+        void this.capture.onRejected({
+          approvalId,
+          runId: approval.runId,
+          agentKey: runRow.agentKey,
+          action: approval.action as ProposedAction,
+          createdAt: approval.createdAt,
+          followupMessages: (approval.followupMessages as Array<{ from: string; text: string; at: string }>) ?? [],
+          rejectionReason: reason,
+        });
       }
     }
   }
@@ -218,6 +248,16 @@ export class ApprovalService {
     this.events.emit(TELEGRAM_EVENTS.APPROVAL_RESOLVED, { runId: approval.runId });
 
     const runWithAgent = await this.getRunForApproval(approval.runId);
+
+    void this.capture.onFollowup({
+      approvalId,
+      runId: approval.runId,
+      agentKey: runWithAgent.agentKey,
+      action: approval.action as ProposedAction,
+      createdAt: approval.createdAt,
+      followupMessages: [...existing, newEntry] as Array<{ from: string; text: string; at: string }>,
+      instruction,
+    });
     await this.followupQueue.add(
       'followup',
       {

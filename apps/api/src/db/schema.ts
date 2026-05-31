@@ -29,3 +29,4 @@ export * from '../modules/ses/ses-suppressions.schema';
 export * from '../modules/post-render/schema';
 export * from '../modules/design-studio/schema';
 export * from '../modules/agents/listing-outreach/schema';
+export * from './schemas/correction-signals.schema';

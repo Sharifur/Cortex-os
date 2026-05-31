@@ -8,6 +8,7 @@ export const QUEUE_NAMES = {
   TASK_SWEEP: 'task-sweep',
   DESIGN_STUDIO: 'design-studio',
   LINKEDIN_CRON: 'linkedin-cron',
+  CORRECTION_ANALYSIS: 'correction-analysis',
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];

@@ -7841,13 +7841,305 @@ function WebhookLogsTab({ token }: { token: string }) {
   );
 }
 
+// ─── Simulate Tab ─────────────────────────────────────────────────────────────
+
+interface SimulateTraceStep {
+  step: string;
+  label: string;
+  detail: string;
+  durationMs: number;
+}
+
+interface SimulateResult {
+  response: string;
+  kbBlock: string;
+  trace: SimulateTraceStep[];
+  matchedEntries: Array<{ id: string; title: string; entryType: string; preview: string; priority: number }>;
+  alwaysOnEntries: Array<{ title: string; entryType: string }>;
+  alwaysOnCount: number;
+  blocklistCount: number;
+  kbTokenEstimate: number;
+}
+
+interface SimulateMessage {
+  role: 'user' | 'assistant';
+  text: string;
+  result?: SimulateResult;
+  rating?: 'good' | 'bad';
+}
+
+const STEP_COLORS: Record<string, string> = {
+  always_on:     'text-blue-400 bg-blue-500/10 border-blue-500/20',
+  samples:       'text-purple-400 bg-purple-500/10 border-purple-500/20',
+  kb_search:     'text-amber-400 bg-amber-500/10 border-amber-500/20',
+  kb_block:      'text-cyan-400 bg-cyan-500/10 border-cyan-500/20',
+  coverage_gate: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
+  llm:           'text-pink-400 bg-pink-500/10 border-pink-500/20',
+};
+
+const STEP_ICONS: Record<string, string> = {
+  always_on:     'DB',
+  samples:       'WS',
+  kb_search:     'SR',
+  kb_block:      'KB',
+  coverage_gate: 'GK',
+  llm:           'AI',
+};
+
+function TracePanel({ result, onViewPrompt, showPrompt }: {
+  result: SimulateResult;
+  onViewPrompt: () => void;
+  showPrompt: boolean;
+}) {
+  return (
+    <div className="space-y-3">
+      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Process trace</p>
+
+      {result.trace.map((step, i) => {
+        const cls = STEP_COLORS[step.step] ?? 'text-muted-foreground bg-muted/50 border-border';
+        const abbr = STEP_ICONS[step.step] ?? '??';
+        return (
+          <div key={i} className={`rounded-lg border px-3 py-2.5 ${cls}`}>
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-[9px] font-bold tracking-widest opacity-70">{abbr}</span>
+              <span className="text-[11px] font-semibold flex-1">{step.label}</span>
+              {step.durationMs > 0 && (
+                <span className="text-[10px] opacity-60 tabular-nums shrink-0">{step.durationMs}ms</span>
+              )}
+            </div>
+            <p className="text-[10px] opacity-80 leading-relaxed">{step.detail}</p>
+          </div>
+        );
+      })}
+
+      {result.matchedEntries.length > 0 && (
+        <div>
+          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Matched KB entries</p>
+          <div className="space-y-1.5">
+            {result.matchedEntries.map((e) => (
+              <div key={e.id} className="rounded-lg bg-muted/40 border border-border px-2.5 py-2">
+                <div className="flex items-center gap-1.5 mb-0.5">
+                  <span className="text-[11px] font-medium text-foreground truncate flex-1">{e.title}</span>
+                  <span className="text-[9px] text-muted-foreground shrink-0">{e.entryType} · p{e.priority}</span>
+                </div>
+                {e.preview && (
+                  <p className="text-[10px] text-muted-foreground leading-relaxed line-clamp-2">{e.preview}</p>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {result.alwaysOnEntries.length > 0 && (
+        <div>
+          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Always-on entries</p>
+          <div className="space-y-1">
+            {result.alwaysOnEntries.map((e, i) => (
+              <div key={i} className="flex items-center gap-2 text-[10px]">
+                <span className="text-[9px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground shrink-0">{e.entryType}</span>
+                <span className="text-foreground/80 truncate">{e.title}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <button
+        onClick={onViewPrompt}
+        className="w-full text-[11px] text-muted-foreground hover:text-foreground border border-border rounded-lg px-3 py-2 text-left transition-colors"
+      >
+        {showPrompt ? 'Hide' : 'View'} assembled KB prompt block (~{result.kbTokenEstimate} tokens)
+      </button>
+
+      {showPrompt && (
+        <pre className="text-[9px] whitespace-pre-wrap text-muted-foreground bg-muted/50 rounded-lg p-2.5 max-h-72 overflow-y-auto leading-relaxed">
+          {result.kbBlock || '(empty — no KB entries loaded)'}
+        </pre>
+      )}
+    </div>
+  );
+}
+
+function SimulateTab({ agentKey, token }: { agentKey: string; token: string }) {
+  const [messages, setMessages] = useState<SimulateMessage[]>([]);
+  const [input, setInput] = useState('');
+  const [siteKey, setSiteKey] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
+  const [showPrompt, setShowPrompt] = useState(false);
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  async function send() {
+    const msg = input.trim();
+    if (!msg || loading) return;
+    setInput('');
+    setShowPrompt(false);
+    setMessages((prev) => [...prev, { role: 'user', text: msg }]);
+    setLoading(true);
+    try {
+      const result: SimulateResult = await apiFetch(token, `/agents/${agentKey}/simulate`, {
+        method: 'POST',
+        body: JSON.stringify({ message: msg, siteKey: siteKey.trim() || undefined }),
+      });
+      const idx = messages.length + 1; // assistant index after user message
+      setMessages((prev) => {
+        const updated = [...prev, { role: 'assistant' as const, text: result.response, result }];
+        return updated;
+      });
+      setSelectedIdx(idx);
+    } catch (err) {
+      setMessages((prev) => [...prev, { role: 'assistant', text: `Error: ${(err as Error).message}` }]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function rate(idx: number, rating: 'good' | 'bad') {
+    const msg = messages[idx];
+    if (!msg?.result) return;
+    const userMsg = messages[idx - 1]?.text ?? '';
+    setMessages((prev) => prev.map((m, i) => i === idx ? { ...m, rating } : m));
+    await apiFetch(token, `/agents/${agentKey}/simulate/rate`, {
+      method: 'POST',
+      body: JSON.stringify({ rating, message: userMsg, response: msg.text }),
+    }).catch(() => undefined);
+  }
+
+  const activeResult = selectedIdx !== null ? messages[selectedIdx]?.result : null;
+
+  return (
+    <div className="flex gap-4" style={{ height: '680px' }}>
+      {/* Chat panel */}
+      <div className="flex flex-col flex-1 min-w-0 rounded-xl border border-border bg-card overflow-hidden">
+        <div className="flex items-center gap-3 px-4 py-3 border-b border-border bg-muted/30">
+          <span className="text-xs font-medium text-muted-foreground">Simulate visitor</span>
+          <span className="text-[10px] text-muted-foreground/60">dry run · no emails · no approvals</span>
+          <input
+            value={siteKey}
+            onChange={(e) => setSiteKey(e.target.value)}
+            placeholder="site key (optional)"
+            className="ml-auto text-xs bg-background border border-border rounded-md px-2 py-1 w-32 focus:outline-none focus:ring-1 focus:ring-primary/40"
+          />
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4 space-y-3">
+          {messages.length === 0 && (
+            <p className="text-xs text-muted-foreground text-center mt-16 leading-relaxed">
+              Type a visitor message to test the agent's KB pipeline.<br />
+              Click any response to see the full process trace on the right.
+            </p>
+          )}
+          {messages.map((m, i) => (
+            <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+              <div
+                onClick={() => m.role === 'assistant' && m.result && setSelectedIdx(i)}
+                className={`max-w-[80%] rounded-xl px-3.5 py-2.5 text-sm transition-all ${
+                  m.role === 'user'
+                    ? 'bg-primary text-primary-foreground'
+                    : `bg-muted text-foreground ${m.result ? 'cursor-pointer hover:ring-1 hover:ring-primary/40' : ''} ${selectedIdx === i ? 'ring-1 ring-primary/60' : ''}`
+                }`}
+              >
+                <p className="whitespace-pre-wrap">{m.text}</p>
+                {m.role === 'assistant' && m.result && (
+                  <div className="flex items-center gap-2 mt-2 pt-2 border-t border-border/30">
+                    <span className="text-[10px] text-muted-foreground">
+                      {m.result.matchedEntries.length} KB hit{m.result.matchedEntries.length !== 1 ? 's' : ''} · ~{m.result.kbTokenEstimate}t
+                    </span>
+                    <div className="ml-auto flex gap-1.5">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); rate(i, 'good'); }}
+                        className={`text-[10px] px-1.5 py-0.5 rounded border transition-colors ${
+                          m.rating === 'good'
+                            ? 'border-green-500 text-green-400 bg-green-500/10'
+                            : 'border-border text-muted-foreground hover:border-green-500/50 hover:text-green-400'
+                        }`}
+                      >good</button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); rate(i, 'bad'); }}
+                        className={`text-[10px] px-1.5 py-0.5 rounded border transition-colors ${
+                          m.rating === 'bad'
+                            ? 'border-red-500 text-red-400 bg-red-500/10'
+                            : 'border-border text-muted-foreground hover:border-red-500/50 hover:text-red-400'
+                        }`}
+                      >bad</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+          {loading && (
+            <div className="flex justify-start">
+              <div className="bg-muted rounded-xl px-4 py-3 space-y-1.5">
+                <div className="flex items-center gap-2">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" />
+                  <span className="text-xs text-muted-foreground">Running KB pipeline...</span>
+                </div>
+              </div>
+            </div>
+          )}
+          <div ref={bottomRef} />
+        </div>
+
+        <div className="border-t border-border p-3 flex gap-2">
+          <input
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && send()}
+            placeholder="Type a visitor message..."
+            className="flex-1 text-sm bg-background border border-border rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary/40"
+          />
+          <Button size="sm" onClick={send} disabled={loading || !input.trim()}>
+            <Send className="w-3.5 h-3.5" />
+          </Button>
+        </div>
+      </div>
+
+      {/* Process trace panel */}
+      <div className="w-80 rounded-xl border border-border bg-card overflow-y-auto p-4 shrink-0">
+        {!activeResult ? (
+          <div className="text-center mt-16">
+            <p className="text-xs text-muted-foreground">Click any agent response to see<br />the full KB pipeline trace.</p>
+            <div className="mt-6 space-y-2 text-left">
+              {[
+                { abbr: 'DB', label: 'Always-on context', cls: 'text-blue-400 bg-blue-500/10 border-blue-500/20' },
+                { abbr: 'WS', label: 'Writing samples + blocklist', cls: 'text-purple-400 bg-purple-500/10 border-purple-500/20' },
+                { abbr: 'SR', label: 'KB semantic search', cls: 'text-amber-400 bg-amber-500/10 border-amber-500/20' },
+                { abbr: 'KB', label: 'Prompt block assembly', cls: 'text-cyan-400 bg-cyan-500/10 border-cyan-500/20' },
+                { abbr: 'GK', label: 'Coverage gate check', cls: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' },
+                { abbr: 'AI', label: 'LLM response generation', cls: 'text-pink-400 bg-pink-500/10 border-pink-500/20' },
+              ].map((s) => (
+                <div key={s.abbr} className={`flex items-center gap-2.5 rounded-lg border px-2.5 py-1.5 ${s.cls}`}>
+                  <span className="text-[9px] font-bold tracking-widest w-5 text-center">{s.abbr}</span>
+                  <span className="text-[11px] opacity-80">{s.label}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <TracePanel
+            result={activeResult}
+            onViewPrompt={() => setShowPrompt((v) => !v)}
+            showPrompt={showPrompt}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function AgentDetailPage() {
   const { key } = useParams<{ key: string }>();
   const token = useAuthStore((s) => s.token)!;
   const qc = useQueryClient();
-  const [activeTab, setActiveTab] = useState<'runs' | 'settings' | 'webhooks' | 'prospects'>('runs');
+  const [activeTab, setActiveTab] = useState<'runs' | 'settings' | 'webhooks' | 'prospects' | 'simulate'>('runs');
   const color = agentColor(key!);
 
   const [editingName, setEditingName] = useState(false);
@@ -8010,12 +8302,24 @@ export default function AgentDetailPage() {
                 Prospects
               </button>
             )}
+            <button
+              onClick={() => setActiveTab('simulate')}
+              className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
+                activeTab === 'simulate'
+                  ? 'border-primary text-foreground'
+                  : 'border-transparent text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <Zap className="w-4 h-4" />
+              Simulate
+            </button>
           </div>
 
           {activeTab === 'runs' && <RunsTab agentKey={key!} token={token} />}
           {activeTab === 'settings' && <SettingsTab agent={agent} token={token} />}
           {activeTab === 'webhooks' && key === 'support' && <WebhookLogsTab token={token} />}
           {activeTab === 'prospects' && key === 'listing_outreach' && <ProspectsTab token={token} />}
+          {activeTab === 'simulate' && <SimulateTab agentKey={key!} token={token} />}
         </>
       )}
     </div>

@@ -77,4 +77,22 @@ export class AgentsController {
   ) {
     return this.agents.saveConversationMessage({ agentKey: key, ...body });
   }
+
+  @Post(':key/simulate')
+  @HttpCode(200)
+  simulate(
+    @Param('key') key: string,
+    @Body() body: { message: string; siteKey?: string },
+  ) {
+    return this.agents.simulate(key, body.message, body.siteKey);
+  }
+
+  @Post(':key/simulate/rate')
+  @HttpCode(200)
+  rateSimulate(
+    @Param('key') key: string,
+    @Body() body: { rating: 'good' | 'bad'; message: string; response: string },
+  ) {
+    return this.agents.rateSimulate(key, body.rating, body.message, body.response);
+  }
 }

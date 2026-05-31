@@ -16,6 +16,23 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.88.1',
+    date: '2026-05-31',
+    entries: [
+      { tag: 'feat', scope: 'simulate', description: 'Simulate tab now shows a full step-by-step process trace on the right panel. Each agent response reveals: always-on context loaded (with entry type breakdown), writing samples and blocklist counts, KB semantic search result with matched entry types, prompt block assembly with token estimate, coverage gate pass/fail, and LLM call timing. Clicking any response selects it and populates the trace panel. Always-on and matched entries are listed with title, type, priority, and content preview.' },
+    ],
+  },
+  {
+    version: 'v4.88.0',
+    date: '2026-05-31',
+    entries: [
+      { tag: 'feat', scope: 'self-improvement', description: 'Added correction signal capture system. Every agent approval, rejection, and follow-up is recorded to correction_signals table — capturing latency, follow-up count, draft text, and rejection reason. Weekly BullMQ job analyses 30-day patterns, identifies recurring mistakes (3+ occurrences), and proposes KB entries via Telegram approval.' },
+      { tag: 'feat', scope: 'simulate', description: 'Added Simulate tab to every agent detail page. Chat with the agent as a fake visitor — dry run only, no emails sent, no Telegram messages. Shows which KB entries were matched, always-on entry count, blocklist rules active, and the full assembled KB prompt block. Good/bad ratings on each response feed into correction signals for self-improvement.' },
+      { tag: 'feat', scope: 'knowledge-base', description: 'Added Product Q&A tab to Knowledge Base page. Create structured Q: / A: entries scoped per agent. These entries are always retrieved when a visitor asks a question, and are included in the livechat coverage gate — preventing unnecessary escalation to human when answers exist in KB.' },
+      { tag: 'fix', scope: 'livechat', description: 'Fixed product_qa entries not being included in the livechat KB coverage gate or FTS search. Agents with product_qa entries now correctly treat them as product catalog coverage instead of escalating.' },
+    ],
+  },
+  {
     version: 'v4.87.0',
     date: '2026-05-28',
     entries: [

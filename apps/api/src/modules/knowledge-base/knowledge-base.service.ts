@@ -132,7 +132,7 @@ export class KnowledgeBaseService {
       .where(
         sql`${this.agentKeyWhere(agentKey)}
           AND ${this.siteKeyWhere(siteKey)}
-          AND entry_type IN ('reference', 'service', 'product', 'offer')
+          AND entry_type IN ('reference', 'service', 'product', 'offer', 'product_qa')
           AND to_tsvector('english', title || ' ' || content) @@ plainto_tsquery('english', ${q})`,
       )
       .orderBy(desc(knowledgeEntries.priority))
@@ -179,7 +179,7 @@ export class KnowledgeBaseService {
       .where(
         sql`${this.agentKeyWhere(agentKey)}
           AND ${this.siteKeyWhere(siteKey)}
-          AND entry_type IN ('reference', 'service', 'product', 'offer')
+          AND entry_type IN ('reference', 'service', 'product', 'offer', 'product_qa')
           AND embedding IS NOT NULL
           AND embedding <=> ${literal}::vector <= 0.40`,
       )

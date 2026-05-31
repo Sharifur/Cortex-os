@@ -5,7 +5,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { KbFrameworkContent } from './KbFrameworkPage';
 
 const KB_AGENTS = ['livechat', 'support', 'whatsapp', 'email_manager', 'linkedin', 'reddit', 'social', 'shorts'];
-const ENTRY_TYPES = ['reference', 'fact', 'voice_profile', 'blocklist', 'product', 'service', 'offer'];
+const ENTRY_TYPES = ['reference', 'fact', 'voice_profile', 'blocklist', 'product', 'service', 'offer', 'product_qa'];
 const CATEGORIES = ['general', 'product', 'service', 'policy', 'faq', 'document', 'webpage', 'other'];
 
 function parseAgentKeys(csv: string): string[] {
@@ -1942,10 +1942,229 @@ function GapsTab({ token }: { token: string }) {
   );
 }
 
+// ─── Product Q&A Tab ───────────────────────────────────────────────────────────
+
+function ProductQaTab({ token }: { token: string }) {
+  const qc = useQueryClient();
+  const [agentFilter, setAgentFilter] = useState('');
+  const [adding, setAdding] = useState(false);
+  const [form, setForm] = useState({ question: '', answer: '', agentKeys: '', priority: 70 });
+  const [editId, setEditId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState({ question: '', answer: '', agentKeys: '', priority: 70 });
+
+  const params = new URLSearchParams({ type: 'product_qa', limit: '200' });
+  if (agentFilter) params.set('agentKey', agentFilter);
+
+  const { data: payload } = useQuery<{ rows: any[] }>({
+    queryKey: ['kb-product-qa', agentFilter],
+    queryFn: () => apiFetch(token, `/knowledge-base/entries?${params}`),
+  });
+  const entries = payload?.rows ?? [];
+
+  const parseQa = (content: string) => {
+    const qMatch = content.match(/^Q:\s*(.+?)(?:\n|$)/m);
+    const aMatch = content.match(/^A:\s*([\s\S]+)/m);
+    return { question: qMatch?.[1]?.trim() ?? '', answer: aMatch?.[1]?.trim() ?? content };
+  };
+
+  const createMut = useMutation({
+    mutationFn: (body: any) => apiFetch(token, '/knowledge-base/entries', { method: 'POST', body: JSON.stringify(body) }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['kb-product-qa'] }); setAdding(false); setForm({ question: '', answer: '', agentKeys: '', priority: 70 }); },
+  });
+
+  const updateMut = useMutation({
+    mutationFn: ({ id, ...body }: any) => apiFetch(token, `/knowledge-base/entries/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['kb-product-qa'] }); setEditId(null); },
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: (id: string) => apiFetch(token, `/knowledge-base/entries/${id}`, { method: 'DELETE' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['kb-product-qa'] }),
+  });
+
+  function buildBody(q: string, a: string, agentKeys: string, priority: number) {
+    return {
+      title: q.slice(0, 80),
+      content: `Q: ${q}\nA: ${a}`,
+      entryType: 'product_qa',
+      category: 'faq',
+      agentKeys: agentKeys || null,
+      priority,
+    };
+  }
+
+  return (
+    <div className="space-y-5">
+      <div className="rounded-xl border border-border bg-card p-4">
+        <p className="text-xs text-muted-foreground">
+          Product Q&A entries are always searched when a visitor asks a question. Write them as exact Q&A pairs — the AI retrieves and uses the answer verbatim. Each entry is scoped per agent.
+        </p>
+      </div>
+
+      <div className="flex items-center justify-between gap-3">
+        <select
+          value={agentFilter}
+          onChange={(e) => setAgentFilter(e.target.value)}
+          className="text-xs bg-background border border-border rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary/40"
+        >
+          <option value="">All agents</option>
+          {KB_AGENTS.map((a) => <option key={a} value={a}>{a}</option>)}
+        </select>
+        <button
+          onClick={() => setAdding(true)}
+          className="flex items-center gap-1.5 text-xs px-3 py-1.5 bg-primary text-primary-foreground rounded-lg hover:opacity-90 transition-opacity"
+        >
+          <Plus className="w-3.5 h-3.5" />
+          Add Q&A
+        </button>
+      </div>
+
+      {adding && (
+        <div className="rounded-xl border border-primary/30 bg-card p-4 space-y-3">
+          <p className="text-xs font-semibold text-foreground">New Q&A Entry</p>
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">Question</label>
+            <input
+              value={form.question}
+              onChange={(e) => setForm((f) => ({ ...f, question: e.target.value }))}
+              placeholder="e.g. What is the pricing for the Pro plan?"
+              className="w-full text-sm bg-background border border-border rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary/40"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">Answer</label>
+            <textarea
+              rows={4}
+              value={form.answer}
+              onChange={(e) => setForm((f) => ({ ...f, answer: e.target.value }))}
+              placeholder="Write the complete, accurate answer the AI should give..."
+              className="w-full text-sm bg-background border border-border rounded-lg px-3 py-2 resize-none focus:outline-none focus:ring-1 focus:ring-primary/40"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">Agent scope</label>
+              <AgentMultiSelect value={form.agentKeys} onChange={(v) => setForm((f) => ({ ...f, agentKeys: v })) } />
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">Priority (1-100)</label>
+              <input
+                type="number" min={1} max={100}
+                value={form.priority}
+                onChange={(e) => setForm((f) => ({ ...f, priority: Number(e.target.value) }))}
+                className="w-full text-sm bg-background border border-border rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary/40"
+              />
+            </div>
+          </div>
+          <div className="flex gap-2 justify-end">
+            <button onClick={() => setAdding(false)} className="text-xs px-3 py-1.5 rounded-lg border border-border text-muted-foreground hover:text-foreground">Cancel</button>
+            <button
+              disabled={!form.question.trim() || !form.answer.trim() || createMut.isPending}
+              onClick={() => createMut.mutate(buildBody(form.question, form.answer, form.agentKeys, form.priority))}
+              className="text-xs px-3 py-1.5 bg-primary text-primary-foreground rounded-lg hover:opacity-90 disabled:opacity-50"
+            >
+              {createMut.isPending ? 'Saving...' : 'Save'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {entries.length === 0 && !adding && (
+        <p className="text-sm text-muted-foreground text-center py-10">No Q&A entries yet. Click Add Q&A to get started.</p>
+      )}
+
+      <div className="space-y-2">
+        {entries.map((entry: any) => {
+          const qa = parseQa(entry.content ?? '');
+          const isEditing = editId === entry.id;
+          return (
+            <div key={entry.id} className="rounded-xl border border-border bg-card overflow-hidden">
+              {isEditing ? (
+                <div className="p-4 space-y-3">
+                  <div>
+                    <label className="text-xs text-muted-foreground mb-1 block">Question</label>
+                    <input
+                      value={editForm.question}
+                      onChange={(e) => setEditForm((f) => ({ ...f, question: e.target.value }))}
+                      className="w-full text-sm bg-background border border-border rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary/40"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-muted-foreground mb-1 block">Answer</label>
+                    <textarea
+                      rows={4}
+                      value={editForm.answer}
+                      onChange={(e) => setEditForm((f) => ({ ...f, answer: e.target.value }))}
+                      className="w-full text-sm bg-background border border-border rounded-lg px-3 py-2 resize-none focus:outline-none focus:ring-1 focus:ring-primary/40"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-xs text-muted-foreground mb-1 block">Agent scope</label>
+                      <AgentMultiSelect value={editForm.agentKeys} onChange={(v) => setEditForm((f) => ({ ...f, agentKeys: v }))} />
+                    </div>
+                    <div>
+                      <label className="text-xs text-muted-foreground mb-1 block">Priority</label>
+                      <input
+                        type="number" min={1} max={100}
+                        value={editForm.priority}
+                        onChange={(e) => setEditForm((f) => ({ ...f, priority: Number(e.target.value) }))}
+                        className="w-full text-sm bg-background border border-border rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary/40"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex gap-2 justify-end">
+                    <button onClick={() => setEditId(null)} className="text-xs px-3 py-1.5 rounded-lg border border-border text-muted-foreground hover:text-foreground">Cancel</button>
+                    <button
+                      disabled={!editForm.question.trim() || !editForm.answer.trim() || updateMut.isPending}
+                      onClick={() => updateMut.mutate({ id: entry.id, ...buildBody(editForm.question, editForm.answer, editForm.agentKeys, editForm.priority) })}
+                      className="text-xs px-3 py-1.5 bg-primary text-primary-foreground rounded-lg hover:opacity-90 disabled:opacity-50"
+                    >
+                      {updateMut.isPending ? 'Saving...' : 'Save'}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-foreground mb-1.5">Q: {qa.question || entry.title}</p>
+                      <p className="text-sm text-muted-foreground whitespace-pre-wrap">A: {qa.answer}</p>
+                      <div className="flex items-center gap-2 mt-2">
+                        <AgentPills csv={entry.agentKeys} fallback="all agents" />
+                        <span className="text-[10px] text-muted-foreground">priority {entry.priority}</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        onClick={() => { setEditId(entry.id); setEditForm({ question: qa.question || entry.title, answer: qa.answer, agentKeys: entry.agentKeys ?? '', priority: entry.priority ?? 70 }); }}
+                        className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                      >
+                        <Edit2 className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => { if (confirm('Delete this entry?')) deleteMut.mutate(entry.id); }}
+                        className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Page ─────────────────────────────────────────────────────────────
 
 const TABS = [
   { id: 'entries', label: 'Knowledge Entries' },
+  { id: 'product_qa', label: 'Product Q&A' },
   { id: 'samples', label: 'Writing Samples' },
   { id: 'import', label: 'Import' },
   { id: 'templates', label: 'Prompt Templates' },
@@ -1988,6 +2207,7 @@ export default function KnowledgeBasePage() {
       </div>
 
       {tab === 'entries' && <EntriesTab token={token} />}
+      {tab === 'product_qa' && <ProductQaTab token={token} />}
       {tab === 'samples' && <SamplesTab token={token} />}
       {tab === 'import' && <ImportTab token={token} />}
       {tab === 'templates' && <TemplatesTab token={token} />}
