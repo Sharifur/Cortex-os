@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.88.3',
+    date: '2026-05-31',
+    entries: [
+      { tag: 'fix', scope: 'chat', description: 'Send Email modal now renders via React portal at document.body level, fixing the responsive overlap where the dark backdrop only covered part of the screen on mobile and narrow viewports.' },
+    ],
+  },
+  {
     version: 'v4.88.2',
     date: '2026-05-31',
     entries: [
