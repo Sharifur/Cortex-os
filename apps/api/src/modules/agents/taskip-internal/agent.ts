@@ -600,8 +600,11 @@ If score >= 4: output the draft.
 **Subject B:** [option 2]
 **Recommended:** A or B — [one sentence why]
 
-**Email:**
-[the draft]
+**Variant A — [2-4 word label e.g. "Full structured" / "Empathetic detail"]:**
+[body draft — your primary style from Step 4b]
+
+**Variant B — [2-4 word label e.g. "Founder voice" / "Blunt 3-liner"]:**
+[body draft — same intent, meaningfully different tone or length, NOT a copy of Variant A]
 
 **Self-score:** [N/5] — [one sentence: does it sound like the chosen style? would this specific person reply?]`;
 
@@ -655,9 +658,26 @@ function extractFailedEmails(text: string): string[] {
 }
 
 function extractEmailDraft(text: string): { subject: string; body: string; to?: string } | null {
-  // SPAR format: **Subject A/B:** ... **Email:** ... body ... **Self-score:**
-  // Match the LAST **Email:** that acts as a section break (followed by newline only).
-  // Workspace context lines like **Email:** user@domain.com won't match — value on same line.
+  const toMatch = text.match(/\*{0,2}To:\*{0,2}\s*([^\s\n]+)/i);
+  const recommendedMatch = text.match(/\*{0,2}Recommended:\*{0,2}\s*([AB])\b/i);
+  const pick = recommendedMatch ? recommendedMatch[1].toUpperCase() : 'A';
+
+  // New variant format: **Variant A — label:** ... **Variant B — label:** ... **Self-score:**
+  const variantARe = /\*{0,2}Variant\s*A\s*(?:—[^:*]*)?\*{0,2}:\*{0,2}[ \t]*\n/i;
+  const variantBRe = /\*{0,2}Variant\s*B\s*(?:—[^:*]*)?\*{0,2}:\*{0,2}[ \t]*\n/i;
+  const variantAMatch = variantARe.exec(text);
+  if (variantAMatch) {
+    const aBodyStart = variantAMatch.index + variantAMatch[0].length;
+    const afterA = text.slice(aBodyStart);
+    const bMarker = variantBRe.exec(afterA);
+    const aBody = (bMarker ? afterA.slice(0, bMarker.index) : afterA).replace(/\n\*{0,2}Self-score:[\s\S]*/i, '').trim();
+    const subjectMatch = text.match(new RegExp(`\\*{0,2}Subject\\s*${pick}:\\*{0,2}\\s*([^\\n]+)`, 'i'))
+      ?? text.match(/\*{0,2}Subject\s*[AB]?:\*{0,2}\s*([^\n]+)/i);
+    const subject = subjectMatch ? subjectMatch[1].trim().replace(/^["']|["']$/g, '').replace(/\*+$/g, '').trim() : '';
+    if (subject && aBody) return { subject, body: aBody, to: toMatch?.[1]?.trim() };
+  }
+
+  // Legacy SPAR format: **Email:** ... **Self-score:**
   const emailSectionRe = /\*{0,2}Email:\*{0,2}[ \t]*\n/gi;
   let emailMarkerIdx = -1;
   let lastMatchLen = 0;
@@ -667,17 +687,13 @@ function extractEmailDraft(text: string): { subject: string; body: string; to?: 
     const bodyRaw = text.slice(emailMarkerIdx + lastMatchLen);
     const selfScoreIdx = bodyRaw.search(/\n\*{0,2}Self-score:/i);
     const body = (selfScoreIdx >= 0 ? bodyRaw.slice(0, selfScoreIdx) : bodyRaw).trim();
-
-    const recommendedMatch = text.match(/\*{0,2}Recommended:\*{0,2}\s*([AB])\b/i);
-    const pick = recommendedMatch ? recommendedMatch[1].toUpperCase() : 'A';
     const subjectMatch = text.match(new RegExp(`\\*{0,2}Subject\\s*${pick}:\\*{0,2}\\s*([^\\n]+)`, 'i'))
       ?? text.match(/\*{0,2}Subject\s*[AB]?:\*{0,2}\s*([^\n]+)/i);
     const subject = subjectMatch ? subjectMatch[1].trim().replace(/^["']|["']$/g, '').replace(/\*+$/g, '').trim() : '';
-    const toMatch = text.match(/\*{0,2}To:\*{0,2}\s*([^\s\n]+)/i);
     if (subject && body) return { subject, body, to: toMatch?.[1]?.trim() };
   }
 
-  // Legacy format: **Subject:** ... **Body:**
+  // Plain format: **Subject:** ... **Body:**
   const subjectRe = /\*{0,2}Subject:\*{0,2}\s*(.+)/i;
   const bodyRe = /\*{0,2}Body:\*{0,2}\s*\n?([\s\S]+)/i;
   const subjectMatch = text.match(subjectRe);
@@ -1443,15 +1459,18 @@ export class TaskipInternalAgent implements IAgent, OnModuleInit {
     return [
       {
         name: 'lookup_user',
-        description: 'Find a Taskip workspace by owner email address via the Insight API. Returns workspace stats including owner details, cohort, score, and 60-day activity.',
+        description: 'Find a Taskip workspace by owner email address OR company/workspace name via the Insight API. Pass an email address for exact lookup, or a company/workspace name for name-based search. Returns workspace stats including owner details, cohort, score, and 60-day activity.',
         inputSchema: {
           type: 'object',
-          properties: { emailOrId: { type: 'string', description: 'owner email address' } },
+          properties: { emailOrId: { type: 'string', description: 'owner email address or company/workspace name' } },
           required: ['emailOrId'],
         },
         handler: async (input) => {
           const { emailOrId } = input as { emailOrId: string };
-          return this.insight.searchByEmail(emailOrId);
+          const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailOrId.trim());
+          return isEmail
+            ? this.insight.searchByEmail(emailOrId.trim())
+            : this.insight.search({ name: emailOrId.trim() });
         },
       },
       {

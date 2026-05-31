@@ -16,6 +16,42 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.89.2',
+    date: '2026-05-31',
+    entries: [
+      { tag: 'fix', scope: 'support', description: 'Fixed support agent reply endpoint — base URL already contained /api/public-v1 so it was being doubled in the path. Also corrected path order from {uuid}/agent-reply to agent-reply/{uuid} to match the actual Taskip API.' },
+    ],
+  },
+  {
+    version: 'v4.89.1',
+    date: '2026-05-31',
+    entries: [
+      { tag: 'fix', scope: 'linkedin', description: 'Added migration 0093 to ensure blocked_countries column exists on linkedin_accounts table. Column was missing in production causing the LinkedIn agent to fail on every run.' },
+    ],
+  },
+  {
+    version: 'v4.89.0',
+    date: '2026-05-31',
+    entries: [
+      { tag: 'feat', scope: 'taskip-internal', description: 'Email draft card now supports two full body variants (A and B), not just subject swap. SPAR system prompt outputs Variant A and Variant B with labelled tone tabs (e.g. "Full structured" / "Founder voice"). Switching tabs changes both the subject line and the body. Copy and Send use whichever variant is active.' },
+    ],
+  },
+  {
+    version: 'v4.88.3',
+    date: '2026-05-31',
+    entries: [
+      { tag: 'fix', scope: 'chat', description: 'Send Email modal now renders via React portal at document.body level, fixing the responsive overlap where the dark backdrop only covered part of the screen on mobile and narrow viewports.' },
+    ],
+  },
+  {
+    version: 'v4.88.2',
+    date: '2026-05-31',
+    entries: [
+      { tag: 'fix', scope: 'taskip-internal', description: 'lookup_user MCP tool now searches by company/workspace name when input is not an email address. Previously only email lookups worked — searching "Tallo Digital" would fail with no results.' },
+      { tag: 'fix', scope: 'taskip-internal', description: 'Email draft card now renders correctly in chat when the LLM outputs a single Subject line (no A/B variant) followed by the Email body section. Previously the card fell back to a plain text bubble.' },
+    ],
+  },
+  {
     version: 'v4.88.1',
     date: '2026-05-31',
     entries: [
