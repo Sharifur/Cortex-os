@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.88.1',
+    date: '2026-05-31',
+    entries: [
+      { tag: 'feat', scope: 'simulate', description: 'Simulate tab now shows a full step-by-step process trace on the right panel. Each agent response reveals: always-on context loaded (with entry type breakdown), writing samples and blocklist counts, KB semantic search result with matched entry types, prompt block assembly with token estimate, coverage gate pass/fail, and LLM call timing. Clicking any response selects it and populates the trace panel. Always-on and matched entries are listed with title, type, priority, and content preview.' },
+    ],
+  },
+  {
     version: 'v4.88.0',
     date: '2026-05-31',
     entries: [

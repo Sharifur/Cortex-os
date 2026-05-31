@@ -7843,12 +7843,22 @@ function WebhookLogsTab({ token }: { token: string }) {
 
 // ─── Simulate Tab ─────────────────────────────────────────────────────────────
 
+interface SimulateTraceStep {
+  step: string;
+  label: string;
+  detail: string;
+  durationMs: number;
+}
+
 interface SimulateResult {
   response: string;
   kbBlock: string;
-  matchedEntries: Array<{ id: string; title: string; entryType: string }>;
+  trace: SimulateTraceStep[];
+  matchedEntries: Array<{ id: string; title: string; entryType: string; preview: string; priority: number }>;
+  alwaysOnEntries: Array<{ title: string; entryType: string }>;
   alwaysOnCount: number;
   blocklistCount: number;
+  kbTokenEstimate: number;
 }
 
 interface SimulateMessage {
@@ -7858,12 +7868,106 @@ interface SimulateMessage {
   rating?: 'good' | 'bad';
 }
 
+const STEP_COLORS: Record<string, string> = {
+  always_on:     'text-blue-400 bg-blue-500/10 border-blue-500/20',
+  samples:       'text-purple-400 bg-purple-500/10 border-purple-500/20',
+  kb_search:     'text-amber-400 bg-amber-500/10 border-amber-500/20',
+  kb_block:      'text-cyan-400 bg-cyan-500/10 border-cyan-500/20',
+  coverage_gate: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
+  llm:           'text-pink-400 bg-pink-500/10 border-pink-500/20',
+};
+
+const STEP_ICONS: Record<string, string> = {
+  always_on:     'DB',
+  samples:       'WS',
+  kb_search:     'SR',
+  kb_block:      'KB',
+  coverage_gate: 'GK',
+  llm:           'AI',
+};
+
+function TracePanel({ result, onViewPrompt, showPrompt }: {
+  result: SimulateResult;
+  onViewPrompt: () => void;
+  showPrompt: boolean;
+}) {
+  return (
+    <div className="space-y-3">
+      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Process trace</p>
+
+      {result.trace.map((step, i) => {
+        const cls = STEP_COLORS[step.step] ?? 'text-muted-foreground bg-muted/50 border-border';
+        const abbr = STEP_ICONS[step.step] ?? '??';
+        return (
+          <div key={i} className={`rounded-lg border px-3 py-2.5 ${cls}`}>
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-[9px] font-bold tracking-widest opacity-70">{abbr}</span>
+              <span className="text-[11px] font-semibold flex-1">{step.label}</span>
+              {step.durationMs > 0 && (
+                <span className="text-[10px] opacity-60 tabular-nums shrink-0">{step.durationMs}ms</span>
+              )}
+            </div>
+            <p className="text-[10px] opacity-80 leading-relaxed">{step.detail}</p>
+          </div>
+        );
+      })}
+
+      {result.matchedEntries.length > 0 && (
+        <div>
+          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Matched KB entries</p>
+          <div className="space-y-1.5">
+            {result.matchedEntries.map((e) => (
+              <div key={e.id} className="rounded-lg bg-muted/40 border border-border px-2.5 py-2">
+                <div className="flex items-center gap-1.5 mb-0.5">
+                  <span className="text-[11px] font-medium text-foreground truncate flex-1">{e.title}</span>
+                  <span className="text-[9px] text-muted-foreground shrink-0">{e.entryType} · p{e.priority}</span>
+                </div>
+                {e.preview && (
+                  <p className="text-[10px] text-muted-foreground leading-relaxed line-clamp-2">{e.preview}</p>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {result.alwaysOnEntries.length > 0 && (
+        <div>
+          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Always-on entries</p>
+          <div className="space-y-1">
+            {result.alwaysOnEntries.map((e, i) => (
+              <div key={i} className="flex items-center gap-2 text-[10px]">
+                <span className="text-[9px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground shrink-0">{e.entryType}</span>
+                <span className="text-foreground/80 truncate">{e.title}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <button
+        onClick={onViewPrompt}
+        className="w-full text-[11px] text-muted-foreground hover:text-foreground border border-border rounded-lg px-3 py-2 text-left transition-colors"
+      >
+        {showPrompt ? 'Hide' : 'View'} assembled KB prompt block (~{result.kbTokenEstimate} tokens)
+      </button>
+
+      {showPrompt && (
+        <pre className="text-[9px] whitespace-pre-wrap text-muted-foreground bg-muted/50 rounded-lg p-2.5 max-h-72 overflow-y-auto leading-relaxed">
+          {result.kbBlock || '(empty — no KB entries loaded)'}
+        </pre>
+      )}
+    </div>
+  );
+}
+
 function SimulateTab({ agentKey, token }: { agentKey: string; token: string }) {
   const [messages, setMessages] = useState<SimulateMessage[]>([]);
   const [input, setInput] = useState('');
   const [siteKey, setSiteKey] = useState('');
   const [loading, setLoading] = useState(false);
-  const [debugIdx, setDebugIdx] = useState<number | null>(null);
+  const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
+  const [showPrompt, setShowPrompt] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -7874,6 +7978,7 @@ function SimulateTab({ agentKey, token }: { agentKey: string; token: string }) {
     const msg = input.trim();
     if (!msg || loading) return;
     setInput('');
+    setShowPrompt(false);
     setMessages((prev) => [...prev, { role: 'user', text: msg }]);
     setLoading(true);
     try {
@@ -7881,7 +7986,12 @@ function SimulateTab({ agentKey, token }: { agentKey: string; token: string }) {
         method: 'POST',
         body: JSON.stringify({ message: msg, siteKey: siteKey.trim() || undefined }),
       });
-      setMessages((prev) => [...prev, { role: 'assistant', text: result.response, result }]);
+      const idx = messages.length + 1; // assistant index after user message
+      setMessages((prev) => {
+        const updated = [...prev, { role: 'assistant' as const, text: result.response, result }];
+        return updated;
+      });
+      setSelectedIdx(idx);
     } catch (err) {
       setMessages((prev) => [...prev, { role: 'assistant', text: `Error: ${(err as Error).message}` }]);
     } finally {
@@ -7900,63 +8010,63 @@ function SimulateTab({ agentKey, token }: { agentKey: string; token: string }) {
     }).catch(() => undefined);
   }
 
+  const activeResult = selectedIdx !== null ? messages[selectedIdx]?.result : null;
+
   return (
-    <div className="flex gap-4 h-[600px]">
+    <div className="flex gap-4" style={{ height: '680px' }}>
+      {/* Chat panel */}
       <div className="flex flex-col flex-1 min-w-0 rounded-xl border border-border bg-card overflow-hidden">
         <div className="flex items-center gap-3 px-4 py-3 border-b border-border bg-muted/30">
-          <span className="text-xs font-medium text-muted-foreground">Simulate visitor message</span>
+          <span className="text-xs font-medium text-muted-foreground">Simulate visitor</span>
+          <span className="text-[10px] text-muted-foreground/60">dry run · no emails · no approvals</span>
           <input
             value={siteKey}
             onChange={(e) => setSiteKey(e.target.value)}
             placeholder="site key (optional)"
-            className="ml-auto text-xs bg-background border border-border rounded-md px-2 py-1 w-36 focus:outline-none focus:ring-1 focus:ring-primary/40"
+            className="ml-auto text-xs bg-background border border-border rounded-md px-2 py-1 w-32 focus:outline-none focus:ring-1 focus:ring-primary/40"
           />
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
           {messages.length === 0 && (
-            <p className="text-xs text-muted-foreground text-center mt-12">
-              Type a message to test how the agent responds using its current Knowledge Base.
-              <br />No emails sent. No approvals required. Pure dry run.
+            <p className="text-xs text-muted-foreground text-center mt-16 leading-relaxed">
+              Type a visitor message to test the agent's KB pipeline.<br />
+              Click any response to see the full process trace on the right.
             </p>
           )}
           {messages.map((m, i) => (
             <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-              <div className={`max-w-[80%] rounded-xl px-3.5 py-2.5 text-sm ${
-                m.role === 'user'
-                  ? 'bg-primary text-primary-foreground'
-                  : 'bg-muted text-foreground'
-              }`}>
+              <div
+                onClick={() => m.role === 'assistant' && m.result && setSelectedIdx(i)}
+                className={`max-w-[80%] rounded-xl px-3.5 py-2.5 text-sm transition-all ${
+                  m.role === 'user'
+                    ? 'bg-primary text-primary-foreground'
+                    : `bg-muted text-foreground ${m.result ? 'cursor-pointer hover:ring-1 hover:ring-primary/40' : ''} ${selectedIdx === i ? 'ring-1 ring-primary/60' : ''}`
+                }`}
+              >
                 <p className="whitespace-pre-wrap">{m.text}</p>
                 {m.role === 'assistant' && m.result && (
-                  <div className="flex items-center gap-2 mt-2 pt-2 border-t border-border/40">
-                    <button
-                      onClick={() => setDebugIdx(debugIdx === i ? null : i)}
-                      className="text-[10px] text-muted-foreground hover:text-foreground transition-colors"
-                    >
-                      {debugIdx === i ? 'hide debug' : `debug (${m.result.matchedEntries.length} KB hits)`}
-                    </button>
+                  <div className="flex items-center gap-2 mt-2 pt-2 border-t border-border/30">
+                    <span className="text-[10px] text-muted-foreground">
+                      {m.result.matchedEntries.length} KB hit{m.result.matchedEntries.length !== 1 ? 's' : ''} · ~{m.result.kbTokenEstimate}t
+                    </span>
                     <div className="ml-auto flex gap-1.5">
                       <button
-                        onClick={() => rate(i, 'good')}
-                        className={`text-[11px] px-2 py-0.5 rounded border transition-colors ${
+                        onClick={(e) => { e.stopPropagation(); rate(i, 'good'); }}
+                        className={`text-[10px] px-1.5 py-0.5 rounded border transition-colors ${
                           m.rating === 'good'
                             ? 'border-green-500 text-green-400 bg-green-500/10'
-                            : 'border-border text-muted-foreground hover:border-green-500/60 hover:text-green-400'
+                            : 'border-border text-muted-foreground hover:border-green-500/50 hover:text-green-400'
                         }`}
-                      >
-                        good
-                      </button>
+                      >good</button>
                       <button
-                        onClick={() => rate(i, 'bad')}
-                        className={`text-[11px] px-2 py-0.5 rounded border transition-colors ${
+                        onClick={(e) => { e.stopPropagation(); rate(i, 'bad'); }}
+                        className={`text-[10px] px-1.5 py-0.5 rounded border transition-colors ${
                           m.rating === 'bad'
                             ? 'border-red-500 text-red-400 bg-red-500/10'
-                            : 'border-border text-muted-foreground hover:border-red-500/60 hover:text-red-400'
+                            : 'border-border text-muted-foreground hover:border-red-500/50 hover:text-red-400'
                         }`}
-                      >
-                        bad
-                      </button>
+                      >bad</button>
                     </div>
                   </div>
                 )}
@@ -7965,8 +8075,11 @@ function SimulateTab({ agentKey, token }: { agentKey: string; token: string }) {
           ))}
           {loading && (
             <div className="flex justify-start">
-              <div className="bg-muted rounded-xl px-4 py-2.5">
-                <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+              <div className="bg-muted rounded-xl px-4 py-3 space-y-1.5">
+                <div className="flex items-center gap-2">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" />
+                  <span className="text-xs text-muted-foreground">Running KB pipeline...</span>
+                </div>
               </div>
             </div>
           )}
@@ -7987,39 +8100,35 @@ function SimulateTab({ agentKey, token }: { agentKey: string; token: string }) {
         </div>
       </div>
 
-      {debugIdx !== null && messages[debugIdx]?.result && (
-        <div className="w-72 rounded-xl border border-border bg-card overflow-y-auto p-4 space-y-4 text-xs shrink-0">
-          <div>
-            <p className="font-semibold text-foreground mb-1.5">KB Hits</p>
-            {messages[debugIdx].result!.matchedEntries.length === 0 ? (
-              <p className="text-muted-foreground">No reference entries matched.</p>
-            ) : (
-              <div className="space-y-1.5">
-                {messages[debugIdx].result!.matchedEntries.map((e) => (
-                  <div key={e.id} className="rounded-lg bg-muted/50 px-2.5 py-1.5">
-                    <span className="font-medium text-foreground">{e.title}</span>
-                    <span className="ml-1.5 text-[10px] text-muted-foreground">{e.entryType}</span>
-                  </div>
-                ))}
-              </div>
-            )}
+      {/* Process trace panel */}
+      <div className="w-80 rounded-xl border border-border bg-card overflow-y-auto p-4 shrink-0">
+        {!activeResult ? (
+          <div className="text-center mt-16">
+            <p className="text-xs text-muted-foreground">Click any agent response to see<br />the full KB pipeline trace.</p>
+            <div className="mt-6 space-y-2 text-left">
+              {[
+                { abbr: 'DB', label: 'Always-on context', cls: 'text-blue-400 bg-blue-500/10 border-blue-500/20' },
+                { abbr: 'WS', label: 'Writing samples + blocklist', cls: 'text-purple-400 bg-purple-500/10 border-purple-500/20' },
+                { abbr: 'SR', label: 'KB semantic search', cls: 'text-amber-400 bg-amber-500/10 border-amber-500/20' },
+                { abbr: 'KB', label: 'Prompt block assembly', cls: 'text-cyan-400 bg-cyan-500/10 border-cyan-500/20' },
+                { abbr: 'GK', label: 'Coverage gate check', cls: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' },
+                { abbr: 'AI', label: 'LLM response generation', cls: 'text-pink-400 bg-pink-500/10 border-pink-500/20' },
+              ].map((s) => (
+                <div key={s.abbr} className={`flex items-center gap-2.5 rounded-lg border px-2.5 py-1.5 ${s.cls}`}>
+                  <span className="text-[9px] font-bold tracking-widest w-5 text-center">{s.abbr}</span>
+                  <span className="text-[11px] opacity-80">{s.label}</span>
+                </div>
+              ))}
+            </div>
           </div>
-          <div>
-            <p className="font-semibold text-foreground mb-1.5">Always-on entries</p>
-            <p className="text-muted-foreground">{messages[debugIdx].result!.alwaysOnCount} loaded</p>
-          </div>
-          <div>
-            <p className="font-semibold text-foreground mb-1.5">Blocklist rules</p>
-            <p className="text-muted-foreground">{messages[debugIdx].result!.blocklistCount} rules active</p>
-          </div>
-          <div>
-            <p className="font-semibold text-foreground mb-1.5">KB Prompt Block</p>
-            <pre className="text-[10px] whitespace-pre-wrap text-muted-foreground bg-muted/50 rounded-lg p-2 max-h-64 overflow-y-auto">
-              {messages[debugIdx].result!.kbBlock || '(empty)'}
-            </pre>
-          </div>
-        </div>
-      )}
+        ) : (
+          <TracePanel
+            result={activeResult}
+            onViewPrompt={() => setShowPrompt((v) => !v)}
+            showPrompt={showPrompt}
+          />
+        )}
+      </div>
     </div>
   );
 }
