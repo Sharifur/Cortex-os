@@ -5,6 +5,9 @@ import { DbService } from '../../db/db.service';
 import { agents, agentRuns, agentConversations, pendingApprovals, agentLogs } from '../../db/schema';
 import { AgentRuntimeService } from './runtime/agent-runtime.service';
 import { AgentRegistryService } from './runtime/agent-registry.service';
+import { CorrectionCaptureService } from './runtime/correction-capture.service';
+import { KnowledgeBaseService } from '../knowledge-base/knowledge-base.service';
+import { LlmRouterService } from '../llm/llm-router.service';
 import type { UpdateAgentDto } from './dto/update-agent.dto';
 import type { TriggerAgentDto } from './dto/trigger-agent.dto';
 
@@ -15,6 +18,9 @@ export class AgentsService {
     private runtime: AgentRuntimeService,
     private registry: AgentRegistryService,
     private events: EventEmitter2,
+    private capture: CorrectionCaptureService,
+    private kb: KnowledgeBaseService,
+    private llm: LlmRouterService,
   ) {}
 
   async findAll() {
@@ -190,5 +196,57 @@ export class AgentsService {
     await this.db.db.delete(agentConversations).where(eq(agentConversations.agentKey, key));
     await this.db.db.delete(agents).where(eq(agents.key, key));
     return { deleted: true, key };
+  }
+
+  async simulate(agentKey: string, message: string, siteKey?: string) {
+    const [alwaysOn, samples, blocklist, rejections, references] = await Promise.all([
+      this.kb.getAlwaysOnContext(agentKey, siteKey),
+      this.kb.getWritingSamples(agentKey, siteKey),
+      this.kb.getBlocklistRules(agentKey, siteKey),
+      this.kb.getRecentRejections(agentKey, 3),
+      this.kb.searchEntries(message, agentKey, 8, siteKey),
+    ]);
+
+    const kbBlock = this.kb.buildKbPromptBlock({
+      voiceProfile: alwaysOn.find((e) => e.entryType === 'voice_profile') ?? null,
+      facts: alwaysOn.filter((e) => e.entryType === 'fact'),
+      catalog: alwaysOn.filter((e) => ['product', 'service', 'offer', 'product_qa'].includes(e.entryType)),
+      references,
+      positiveSamples: samples.filter((s) => s.polarity === 'positive'),
+      negativeSamples: samples.filter((s) => s.polarity === 'negative'),
+      rejections,
+    });
+
+    const systemPrompt = [
+      `You are a helpful assistant for ${agentKey}. Answer the visitor's question using the knowledge provided below.`,
+      `If the answer is not covered by the knowledge base, say clearly that you don't have that information — do NOT make things up.`,
+      `Be concise and direct. No greetings, no sign-offs.`,
+      ``,
+      kbBlock,
+    ].join('\n');
+
+    const response = await this.llm.complete({
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: message },
+      ],
+      provider: 'auto',
+      model: 'gpt-4o-mini',
+      maxTokens: 600,
+      temperature: 0.3,
+    });
+
+    return {
+      response: response.content,
+      kbBlock,
+      matchedEntries: references.map((e) => ({ id: e.id, title: e.title, entryType: e.entryType })),
+      alwaysOnCount: alwaysOn.length,
+      blocklistCount: blocklist.length,
+    };
+  }
+
+  async rateSimulate(agentKey: string, rating: 'good' | 'bad', message: string, response: string) {
+    await this.capture.captureSimulateRating(agentKey, rating, message, response);
+    return { ok: true };
   }
 }

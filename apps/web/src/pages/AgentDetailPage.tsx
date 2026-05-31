@@ -7841,13 +7841,196 @@ function WebhookLogsTab({ token }: { token: string }) {
   );
 }
 
+// ─── Simulate Tab ─────────────────────────────────────────────────────────────
+
+interface SimulateResult {
+  response: string;
+  kbBlock: string;
+  matchedEntries: Array<{ id: string; title: string; entryType: string }>;
+  alwaysOnCount: number;
+  blocklistCount: number;
+}
+
+interface SimulateMessage {
+  role: 'user' | 'assistant';
+  text: string;
+  result?: SimulateResult;
+  rating?: 'good' | 'bad';
+}
+
+function SimulateTab({ agentKey, token }: { agentKey: string; token: string }) {
+  const [messages, setMessages] = useState<SimulateMessage[]>([]);
+  const [input, setInput] = useState('');
+  const [siteKey, setSiteKey] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [debugIdx, setDebugIdx] = useState<number | null>(null);
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  async function send() {
+    const msg = input.trim();
+    if (!msg || loading) return;
+    setInput('');
+    setMessages((prev) => [...prev, { role: 'user', text: msg }]);
+    setLoading(true);
+    try {
+      const result: SimulateResult = await apiFetch(token, `/agents/${agentKey}/simulate`, {
+        method: 'POST',
+        body: JSON.stringify({ message: msg, siteKey: siteKey.trim() || undefined }),
+      });
+      setMessages((prev) => [...prev, { role: 'assistant', text: result.response, result }]);
+    } catch (err) {
+      setMessages((prev) => [...prev, { role: 'assistant', text: `Error: ${(err as Error).message}` }]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function rate(idx: number, rating: 'good' | 'bad') {
+    const msg = messages[idx];
+    if (!msg?.result) return;
+    const userMsg = messages[idx - 1]?.text ?? '';
+    setMessages((prev) => prev.map((m, i) => i === idx ? { ...m, rating } : m));
+    await apiFetch(token, `/agents/${agentKey}/simulate/rate`, {
+      method: 'POST',
+      body: JSON.stringify({ rating, message: userMsg, response: msg.text }),
+    }).catch(() => undefined);
+  }
+
+  return (
+    <div className="flex gap-4 h-[600px]">
+      <div className="flex flex-col flex-1 min-w-0 rounded-xl border border-border bg-card overflow-hidden">
+        <div className="flex items-center gap-3 px-4 py-3 border-b border-border bg-muted/30">
+          <span className="text-xs font-medium text-muted-foreground">Simulate visitor message</span>
+          <input
+            value={siteKey}
+            onChange={(e) => setSiteKey(e.target.value)}
+            placeholder="site key (optional)"
+            className="ml-auto text-xs bg-background border border-border rounded-md px-2 py-1 w-36 focus:outline-none focus:ring-1 focus:ring-primary/40"
+          />
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4 space-y-3">
+          {messages.length === 0 && (
+            <p className="text-xs text-muted-foreground text-center mt-12">
+              Type a message to test how the agent responds using its current Knowledge Base.
+              <br />No emails sent. No approvals required. Pure dry run.
+            </p>
+          )}
+          {messages.map((m, i) => (
+            <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+              <div className={`max-w-[80%] rounded-xl px-3.5 py-2.5 text-sm ${
+                m.role === 'user'
+                  ? 'bg-primary text-primary-foreground'
+                  : 'bg-muted text-foreground'
+              }`}>
+                <p className="whitespace-pre-wrap">{m.text}</p>
+                {m.role === 'assistant' && m.result && (
+                  <div className="flex items-center gap-2 mt-2 pt-2 border-t border-border/40">
+                    <button
+                      onClick={() => setDebugIdx(debugIdx === i ? null : i)}
+                      className="text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      {debugIdx === i ? 'hide debug' : `debug (${m.result.matchedEntries.length} KB hits)`}
+                    </button>
+                    <div className="ml-auto flex gap-1.5">
+                      <button
+                        onClick={() => rate(i, 'good')}
+                        className={`text-[11px] px-2 py-0.5 rounded border transition-colors ${
+                          m.rating === 'good'
+                            ? 'border-green-500 text-green-400 bg-green-500/10'
+                            : 'border-border text-muted-foreground hover:border-green-500/60 hover:text-green-400'
+                        }`}
+                      >
+                        good
+                      </button>
+                      <button
+                        onClick={() => rate(i, 'bad')}
+                        className={`text-[11px] px-2 py-0.5 rounded border transition-colors ${
+                          m.rating === 'bad'
+                            ? 'border-red-500 text-red-400 bg-red-500/10'
+                            : 'border-border text-muted-foreground hover:border-red-500/60 hover:text-red-400'
+                        }`}
+                      >
+                        bad
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+          {loading && (
+            <div className="flex justify-start">
+              <div className="bg-muted rounded-xl px-4 py-2.5">
+                <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+              </div>
+            </div>
+          )}
+          <div ref={bottomRef} />
+        </div>
+
+        <div className="border-t border-border p-3 flex gap-2">
+          <input
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && send()}
+            placeholder="Type a visitor message..."
+            className="flex-1 text-sm bg-background border border-border rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary/40"
+          />
+          <Button size="sm" onClick={send} disabled={loading || !input.trim()}>
+            <Send className="w-3.5 h-3.5" />
+          </Button>
+        </div>
+      </div>
+
+      {debugIdx !== null && messages[debugIdx]?.result && (
+        <div className="w-72 rounded-xl border border-border bg-card overflow-y-auto p-4 space-y-4 text-xs shrink-0">
+          <div>
+            <p className="font-semibold text-foreground mb-1.5">KB Hits</p>
+            {messages[debugIdx].result!.matchedEntries.length === 0 ? (
+              <p className="text-muted-foreground">No reference entries matched.</p>
+            ) : (
+              <div className="space-y-1.5">
+                {messages[debugIdx].result!.matchedEntries.map((e) => (
+                  <div key={e.id} className="rounded-lg bg-muted/50 px-2.5 py-1.5">
+                    <span className="font-medium text-foreground">{e.title}</span>
+                    <span className="ml-1.5 text-[10px] text-muted-foreground">{e.entryType}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <div>
+            <p className="font-semibold text-foreground mb-1.5">Always-on entries</p>
+            <p className="text-muted-foreground">{messages[debugIdx].result!.alwaysOnCount} loaded</p>
+          </div>
+          <div>
+            <p className="font-semibold text-foreground mb-1.5">Blocklist rules</p>
+            <p className="text-muted-foreground">{messages[debugIdx].result!.blocklistCount} rules active</p>
+          </div>
+          <div>
+            <p className="font-semibold text-foreground mb-1.5">KB Prompt Block</p>
+            <pre className="text-[10px] whitespace-pre-wrap text-muted-foreground bg-muted/50 rounded-lg p-2 max-h-64 overflow-y-auto">
+              {messages[debugIdx].result!.kbBlock || '(empty)'}
+            </pre>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function AgentDetailPage() {
   const { key } = useParams<{ key: string }>();
   const token = useAuthStore((s) => s.token)!;
   const qc = useQueryClient();
-  const [activeTab, setActiveTab] = useState<'runs' | 'settings' | 'webhooks' | 'prospects'>('runs');
+  const [activeTab, setActiveTab] = useState<'runs' | 'settings' | 'webhooks' | 'prospects' | 'simulate'>('runs');
   const color = agentColor(key!);
 
   const [editingName, setEditingName] = useState(false);
@@ -8010,12 +8193,24 @@ export default function AgentDetailPage() {
                 Prospects
               </button>
             )}
+            <button
+              onClick={() => setActiveTab('simulate')}
+              className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
+                activeTab === 'simulate'
+                  ? 'border-primary text-foreground'
+                  : 'border-transparent text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <Zap className="w-4 h-4" />
+              Simulate
+            </button>
           </div>
 
           {activeTab === 'runs' && <RunsTab agentKey={key!} token={token} />}
           {activeTab === 'settings' && <SettingsTab agent={agent} token={token} />}
           {activeTab === 'webhooks' && key === 'support' && <WebhookLogsTab token={token} />}
           {activeTab === 'prospects' && key === 'listing_outreach' && <ProspectsTab token={token} />}
+          {activeTab === 'simulate' && <SimulateTab agentKey={key!} token={token} />}
         </>
       )}
     </div>

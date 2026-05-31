@@ -321,7 +321,7 @@ export class LivechatAgent implements IAgent, OnModuleInit {
     // Pre-LLM KB coverage gate: if we have no product catalog AND no relevant
     // references for a substantive question, skip the LLM entirely and escalate.
     // Prevents the agent from hallucinating when the KB is empty or misconfigured.
-    const hasProductCatalog = alwaysOn.some((e) => ['product', 'service', 'offer'].includes(e.entryType));
+    const hasProductCatalog = alwaysOn.some((e) => ['product', 'service', 'offer', 'product_qa'].includes(e.entryType));
     const isSubstantiveQuestion = !(['greeting', 'thanks', 'leaving', 'affirmation'] as VisitorIntent[]).includes(intentResult.intent);
     if (!hasProductCatalog && references.length === 0 && isSubstantiveQuestion) {
       this.logger.log(`session ${input.sessionId}: no KB coverage (intent: ${intentResult.intent}) — escalating`);
@@ -346,7 +346,7 @@ export class LivechatAgent implements IAgent, OnModuleInit {
     const kbBlock = this.kb.buildKbPromptBlock({
       voiceProfile: alwaysOn.find((e) => e.entryType === 'voice_profile') ?? null,
       facts: alwaysOn.filter((e) => e.entryType === 'fact'),
-      catalog: alwaysOn.filter((e) => e.entryType === 'product' || e.entryType === 'service' || e.entryType === 'offer'),
+      catalog: alwaysOn.filter((e) => ['product', 'service', 'offer', 'product_qa'].includes(e.entryType)),
       references,
       positiveSamples: samples.filter((s) => s.polarity === 'positive'),
       negativeSamples: samples.filter((s) => s.polarity === 'negative'),
