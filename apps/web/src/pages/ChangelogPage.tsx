@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.89.2',
+    date: '2026-05-31',
+    entries: [
+      { tag: 'fix', scope: 'support', description: 'Fixed support agent reply endpoint — base URL already contained /api/public-v1 so it was being doubled in the path. Also corrected path order from {uuid}/agent-reply to agent-reply/{uuid} to match the actual Taskip API.' },
+    ],
+  },
+  {
     version: 'v4.89.1',
     date: '2026-05-31',
     entries: [

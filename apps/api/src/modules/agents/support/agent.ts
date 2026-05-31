@@ -1438,11 +1438,11 @@ export class SupportAgent implements IAgent, OnModuleInit {
       const headers = await this.crmHeaders();
 
       const candidates: string[] = [
-        `${base}/api/public-v1/support-ticket/${crmUuid}/agent-reply`,
+        `${base}/support-ticket/agent-reply/${crmUuid}`,
       ];
       if (crmTicketId) {
-        candidates.push(`${base}/api/public-v1/support-ticket/${crmTicketId}/agent-reply`);
-        candidates.push(`${base}/api/public-v1/support-ticket/${crmTicketId}/reply`);
+        candidates.push(`${base}/support-ticket/agent-reply/${crmTicketId}`);
+        candidates.push(`${base}/support-ticket/${crmTicketId}/reply`);
       }
 
       for (const url of candidates) {
