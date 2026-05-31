@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.89.1',
+    date: '2026-05-31',
+    entries: [
+      { tag: 'fix', scope: 'linkedin', description: 'Added migration 0093 to ensure blocked_countries column exists on linkedin_accounts table. Column was missing in production causing the LinkedIn agent to fail on every run.' },
+    ],
+  },
+  {
     version: 'v4.89.0',
     date: '2026-05-31',
     entries: [
