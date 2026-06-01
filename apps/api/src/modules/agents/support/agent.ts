@@ -1433,7 +1433,7 @@ export class SupportAgent implements IAgent, OnModuleInit {
       if (!baseUrl) return { ok: false, error: 'support_crm_base_url not configured' };
       const agentIdRaw = await this.settings.getDecrypted('support_agent_id');
       if (!agentIdRaw) return { ok: false, error: 'support_agent_id not configured in Settings' };
-      const body: Record<string, unknown> = { description: message, agent_id: Number(agentIdRaw) };
+      const body: Record<string, unknown> = { description: message, agent_id: Number(agentIdRaw), status: 1 };
       const base = baseUrl.replace(/\/$/, '');
       const headers = await this.crmHeaders();
 
