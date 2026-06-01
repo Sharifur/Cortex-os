@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.90.3',
+    date: '2026-06-01',
+    entries: [
+      { tag: 'feat', scope: 'support', description: 'Telegram notifications for auto-sent replies now include urgency level, priority, category, and ticket ID. Urgent and high-priority tickets get a [URGENT] or [HIGH] prefix so they stand out immediately.' },
+    ],
+  },
+  {
     version: 'v4.90.2',
     date: '2026-06-01',
     entries: [

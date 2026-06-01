@@ -432,7 +432,7 @@ export class SupportAgent implements IAgent, OnModuleInit {
         payload: { draft: p.draft },
       });
       await this.telegram.sendMessage(
-        `Purchase code requested: ${p.subject}\nFrom: ${p.userEmail}\n\nSent:\n${p.draft}`,
+        `Auto-reply sent: purchase code request\nTicket #${p.crmTicketId ?? p.ticketId} | ${p.subject}\nFrom: ${p.userEmail}\n\nReply:\n${p.draft}`,
       );
       return { success: true, data: { ticketId: p.ticketId } };
     }
@@ -458,7 +458,7 @@ export class SupportAgent implements IAgent, OnModuleInit {
         payload: { draft: p.draft, serverIssue: p.serverIssue },
       });
       await this.telegram.sendMessage(
-        `Server access requested: ${p.subject}\nFrom: ${p.userEmail}\nIssue: ${p.serverIssue}\n\nSent:\n${p.draft}`,
+        `Auto-reply sent: server access request\nTicket #${p.crmTicketId ?? p.ticketId} | ${p.subject}\nFrom: ${p.userEmail}\nIssue type: ${p.serverIssue}\n\nReply:\n${p.draft}`,
       );
       return { success: true, data: { ticketId: p.ticketId } };
     }
@@ -524,8 +524,9 @@ export class SupportAgent implements IAgent, OnModuleInit {
           summary: `Reply posted to CRM for ticket #${p.crmTicketId}`,
           payload: { draft: p.draft, category: p.category, priority: p.priority },
         });
+        const urgencyTag = p.priority === 'urgent' ? '[URGENT] ' : p.priority === 'high' ? '[HIGH] ' : '';
         await this.telegram.sendMessage(
-          `Replied: ${p.subject}\nFrom: ${p.userEmail}\n\nSent:\n${p.draft}`,
+          `${urgencyTag}Auto-reply sent\nTicket #${p.crmTicketId ?? p.ticketId} | ${p.subject}\nFrom: ${p.userEmail}\nPriority: ${p.priority ?? 'normal'} | Category: ${p.category ?? 'general'}\n\nReply:\n${p.draft}`,
         );
       } else if (isReply && !p.crmUuid) {
         // Reply attempted but no CRM UUID — save draft, do NOT mark as replied
