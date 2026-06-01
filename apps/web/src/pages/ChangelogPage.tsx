@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.90.1',
+    date: '2026-06-01',
+    entries: [
+      { tag: 'fix', scope: 'support', description: 'Support agent reply no longer closes the CRM ticket. Now sends status: in_progress in the agent-reply request body so the ticket stays open after a reply.' },
+    ],
+  },
+  {
     version: 'v4.90.0',
     date: '2026-06-01',
     entries: [
