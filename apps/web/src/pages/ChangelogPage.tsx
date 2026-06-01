@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.90.2',
+    date: '2026-06-01',
+    entries: [
+      { tag: 'fix', scope: 'support', description: 'CRM reply now sends numeric status code 1 (in_progress) instead of the string in_progress, matching the CRM API contract.' },
+    ],
+  },
+  {
     version: 'v4.90.1',
     date: '2026-06-01',
     entries: [
