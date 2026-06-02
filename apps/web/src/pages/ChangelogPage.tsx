@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.90.4',
+    date: '2026-06-02',
+    entries: [
+      { tag: 'fix', scope: 'taskip-trial', description: 'Added onModuleInit table guard for taskip_trial_sequences so the table is created automatically on startup if the migration was not applied.' },
+    ],
+  },
+  {
     version: 'v4.90.3',
     date: '2026-06-01',
     entries: [
