@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.91.0',
+    date: '2026-06-04',
+    entries: [
+      { tag: 'feat', scope: 'livechat', description: 'Admin alert email when a chat needs human assistance and no operator joins within 3 minutes. Configurable per site via the new "Human alert email" field in the Transcript settings tab.' },
+    ],
+  },
+  {
     version: 'v4.90.4',
     date: '2026-06-02',
     entries: [

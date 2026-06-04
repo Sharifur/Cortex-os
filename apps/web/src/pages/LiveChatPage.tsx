@@ -89,6 +89,7 @@ interface Site {
   transcriptEnabled: boolean;
   transcriptBcc: string | null;
   transcriptFrom: string | null;
+  humanAlertEmail: string | null;
   topicHandlingRules: string | null;
   createdAt: string;
 }
@@ -411,6 +412,7 @@ function SitesTab() {
         transcriptEnabled: s.transcriptEnabled ?? false,
         transcriptBcc: s.transcriptBcc ?? null,
         transcriptFrom: s.transcriptFrom ?? null,
+        humanAlertEmail: s.humanAlertEmail ?? null,
         topicHandlingRules: s.topicHandlingRules ?? null,
       };
       if (s.id) {
@@ -961,6 +963,13 @@ function SiteFormModal({ site, onClose, onSave, error }: { site: Partial<Site>; 
                 value={draft.transcriptBcc ?? ''}
                 onChange={(e) => setDraft({ ...draft, transcriptBcc: e.target.value })}
                 placeholder="ops@taskip.net, support@bytesed.com"
+              />
+            </Field>
+            <Field label="Human alert email" hint="If a visitor requests human help and no operator joins within 3 minutes, an alert is sent here. Leave blank to use the platform default from address.">
+              <Input
+                value={draft.humanAlertEmail ?? ''}
+                onChange={(e) => setDraft({ ...draft, humanAlertEmail: e.target.value || null })}
+                placeholder="admin@example.com"
               />
             </Field>
           </div>
