@@ -659,6 +659,13 @@
       "when": 1748649600000,
       "tag": "0093_linkedin_blocked_countries_fix",
       "breakpoints": true
+    },
+    {
+      "idx": 94,
+      "version": "6",
+      "when": 1748908800000,
+      "tag": "0094_livechat_needs_human_alert",
+      "breakpoints": true
     }
   ]
 }

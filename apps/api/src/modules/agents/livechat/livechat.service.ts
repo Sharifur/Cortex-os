@@ -46,6 +46,7 @@ export interface LivechatSiteRow {
   transcriptEnabled: boolean;
   transcriptBcc: string | null;
   transcriptFrom: string | null;
+  humanAlertEmail: string | null;
   topicHandlingRules: string | null;
   requireEmail: boolean;
   widgetCacheBust: string | null;
@@ -72,6 +73,7 @@ export interface CreateSiteDto {
   transcriptEnabled?: boolean;
   transcriptBcc?: string | null;
   transcriptFrom?: string | null;
+  humanAlertEmail?: string | null;
   topicHandlingRules?: string | null;
   requireEmail?: boolean;
 }
@@ -96,6 +98,7 @@ export interface UpdateSiteDto {
   transcriptEnabled?: boolean;
   transcriptBcc?: string | null;
   transcriptFrom?: string | null;
+  humanAlertEmail?: string | null;
   topicHandlingRules?: string | null;
   requireEmail?: boolean;
 }
@@ -639,9 +642,12 @@ export class LivechatService implements OnModuleInit {
   }
 
   async setSessionStatus(sessionId: string, status: 'open' | 'human_taken_over' | 'needs_human' | 'closed'): Promise<void> {
+    const extra: Record<string, unknown> = {};
+    if (status === 'needs_human') extra.needsHumanAt = new Date();
+    if (status === 'human_taken_over' || status === 'open') extra.needsHumanAt = null;
     await this.db.db
       .update(livechatSessions)
-      .set({ status, lastSeenAt: new Date() })
+      .set({ status, lastSeenAt: new Date(), ...extra })
       .where(eq(livechatSessions.id, sessionId));
   }
 
@@ -1039,6 +1045,7 @@ export class LivechatService implements OnModuleInit {
         transcriptEnabled: dto.transcriptEnabled ?? false,
         transcriptBcc: dto.transcriptBcc?.trim() || null,
         transcriptFrom: dto.transcriptFrom?.trim() || null,
+        humanAlertEmail: dto.humanAlertEmail?.trim() || null,
         topicHandlingRules: dto.topicHandlingRules?.trim() || null,
         requireEmail: dto.requireEmail ?? false,
       })
@@ -1175,6 +1182,7 @@ export class LivechatService implements OnModuleInit {
     if (dto.transcriptEnabled !== undefined) set.transcriptEnabled = dto.transcriptEnabled;
     if (dto.transcriptBcc !== undefined) set.transcriptBcc = dto.transcriptBcc?.trim() || null;
     if (dto.transcriptFrom !== undefined) set.transcriptFrom = dto.transcriptFrom?.trim() || null;
+    if (dto.humanAlertEmail !== undefined) set.humanAlertEmail = dto.humanAlertEmail?.trim() || null;
     if (dto.topicHandlingRules !== undefined) set.topicHandlingRules = dto.topicHandlingRules?.trim() || null;
     if (dto.requireEmail !== undefined) set.requireEmail = dto.requireEmail;
 
@@ -1365,6 +1373,7 @@ export class LivechatService implements OnModuleInit {
       transcriptEnabled: r.transcriptEnabled,
       transcriptBcc: r.transcriptBcc,
       transcriptFrom: r.transcriptFrom,
+      humanAlertEmail: r.humanAlertEmail ?? null,
       topicHandlingRules: r.topicHandlingRules ?? null,
       requireEmail: r.requireEmail,
       widgetCacheBust: r.widgetCacheBust ?? null,

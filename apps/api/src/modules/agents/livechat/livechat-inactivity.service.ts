@@ -8,10 +8,12 @@ import { SesService } from '../../ses/ses.service';
 import { SettingsService } from '../../settings/settings.service';
 import { LivechatInboundService } from './livechat-inbound.service';
 
-const INACTIVITY_THRESHOLD_MS = 3 * 60 * 1000;   // 3 min visitor absence
-const RESEND_COOLDOWN_MS = 30 * 60 * 1000;        // 30 min between emails per session
-const SCAN_INTERVAL_MS = 60 * 1000;               // scan every 60s
-const RECENT_MESSAGES_WINDOW_MS = 15 * 60 * 1000; // look at messages from last 15 min
+const INACTIVITY_THRESHOLD_MS = 3 * 60 * 1000;    // 3 min visitor absence
+const RESEND_COOLDOWN_MS = 30 * 60 * 1000;         // 30 min between emails per session
+const SCAN_INTERVAL_MS = 60 * 1000;                // scan every 60s
+const RECENT_MESSAGES_WINDOW_MS = 15 * 60 * 1000;  // look at messages from last 15 min
+const HUMAN_ALERT_THRESHOLD_MS = 3 * 60 * 1000;    // 3 min waiting for operator
+const HUMAN_ALERT_COOLDOWN_MS = 60 * 60 * 1000;    // 1 h between repeat alerts per session
 
 @Injectable()
 export class LivechatInactivityService implements OnApplicationBootstrap, OnApplicationShutdown {
@@ -27,7 +29,7 @@ export class LivechatInactivityService implements OnApplicationBootstrap, OnAppl
   ) {}
 
   onApplicationBootstrap() {
-    this.timer = setInterval(() => { void this.sweep(); }, SCAN_INTERVAL_MS);
+    this.timer = setInterval(() => { void this.sweep(); void this.sweepNeedsHuman(); }, SCAN_INTERVAL_MS);
   }
 
   onApplicationShutdown() {
@@ -105,6 +107,126 @@ export class LivechatInactivityService implements OnApplicationBootstrap, OnAppl
       .where(eq(livechatSessions.id, sessionId));
 
     this.logger.log(`Inactivity email sent → ${visitorEmail} for session ${sessionId.slice(-8)} | replyTo: ${replyTo ?? 'none'}`);
+  }
+
+  async sweepNeedsHuman(): Promise<void> {
+    const now = new Date();
+    const alertThreshold = new Date(now.getTime() - HUMAN_ALERT_THRESHOLD_MS);
+    const cooldownCutoff = new Date(now.getTime() - HUMAN_ALERT_COOLDOWN_MS);
+
+    const rows = await this.db.db.execute(sql`
+      SELECT s.id, s.site_id, s.visitor_name, s.visitor_email, s.needs_human_at
+      FROM livechat_sessions s
+      WHERE s.status = 'needs_human'
+        AND s.needs_human_at IS NOT NULL
+        AND s.needs_human_at < ${alertThreshold.toISOString()}
+        AND (s.human_alert_sent_at IS NULL OR s.human_alert_sent_at < ${cooldownCutoff.toISOString()})
+      LIMIT 20
+    `);
+
+    const sessions = rows as unknown as Array<{ id: string; site_id: string; visitor_name: string | null; visitor_email: string | null; needs_human_at: string }>;
+    if (!sessions.length) return;
+
+    this.logger.debug(`Human alert sweep: ${sessions.length} session(s) waiting for operator`);
+
+    for (const session of sessions) {
+      await this.sendHumanAlertEmail(session.id, session.site_id, session.visitor_name, session.visitor_email).catch((err) => {
+        this.logger.warn(`Human alert email failed for session ${session.id.slice(-8)}: ${(err as Error).message}`);
+      });
+    }
+  }
+
+  private async sendHumanAlertEmail(sessionId: string, siteId: string, visitorName: string | null, visitorEmail: string | null): Promise<void> {
+    const site = await this.livechat.getSiteById(siteId);
+
+    const adminTo = site.humanAlertEmail?.trim() || await this.settings.getDecrypted('ses_default_from');
+    if (!adminTo) {
+      this.logger.warn(`Human alert skipped for ${sessionId.slice(-8)}: no admin email configured`);
+      return;
+    }
+    const toAddress = adminTo.includes('<') ? adminTo : adminTo;
+
+    const rawFrom = site.transcriptFrom?.trim() || await this.settings.getDecrypted('ses_default_from');
+    if (!rawFrom) {
+      this.logger.warn(`Human alert skipped for ${sessionId.slice(-8)}: no from address`);
+      return;
+    }
+    const senderLabel = site.botName?.trim() || site.label?.trim() || 'Live Chat';
+    const fromAddress = rawFrom.includes('<') ? rawFrom : `"${senderLabel}" <${rawFrom}>`;
+
+    const visitorLabel = visitorName?.trim() || visitorEmail || 'A visitor';
+    const siteName = site.label?.trim() || site.key;
+    const brandColor = site.brandColor || '#2563eb';
+
+    const adminSubject = `Action needed: chat waiting for human reply — ${siteName}`;
+    const adminText = [
+      `${visitorLabel} is waiting for a human agent in the ${siteName} live chat.`,
+      '',
+      'No operator has joined in the last 3 minutes.',
+      '',
+      'Please open the live chat dashboard and join the session.',
+    ].join('\n');
+    const adminHtml = this.buildHumanAlertHtml({ visitorLabel, siteName, brandColor });
+
+    await this.ses.sendEmail({ to: toAddress, from: fromAddress, subject: adminSubject, textBody: adminText, htmlBody: adminHtml });
+    this.logger.log(`Human alert email sent → ${toAddress} for session ${sessionId.slice(-8)}`);
+
+    if (visitorEmail) {
+      const replyTo = (await this.inbound.buildReplyTo(sessionId)) ?? undefined;
+      const visitorSubject = `We received your request — a human will be with you shortly`;
+      const visitorText = [
+        `Hi ${visitorLabel},`,
+        '',
+        `Thanks for reaching out to ${siteName}. We received your request for human assistance.`,
+        '',
+        'Our team has been notified and someone will join your chat shortly.',
+        '',
+        'You can reply to this email and your message will be added to the conversation.',
+      ].join('\n');
+      const visitorHtml = this.buildVisitorHumanAlertHtml({ visitorLabel, siteName, brandColor });
+      await this.ses.sendEmail({ to: visitorEmail, from: fromAddress, subject: visitorSubject, textBody: visitorText, htmlBody: visitorHtml, replyTo })
+        .catch((err) => this.logger.warn(`Visitor human alert email failed for session ${sessionId.slice(-8)}: ${(err as Error).message}`));
+      this.logger.log(`Visitor human alert email sent → ${visitorEmail} for session ${sessionId.slice(-8)}`);
+    }
+
+    await this.db.db
+      .update(livechatSessions)
+      .set({ humanAlertSentAt: new Date() })
+      .where(eq(livechatSessions.id, sessionId));
+  }
+
+  private buildHumanAlertHtml(input: { visitorLabel: string; siteName: string; brandColor: string }): string {
+    const label = input.visitorLabel.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const site = input.siteName.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return `<!DOCTYPE html><html><body style="margin:0;padding:24px;background:#f9fafb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+<table cellpadding="0" cellspacing="0" width="100%" style="max-width:480px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.05);">
+  <tr><td style="padding:18px 22px;background:${input.brandColor};color:#fff;">
+    <div style="font-size:16px;font-weight:600;">Chat needs human assistance</div>
+    <div style="font-size:12px;opacity:.85;margin-top:2px;">${site}</div>
+  </td></tr>
+  <tr><td style="padding:18px 22px;font-size:14px;color:#1f2937;line-height:1.6;">
+    <strong>${label}</strong> is waiting for a human agent and no one has joined in the last 3 minutes.
+    <br><br>
+    Please open the live chat dashboard and join the session.
+  </td></tr>
+</table></body></html>`;
+  }
+
+  private buildVisitorHumanAlertHtml(input: { visitorLabel: string; siteName: string; brandColor: string }): string {
+    const label = input.visitorLabel.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const site = input.siteName.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return `<!DOCTYPE html><html><body style="margin:0;padding:24px;background:#f9fafb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+<table cellpadding="0" cellspacing="0" width="100%" style="max-width:480px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.05);">
+  <tr><td style="padding:18px 22px;background:${input.brandColor};color:#fff;">
+    <div style="font-size:16px;font-weight:600;">We received your request</div>
+    <div style="font-size:12px;opacity:.85;margin-top:2px;">${site}</div>
+  </td></tr>
+  <tr><td style="padding:18px 22px;font-size:14px;color:#1f2937;line-height:1.6;">
+    Hi <strong>${label}</strong>,<br><br>
+    Thanks for reaching out. We received your request for human assistance and our team has been notified.<br><br>
+    Someone will join your chat shortly. You can also reply to this email and your message will be added to the conversation.
+  </td></tr>
+</table></body></html>`;
   }
 
   private buildText(input: { visitorLabel: string; botName: string; messages: { role: string; content: string; createdAt: Date }[] }): string {
