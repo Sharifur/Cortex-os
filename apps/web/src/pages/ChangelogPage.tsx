@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.92.0',
+    date: '2026-06-05',
+    entries: [
+      { tag: 'feat', scope: 'support', description: 'Train from Screenshot: upload a conversation screenshot in the support agent Settings → Train tab. Vision LLM extracts the dialogue and generates a KB rule proposal. You approve or reject it via Telegram before it goes live.' },
+      { tag: 'feat', scope: 'support', description: 'New POST /support/train-from-image endpoint accepts base64 image, category (decision_rule / policy / faq / spam_filter), and an optional instruction. Uses gpt-4o vision to extract conversation then gpt-4o-mini to generate the KB rule.' },
+    ],
+  },
+  {
     version: 'v4.91.1',
     date: '2026-06-05',
     entries: [

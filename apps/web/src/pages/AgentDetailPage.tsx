@@ -2576,11 +2576,7 @@ function SettingsTab({ agent, token }: { agent: AgentDetail; token: string }) {
     } />
   );
 
-  if (agent.key === 'support') return (
-    <Phase4SettingsTab agent={agent} token={token} setupContent={
-      <SupportSetupSubTab agent={agent} token={token} />
-    } />
-  );
+  if (agent.key === 'support') return <SupportSettingsTab agent={agent} token={token} />;
 
   if (agent.key === 'whatsapp') return (
     <Phase4SettingsTab agent={agent} token={token} setupContent={
@@ -2964,6 +2960,190 @@ function LivechatSetupSubTab({ agent }: { agent: AgentDetail }) {
         </SetupStep>
       </>}
     />
+  );
+}
+
+const SUPPORT_TRAIN_CATEGORIES = [
+  { value: 'decision_rule', label: 'Decision Rule', description: 'How to route or handle a ticket type' },
+  { value: 'policy', label: 'Policy', description: 'What to do in a specific situation' },
+  { value: 'faq', label: 'FAQ', description: 'Q&A the agent should know' },
+  { value: 'spam_filter', label: 'Spam Filter', description: 'Pattern to detect and skip' },
+] as const;
+
+function SupportTrainImageSubTab({ token }: { token: string }) {
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [category, setCategory] = useState<string>('decision_rule');
+  const [instruction, setInstruction] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<{ ok: boolean; proposalId?: string; error?: string } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImageFile(file);
+    setPreviewUrl(URL.createObjectURL(file));
+    setResult(null);
+  }
+
+  function handleDrop(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    const file = e.dataTransfer.files?.[0];
+    if (!file || !file.type.startsWith('image/')) return;
+    setImageFile(file);
+    setPreviewUrl(URL.createObjectURL(file));
+    setResult(null);
+  }
+
+  async function handleSubmit() {
+    if (!imageFile) return;
+    setLoading(true);
+    setResult(null);
+    try {
+      const reader = new FileReader();
+      const base64 = await new Promise<string>((resolve, reject) => {
+        reader.onload = () => {
+          const data = (reader.result as string).split(',')[1];
+          if (data) resolve(data); else reject(new Error('Failed to read file'));
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(imageFile);
+      });
+      const res = await fetch('/support/train-from-image', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageData: base64, mimeType: imageFile.type, category, instruction: instruction.trim() || undefined }),
+      });
+      const data = await res.json();
+      if (!res.ok) setResult({ ok: false, error: data.message ?? data.error ?? 'Request failed' });
+      else setResult({ ok: true, proposalId: data.proposalId });
+      if (data.proposalId) {
+        setImageFile(null);
+        setPreviewUrl(null);
+        setInstruction('');
+        if (fileInputRef.current) fileInputRef.current.value = '';
+      }
+    } catch (err) {
+      setResult({ ok: false, error: (err as Error).message });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-xl border border-border bg-card p-5 space-y-4">
+        <div>
+          <h3 className="text-sm font-semibold mb-1">Train from Screenshot</h3>
+          <p className="text-xs text-muted-foreground">Upload a screenshot of a resolved support conversation. The AI extracts the dialogue and generates a reusable KB rule. You approve or reject it via Telegram before it goes live.</p>
+        </div>
+
+        <div
+          onDrop={handleDrop}
+          onDragOver={e => e.preventDefault()}
+          onClick={() => fileInputRef.current?.click()}
+          className="border-2 border-dashed border-border rounded-lg p-4 flex flex-col items-center justify-center gap-2 cursor-pointer hover:border-primary/50 transition-colors min-h-[120px]"
+        >
+          {previewUrl ? (
+            <div className="relative w-full">
+              <img src={previewUrl} alt="preview" className="max-h-64 rounded-md mx-auto object-contain" />
+              <button
+                onClick={e => { e.stopPropagation(); setImageFile(null); setPreviewUrl(null); setResult(null); if (fileInputRef.current) fileInputRef.current.value = ''; }}
+                className="absolute top-1 right-1 bg-background/80 rounded-full p-0.5 hover:bg-destructive/20"
+              >
+                <X className="w-3.5 h-3.5 text-muted-foreground" />
+              </button>
+            </div>
+          ) : (
+            <>
+              <Upload className="w-6 h-6 text-muted-foreground" />
+              <p className="text-xs text-muted-foreground text-center">Drop a screenshot here or click to browse</p>
+            </>
+          )}
+          <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
+        </div>
+
+        <div>
+          <label className="text-xs font-medium text-muted-foreground block mb-2">Rule category</label>
+          <div className="grid grid-cols-2 gap-2">
+            {SUPPORT_TRAIN_CATEGORIES.map(c => (
+              <button
+                key={c.value}
+                onClick={() => setCategory(c.value)}
+                className={`text-left px-3 py-2 rounded-lg border text-xs transition-colors ${category === c.value ? 'border-primary bg-primary/10 text-foreground' : 'border-border bg-muted/20 text-muted-foreground hover:text-foreground'}`}
+              >
+                <div className="font-medium">{c.label}</div>
+                <div className="text-[10px] opacity-70 mt-0.5">{c.description}</div>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <label className="text-xs font-medium text-muted-foreground block mb-1">Instruction (optional)</label>
+          <textarea
+            value={instruction}
+            onChange={e => setInstruction(e.target.value)}
+            placeholder="e.g. When item is removed from Envato and customer has valid purchase code, provide the plugin file — do not require support renewal."
+            rows={3}
+            className="w-full rounded-md border border-border bg-background px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring resize-none"
+          />
+        </div>
+
+        <button
+          onClick={handleSubmit}
+          disabled={!imageFile || loading}
+          className="flex items-center gap-1.5 px-4 py-2 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        >
+          {loading ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Extracting...</> : <><Upload className="w-3.5 h-3.5" /> Extract & propose</>}
+        </button>
+
+        {result && (
+          result.ok ? (
+            <div className="text-xs text-emerald-400">
+              Proposal created — check Telegram to approve or reject.
+            </div>
+          ) : (
+            <div className="text-xs text-red-400">{result.error}</div>
+          )
+        )}
+      </div>
+    </div>
+  );
+}
+
+const SUPPORT_TABS = [
+  { key: 'setup', label: 'Setup', icon: BookOpen },
+  { key: 'train', label: 'Train', icon: Upload },
+  { key: 'general', label: 'General', icon: Settings },
+  { key: 'runtime', label: 'Runtime', icon: List },
+] as const;
+type SupportTabKey = typeof SUPPORT_TABS[number]['key'];
+
+function SupportSettingsTab({ agent, token }: { agent: AgentDetail; token: string }) {
+  const [activeSub, setActiveSub] = useState<SupportTabKey>('setup');
+  return (
+    <div>
+      <div className="flex items-center gap-1 border border-border rounded-lg p-1 mb-5 bg-muted/30 w-fit">
+        {SUPPORT_TABS.map(({ key, label, icon: Icon }) => (
+          <button
+            key={key}
+            onClick={() => setActiveSub(key)}
+            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-md text-sm font-medium transition-colors ${
+              activeSub === key ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            <Icon className="w-3.5 h-3.5" />
+            {label}
+          </button>
+        ))}
+      </div>
+      {activeSub === 'setup' && <SupportSetupSubTab agent={agent} token={token} />}
+      {activeSub === 'train' && <SupportTrainImageSubTab token={token} />}
+      {activeSub === 'general' && <Phase4GeneralSubTab agent={agent} token={token} />}
+      {activeSub === 'runtime' && <RuntimeSubTab agent={agent} />}
+    </div>
   );
 }
 
