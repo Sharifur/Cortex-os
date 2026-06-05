@@ -787,6 +787,19 @@ export class SupportAgent implements IAgent, OnModuleInit {
       },
       {
         method: 'POST',
+        path: '/support/train-from-image',
+        requiresAuth: true,
+        handler: async (body) => {
+          const { imageData, mimeType, category, instruction } = body as any;
+          if (!imageData?.trim()) throw new Error('imageData (base64) is required');
+          if (!mimeType?.trim()) throw new Error('mimeType is required');
+          const validCategories = ['spam_filter', 'decision_rule', 'faq', 'policy'];
+          if (!validCategories.includes(category)) throw new Error('invalid category');
+          return this.trainFromImage({ imageData, mimeType, category, instruction });
+        },
+      },
+      {
+        method: 'POST',
         path: '/support/tickets/:id/priority',
         requiresAuth: true,
         handler: async (params) => {
@@ -939,6 +952,90 @@ export class SupportAgent implements IAgent, OnModuleInit {
 
     this.events.emit('telegram.kb_proposal', { proposalId: row.id, text });
     this.logger.log(`Training proposal created: ${row.id} agent=${this.key} category=${category}`);
+    return { proposalId: row.id };
+  }
+
+  private async trainFromImage(input: {
+    imageData: string;
+    mimeType: string;
+    category: string;
+    instruction?: string;
+  }): Promise<{ proposalId: string }> {
+    const { imageData, mimeType, category, instruction } = input;
+
+    const extractResponse = await this.llm.complete({
+      messages: [
+        {
+          role: 'system',
+          content: 'You are a text extractor. Extract the full conversation from this support ticket screenshot verbatim. Format: one message per line, prefixed with "Customer:" or "Agent:". Include all messages in chronological order.',
+        },
+        { role: 'user', content: 'Extract the conversation from this screenshot.' },
+      ],
+      imageBase64: imageData,
+      imageMimeType: mimeType,
+      provider: 'openai',
+      model: 'gpt-4o',
+      maxTokens: 1500,
+    });
+
+    const extractedText = extractResponse.content.trim();
+    if (!extractedText) throw new Error('Could not extract conversation from image');
+
+    const userContent = [
+      `Extracted ticket conversation:\n${extractedText}`,
+      `Training category: ${category}`,
+      instruction ? `Operator instruction: "${instruction}"` : null,
+    ].filter(Boolean).join('\n\n');
+
+    const response = await this.llm.complete({
+      messages: [
+        { role: 'system', content: TRAIN_PROPOSE_SYSTEM },
+        { role: 'user', content: userContent },
+      ],
+      provider: 'auto',
+      model: 'gpt-4o-mini',
+      maxTokens: 400,
+      temperature: 0.2,
+    });
+
+    const raw = response.content.trim();
+    const match = raw.match(/\{[\s\S]*\}/);
+    const proposal: { title: string; content: string; reasoning: string } = JSON.parse(match?.[0] ?? raw);
+    if (!proposal.title || !proposal.content) throw new Error('LLM returned incomplete proposal');
+
+    const categoryMap: Record<string, string> = { spam_filter: 'spam_rule', decision_rule: 'decision_rule', faq: 'faq', policy: 'policy' };
+
+    const [row] = await this.db.db
+      .insert(kbProposals)
+      .values({
+        agentKey: this.key,
+        proposedEntryType: 'fact',
+        title: proposal.title,
+        content: proposal.content,
+        polarity: null,
+        reasoning: proposal.reasoning ?? '',
+        category: categoryMap[category] ?? 'general',
+        sourceType: 'training',
+      })
+      .returning();
+
+    const labelMap: Record<string, string> = { spam_filter: 'Spam Filter', decision_rule: 'Decision Rule', faq: 'FAQ', policy: 'Policy' };
+    const text = [
+      `*Agent Training Proposal (from screenshot)*`,
+      `Agent: *${this.name}* (\`${this.key}\`)`,
+      ``,
+      `Type: *${labelMap[category] ?? category}*`,
+      ``,
+      `Rule: *${proposal.title}*`,
+      `_${proposal.content.slice(0, 300)}_`,
+      ``,
+      `Why: ${proposal.reasoning}`,
+      ``,
+      `Add this to the Knowledge Base?`,
+    ].join('\n');
+
+    this.events.emit('telegram.kb_proposal', { proposalId: row.id, text });
+    this.logger.log(`Image training proposal created: ${row.id} agent=${this.key} category=${category}`);
     return { proposalId: row.id };
   }
 
