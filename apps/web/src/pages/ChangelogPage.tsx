@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.91.1',
+    date: '2026-06-05',
+    entries: [
+      { tag: 'fix', scope: 'support', description: 'Support agent now requires Telegram approval before sending any reply or purchase code request. Previously post_reply and request_purchase_code actions bypassed requiresApproval and executed immediately.' },
+    ],
+  },
+  {
     version: 'v4.91.0',
     date: '2026-06-04',
     entries: [
