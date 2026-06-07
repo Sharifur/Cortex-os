@@ -26,6 +26,15 @@ interface SupportTicket {
   lastDraft: string | null;
   purchaseCode: string | null;
   purchaseCodeStatus: string | null;
+  verifyData: {
+    action: string;
+    summary: string;
+    supportIsActive: boolean;
+    supportDaysRemaining: number;
+    canExtend: boolean;
+    buyerUsername: string | null;
+    licenseKey: string | null;
+  } | null;
   repliedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -167,6 +176,127 @@ function EventRow({ event }: { event: TicketEvent }) {
   );
 }
 
+function PurchaseCodeCard({ ticket, pvPayload, purchaseVerifyEvent, token, onReverified }: {
+  ticket: SupportTicket;
+  pvPayload: { action?: string; summary?: string; buyerUsername?: string | null; supportIsActive?: boolean; supportDaysRemaining?: number; canExtend?: boolean; licenseKey?: string | null } | null;
+  purchaseVerifyEvent: TicketEvent | null;
+  token: string;
+  onReverified: (data: any) => void;
+}) {
+  const [reverifying, setReverifying] = useState(false);
+  const [reverifyError, setReverifyError] = useState<string | null>(null);
+
+  async function handleReverify() {
+    setReverifying(true);
+    setReverifyError(null);
+    try {
+      const res = await fetch(`/support/tickets/${ticket.id}/reverify`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message ?? data.error ?? 'Re-verify failed');
+      onReverified(data);
+    } catch (err) {
+      setReverifyError((err as Error).message);
+    } finally {
+      setReverifying(false);
+    }
+  }
+
+  const status = ticket.purchaseCodeStatus;
+
+  return (
+    <div className="rounded-xl border border-border bg-card px-4 py-4 space-y-3">
+      <div className="flex items-center gap-2">
+        {status === 'verified' ? (
+          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+        ) : status === 'invalid' ? (
+          <XCircle className="w-4 h-4 text-red-400 shrink-0" />
+        ) : (
+          <AlertTriangle className="w-4 h-4 text-orange-400 shrink-0" />
+        )}
+        <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Purchase Code</p>
+        {status && (
+          <span className={`text-[11px] font-medium px-2 py-0.5 rounded ${PURCHASE_CODE_STATUS_STYLES[status] ?? 'bg-slate-500/15 text-slate-400'}`}>
+            {status}
+          </span>
+        )}
+        <button
+          onClick={handleReverify}
+          disabled={reverifying}
+          className="ml-auto flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+          title="Re-verify purchase code via license server"
+        >
+          <RefreshCw className={`w-3 h-3 ${reverifying ? 'animate-spin' : ''}`} />
+          {reverifying ? 'Verifying...' : 'Re-verify'}
+        </button>
+      </div>
+
+      <div className="space-y-1.5 text-xs">
+        <div className="flex items-start gap-2">
+          <span className="text-muted-foreground w-28 shrink-0">Code</span>
+          <span className="font-mono text-foreground break-all">{ticket.purchaseCode}</span>
+        </div>
+
+        {pvPayload?.buyerUsername && (
+          <div className="flex items-center gap-2">
+            <span className="text-muted-foreground w-28 shrink-0">Buyer</span>
+            <span className="text-foreground font-medium">{pvPayload.buyerUsername}</span>
+          </div>
+        )}
+
+        {pvPayload?.supportIsActive !== undefined && (
+          <div className="flex items-center gap-2">
+            <span className="text-muted-foreground w-28 shrink-0">Support</span>
+            <span className={pvPayload.supportIsActive ? 'text-emerald-400' : 'text-orange-400'}>
+              {pvPayload.supportIsActive
+                ? `Active — ${pvPayload.supportDaysRemaining} day${pvPayload.supportDaysRemaining !== 1 ? 's' : ''} remaining`
+                : 'Expired'}
+            </span>
+          </div>
+        )}
+
+        {pvPayload?.canExtend !== undefined && (
+          <div className="flex items-center gap-2">
+            <span className="text-muted-foreground w-28 shrink-0">Can extend</span>
+            <span className={pvPayload.canExtend ? 'text-sky-400' : 'text-muted-foreground'}>
+              {pvPayload.canExtend ? 'Yes — renewal available' : 'No'}
+            </span>
+          </div>
+        )}
+
+        {pvPayload?.licenseKey && (
+          <div className="flex items-center gap-2">
+            <span className="text-muted-foreground w-28 shrink-0">License key</span>
+            <span className="font-mono text-foreground">{pvPayload.licenseKey}</span>
+          </div>
+        )}
+
+        {pvPayload?.summary && (
+          <div className="flex items-start gap-2">
+            <span className="text-muted-foreground w-28 shrink-0">Summary</span>
+            <span className="text-muted-foreground leading-snug">{pvPayload.summary}</span>
+          </div>
+        )}
+
+        {purchaseVerifyEvent && (
+          <div className="flex items-center gap-2">
+            <span className="text-muted-foreground w-28 shrink-0">Last verified</span>
+            <span className="text-muted-foreground">{fmt(purchaseVerifyEvent.createdAt)}</span>
+          </div>
+        )}
+
+        {!pvPayload && (
+          <p className="text-[11px] text-muted-foreground/60 italic">No verification details — click Re-verify to fetch from license server.</p>
+        )}
+      </div>
+
+      {reverifyError && <p className="text-xs text-red-400">{reverifyError}</p>}
+    </div>
+  );
+}
+
 export default function SupportTicketDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -280,7 +410,7 @@ export default function SupportTicketDetailPage() {
     },
   });
 
-  const { data: ticket, isLoading: ticketLoading } = useQuery<SupportTicket>({
+  const { data: ticket, isLoading: ticketLoading, refetch } = useQuery<SupportTicket>({
     queryKey: ['support-ticket', id],
     queryFn: async () => {
       const res = await fetch(`/support/tickets/${id}`, {
@@ -406,16 +536,19 @@ export default function SupportTicketDetailPage() {
     return ev ? (ev.payload as any).draft as string : null;
   })();
 
-  // Pull purchase verification details from the most recent verify event
+  // Pull purchase verification details — prefer ticket.verifyData, fall back to event payload
   const purchaseVerifyEvent = sortedEvents.find(
     e => e.eventType === 'purchase_code_verified' || e.eventType === 'purchase_code_expired' || e.eventType === 'purchase_code_invalid',
   );
-  const pvPayload = purchaseVerifyEvent?.payload as {
+  const pvPayload = ticket?.verifyData ?? (purchaseVerifyEvent?.payload as {
+    action?: string;
+    summary?: string;
     buyerUsername?: string | null;
     supportIsActive?: boolean;
     supportDaysRemaining?: number;
+    canExtend?: boolean;
     licenseKey?: string | null;
-  } | null | undefined;
+  } | null | undefined);
 
   if (ticketLoading) {
     return (
@@ -969,57 +1102,16 @@ export default function SupportTicketDetailPage() {
 
           {/* Purchase code */}
           {ticket.purchaseCode && (
-            <div className="rounded-xl border border-border bg-card px-4 py-4 space-y-3">
-              <div className="flex items-center gap-2">
-                {ticket.purchaseCodeStatus === 'verified' ? (
-                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                ) : ticket.purchaseCodeStatus === 'invalid' ? (
-                  <XCircle className="w-4 h-4 text-red-400 shrink-0" />
-                ) : (
-                  <AlertTriangle className="w-4 h-4 text-orange-400 shrink-0" />
-                )}
-                <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Purchase Code</p>
-                {ticket.purchaseCodeStatus && (
-                  <span className={`ml-auto text-[11px] font-medium px-2 py-0.5 rounded ${PURCHASE_CODE_STATUS_STYLES[ticket.purchaseCodeStatus] ?? 'bg-slate-500/15 text-slate-400'}`}>
-                    {ticket.purchaseCodeStatus}
-                  </span>
-                )}
-              </div>
-              <div className="space-y-1.5 text-xs">
-                <div className="flex items-start gap-2">
-                  <span className="text-muted-foreground w-28 shrink-0">Code</span>
-                  <span className="font-mono text-foreground break-all">{ticket.purchaseCode}</span>
-                </div>
-                {pvPayload?.buyerUsername && (
-                  <div className="flex items-center gap-2">
-                    <span className="text-muted-foreground w-28 shrink-0">Buyer</span>
-                    <span className="text-foreground">{pvPayload.buyerUsername}</span>
-                  </div>
-                )}
-                {pvPayload?.supportIsActive !== undefined && (
-                  <div className="flex items-center gap-2">
-                    <span className="text-muted-foreground w-28 shrink-0">Support</span>
-                    <span className={pvPayload.supportIsActive ? 'text-emerald-400' : 'text-orange-400'}>
-                      {pvPayload.supportIsActive
-                        ? `Active — ${pvPayload.supportDaysRemaining} day${pvPayload.supportDaysRemaining !== 1 ? 's' : ''} remaining`
-                        : 'Expired'}
-                    </span>
-                  </div>
-                )}
-                {pvPayload?.licenseKey && (
-                  <div className="flex items-center gap-2">
-                    <span className="text-muted-foreground w-28 shrink-0">License key</span>
-                    <span className="font-mono text-foreground">{pvPayload.licenseKey}</span>
-                  </div>
-                )}
-                {purchaseVerifyEvent && (
-                  <div className="flex items-center gap-2">
-                    <span className="text-muted-foreground w-28 shrink-0">Verified</span>
-                    <span className="text-muted-foreground">{fmt(purchaseVerifyEvent.createdAt)}</span>
-                  </div>
-                )}
-              </div>
-            </div>
+            <PurchaseCodeCard
+              ticket={ticket}
+              pvPayload={pvPayload ?? null}
+              purchaseVerifyEvent={purchaseVerifyEvent ?? null}
+              token={token}
+              onReverified={(data) => {
+                refetch();
+                refetchEvents();
+              }}
+            />
           )}
 
           {/* Activity Timeline */}

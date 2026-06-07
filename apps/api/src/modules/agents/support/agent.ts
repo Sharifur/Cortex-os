@@ -256,6 +256,7 @@ export class SupportAgent implements IAgent, OnModuleInit {
                 purchaseCode: purchaseCodes[0],
                 purchaseCodeStatus: verifyResult.supportIsActive ? 'verified'
                   : (verifyResult.action === 'reject_invalid_code' ? 'invalid' : 'expired'),
+                verifyData: verifyResult as any,
                 updatedAt: new Date(),
               })
               .where(eq(supportTickets.id, ticket.id));
@@ -865,6 +866,41 @@ export class SupportAgent implements IAgent, OnModuleInit {
           await this.db.db.update(supportTickets).set({ status: 'replied', repliedAt: new Date(), updatedAt: new Date() }).where(eq(supportTickets.id, id));
           await this.writeTicketEvent({ ticketId: id, externalId: ticket.externalId, eventType: 'reply_sent', summary: `Reply sent via dashboard: ${ticket.lastDraft.slice(0, 120)}`, payload: { draft: ticket.lastDraft } });
           return { ok: true };
+        },
+      },
+      {
+        method: 'POST',
+        path: '/support/tickets/:id/reverify',
+        requiresAuth: true,
+        handler: async (params) => {
+          const { id } = params as any;
+          const [ticket] = await this.db.db.select().from(supportTickets).where(eq(supportTickets.id, id));
+          if (!ticket) throw new Error('Ticket not found');
+          if (!ticket.purchaseCode) throw new Error('No purchase code on this ticket');
+          const result = await this.purchaseVerify.verify(ticket.purchaseCode);
+          if (!result) throw new Error('License server unavailable — check license_server_url in Settings');
+          const newStatus = result.supportIsActive ? 'verified'
+            : (result.action === 'reject_invalid_code' ? 'invalid' : 'expired');
+          await this.db.db
+            .update(supportTickets)
+            .set({ purchaseCodeStatus: newStatus, verifyData: result as any, updatedAt: new Date() })
+            .where(eq(supportTickets.id, id));
+          await this.writeTicketEvent({
+            ticketId: id,
+            externalId: ticket.externalId,
+            eventType: newStatus === 'verified' ? 'purchase_code_verified'
+              : newStatus === 'invalid' ? 'purchase_code_invalid' : 'purchase_code_expired',
+            summary: result.summary,
+            payload: {
+              action: result.action,
+              supportIsActive: result.supportIsActive,
+              supportDaysRemaining: result.supportDaysRemaining,
+              buyerUsername: result.buyerUsername,
+              licenseKey: result.licenseKey,
+              canExtend: result.canExtend,
+            },
+          });
+          return { ok: true, status: newStatus, verifyData: result };
         },
       },
     ];

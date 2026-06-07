@@ -16,6 +16,15 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.93.0',
+    date: '2026-06-07',
+    entries: [
+      { tag: 'feat', scope: 'support', description: 'Purchase code verification card now shows full details: buyer username, support active/expired with days remaining, can-extend flag, license key, and summary. Data persisted in new verify_data column on support_tickets so details survive even on tickets with no events.' },
+      { tag: 'feat', scope: 'support', description: 'Re-verify button on ticket detail page calls license server on demand, saves result to verify_data, and writes a new event to the activity timeline.' },
+      { tag: 'feat', scope: 'support', description: 'New POST /support/tickets/:id/reverify endpoint. New migration 0095_support_verify_data.sql adds verify_data jsonb column to support_tickets.' },
+    ],
+  },
+  {
     version: 'v4.92.0',
     date: '2026-06-05',
     entries: [
