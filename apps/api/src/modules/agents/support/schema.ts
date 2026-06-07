@@ -40,6 +40,7 @@ export const supportTickets = pgTable('support_tickets', {
   lastDraft: text('last_draft'),
   purchaseCodeStatus: text('purchase_code_status'), // null | 'requested' | 'verified' | 'invalid' | 'expired'
   purchaseCode: text('purchase_code'),
+  verifyData: jsonb('verify_data'),
   repliedAt: timestamp('replied_at'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),

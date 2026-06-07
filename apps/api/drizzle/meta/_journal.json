@@ -666,6 +666,13 @@
       "when": 1748908800000,
       "tag": "0094_livechat_needs_human_alert",
       "breakpoints": true
+    },
+    {
+      "idx": 95,
+      "version": "6",
+      "when": 1749168000000,
+      "tag": "0095_support_verify_data",
+      "breakpoints": true
     }
   ]
 }
