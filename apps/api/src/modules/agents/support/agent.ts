@@ -202,6 +202,7 @@ export class SupportAgent implements IAgent, OnModuleInit {
               payload: {
                 ticketId: ticket.id,
                 crmTicketId: ticket.externalId ? Number(ticket.externalId) : null,
+                crmUuid: ticket.crmUuid ?? null,
                 subject: ticket.subject,
                 userEmail: ticket.userEmail,
                 draft: `Thank you for reaching out. To verify your purchase and provide you with the best support, could you please share your purchase code? You can find it in your Envato purchase email. It looks like one of these formats:\n\nxxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx\nor\nXGENIOUS-XXXX-XXXX-XXXX-XXXX\n\nOnce verified, we will be happy to assist you.`,
@@ -288,6 +289,7 @@ export class SupportAgent implements IAgent, OnModuleInit {
               payload: {
                 ticketId: ticket.id,
                 crmTicketId: ticket.externalId ? Number(ticket.externalId) : null,
+                crmUuid: ticket.crmUuid ?? null,
                 subject: ticket.subject,
                 userEmail: ticket.userEmail,
                 serverIssue,

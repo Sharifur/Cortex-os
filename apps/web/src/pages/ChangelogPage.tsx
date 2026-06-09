@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.94.0',
+    date: '2026-06-09',
+    entries: [
+      { tag: 'fix', scope: 'support', description: 'request_purchase_code and request_server_access actions now include crmUuid in their payload so the CRM reply is actually posted after Telegram approval instead of being silently dropped.' },
+    ],
+  },
+  {
     version: 'v4.93.0',
     date: '2026-06-07',
     entries: [
