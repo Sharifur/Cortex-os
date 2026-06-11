@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.95.0',
+    date: '2026-06-11',
+    entries: [
+      { tag: 'feat', scope: 'livechat', description: 'Site origin field now supports multiple origins (one per line or comma-separated), subdomain wildcards (*.example.com), and a bare * to allow any domain. Origin input changed to a textarea to prevent truncation.' },
+    ],
+  },
+  {
     version: 'v4.94.0',
     date: '2026-06-09',
     entries: [

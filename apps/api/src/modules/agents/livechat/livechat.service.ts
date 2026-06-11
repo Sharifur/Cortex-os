@@ -227,17 +227,11 @@ export class LivechatService implements OnModuleInit {
     if (!site.enabled) throw new ForbiddenException(`Site disabled: ${siteKey}`);
     const requestHostname = this.extractHostname(requestOrigin ?? null);
     if (requestHostname) {
-      const rawSiteHostname = this.extractHostname(site.origin);
-      if (!rawSiteHostname) {
-        // site.origin is stored without a scheme — skip check but warn so the admin can fix it
-        this.logger.warn(`Site ${siteKey} has unparseable origin "${site.origin}" — origin check skipped. Add https:// in site settings.`);
-      } else {
-        // Strip www. prefix from both sides so www.example.com and example.com both pass
-        const normalize = (h: string) => h.replace(/^www\./, '');
-        if (normalize(requestHostname) !== normalize(rawSiteHostname)) {
-          this.logger.warn(`Origin mismatch for site ${siteKey}: received '${requestOrigin}' (${requestHostname}), expected '${site.origin}' (${rawSiteHostname})`);
-          throw new ForbiddenException('Origin not allowed');
-        }
+      if (!site.origin) {
+        this.logger.warn(`Site ${siteKey} has no origin configured — origin check skipped.`);
+      } else if (!this.originMatchesSite(requestHostname, site.origin)) {
+        this.logger.warn(`Origin mismatch for site ${siteKey}: received '${requestOrigin}', allowed '${site.origin}'`);
+        throw new ForbiddenException('Origin not allowed');
       }
     }
     return site;
@@ -1208,15 +1202,48 @@ export class LivechatService implements OnModuleInit {
     return { cacheBust };
   }
 
-  private normalizeOrigin(origin: string | undefined | null): string | null {
-    if (!origin) return null;
+  /** Normalize a single origin entry — URL, wildcard like *.example.com, or * for all. */
+  private normalizeOriginEntry(entry: string): string | null {
+    const trimmed = entry.trim();
+    if (!trimmed) return null;
+    if (trimmed === '*') return '*';
+    // Wildcard pattern: *.domain.com or https://*.domain.com
+    const wildcardMatch = trimmed.match(/^(?:https?:\/\/)?\*\.([a-z0-9-]+(?:\.[a-z0-9-]+)+)$/i);
+    if (wildcardMatch) return `*.${wildcardMatch[1].toLowerCase()}`;
     try {
-      const u = new URL(origin.trim());
+      const u = new URL(trimmed.includes('://') ? trimmed : `https://${trimmed}`);
       if (!u.protocol.startsWith('http')) return null;
       return `${u.protocol}//${u.host}`;
     } catch {
       return null;
     }
+  }
+
+  /** Normalize a comma-separated list of origins/wildcards. Returns null if list is empty or all invalid. */
+  private normalizeOrigin(origin: string | undefined | null): string | null {
+    if (!origin) return null;
+    const entries = origin.split(',').map((e) => this.normalizeOriginEntry(e)).filter((e): e is string => !!e);
+    return entries.length ? entries.join(',') : null;
+  }
+
+  /** Check if a request origin matches the site's stored origin list (comma-separated, wildcard aware). */
+  private originMatchesSite(requestHostname: string, siteOrigin: string): boolean {
+    const normalize = (h: string) => h.replace(/^www\./, '');
+    const reqNorm = normalize(requestHostname);
+    for (const entry of siteOrigin.split(',')) {
+      const e = entry.trim();
+      if (e === '*') return true;
+      if (e.startsWith('*.')) {
+        const suffix = e.slice(1); // e.g. '.taskip.net'
+        if (reqNorm === suffix.slice(1) || reqNorm.endsWith(suffix)) return true;
+      } else {
+        try {
+          const h = normalize(new URL(e).hostname.toLowerCase());
+          if (reqNorm === h) return true;
+        } catch { /* skip invalid */ }
+      }
+    }
+    return false;
   }
 
   private extractHostname(origin: string | undefined | null): string | null {

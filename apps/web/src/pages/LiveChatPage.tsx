@@ -718,15 +718,24 @@ function sanitizeKey(input: string): string {
     .replace(/^-+|-+$/g, '');
 }
 
-/**
- * Add `https://` to a bare domain so the backend's URL parser accepts it.
- * Leaves anything that already has a protocol untouched.
- */
-function normalizeOriginInput(input: string): string {
-  const trimmed = input.trim();
+/** Normalize a single origin entry — URL, wildcard like *.example.com, or * for all. */
+function normalizeOriginEntry(entry: string): string {
+  const trimmed = entry.trim();
   if (!trimmed) return '';
+  if (trimmed === '*') return '*';
+  const wildcardMatch = trimmed.match(/^(?:https?:\/\/)?\*\.([a-z0-9-]+(?:\.[a-z0-9-]+)+)$/i);
+  if (wildcardMatch) return `*.${wildcardMatch[1].toLowerCase()}`;
   if (/^https?:\/\//i.test(trimmed)) return trimmed.replace(/\/+$/, '');
   return `https://${trimmed.replace(/\/+$/, '')}`;
+}
+
+/** Normalize a comma-separated (or newline-separated) list of origins/wildcards. */
+function normalizeOriginInput(input: string): string {
+  return input
+    .split(/[\n,]+/)
+    .map(normalizeOriginEntry)
+    .filter(Boolean)
+    .join(',');
 }
 
 function SiteFormModal({ site, onClose, onSave, error }: { site: Partial<Site>; onClose: () => void; onSave: (s: Partial<Site>) => void; error?: string | null }) {
@@ -792,12 +801,14 @@ function SiteFormModal({ site, onClose, onSave, error }: { site: Partial<Site>; 
                 placeholder="bytesed"
               />
             </Field>
-            <Field label="Origin" hint="Exact URL the widget runs on. https:// prefix added automatically.">
-              <Input
-                value={draft.origin ?? ''}
-                onChange={(e) => setDraft({ ...draft, origin: e.target.value })}
+            <Field label="Origin" hint="One origin per line (or comma-separated). Use *.example.com for all subdomains, or * to allow any domain. https:// added automatically.">
+              <textarea
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 resize-none"
+                rows={3}
+                value={(draft.origin ?? '').replace(/,/g, '\n')}
+                onChange={(e) => setDraft({ ...draft, origin: e.target.value.replace(/\n/g, ',') })}
                 onBlur={(e) => setDraft({ ...draft, origin: normalizeOriginInput(e.target.value) })}
-                placeholder="https://bytesed.com"
+                placeholder={'https://example.com\n*.example.com'}
               />
             </Field>
             <div className="flex flex-wrap items-center gap-4 pt-1">
