@@ -23,6 +23,7 @@ import { LivechatInboundService } from './livechat-inbound.service';
 import { LivechatInboundController } from './livechat-inbound.controller';
 import { LivechatIntentService } from './livechat-intent.service';
 import { LivechatEscalationService } from './livechat-escalation.service';
+import { LivechatKbGuardrailService } from './livechat-kb-guardrail.service';
 import { LivechatMetricsService } from './livechat-metrics.service';
 import { LivechatInactivityService } from './livechat-inactivity.service';
 import { SesModule } from '../../ses/ses.module';
@@ -48,6 +49,7 @@ import { PurchaseVerifyService } from '../purchase-verify/purchase-verify.servic
     LivechatInboundService,
     LivechatIntentService,
     LivechatEscalationService,
+    LivechatKbGuardrailService,
     LivechatMetricsService,
     LivechatInactivityService,
     PurchaseVerifyService,

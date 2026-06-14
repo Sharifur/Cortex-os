@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.98.0',
+    date: '2026-06-14',
+    entries: [
+      { tag: 'feat', scope: 'livechat', description: 'KB guardrail service: KB self-service results now pass a 3-stage filter before surfacing in chat — (1) query quality check rejects gibberish/short queries, (2) hard site_keys match rejects untagged global entries, (3) LLM relevance scoring discards low-scoring results. Each rejection is logged at debug level.' },
+      { tag: 'fix', scope: 'livechat', description: 'KB self-service no longer shows results when site context cannot be resolved (site lookup failure now bails early instead of falling back to untagged global entries).' },
+    ],
+  },
+  {
     version: 'v4.97.0',
     date: '2026-06-14',
     entries: [

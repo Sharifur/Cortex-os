@@ -12,6 +12,7 @@ import { LivechatStreamService } from './livechat-stream.service';
 import { LivechatRateLimitService } from './livechat-rate-limit.service';
 import { LivechatIntentService, type VisitorIntent } from './livechat-intent.service';
 import { LivechatEscalationService } from './livechat-escalation.service';
+import { LivechatKbGuardrailService } from './livechat-kb-guardrail.service';
 import type {
   IAgent,
   TriggerSpec,
@@ -136,6 +137,7 @@ export class LivechatAgent implements IAgent, OnModuleInit {
     private rateLimit: LivechatRateLimitService,
     private intent: LivechatIntentService,
     private escalation: LivechatEscalationService,
+    private kbGuardrail: LivechatKbGuardrailService,
   ) {}
 
   onModuleInit() {
@@ -664,6 +666,7 @@ export class LivechatAgent implements IAgent, OnModuleInit {
       ]);
       const site = session ? await this.livechat.getSiteById(session.siteId).catch(() => null) : null;
       const siteKey = site?.key ?? null;
+      this.logger.debug({ sessionId, siteId: session?.siteId, siteKey }, 'afterEscalation: site resolution');
 
       await Promise.allSettled([
         (async () => {
@@ -702,9 +705,16 @@ export class LivechatAgent implements IAgent, OnModuleInit {
 
         (async () => {
           try {
+            if (!siteKey) return;
             const lastVisitorMsg = recent.filter((m) => m.role === 'visitor').slice(-1)[0]?.content;
             if (!lastVisitorMsg?.trim()) return;
-            const results = await this.kb.searchEntries(lastVisitorMsg, undefined, 3, siteKey);
+            const raw = await this.kb.searchEntries(lastVisitorMsg, undefined, 5, siteKey);
+            const results = await this.kbGuardrail.filter({
+              results: raw,
+              siteKey,
+              siteName: site?.label ?? siteKey,
+              visitorQuery: lastVisitorMsg,
+            });
             if (!results.length) return;
             const content = `While you wait, here are some resources that might help:\n\n${results.map((r: KnowledgeEntry, i: number) => `${i + 1}. ${r.title}`).join('\n')}`;
             const kbMsg = await this.livechat.appendMessage({ sessionId, role: 'agent', content });
