@@ -16,6 +16,15 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.97.0',
+    date: '2026-06-14',
+    entries: [
+      { tag: 'fix', scope: 'livechat', description: 'Admin alert email now resolves TO address from livechat_alert_email setting (falls back to site alert email then ses_from_address); was accidentally using the FROM address as the recipient.' },
+      { tag: 'fix', scope: 'livechat', description: 'KB self-service articles in human-wait flow now scoped to the current site; previously could return results from unrelated sites.' },
+      { tag: 'feat', scope: 'livechat', description: 'Web push notification sent to all subscribed operators when visitor waits more than 3 minutes for a human agent.' },
+    ],
+  },
+  {
     version: 'v4.96.0',
     date: '2026-06-14',
     entries: [

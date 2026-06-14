@@ -8,6 +8,7 @@ import { SesService } from '../../ses/ses.service';
 import { SettingsService } from '../../settings/settings.service';
 import { LivechatInboundService } from './livechat-inbound.service';
 import { LivechatStreamService } from './livechat-stream.service';
+import { PushService } from '../../push/push.service';
 
 const INACTIVITY_THRESHOLD_MS = 3 * 60 * 1000;    // 3 min visitor absence
 const RESEND_COOLDOWN_MS = 30 * 60 * 1000;         // 30 min between emails per session
@@ -28,6 +29,7 @@ export class LivechatInactivityService implements OnApplicationBootstrap, OnAppl
     private settings: SettingsService,
     private inbound: LivechatInboundService,
     private stream: LivechatStreamService,
+    private push: PushService,
   ) {}
 
   onApplicationBootstrap() {
@@ -79,7 +81,7 @@ export class LivechatInactivityService implements OnApplicationBootstrap, OnAppl
     if (!detail) return;
 
     const site = await this.livechat.getSiteById(detail.session.siteId);
-    const rawFrom = site.transcriptFrom?.trim() || await this.settings.getDecrypted('ses_default_from');
+    const rawFrom = site.transcriptFrom?.trim() || await this.settings.getDecrypted('ses_from_address');
     if (!rawFrom) {
       this.logger.warn(`Inactivity email skipped for ${sessionId.slice(-8)}: no from address configured`);
       return;
@@ -141,14 +143,16 @@ export class LivechatInactivityService implements OnApplicationBootstrap, OnAppl
   private async sendHumanAlertEmail(sessionId: string, siteId: string, visitorName: string | null, visitorEmail: string | null): Promise<void> {
     const site = await this.livechat.getSiteById(siteId);
 
-    const adminTo = site.humanAlertEmail?.trim() || await this.settings.getDecrypted('ses_default_from');
+    const adminTo = site.humanAlertEmail?.trim()
+      || await this.settings.getDecrypted('livechat_alert_email')
+      || await this.settings.getDecrypted('ses_from_address');
     if (!adminTo) {
       this.logger.warn(`Human alert skipped for ${sessionId.slice(-8)}: no admin email configured`);
       return;
     }
     const toAddress = adminTo.includes('<') ? adminTo : adminTo;
 
-    const rawFrom = site.transcriptFrom?.trim() || await this.settings.getDecrypted('ses_default_from');
+    const rawFrom = site.transcriptFrom?.trim() || await this.settings.getDecrypted('ses_from_address');
     if (!rawFrom) {
       this.logger.warn(`Human alert skipped for ${sessionId.slice(-8)}: no from address`);
       return;
@@ -172,6 +176,12 @@ export class LivechatInactivityService implements OnApplicationBootstrap, OnAppl
 
     await this.ses.sendEmail({ to: toAddress, from: fromAddress, subject: adminSubject, textBody: adminText, htmlBody: adminHtml });
     this.logger.log(`Human alert email sent → ${toAddress} for session ${sessionId.slice(-8)}`);
+
+    void this.push.sendToAll({
+      title: `Chat waiting — ${siteName}`,
+      body: `${visitorLabel} has been waiting for a human agent.`,
+      url: '/livechat',
+    }).catch((err) => this.logger.warn(`Push notification failed for session ${sessionId.slice(-8)}: ${(err as Error).message}`));
 
     if (visitorEmail) {
       const replyTo = (await this.inbound.buildReplyTo(sessionId)) ?? undefined;
