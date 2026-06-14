@@ -97,6 +97,8 @@ export function mountWidget(cfg: WidgetConfig, siteConfig: SiteConfigResponse = 
     collectPageContext: undefined as (() => VisitorPageContext) | undefined,
     requireEmail: siteConfig.requireEmail ?? false,
     showMsgPreview: undefined as ((text: string) => void) | undefined,
+    startQueuePolling: undefined as (() => void) | undefined,
+    stopQueuePolling: undefined as (() => void) | undefined,
   };
 
   const bubbleBtn = document.createElement('button');
@@ -367,6 +369,9 @@ export function mountWidget(cfg: WidgetConfig, siteConfig: SiteConfigResponse = 
   function stopQueuePolling() {
     if (queuePollTimer) { clearInterval(queuePollTimer); queuePollTimer = null; }
   }
+
+  state.startQueuePolling = startQueuePolling;
+  state.stopQueuePolling = stopQueuePolling;
 
   async function pollQueue() {
     const sessionId = state.sessionId;
@@ -1166,10 +1171,10 @@ function connectAndListen(cfg: WidgetConfig, state: any, render: () => void, sit
       if (banner) {
         if (event.status === 'needs_human') {
           banner.style.display = 'flex';
-          startQueuePolling();
+          state.startQueuePolling?.();
         } else {
           banner.style.display = 'none';
-          stopQueuePolling();
+          state.stopQueuePolling?.();
         }
       }
       return;
