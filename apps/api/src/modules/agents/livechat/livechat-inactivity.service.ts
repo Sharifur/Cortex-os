@@ -174,14 +174,17 @@ export class LivechatInactivityService implements OnApplicationBootstrap, OnAppl
     ].join('\n');
     const adminHtml = this.buildHumanAlertHtml({ visitorLabel, siteName, brandColor });
 
-    await this.ses.sendEmail({ to: toAddress, from: fromAddress, subject: adminSubject, textBody: adminText, htmlBody: adminHtml });
-    this.logger.log(`Human alert email sent → ${toAddress} for session ${sessionId.slice(-8)}`);
+    await this.ses.sendEmail({ to: toAddress, from: fromAddress, subject: adminSubject, textBody: adminText, htmlBody: adminHtml })
+      .then(() => this.logger.log(`Human alert email sent → ${toAddress} for session ${sessionId.slice(-8)}`))
+      .catch((err: Error) => this.logger.warn(`Human alert email failed for session ${sessionId.slice(-8)} (to: ${toAddress}): ${err.message}`));
 
     void this.push.sendToAll({
       title: `Chat waiting — ${siteName}`,
       body: `${visitorLabel} has been waiting for a human agent.`,
       url: '/livechat',
-    }).catch((err) => this.logger.warn(`Push notification failed for session ${sessionId.slice(-8)}: ${(err as Error).message}`));
+    })
+      .then(({ sent, pruned }) => this.logger.debug(`Push sent ${sent} notification(s) for session ${sessionId.slice(-8)}; pruned ${pruned}`))
+      .catch((err: Error) => this.logger.warn(`Push notification failed for session ${sessionId.slice(-8)}: ${err.message}`));
 
     if (visitorEmail) {
       const replyTo = (await this.inbound.buildReplyTo(sessionId)) ?? undefined;
@@ -197,8 +200,8 @@ export class LivechatInactivityService implements OnApplicationBootstrap, OnAppl
       ].join('\n');
       const visitorHtml = this.buildVisitorHumanAlertHtml({ visitorLabel, siteName, brandColor });
       await this.ses.sendEmail({ to: visitorEmail, from: fromAddress, subject: visitorSubject, textBody: visitorText, htmlBody: visitorHtml, replyTo })
-        .catch((err) => this.logger.warn(`Visitor human alert email failed for session ${sessionId.slice(-8)}: ${(err as Error).message}`));
-      this.logger.log(`Visitor human alert email sent → ${visitorEmail} for session ${sessionId.slice(-8)}`);
+        .then(() => this.logger.log(`Visitor human alert email sent → ${visitorEmail} for session ${sessionId.slice(-8)}`))
+        .catch((err: Error) => this.logger.warn(`Visitor human alert email failed for session ${sessionId.slice(-8)} (to: ${visitorEmail}): ${err.message}`));
     }
 
     await this.db.db
