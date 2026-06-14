@@ -16,6 +16,16 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v4.96.0',
+    date: '2026-06-14',
+    entries: [
+      { tag: 'feat', scope: 'livechat', description: 'Widget confirm dialogs (start new chat, end chat) now use an in-widget UI overlay instead of the browser native alert/confirm box.' },
+      { tag: 'feat', scope: 'livechat', description: 'Embed snippet customizer in Install modal: toggle welcome popup, set popup delay, and auto-open on load via data-popup / data-delay / data-open attributes.' },
+      { tag: 'feat', scope: 'livechat', description: 'Human-wait queue experience: yellow pulsing queue banner shows visitor position in queue, polls every 30s; AI prep-question chips generated after escalation; KB self-service articles surfaced while waiting with "this solved it" escape hatch.' },
+      { tag: 'feat', scope: 'livechat', description: 'Admin email alert and in-chat AI apology message sent automatically when no human agent joins a needs_human session within 3 minutes.' },
+    ],
+  },
+  {
     version: 'v4.95.0',
     date: '2026-06-11',
     entries: [

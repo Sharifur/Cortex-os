@@ -652,7 +652,79 @@ export class LivechatAgent implements IAgent, OnModuleInit {
     });
     this.stream.publish(sessionId, { type: 'session_status', sessionId, status: 'needs_human' });
     this.stream.publishToOperators({ type: 'session_upserted', sessionId });
+    void this.afterEscalation(sessionId, msg.id);
     return { ok: true, status: 'fallback_needs_human', agentMessageId: msg.id, reply: FALLBACK_REPLY };
+  }
+
+  private async afterEscalation(sessionId: string, fallbackMessageId: string): Promise<void> {
+    try {
+      const recent = await this.livechat.getRecentMessages(sessionId, 8);
+
+      await Promise.allSettled([
+        (async () => {
+          try {
+            const visitorMsgs = recent.filter((m) => m.role === 'visitor').slice(-3).map((m) => m.content).join('\n');
+            if (!visitorMsgs.trim()) return;
+            const res = await this.llm.complete({
+              maxTokens: 80,
+              temperature: 0.3,
+              agentKey: this.key,
+              messages: [
+                {
+                  role: 'system',
+                  content: `You are helping a human support agent prepare for a live chat. Generate 2-3 short quick-reply chips the visitor can tap to share context the agent will need. JSON only: {"suggestions":["...","..."]}. Each chip ≤ 6 words, lowercase. Examples: "order number?", "which plan?", "screenshot attached". If no useful context chips exist, return {"suggestions":[]}.`,
+                },
+                { role: 'user', content: visitorMsgs },
+              ],
+            });
+            const parsed = JSON.parse(res.content);
+            const arr = Array.isArray(parsed?.suggestions) ? parsed.suggestions : [];
+            const suggestions = arr
+              .map((s: unknown) => String(s ?? '').trim())
+              .filter((s: string) => s.length >= 1 && s.length <= 40)
+              .slice(0, 3);
+            if (!suggestions.length) return;
+            this.stream.publish(sessionId, {
+              type: 'agent_suggestions',
+              sessionId,
+              messageId: fallbackMessageId,
+              suggestions,
+            });
+          } catch {
+            // chips are non-critical — swallow
+          }
+        })(),
+
+        (async () => {
+          try {
+            const lastVisitorMsg = recent.filter((m) => m.role === 'visitor').slice(-1)[0]?.content;
+            if (!lastVisitorMsg?.trim()) return;
+            const results = await this.kb.searchEntries(lastVisitorMsg, this.key, 3);
+            if (!results.length) return;
+            const content = `While you wait, here are some resources that might help:\n\n${results.map((r: KnowledgeEntry, i: number) => `${i + 1}. ${r.title}`).join('\n')}`;
+            const kbMsg = await this.livechat.appendMessage({ sessionId, role: 'agent', content });
+            this.stream.publish(sessionId, {
+              type: 'message',
+              sessionId,
+              role: 'agent',
+              content,
+              messageId: kbMsg.id,
+              createdAt: kbMsg.createdAt.toISOString(),
+            });
+            this.stream.publish(sessionId, {
+              type: 'agent_suggestions',
+              sessionId,
+              messageId: kbMsg.id,
+              suggestions: ['this solved it', 'i still need help'],
+            });
+          } catch {
+            // KB self-service is non-critical — swallow
+          }
+        })(),
+      ]);
+    } catch (err) {
+      this.logger.warn({ err, sessionId }, 'afterEscalation failed');
+    }
   }
 
   private buildVisitorContextBlock(input: {

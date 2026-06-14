@@ -428,6 +428,83 @@ export const WIDGET_STYLES = `
   flex-shrink: 0;
 }
 
+/* ── Human queue banner ── */
+.lc-queue-banner {
+  padding: 8px 14px;
+  background: #fefce8;
+  border-top: 1px solid #fde68a;
+  color: #92400e;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.lc-queue-banner-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #f59e0b;
+  flex-shrink: 0;
+  animation: lc-pulse 1.4s ease-in-out infinite;
+}
+@keyframes lc-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+/* ── In-widget confirm dialog ── */
+.lc-confirm {
+  position: absolute;
+  inset: 0;
+  background: rgba(17,24,39,0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 20;
+  border-radius: inherit;
+}
+.lc-confirm-box {
+  background: #fff;
+  border-radius: 14px;
+  padding: 20px 18px 16px;
+  width: calc(100% - 40px);
+  max-width: 280px;
+  box-shadow: 0 16px 40px rgba(0,0,0,0.22);
+}
+.lc-confirm-msg {
+  margin: 0 0 16px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #111827;
+  text-align: center;
+}
+.lc-confirm-actions {
+  display: flex;
+  gap: 8px;
+}
+.lc-confirm-cancel,
+.lc-confirm-ok {
+  flex: 1;
+  border: 0;
+  border-radius: 8px;
+  padding: 9px 0;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+.lc-confirm-cancel {
+  background: #f3f4f6;
+  color: #374151;
+}
+.lc-confirm-cancel:hover { background: #e5e7eb; }
+.lc-confirm-ok {
+  background: var(--lc-brand, #2563eb);
+  color: #fff;
+}
+.lc-confirm-ok:hover { opacity: 0.88; }
+
 /* ── Quick replies ── */
 .lc-quick-replies {
   display: flex;
