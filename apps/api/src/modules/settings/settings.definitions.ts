@@ -184,6 +184,12 @@ export const SETTING_DEFINITIONS: Record<string, SettingDefinition> = {
     group: 'ses',
     defaultValue: 'ses-monitoring',
   },
+  livechat_alert_email: {
+    label: 'Live Chat Alert Email',
+    description: 'Email address that receives admin alerts when a visitor is waiting for a human agent. Falls back to the From Address if not set.',
+    isSecret: false,
+    group: 'ses',
+  },
 
   // Gmail — accounts are managed at /gmail/accounts (multi-account, IMAP + SMTP
   // App Password). No settings keys here; the Integrations → Gmail tab renders

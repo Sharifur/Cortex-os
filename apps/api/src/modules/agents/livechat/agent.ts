@@ -658,7 +658,12 @@ export class LivechatAgent implements IAgent, OnModuleInit {
 
   private async afterEscalation(sessionId: string, fallbackMessageId: string): Promise<void> {
     try {
-      const recent = await this.livechat.getRecentMessages(sessionId, 8);
+      const [recent, session] = await Promise.all([
+        this.livechat.getRecentMessages(sessionId, 8),
+        this.livechat.getSession(sessionId),
+      ]);
+      const site = session ? await this.livechat.getSiteById(session.siteId).catch(() => null) : null;
+      const siteKey = site?.key ?? null;
 
       await Promise.allSettled([
         (async () => {
@@ -699,7 +704,7 @@ export class LivechatAgent implements IAgent, OnModuleInit {
           try {
             const lastVisitorMsg = recent.filter((m) => m.role === 'visitor').slice(-1)[0]?.content;
             if (!lastVisitorMsg?.trim()) return;
-            const results = await this.kb.searchEntries(lastVisitorMsg, this.key, 3);
+            const results = await this.kb.searchEntries(lastVisitorMsg, undefined, 3, siteKey);
             if (!results.length) return;
             const content = `While you wait, here are some resources that might help:\n\n${results.map((r: KnowledgeEntry, i: number) => `${i + 1}. ${r.title}`).join('\n')}`;
             const kbMsg = await this.livechat.appendMessage({ sessionId, role: 'agent', content });
