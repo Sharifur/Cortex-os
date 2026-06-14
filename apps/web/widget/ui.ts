@@ -121,10 +121,10 @@ export function mountWidget(cfg: WidgetConfig, siteConfig: SiteConfigResponse = 
     shadow.appendChild(proactiveBubble);
     let proactiveSeen = false;
     try { proactiveSeen = !!sessionStorage.getItem(PROACTIVE_KEY); } catch {}
-    if (!proactiveSeen) {
+    if (cfg.popup !== false && !proactiveSeen) {
       setTimeout(() => {
         if (!state.open) proactiveBubble.style.display = 'block';
-      }, 1500);
+      }, cfg.popupDelay ?? 1500);
     }
     proactiveBubble.querySelector('.lc-proactive-close')!.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -343,6 +343,73 @@ export function mountWidget(cfg: WidgetConfig, siteConfig: SiteConfigResponse = 
   // handler can validate locally without a network round-trip.
   warmDisposableEmailCache();
 
+  let queuePollTimer: ReturnType<typeof setInterval> | null = null;
+
+  function updateQueueBanner(position: number) {
+    const p = state.panel as HTMLDivElement | undefined;
+    const textEl = p?.querySelector<HTMLSpanElement>('.lc-queue-banner-text');
+    if (!textEl) return;
+    if (position <= 0) {
+      textEl.textContent = 'Waiting for a human agent…';
+    } else if (position === 1) {
+      textEl.textContent = 'You are next in queue — an agent will join shortly.';
+    } else {
+      textEl.textContent = `You are #${position} in queue — an agent will join shortly.`;
+    }
+  }
+
+  function startQueuePolling() {
+    if (queuePollTimer) return;
+    void pollQueue();
+    queuePollTimer = setInterval(() => { void pollQueue(); }, 30_000);
+  }
+
+  function stopQueuePolling() {
+    if (queuePollTimer) { clearInterval(queuePollTimer); queuePollTimer = null; }
+  }
+
+  async function pollQueue() {
+    const sessionId = state.sessionId;
+    if (!sessionId) return;
+    try {
+      const res = await fetch(
+        `${cfg.apiBase}/livechat/session/${encodeURIComponent(sessionId)}/queue?siteKey=${encodeURIComponent(cfg.siteKey)}&visitorId=${encodeURIComponent(cfg.visitorId)}`,
+        { credentials: 'omit' },
+      );
+      if (!res.ok) return;
+      const data = await res.json() as { position?: number; status?: string };
+      if (data.status !== 'needs_human') {
+        const p = state.panel as HTMLDivElement | undefined;
+        const banner = p?.querySelector<HTMLDivElement>('.lc-queue-banner');
+        if (banner) banner.style.display = 'none';
+        stopQueuePolling();
+        return;
+      }
+      updateQueueBanner(data.position ?? 0);
+    } catch { /* ignore network errors */ }
+  }
+
+  if (state.sessionId) {
+    void (async () => {
+      try {
+        const session = await fetch(
+          `${cfg.apiBase}/livechat/session/${encodeURIComponent(state.sessionId!)}/queue?siteKey=${encodeURIComponent(cfg.siteKey)}&visitorId=${encodeURIComponent(cfg.visitorId)}`,
+          { credentials: 'omit' },
+        );
+        if (session.ok) {
+          const data = await session.json() as { position?: number; status?: string };
+          if (data.status === 'needs_human') {
+            const p = state.panel as HTMLDivElement | undefined;
+            const banner = p?.querySelector<HTMLDivElement>('.lc-queue-banner');
+            if (banner) banner.style.display = 'flex';
+            updateQueueBanner(data.position ?? 0);
+            startQueuePolling();
+          }
+        }
+      } catch { /* ignore */ }
+    })();
+  }
+
   function render() {
     renderMessages(panel, state);
     if (!state.open && state.unread > 0) {
@@ -354,6 +421,10 @@ export function mountWidget(cfg: WidgetConfig, siteConfig: SiteConfigResponse = 
   }
 
   render();
+
+  if (cfg.autoOpen) {
+    setTimeout(() => { bubbleBtn.click(); }, 0);
+  }
 }
 
 function buildPanel(shadow: ShadowRoot, cfg: WidgetConfig, state: any, render: () => void, siteConfig: SiteConfigResponse): HTMLDivElement {
@@ -396,10 +467,23 @@ function buildPanel(shadow: ShadowRoot, cfg: WidgetConfig, state: any, render: (
     </div>
     <div class="lc-quick-replies" style="display:none;"></div>
     <div class="lc-toast" role="alert" style="display:none;"></div>
+    <div class="lc-queue-banner" style="display:none;">
+      <span class="lc-queue-banner-dot"></span>
+      <span class="lc-queue-banner-text">Waiting for a human agent…</span>
+    </div>
     <div class="lc-pending" style="display:none;"></div>
     <div class="lc-session-end" style="display:none;">
       <span>This conversation has ended.</span>
       <button type="button" class="lc-session-end-btn">Start new chat</button>
+    </div>
+    <div class="lc-confirm" style="display:none;" role="dialog" aria-modal="true">
+      <div class="lc-confirm-box">
+        <p class="lc-confirm-msg"></p>
+        <div class="lc-confirm-actions">
+          <button type="button" class="lc-confirm-cancel">Cancel</button>
+          <button type="button" class="lc-confirm-ok">Confirm</button>
+        </div>
+      </div>
     </div>
     <form class="lc-composer" autocomplete="off">
       <input class="lc-hp" name="website" tabindex="-1" autocomplete="off" />
@@ -420,10 +504,25 @@ function buildPanel(shadow: ShadowRoot, cfg: WidgetConfig, state: any, render: (
   const MOBILE_CLOSED_CSS_BP = isLeftPos
     ? `position: fixed; bottom: 10px; left: 10px; z-index: 2147483646;`
     : `position: fixed; bottom: 10px; right: 10px; z-index: 2147483646;`;
+  const confirmOverlay = panel.querySelector<HTMLDivElement>('.lc-confirm')!;
+  const confirmMsg = panel.querySelector<HTMLParagraphElement>('.lc-confirm-msg')!;
+  const confirmOk = panel.querySelector<HTMLButtonElement>('.lc-confirm-ok')!;
+  const confirmCancel = panel.querySelector<HTMLButtonElement>('.lc-confirm-cancel')!;
+
+  function showConfirm(message: string, okLabel: string, onOk: () => void): void {
+    confirmMsg.textContent = message;
+    confirmOk.textContent = okLabel;
+    confirmOverlay.style.display = 'flex';
+    const cleanup = () => { confirmOverlay.style.display = 'none'; };
+    const onOkClick = () => { cleanup(); confirmCancel.removeEventListener('click', onCancelClick); onOk(); };
+    const onCancelClick = () => { cleanup(); confirmOk.removeEventListener('click', onOkClick); };
+    confirmOk.addEventListener('click', onOkClick, { once: true });
+    confirmCancel.addEventListener('click', onCancelClick, { once: true });
+  }
+
   const newChatBtn = panel.querySelector<HTMLButtonElement>('.lc-newchat-btn')!;
   newChatBtn.addEventListener('click', () => {
-    if (!confirm('Start a new conversation? The current chat will be cleared.')) return;
-    resetSession();
+    showConfirm('Start a new conversation? The current chat will be cleared.', 'Start new', resetSession);
   });
   const closeBtn = panel.querySelector<HTMLButtonElement>('.lc-close')!;
   closeBtn.addEventListener('click', () => {
@@ -463,10 +562,9 @@ function buildPanel(shadow: ShadowRoot, cfg: WidgetConfig, state: any, render: (
     closeMenu();
     const action = btn.getAttribute('data-action');
     if (action === 'new') {
-      if (!confirm('Start a new conversation? The current chat will be cleared.')) return;
-      resetSession();
+      showConfirm('Start a new conversation? The current chat will be cleared.', 'Start new', resetSession);
     } else if (action === 'close') {
-      if (!confirm('End this chat? You can always start a new one.')) return;
+      showConfirm('End this chat? You can always start a new one.', 'End chat', async () => {
       const sessionId = state.sessionId;
       if (sessionId) {
         // Fire-and-forget — the visitor doesn't need to wait on the network.
@@ -490,6 +588,7 @@ function buildPanel(shadow: ShadowRoot, cfg: WidgetConfig, state: any, render: (
       }];
       cacheMessages(state.messages);
       render();
+      });
     }
   });
 
@@ -1058,6 +1157,21 @@ function connectAndListen(cfg: WidgetConfig, state: any, render: () => void, sit
         }
       }
       render();
+      return;
+    }
+
+    if (event.type === 'session_status' && (event.status === 'needs_human' || event.status === 'human_taken_over' || event.status === 'open')) {
+      const p = state.panel as HTMLDivElement | undefined;
+      const banner = p?.querySelector<HTMLDivElement>('.lc-queue-banner');
+      if (banner) {
+        if (event.status === 'needs_human') {
+          banner.style.display = 'flex';
+          startQueuePolling();
+        } else {
+          banner.style.display = 'none';
+          stopQueuePolling();
+        }
+      }
       return;
     }
 

@@ -7,6 +7,7 @@ import { LivechatService } from './livechat.service';
 import { SesService } from '../../ses/ses.service';
 import { SettingsService } from '../../settings/settings.service';
 import { LivechatInboundService } from './livechat-inbound.service';
+import { LivechatStreamService } from './livechat-stream.service';
 
 const INACTIVITY_THRESHOLD_MS = 3 * 60 * 1000;    // 3 min visitor absence
 const RESEND_COOLDOWN_MS = 30 * 60 * 1000;         // 30 min between emails per session
@@ -26,6 +27,7 @@ export class LivechatInactivityService implements OnApplicationBootstrap, OnAppl
     private ses: SesService,
     private settings: SettingsService,
     private inbound: LivechatInboundService,
+    private stream: LivechatStreamService,
   ) {}
 
   onApplicationBootstrap() {
@@ -193,6 +195,20 @@ export class LivechatInactivityService implements OnApplicationBootstrap, OnAppl
       .update(livechatSessions)
       .set({ humanAlertSentAt: new Date() })
       .where(eq(livechatSessions.id, sessionId));
+
+    const apologyText = `Sorry for the wait — our team has been notified and a human agent will join shortly. Please bear with us.`;
+    const apologyMsg = await this.livechat.appendMessage({ sessionId, role: 'agent', content: apologyText }).catch(() => null);
+    if (apologyMsg) {
+      this.stream.publish(sessionId, {
+        type: 'message',
+        sessionId,
+        role: 'agent',
+        content: apologyText,
+        messageId: apologyMsg.id,
+        createdAt: apologyMsg.createdAt.toISOString(),
+      });
+      this.logger.log(`Apology message injected for session ${sessionId.slice(-8)}`);
+    }
   }
 
   private buildHumanAlertHtml(input: { visitorLabel: string; siteName: string; brandColor: string }): string {

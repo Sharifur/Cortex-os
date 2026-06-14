@@ -311,6 +311,24 @@ export class LivechatPublicController {
     return { ok: true };
   }
 
+  @Get('session/:id/queue')
+  async getQueuePosition(
+    @Req() req: FastifyRequest,
+    @Param('id') sessionId: string,
+    @Query('siteKey') siteKey?: string,
+    @Query('visitorId') visitorId?: string,
+  ) {
+    if (!siteKey || !visitorId) throw new BadRequestException('siteKey and visitorId are required');
+    const origin = extractRequestOrigin(req);
+    const site = await this.livechat.resolveSiteForRequest(siteKey, origin);
+    const session = await this.livechat.getSession(sessionId);
+    if (!session || session.siteId !== site.id || session.visitorId !== visitorId) {
+      return { position: 0, status: 'unknown' };
+    }
+    const position = await this.livechat.getQueuePosition(sessionId);
+    return { position, status: session.status };
+  }
+
   /**
    * Visitor-submitted thumbs rating after a session ends. Origin-gated and
    * ownership-checked the same way as session close so a malicious page can't

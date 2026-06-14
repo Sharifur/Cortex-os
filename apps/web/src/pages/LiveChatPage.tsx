@@ -613,8 +613,17 @@ function Metric({ label, value, sub, accent }: { label: string; value: string | 
 
 function InstallModal({ site, freshlyCreated, onClose }: { site: Site; freshlyCreated: boolean; onClose: () => void }) {
   const apiBase = (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, '') || window.location.origin;
-  const snippet = `<script src="${apiBase}/livechat.js" data-site="${site.key}" defer></script>`;
+  const [showPopup, setShowPopup] = useState(true);
+  const [autoOpen, setAutoOpen] = useState(false);
+  const [popupDelay, setPopupDelay] = useState(1500);
   const [copied, setCopied] = useState(false);
+
+  const extraAttrs = [
+    !showPopup ? 'data-popup="false"' : '',
+    autoOpen ? 'data-open="true"' : '',
+    showPopup && popupDelay !== 1500 ? `data-delay="${popupDelay}"` : '',
+  ].filter(Boolean).join(' ');
+  const snippet = `<script src="${apiBase}/livechat.js" data-site="${site.key}"${extraAttrs ? ' ' + extraAttrs : ''} defer></script>`;
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
@@ -629,6 +638,51 @@ function InstallModal({ site, freshlyCreated, onClose }: { site: Site; freshlyCr
           <p className="text-sm text-muted-foreground">
             Add this single &lt;script&gt; tag to <strong>{site.origin}</strong> to enable the chat widget. The same tag also handles visitor tracking — no extra setup needed.
           </p>
+        </div>
+
+        <div className="border border-border rounded-lg p-3 space-y-3">
+          <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Customize embed</div>
+          <label className="flex items-center justify-between gap-3 cursor-pointer">
+            <div>
+              <div className="text-sm font-medium">Show welcome popup</div>
+              <div className="text-xs text-muted-foreground">Float the welcome message above the chat bubble on load</div>
+            </div>
+            <input
+              type="checkbox"
+              checked={showPopup}
+              onChange={(e) => setShowPopup(e.target.checked)}
+              className="w-4 h-4 accent-primary cursor-pointer"
+            />
+          </label>
+          {showPopup && (
+            <label className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-medium">Popup delay</div>
+                <div className="text-xs text-muted-foreground">Milliseconds before the popup appears</div>
+              </div>
+              <input
+                type="number"
+                min={0}
+                max={30000}
+                step={500}
+                value={popupDelay}
+                onChange={(e) => setPopupDelay(Math.max(0, parseInt(e.target.value) || 0))}
+                className="w-24 text-sm border border-border rounded px-2 py-1 bg-background text-right"
+              />
+            </label>
+          )}
+          <label className="flex items-center justify-between gap-3 cursor-pointer">
+            <div>
+              <div className="text-sm font-medium">Auto-open on load</div>
+              <div className="text-xs text-muted-foreground">Open the chat panel immediately without clicking the bubble</div>
+            </div>
+            <input
+              type="checkbox"
+              checked={autoOpen}
+              onChange={(e) => setAutoOpen(e.target.checked)}
+              className="w-4 h-4 accent-primary cursor-pointer"
+            />
+          </label>
         </div>
 
         <div>

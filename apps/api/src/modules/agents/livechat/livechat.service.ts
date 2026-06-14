@@ -645,6 +645,17 @@ export class LivechatService implements OnModuleInit {
       .where(eq(livechatSessions.id, sessionId));
   }
 
+  async getQueuePosition(sessionId: string): Promise<number> {
+    const rows = await this.db.db.execute(sql`
+      SELECT COUNT(*)::int AS position
+      FROM livechat_sessions
+      WHERE site_id = (SELECT site_id FROM livechat_sessions WHERE id = ${sessionId})
+        AND status = 'needs_human'
+        AND needs_human_at <= (SELECT needs_human_at FROM livechat_sessions WHERE id = ${sessionId})
+    `) as unknown as [{ position: number }];
+    return rows[0]?.position ?? 0;
+  }
+
   async listSessions(opts: { status?: string; siteKey?: string; hasPendingDrafts?: boolean; limit?: number; before?: string } = {}) {
     const limit = Math.min(opts.limit ?? 50, 200);
     const where: ReturnType<typeof eq>[] = [];

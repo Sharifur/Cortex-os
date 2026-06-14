@@ -4,6 +4,12 @@ export interface WidgetConfig {
   apiBase: string;
   /** Layer 3 — site-owner-defined context injected via data-context attr or window.CortexLivechat.context */
   context?: Record<string, string | number | boolean>;
+  /** Show the proactive welcome popup bubble (default true) */
+  popup: boolean;
+  /** Auto-open the chat panel on page load (default false) */
+  autoOpen: boolean;
+  /** Delay in ms before showing the popup bubble (default 1500) */
+  popupDelay: number;
 }
 
 const VISITOR_ID_KEY = 'livechat_visitor_id';
@@ -27,7 +33,16 @@ export function resolveConfig(): WidgetConfig | null {
     if (wc?.context && typeof wc.context === 'object') context = { ...context, ...wc.context };
   } catch {}
 
-  return { siteKey, visitorId, apiBase, context };
+  const popupAttr = tag.getAttribute('data-popup');
+  const popup = popupAttr === null ? true : popupAttr !== 'false' && popupAttr !== '0';
+
+  const autoOpenAttr = tag.getAttribute('data-open');
+  const autoOpen = autoOpenAttr === 'true' || autoOpenAttr === '1';
+
+  const delayAttr = tag.getAttribute('data-delay');
+  const popupDelay = delayAttr !== null && /^\d+$/.test(delayAttr) ? parseInt(delayAttr, 10) : 1500;
+
+  return { siteKey, visitorId, apiBase, context, popup, autoOpen, popupDelay };
 }
 
 function findScriptTag(): HTMLScriptElement | null {
