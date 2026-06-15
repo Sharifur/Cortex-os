@@ -16,6 +16,14 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v5.0.0',
+    date: '2026-06-15',
+    entries: [
+      { tag: 'fix', scope: 'livechat', description: 'Delete message button now visible on all message types (visitor, AI, operator) when viewed from the operator dashboard. Previously only showed on operator-role messages due to wrong isOperator check.' },
+      { tag: 'fix', scope: 'livechat', description: 'Email validation now rejects single-char TLDs (e.g. y@y.y), single-char local parts, and domain labels shorter than 2 chars — catches dummy addresses not covered by the disposable domain blocklist.' },
+    ],
+  },
+  {
     version: 'v4.99.0',
     date: '2026-06-15',
     entries: [

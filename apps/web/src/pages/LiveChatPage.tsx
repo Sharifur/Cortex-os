@@ -2855,6 +2855,7 @@ function MessageBubble({
 }) {
   const isVisitor = message.role === 'visitor';
   const isOperator = message.role === 'operator';
+  const isOperatorView = !!onDelete;
   const isPending = !!message.pendingApproval && message.role === 'agent';
   const isAi = message.role === 'agent' && !isPending;
   const [editing, setEditing] = useState(false);
@@ -2995,7 +2996,7 @@ function MessageBubble({
                 <CornerUpLeft className="w-3 h-3" />
               </button>
             )}
-            {isOperator && onDelete && (
+            {isOperatorView && onDelete && (
               <button
                 onClick={() => { if (window.confirm('Delete this message?')) onDelete(); }}
                 className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded text-muted-foreground hover:text-red-400"
