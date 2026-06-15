@@ -174,8 +174,17 @@ interface MessageRow {
   metadata?: { kbSources?: KbSource[] } | null;
 }
 
+interface PageContext {
+  referrerDomain?: string;
+  utmSource?: string;
+  utmMedium?: string;
+  utmCampaign?: string;
+  utmTerm?: string;
+  [key: string]: unknown;
+}
+
 interface SessionDetail {
-  session: SessionRow & { visitorPk: string; siteId: string };
+  session: SessionRow & { visitorPk: string; siteId: string; pageContext?: PageContext | null };
   visitor: Visitor | null;
   messages: MessageRow[];
 }
@@ -196,6 +205,95 @@ function playNotificationSound() {
     osc.stop(ctx.currentTime + 0.35);
   } catch {}
 }
+
+const SEARCH_ENGINES: Record<string, string> = {
+  'google.com': 'Google', 'www.google.com': 'Google',
+  'bing.com': 'Bing', 'www.bing.com': 'Bing',
+  'yahoo.com': 'Yahoo', 'search.yahoo.com': 'Yahoo',
+  'duckduckgo.com': 'DuckDuckGo',
+  'yandex.ru': 'Yandex', 'yandex.com': 'Yandex',
+  'baidu.com': 'Baidu',
+  'ecosia.org': 'Ecosia',
+  'brave.com': 'Brave Search',
+  'ask.com': 'Ask',
+  'aol.com': 'AOL',
+};
+
+const AI_REFERRERS: Record<string, string> = {
+  'chatgpt.com': 'ChatGPT', 'chat.openai.com': 'ChatGPT',
+  'gemini.google.com': 'Gemini', 'bard.google.com': 'Gemini',
+  'claude.ai': 'Claude',
+  'perplexity.ai': 'Perplexity',
+  'copilot.microsoft.com': 'Copilot', 'bing.com/chat': 'Copilot',
+  'you.com': 'You.com',
+  'phind.com': 'Phind',
+  'poe.com': 'Poe',
+  'character.ai': 'Character.AI',
+};
+
+const SOCIAL_REFERRERS: Record<string, string> = {
+  'facebook.com': 'Facebook', 'www.facebook.com': 'Facebook', 'l.facebook.com': 'Facebook',
+  'twitter.com': 'X (Twitter)', 'x.com': 'X (Twitter)', 't.co': 'X (Twitter)',
+  'linkedin.com': 'LinkedIn', 'www.linkedin.com': 'LinkedIn',
+  'instagram.com': 'Instagram', 'l.instagram.com': 'Instagram',
+  'youtube.com': 'YouTube', 'youtu.be': 'YouTube',
+  'reddit.com': 'Reddit', 'old.reddit.com': 'Reddit',
+  'pinterest.com': 'Pinterest',
+  'tiktok.com': 'TikTok',
+  'whatsapp.com': 'WhatsApp', 'wa.me': 'WhatsApp',
+  'telegram.org': 'Telegram', 't.me': 'Telegram',
+};
+
+function classifyTrafficSource(ctx: PageContext | null | undefined): {
+  type: 'search' | 'ai' | 'social' | 'email' | 'utm' | 'referral' | 'direct' | null;
+  label: string;
+  detail?: string;
+} | null {
+  if (!ctx) return null;
+
+  if (ctx.utmSource) {
+    const src = String(ctx.utmSource);
+    const medium = ctx.utmMedium ? String(ctx.utmMedium) : '';
+    const campaign = ctx.utmCampaign ? String(ctx.utmCampaign) : '';
+    if (medium === 'email' || medium === 'newsletter') return { type: 'email', label: 'Email campaign', detail: campaign || src };
+    return { type: 'utm', label: src, detail: campaign || medium || undefined };
+  }
+
+  const ref = ctx.referrerDomain ? String(ctx.referrerDomain).replace(/^www\./, '') : null;
+  if (!ref) return { type: 'direct', label: 'Direct' };
+
+  const fullRef = ctx.referrerDomain ? String(ctx.referrerDomain) : '';
+  if (AI_REFERRERS[fullRef]) return { type: 'ai', label: AI_REFERRERS[fullRef] };
+  if (SEARCH_ENGINES[fullRef]) return { type: 'search', label: SEARCH_ENGINES[fullRef] };
+  if (SOCIAL_REFERRERS[fullRef]) return { type: 'social', label: SOCIAL_REFERRERS[fullRef] };
+
+  const stripped = ref.startsWith('www.') ? ref.slice(4) : ref;
+  if (AI_REFERRERS[stripped]) return { type: 'ai', label: AI_REFERRERS[stripped] };
+  if (SEARCH_ENGINES[stripped]) return { type: 'search', label: SEARCH_ENGINES[stripped] };
+  if (SOCIAL_REFERRERS[stripped]) return { type: 'social', label: SOCIAL_REFERRERS[stripped] };
+
+  return { type: 'referral', label: ref };
+}
+
+const SOURCE_BADGE: Record<string, string> = {
+  search: 'bg-blue-500/15 text-blue-400',
+  ai: 'bg-purple-500/15 text-purple-400',
+  social: 'bg-pink-500/15 text-pink-400',
+  email: 'bg-yellow-500/15 text-yellow-400',
+  utm: 'bg-green-500/15 text-green-400',
+  referral: 'bg-orange-500/15 text-orange-400',
+  direct: 'bg-muted text-muted-foreground',
+};
+
+const SOURCE_TAG: Record<string, string> = {
+  search: 'Search',
+  ai: 'AI',
+  social: 'Social',
+  email: 'Email',
+  utm: 'Campaign',
+  referral: 'Referral',
+  direct: 'Direct',
+};
 
 type Tab = 'conversations' | 'sites' | 'operators' | 'setup' | 'debug';
 
@@ -3489,6 +3587,32 @@ function VisitorSidebar({
           </div>
         </Section>
       )}
+
+      {/* Traffic source */}
+      {(() => {
+        const src = classifyTrafficSource(session.pageContext);
+        if (!src) return null;
+        const ctx = session.pageContext;
+        return (
+          <Section title="Traffic source" defaultOpen>
+            <div className="text-sm space-y-1.5">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className={`text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded ${SOURCE_BADGE[src.type ?? 'direct']}`}>
+                  {SOURCE_TAG[src.type ?? 'direct']}
+                </span>
+                <span className="font-medium">{src.label}</span>
+              </div>
+              {src.detail && <div className="text-xs text-muted-foreground truncate">{src.detail}</div>}
+              {ctx?.referrerDomain && src.type !== 'direct' && (
+                <Row label="Referred by"><span className="truncate">{String(ctx.referrerDomain)}</span></Row>
+              )}
+              {ctx?.utmCampaign && <Row label="Campaign"><span className="truncate">{String(ctx.utmCampaign)}</span></Row>}
+              {ctx?.utmMedium && <Row label="Medium">{String(ctx.utmMedium)}</Row>}
+              {ctx?.utmTerm && <Row label="Keyword"><span className="truncate">{String(ctx.utmTerm)}</span></Row>}
+            </div>
+          </Section>
+        );
+      })()}
 
       {/* Visitor device */}
       <Section title="Visitor device" defaultOpen>
