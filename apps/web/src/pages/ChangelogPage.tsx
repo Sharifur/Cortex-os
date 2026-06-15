@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v5.0.1',
+    date: '2026-06-15',
+    entries: [
+      { tag: 'fix', scope: 'livechat', description: 'Notification sound now plays only when a visitor sends a message. Agent replies, status changes, takeovers, and other system actions no longer trigger the sound.' },
+    ],
+  },
+  {
     version: 'v5.0.0',
     date: '2026-06-15',
     entries: [

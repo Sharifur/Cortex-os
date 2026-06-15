@@ -1266,8 +1266,10 @@ function ConversationsTab() {
         if (event.type === 'session_upserted') {
           pendingDiffRef.current = true;
           qc.invalidateQueries({ queryKey: notifKey });
-          playNotificationSound();
         }
+      }
+      if (event.type === 'new_visitor_message') {
+        playNotificationSound();
       }
       if (event.type === 'visitor_activity' || event.type === 'visitor_offline') {
         qc.invalidateQueries({ queryKey: liveKey });

@@ -505,6 +505,7 @@ export class LivechatPublicController {
       attachments: attachments.map(toAttachmentSummary),
     });
     this.stream.publishToOperators({ type: 'session_upserted', sessionId });
+    this.stream.publishToOperators({ type: 'new_visitor_message', sessionId });
 
     // If the visitor only sent attachments without text, skip the LLM run.
     const result = visitorContent
