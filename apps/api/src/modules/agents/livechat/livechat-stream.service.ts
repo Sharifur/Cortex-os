@@ -27,6 +27,7 @@ export type LivechatStreamEvent =
 
 export type OperatorEvent =
   | { type: 'session_upserted'; sessionId: string }
+  | { type: 'new_visitor_message'; sessionId: string }
   | { type: 'visitor_activity'; visitorPk: string; siteKey: string }
   | { type: 'visitor_offline'; visitorPk: string }
   | { type: 'inbox_dirty' };
