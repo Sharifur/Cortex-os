@@ -122,6 +122,16 @@ const DUMMY_LOCAL_PATTERNS = /^(test|dummy|fake|temp|trial|demo|sample|noreply|n
 function isDisposableOrDummyEmail(email: string): boolean {
   const [local, domain] = email.toLowerCase().split('@');
   if (!local || !domain) return false;
+
+  // TLD must be at least 2 chars; single-char local is obviously fake
+  const tld = domain.split('.').pop() ?? '';
+  if (tld.length < 2) return true;
+  if (local.length < 2) return true;
+
+  // Domain labels must each be at least 2 chars (y.y has label 'y')
+  const labels = domain.split('.');
+  if (labels.some((l) => l.length < 2)) return true;
+
   if (DISPOSABLE_DOMAINS.has(domain)) return true;
   if (DUMMY_LOCAL_PATTERNS.test(local)) return true;
   if (local.includes('test') || local.includes('dummy') || local.includes('fake')) return true;
@@ -432,7 +442,10 @@ export class LivechatPublicController {
     });
 
     if (body.pageContext && typeof body.pageContext === 'object') {
-      void this.livechat.setPageContext(sessionId, body.pageContext as Record<string, unknown>);
+      const raw = JSON.stringify(body.pageContext);
+      if (raw.length <= 5120) {
+        void this.livechat.setPageContext(sessionId, body.pageContext as Record<string, unknown>);
+      }
     }
 
     const visitorContent = (body.content ?? '').trim();

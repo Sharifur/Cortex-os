@@ -119,7 +119,7 @@ export class LivechatInactivityService implements OnApplicationBootstrap, OnAppl
     const cooldownCutoff = new Date(now.getTime() - HUMAN_ALERT_COOLDOWN_MS);
 
     const rows = await this.db.db.execute(sql`
-      SELECT s.id, s.site_id, s.visitor_name, s.visitor_email, s.needs_human_at
+      SELECT s.id, s.site_id, s.visitor_name, s.visitor_email, s.needs_human_at, s.human_alert_sent_at
       FROM livechat_sessions s
       WHERE s.status = 'needs_human'
         AND s.needs_human_at IS NOT NULL
@@ -128,19 +128,20 @@ export class LivechatInactivityService implements OnApplicationBootstrap, OnAppl
       LIMIT 20
     `);
 
-    const sessions = rows as unknown as Array<{ id: string; site_id: string; visitor_name: string | null; visitor_email: string | null; needs_human_at: string }>;
+    const sessions = rows as unknown as Array<{ id: string; site_id: string; visitor_name: string | null; visitor_email: string | null; needs_human_at: string; human_alert_sent_at: string | null }>;
     if (!sessions.length) return;
 
     this.logger.debug(`Human alert sweep: ${sessions.length} session(s) waiting for operator`);
 
     for (const session of sessions) {
-      await this.sendHumanAlertEmail(session.id, session.site_id, session.visitor_name, session.visitor_email).catch((err) => {
+      const isFirstAlert = session.human_alert_sent_at === null;
+      await this.sendHumanAlertEmail(session.id, session.site_id, session.visitor_name, session.visitor_email, isFirstAlert).catch((err) => {
         this.logger.warn(`Human alert email failed for session ${session.id.slice(-8)}: ${(err as Error).message}`);
       });
     }
   }
 
-  private async sendHumanAlertEmail(sessionId: string, siteId: string, visitorName: string | null, visitorEmail: string | null): Promise<void> {
+  private async sendHumanAlertEmail(sessionId: string, siteId: string, visitorName: string | null, visitorEmail: string | null, isFirstAlert: boolean): Promise<void> {
     const site = await this.livechat.getSiteById(siteId);
 
     const adminTo = site.humanAlertEmail?.trim()
@@ -186,42 +187,44 @@ export class LivechatInactivityService implements OnApplicationBootstrap, OnAppl
       .then(({ sent, pruned }) => this.logger.debug(`Push sent ${sent} notification(s) for session ${sessionId.slice(-8)}; pruned ${pruned}`))
       .catch((err: Error) => this.logger.warn(`Push notification failed for session ${sessionId.slice(-8)}: ${err.message}`));
 
-    if (visitorEmail) {
-      const replyTo = (await this.inbound.buildReplyTo(sessionId)) ?? undefined;
-      const visitorSubject = `We received your request — a human will be with you shortly`;
-      const visitorText = [
-        `Hi ${visitorLabel},`,
-        '',
-        `Thanks for reaching out to ${siteName}. We received your request for human assistance.`,
-        '',
-        'Our team has been notified and someone will join your chat shortly.',
-        '',
-        'You can reply to this email and your message will be added to the conversation.',
-      ].join('\n');
-      const visitorHtml = this.buildVisitorHumanAlertHtml({ visitorLabel, siteName, brandColor });
-      await this.ses.sendEmail({ to: visitorEmail, from: fromAddress, subject: visitorSubject, textBody: visitorText, htmlBody: visitorHtml, replyTo })
-        .then(() => this.logger.log(`Visitor human alert email sent → ${visitorEmail} for session ${sessionId.slice(-8)}`))
-        .catch((err: Error) => this.logger.warn(`Visitor human alert email failed for session ${sessionId.slice(-8)} (to: ${visitorEmail}): ${err.message}`));
+    if (isFirstAlert) {
+      if (visitorEmail) {
+        const replyTo = (await this.inbound.buildReplyTo(sessionId)) ?? undefined;
+        const visitorSubject = `We received your request — a human will be with you shortly`;
+        const visitorText = [
+          `Hi ${visitorLabel},`,
+          '',
+          `Thanks for reaching out to ${siteName}. We received your request for human assistance.`,
+          '',
+          'Our team has been notified and someone will join your chat shortly.',
+          '',
+          'You can reply to this email and your message will be added to the conversation.',
+        ].join('\n');
+        const visitorHtml = this.buildVisitorHumanAlertHtml({ visitorLabel, siteName, brandColor });
+        await this.ses.sendEmail({ to: visitorEmail, from: fromAddress, subject: visitorSubject, textBody: visitorText, htmlBody: visitorHtml, replyTo })
+          .then(() => this.logger.log(`Visitor human alert email sent → ${visitorEmail} for session ${sessionId.slice(-8)}`))
+          .catch((err: Error) => this.logger.warn(`Visitor human alert email failed for session ${sessionId.slice(-8)} (to: ${visitorEmail}): ${err.message}`));
+      }
+
+      const apologyText = `Sorry for the wait — our team has been notified and a human agent will join shortly. Please bear with us.`;
+      const apologyMsg = await this.livechat.appendMessage({ sessionId, role: 'agent', content: apologyText }).catch(() => null);
+      if (apologyMsg) {
+        this.stream.publish(sessionId, {
+          type: 'message',
+          sessionId,
+          role: 'agent',
+          content: apologyText,
+          messageId: apologyMsg.id,
+          createdAt: apologyMsg.createdAt.toISOString(),
+        });
+        this.logger.log(`Apology message injected for session ${sessionId.slice(-8)}`);
+      }
     }
 
     await this.db.db
       .update(livechatSessions)
       .set({ humanAlertSentAt: new Date() })
       .where(eq(livechatSessions.id, sessionId));
-
-    const apologyText = `Sorry for the wait — our team has been notified and a human agent will join shortly. Please bear with us.`;
-    const apologyMsg = await this.livechat.appendMessage({ sessionId, role: 'agent', content: apologyText }).catch(() => null);
-    if (apologyMsg) {
-      this.stream.publish(sessionId, {
-        type: 'message',
-        sessionId,
-        role: 'agent',
-        content: apologyText,
-        messageId: apologyMsg.id,
-        createdAt: apologyMsg.createdAt.toISOString(),
-      });
-      this.logger.log(`Apology message injected for session ${sessionId.slice(-8)}`);
-    }
   }
 
   private buildHumanAlertHtml(input: { visitorLabel: string; siteName: string; brandColor: string }): string {

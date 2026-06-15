@@ -117,9 +117,26 @@ export class LivechatConversationsController {
   async takeover(@Param('id') id: string) {
     const session = await this.livechat.getSession(id);
     if (!session) throw new NotFoundException(`Session not found: ${id}`);
+    const wasNeedsHuman = session.status === 'needs_human';
     await this.livechat.setSessionStatus(id, 'human_taken_over');
     this.stream.publish(id, { type: 'session_status', sessionId: id, status: 'human_taken_over' });
     this.stream.publishToOperators({ type: 'session_upserted', sessionId: id });
+
+    if (wasNeedsHuman) {
+      const joinText = `A support agent has joined the chat and will reply to you shortly.`;
+      const joinMsg = await this.livechat.appendMessage({ sessionId: id, role: 'agent', content: joinText }).catch(() => null);
+      if (joinMsg) {
+        this.stream.publish(id, {
+          type: 'message',
+          sessionId: id,
+          role: 'agent',
+          content: joinText,
+          messageId: joinMsg.id,
+          createdAt: joinMsg.createdAt.toISOString(),
+        });
+      }
+    }
+
     return { ok: true, status: 'human_taken_over' };
   }
 
@@ -153,10 +170,27 @@ export class LivechatConversationsController {
   async close(@Param('id') id: string) {
     const session = await this.livechat.getSession(id);
     if (!session) throw new NotFoundException(`Session not found: ${id}`);
+    const wasNeedsHuman = session.status === 'needs_human';
     await this.livechat.setSessionStatus(id, 'closed');
     this.stream.publish(id, { type: 'session_status', sessionId: id, status: 'closed' });
     this.stream.publishToOperators({ type: 'session_upserted', sessionId: id });
-    // Fire-and-forget: send transcript if site has it enabled and visitor email is known.
+
+    if (wasNeedsHuman) {
+      const emailHint = session.visitorEmail ? ` We'll reply to ${session.visitorEmail} as soon as possible.` : ' We will follow up as soon as possible.';
+      const closedText = `We weren't able to connect you with a live agent right now.${emailHint}`;
+      const closedMsg = await this.livechat.appendMessage({ sessionId: id, role: 'agent', content: closedText }).catch(() => null);
+      if (closedMsg) {
+        this.stream.publish(id, {
+          type: 'message',
+          sessionId: id,
+          role: 'agent',
+          content: closedText,
+          messageId: closedMsg.id,
+          createdAt: closedMsg.createdAt.toISOString(),
+        });
+      }
+    }
+
     void this.transcript.maybeSendOnClose(id);
     return { ok: true, status: 'closed' };
   }

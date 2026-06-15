@@ -16,6 +16,36 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v5.0.0',
+    date: '2026-06-15',
+    entries: [
+      { tag: 'fix', scope: 'livechat', description: 'Delete message button now visible on all message types (visitor, AI, operator) when viewed from the operator dashboard. Previously only showed on operator-role messages due to wrong isOperator check.' },
+      { tag: 'fix', scope: 'livechat', description: 'Email validation now rejects single-char TLDs (e.g. y@y.y), single-char local parts, and domain labels shorter than 2 chars — catches dummy addresses not covered by the disposable domain blocklist.' },
+    ],
+  },
+  {
+    version: 'v4.99.0',
+    date: '2026-06-15',
+    entries: [
+      { tag: 'fix', scope: 'livechat', description: 'Apology message ("Sorry for the wait") now injected only once per escalation (first alert). Subsequent hourly admin reminders send email + push only — no more repeated in-chat messages.' },
+      { tag: 'fix', scope: 'livechat', description: 'Visitor confirmation email also sent on first alert only, not on every hourly sweep.' },
+      { tag: 'feat', scope: 'livechat', description: 'Operator takeover now injects "A support agent has joined" in-chat message when session was in needs_human state.' },
+      { tag: 'feat', scope: 'livechat', description: 'Closing a needs_human session injects a "We weren\'t able to connect you live — we\'ll reply to your email" message to the visitor.' },
+      { tag: 'feat', scope: 'livechat', description: 'SNS signature verification on inbound email webhook; rejects unsigned or forged SNS notifications.' },
+      { tag: 'feat', scope: 'livechat', description: 'LLM call rate limit: 3 LLM invocations per session per minute to prevent cost spikes from message flooding.' },
+      { tag: 'feat', scope: 'livechat', description: 'Reply lock per session (Redis SETNX, 30s TTL) prevents concurrent agent + operator replies from both landing.' },
+      { tag: 'fix', scope: 'livechat', description: 'pageContext JSONB capped at 5KB; larger payloads silently dropped to prevent DB bloat.' },
+    ],
+  },
+  {
+    version: 'v4.98.0',
+    date: '2026-06-14',
+    entries: [
+      { tag: 'feat', scope: 'livechat', description: 'KB guardrail service: KB self-service results now pass a 3-stage filter before surfacing in chat — (1) query quality check rejects gibberish/short queries, (2) hard site_keys match rejects untagged global entries, (3) LLM relevance scoring discards low-scoring results. Each rejection is logged at debug level.' },
+      { tag: 'fix', scope: 'livechat', description: 'KB self-service no longer shows results when site context cannot be resolved (site lookup failure now bails early instead of falling back to untagged global entries).' },
+    ],
+  },
+  {
     version: 'v4.97.0',
     date: '2026-06-14',
     entries: [

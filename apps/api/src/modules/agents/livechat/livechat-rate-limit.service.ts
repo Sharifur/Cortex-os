@@ -3,6 +3,7 @@ import type IORedis from 'ioredis';
 
 const WINDOW_SECONDS = 60;
 const OPERATOR_ACTIVE_TTL = 90; // seconds — bot stays silent for 90s after an operator acts
+const LLM_CALLS_PER_MINUTE = 3;
 
 @Injectable()
 export class LivechatRateLimitService {
@@ -108,6 +109,41 @@ export class LivechatRateLimitService {
     } catch (err) {
       this.logger.warn(`markOperatorActive failed for ${sessionId}: ${(err as Error).message}`);
     }
+  }
+
+  /**
+   * Acquire a short reply lock for a session. Returns true if acquired (caller
+   * may proceed to generate + send a reply). Returns false if another reply is
+   * already in-flight for this session. Lock auto-expires after 30s.
+   * Fails open (returns true) on Redis errors to avoid stalling chat.
+   */
+  async acquireReplyLock(sessionId: string): Promise<boolean> {
+    try {
+      const key = `livechat:reply_lock:${sessionId}`;
+      const result = await this.redis.set(key, '1', 'EX', 30, 'NX');
+      return result === 'OK';
+    } catch (err) {
+      this.logger.warn(`acquireReplyLock failed for ${sessionId}: ${(err as Error).message}`);
+      return true;
+    }
+  }
+
+  async releaseReplyLock(sessionId: string): Promise<void> {
+    try {
+      await this.redis.del(`livechat:reply_lock:${sessionId}`);
+    } catch {
+      // non-critical
+    }
+  }
+
+  /**
+   * Increment and check the per-session LLM call rate. Throws 429 when the
+   * session has made more than LLM_CALLS_PER_MINUTE LLM invocations in the
+   * current 60-second window. Fails open on Redis errors to avoid blocking
+   * legitimate chat responses.
+   */
+  async checkLlmRate(sessionId: string): Promise<void> {
+    await this.check('llm_session', sessionId, LLM_CALLS_PER_MINUTE);
   }
 
   /** Returns true if an operator has been active in this session recently. */
