@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v5.0.3',
+    date: '2026-06-15',
+    entries: [
+      { tag: 'fix', scope: 'livechat', description: 'Build failure: added pageContext to SessionRow interface so VisitorSidebar traffic source section compiles correctly.' },
+    ],
+  },
+  {
     version: 'v5.0.2',
     date: '2026-06-15',
     entries: [
