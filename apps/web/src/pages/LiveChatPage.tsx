@@ -123,6 +123,7 @@ interface SessionRow {
   language: string | null;
   lastMessage: { role: string; content: string; createdAt: string } | null;
   pendingDrafts?: number;
+  pageContext?: PageContext | null;
 }
 
 interface Visitor {
