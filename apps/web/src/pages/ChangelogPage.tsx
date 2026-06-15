@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v5.0.2',
+    date: '2026-06-15',
+    entries: [
+      { tag: 'feat', scope: 'livechat', description: 'Traffic source section in visitor sidebar: classifies referrer as Search (Google, Bing, DuckDuckGo, Yandex, Baidu…), AI (ChatGPT, Gemini, Claude, Perplexity, Copilot…), Social (Facebook, X, LinkedIn, Reddit, TikTok…), Email campaign, UTM campaign, Referral, or Direct. Shows campaign/medium/keyword when UTM params present.' },
+    ],
+  },
+  {
     version: 'v5.0.1',
     date: '2026-06-15',
     entries: [
