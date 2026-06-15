@@ -1,7 +1,45 @@
 import { Body, Controller, Headers, HttpCode, Logger, Post, Query, UnauthorizedException } from '@nestjs/common';
+import * as crypto from 'crypto';
 import { SettingsService } from '../../settings/settings.service';
 import { safeEqualString } from '../../../common/webhooks/verify';
 import { LivechatInboundService } from './livechat-inbound.service';
+
+const SNS_CERT_CACHE = new Map<string, string>();
+const SNS_SIGNING_CERT_REGEX = /^https:\/\/sns\.[a-z0-9-]+\.amazonaws\.com\//;
+
+async function fetchSnsCert(certUrl: string): Promise<string> {
+  const cached = SNS_CERT_CACHE.get(certUrl);
+  if (cached) return cached;
+  const res = await fetch(certUrl);
+  if (!res.ok) throw new Error(`Failed to fetch SNS cert: ${res.status}`);
+  const pem = await res.text();
+  SNS_CERT_CACHE.set(certUrl, pem);
+  return pem;
+}
+
+function buildSnsSigningString(msg: Record<string, string>): string {
+  const fields =
+    msg['Type'] === 'Notification'
+      ? ['Message', 'MessageId', 'Subject', 'Timestamp', 'TopicArn', 'Type']
+      : ['Message', 'MessageId', 'SubscribeURL', 'Timestamp', 'Token', 'TopicArn', 'Type'];
+  return fields
+    .filter((f) => msg[f] !== undefined)
+    .map((f) => `${f}\n${msg[f]}\n`)
+    .join('');
+}
+
+async function verifySnsSignature(body: Record<string, string>): Promise<boolean> {
+  try {
+    const certUrl = body['SigningCertURL'] ?? '';
+    if (!SNS_SIGNING_CERT_REGEX.test(certUrl)) return false;
+    const pem = await fetchSnsCert(certUrl);
+    const signingString = buildSnsSigningString(body);
+    const signature = Buffer.from(body['Signature'] ?? '', 'base64');
+    return crypto.verify('sha1', Buffer.from(signingString), pem, signature);
+  } catch {
+    return false;
+  }
+}
 
 interface SnsEnvelope {
   Type: string;
@@ -65,6 +103,12 @@ export class LivechatInboundController {
       throw new UnauthorizedException('Invalid inbound token');
     }
     if (messageType !== 'Notification') return;
+
+    const sigValid = await verifySnsSignature(body as unknown as Record<string, string>);
+    if (!sigValid) {
+      this.logger.warn('SNS signature verification failed — rejecting inbound message');
+      throw new UnauthorizedException('SNS signature invalid');
+    }
 
     this.logger.debug(`Livechat inbound received — messageType: ${messageType}`);
 

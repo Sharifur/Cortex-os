@@ -432,7 +432,10 @@ export class LivechatPublicController {
     });
 
     if (body.pageContext && typeof body.pageContext === 'object') {
-      void this.livechat.setPageContext(sessionId, body.pageContext as Record<string, unknown>);
+      const raw = JSON.stringify(body.pageContext);
+      if (raw.length <= 5120) {
+        void this.livechat.setPageContext(sessionId, body.pageContext as Record<string, unknown>);
+      }
     }
 
     const visitorContent = (body.content ?? '').trim();

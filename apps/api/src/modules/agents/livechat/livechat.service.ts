@@ -568,6 +568,12 @@ export class LivechatService implements OnModuleInit {
     return row ?? null;
   }
 
+  async getVisitorForSession(sessionId: string) {
+    const session = await this.getSession(sessionId);
+    if (!session) return null;
+    return this.getVisitor(session.visitorPk);
+  }
+
   async getRecentPageviews(visitorPk: string, limit = 5) {
     return this.db.db
       .select()

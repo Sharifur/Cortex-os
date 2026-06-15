@@ -198,6 +198,7 @@ export class LivechatAgent implements IAgent, OnModuleInit {
     } catch { /* fail-open: run recording is non-critical */ }
 
     const finalizeRun = async (result: HandleVisitorMessageResult) => {
+      void this.rateLimit.releaseReplyLock(input.sessionId);
       if (!runId) return;
       try {
         await this.db.db.update(agentRuns).set({
@@ -249,6 +250,19 @@ export class LivechatAgent implements IAgent, OnModuleInit {
     const operatorActive = await this.rateLimit.isOperatorActive(input.sessionId).catch(() => false);
     if (operatorActive) {
       this.logger.log(`session ${input.sessionId}: operator active, skipping bot reply`);
+      const r = { ok: true, status: 'skipped_taken_over' as const };
+      void finalizeRun(r);
+      return r;
+    }
+
+    await this.rateLimit.checkLlmRate(input.sessionId).catch((err) => {
+      this.logger.warn(`session ${input.sessionId}: LLM rate limit hit — ${(err as Error).message}`);
+      throw err;
+    });
+
+    const lockAcquired = await this.rateLimit.acquireReplyLock(input.sessionId);
+    if (!lockAcquired) {
+      this.logger.log(`session ${input.sessionId}: reply already in-flight, skipping concurrent reply`);
       const r = { ok: true, status: 'skipped_taken_over' as const };
       void finalizeRun(r);
       return r;
