@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v5.1.0',
+    date: '2026-06-16',
+    entries: [
+      { tag: 'feat', scope: 'livechat', description: 'Widget position can now be set per embed via the data-position attribute (left/right or bottom-left/bottom-right). Overrides the site\'s saved position; falls back to the saved position, then bottom-right.' },
+    ],
+  },
+  {
     version: 'v5.0.3',
     date: '2026-06-15',
     entries: [

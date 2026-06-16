@@ -10,6 +10,8 @@ export interface WidgetConfig {
   autoOpen: boolean;
   /** Delay in ms before showing the popup bubble (default 1500) */
   popupDelay: number;
+  /** Per-embed position override via data-position; overrides the site's saved position */
+  position?: 'bottom-left' | 'bottom-right';
 }
 
 const VISITOR_ID_KEY = 'livechat_visitor_id';
@@ -42,7 +44,15 @@ export function resolveConfig(): WidgetConfig | null {
   const delayAttr = tag.getAttribute('data-delay');
   const popupDelay = delayAttr !== null && /^\d+$/.test(delayAttr) ? parseInt(delayAttr, 10) : 1500;
 
-  return { siteKey, visitorId, apiBase, context, popup, autoOpen, popupDelay };
+  const posAttr = (tag.getAttribute('data-position') || '').trim().toLowerCase();
+  const position =
+    posAttr === 'left' || posAttr === 'bottom-left'
+      ? 'bottom-left'
+      : posAttr === 'right' || posAttr === 'bottom-right'
+      ? 'bottom-right'
+      : undefined;
+
+  return { siteKey, visitorId, apiBase, context, popup, autoOpen, popupDelay, position };
 }
 
 function findScriptTag(): HTMLScriptElement | null {
