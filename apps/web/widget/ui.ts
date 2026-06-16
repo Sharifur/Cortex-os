@@ -60,7 +60,9 @@ export function mountWidget(cfg: WidgetConfig, siteConfig: SiteConfigResponse = 
   host.style.setProperty('--lc-brand', brand);
   host.style.setProperty('--lc-brand-shadow', rgba);
   host.style.setProperty('--lc-brand-shadow-hover', rgbaHover);
-  if (siteConfig.position === 'bottom-left') host.classList.add('lc-position-left');
+  // data-position on the embed tag overrides the site's saved position.
+  const effectivePosition = cfg.position ?? siteConfig.position;
+  if (effectivePosition === 'bottom-left') host.classList.add('lc-position-left');
 
   const styleEl = document.createElement('style');
   styleEl.textContent = WIDGET_STYLES;
