@@ -105,6 +105,9 @@ export function mountWidget(cfg: WidgetConfig, siteConfig: SiteConfigResponse = 
 
   const bubbleBtn = document.createElement('button');
   bubbleBtn.className = 'lc-bubble';
+  bubbleBtn.setAttribute('aria-label', 'Open chat');
+  bubbleBtn.setAttribute('title', 'Open chat');
+  bubbleBtn.type = 'button';
   bubbleBtn.innerHTML = chatIcon();
   shadow.appendChild(bubbleBtn);
 

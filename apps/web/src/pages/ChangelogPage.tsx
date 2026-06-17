@@ -16,6 +16,13 @@ interface VersionBlock {
 
 const CHANGELOG: VersionBlock[] = [
   {
+    version: 'v5.1.1',
+    date: '2026-06-17',
+    entries: [
+      { tag: 'fix', scope: 'livechat', description: 'Chat bubble button now has an accessible name (aria-label and title "Open chat") plus an explicit type. Resolves the Lighthouse "Buttons do not have an accessible name" accessibility/SEO warning and gives a hover tooltip.' },
+    ],
+  },
+  {
     version: 'v5.1.0',
     date: '2026-06-16',
     entries: [
