@@ -1257,13 +1257,40 @@ function ConversationsTab() {
   const [filterSite, setFilterSite] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [advFilterOpen, setAdvFilterOpen] = useState(false);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Open the session named in ?session= on first render — set by the "Join the
+  // chat" email button and the push-notification click handler, both of which
+  // point the PWA at /livechat?session=<id>.
+  const [selectedId, setSelectedId] = useState<string | null>(
+    () => (typeof window === 'undefined' ? null : new URLSearchParams(window.location.search).get('session')),
+  );
   const [showVisitors, setShowVisitors] = useState(true);
   const [toasts, setToasts] = useState<ChatToast[]>([]);
   const prevSessionsRef = useRef<Map<string, { status: string; lastMsgAt: string | null }>>(new Map());
   const isInitializedRef = useRef(false);
   const pendingDiffRef = useRef(false);
   const [bulkCloseConfirm, setBulkCloseConfirm] = useState(false);
+
+  // Deep-link: react to navigation into a specific chat after first render —
+  // browser back/forward, and the service worker's postMessage fallback when
+  // the PWA window is already open and a notification is clicked.
+  useEffect(() => {
+    const applyFromUrl = () => {
+      const id = new URLSearchParams(window.location.search).get('session');
+      if (id) setSelectedId(id);
+    };
+    const onSwMessage = (e: MessageEvent) => {
+      if (e.data?.type === 'navigate' && typeof e.data.url === 'string') {
+        const id = new URLSearchParams(e.data.url.split('?')[1] ?? '').get('session');
+        if (id) setSelectedId(id);
+      }
+    };
+    window.addEventListener('popstate', applyFromUrl);
+    navigator.serviceWorker?.addEventListener('message', onSwMessage);
+    return () => {
+      window.removeEventListener('popstate', applyFromUrl);
+      navigator.serviceWorker?.removeEventListener('message', onSwMessage);
+    };
+  }, []);
 
   const filter = STATUS_FILTERS.find((f) => f.key === filterKey)!;
 
@@ -1821,6 +1848,13 @@ function InboxRow({ session, selected, onClick }: { session: SessionRow; selecte
             <span className="truncate">{session.lastMessage?.content ?? 'New conversation'}</span>
           </div>
           <div className="mt-1 flex items-center gap-1.5 flex-wrap">
+            {/* Needs-human attention badge — flags chats waiting for a human agent */}
+            {session.status === 'needs_human' && (
+              <div className="inline-flex items-center gap-1 text-[10px] text-white bg-orange-500 px-1.5 py-0.5 rounded font-semibold">
+                <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                Needs human
+              </div>
+            )}
             {/* T3: wait time badge */}
             {waitMins !== null && waitMins >= 2 && (
               <div className="inline-flex items-center text-[10px] text-amber-600 bg-amber-500/10 px-1.5 py-0.5 rounded font-medium">
@@ -2274,7 +2308,9 @@ function SessionPane({
   }
   if (isLoading || !detail) return <div className="p-6 text-sm text-muted-foreground">Loading…</div>;
 
-  const composerEnabled = status === 'human_taken_over';
+  // Operators can also type into a closed chat — sending auto-reopens it
+  // (backend flips the status to 'human_taken_over' on the operator reply).
+  const composerEnabled = status === 'human_taken_over' || status === 'closed';
   const visitorName = detail.session.visitorName || detail.session.visitorEmail || `visitor${detail.session.visitorId.slice(-5)}`;
   const language = detail.visitor?.language ?? null;
   const messagesByDay = groupMessagesByDay(allMessages);
@@ -2555,9 +2591,11 @@ function SessionPane({
             placeholder={
               composerTab === 'note'
                 ? 'Internal note — only visible to operators. Not sent to the visitor.'
-                : composerEnabled
-                  ? `Send your message to ${visitorName} in chat…`
-                  : 'Click "Take over" to reply'
+                : status === 'closed'
+                  ? `Send a message to reopen this chat with ${visitorName}…`
+                  : composerEnabled
+                    ? `Send your message to ${visitorName} in chat…`
+                    : 'Click "Take over" to reply'
             }
             className={`w-full text-sm px-4 py-3 resize-none min-h-[80px] focus:outline-none disabled:opacity-50 placeholder:text-muted-foreground ${
               composerTab === 'note' ? 'bg-yellow-500/10 border-l-2 border-yellow-500/50' : 'bg-card'

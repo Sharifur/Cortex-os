@@ -643,8 +643,12 @@ export class LivechatService implements OnModuleInit {
 
   async setSessionStatus(sessionId: string, status: 'open' | 'human_taken_over' | 'needs_human' | 'closed'): Promise<void> {
     const extra: Record<string, unknown> = {};
-    if (status === 'needs_human') extra.needsHumanAt = new Date();
-    if (status === 'human_taken_over' || status === 'open') extra.needsHumanAt = null;
+    // Entering 'needs_human' starts a fresh wait: reset the timer AND the
+    // alert flag so this waiting period is eligible for exactly one email.
+    if (status === 'needs_human') { extra.needsHumanAt = new Date(); extra.humanAlertSentAt = null; }
+    // Someone joined (or the chat reopened): wait time resets, clear both so a
+    // later re-escalation is treated as a brand-new wait.
+    if (status === 'human_taken_over' || status === 'open') { extra.needsHumanAt = null; extra.humanAlertSentAt = null; }
     await this.db.db
       .update(livechatSessions)
       .set({ status, lastSeenAt: new Date(), ...extra })

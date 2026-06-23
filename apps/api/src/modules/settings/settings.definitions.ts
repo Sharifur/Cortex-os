@@ -31,6 +31,13 @@ export const SETTING_DEFINITIONS: Record<string, SettingDefinition> = {
     group: 'general',
     defaultValue: 'UTC',
   },
+  app_base_url: {
+    label: 'Operator Console URL',
+    description: 'Public URL of this operator console (e.g. https://cortex.xgenious.com), no trailing slash. Used to build deep links in alert emails so "Join the chat" opens the exact conversation.',
+    isSecret: false,
+    group: 'general',
+    defaultValue: 'https://cortex.xgenious.com',
+  },
 
   // LLM — general
   llm_default_provider: {
