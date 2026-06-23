@@ -15,7 +15,6 @@ const RESEND_COOLDOWN_MS = 30 * 60 * 1000;         // 30 min between emails per 
 const SCAN_INTERVAL_MS = 60 * 1000;                // scan every 60s
 const RECENT_MESSAGES_WINDOW_MS = 15 * 60 * 1000;  // look at messages from last 15 min
 const HUMAN_ALERT_THRESHOLD_MS = 3 * 60 * 1000;    // 3 min waiting for operator
-const HUMAN_ALERT_COOLDOWN_MS = 60 * 60 * 1000;    // 1 h between repeat alerts per session
 
 @Injectable()
 export class LivechatInactivityService implements OnApplicationBootstrap, OnApplicationShutdown {
@@ -116,15 +115,17 @@ export class LivechatInactivityService implements OnApplicationBootstrap, OnAppl
   async sweepNeedsHuman(): Promise<void> {
     const now = new Date();
     const alertThreshold = new Date(now.getTime() - HUMAN_ALERT_THRESHOLD_MS);
-    const cooldownCutoff = new Date(now.getTime() - HUMAN_ALERT_COOLDOWN_MS);
 
+    // Alert once per waiting chat: still fires after the 3-min wait, but never
+    // re-sends for the same session — human_alert_sent_at is stamped on first send
+    // and only cleared when the session leaves 'needs_human'.
     const rows = await this.db.db.execute(sql`
       SELECT s.id, s.site_id, s.visitor_name, s.visitor_email, s.needs_human_at, s.human_alert_sent_at
       FROM livechat_sessions s
       WHERE s.status = 'needs_human'
         AND s.needs_human_at IS NOT NULL
         AND s.needs_human_at < ${alertThreshold.toISOString()}
-        AND (s.human_alert_sent_at IS NULL OR s.human_alert_sent_at < ${cooldownCutoff.toISOString()})
+        AND s.human_alert_sent_at IS NULL
       LIMIT 20
     `);
 
@@ -135,13 +136,13 @@ export class LivechatInactivityService implements OnApplicationBootstrap, OnAppl
 
     for (const session of sessions) {
       const isFirstAlert = session.human_alert_sent_at === null;
-      await this.sendHumanAlertEmail(session.id, session.site_id, session.visitor_name, session.visitor_email, isFirstAlert).catch((err) => {
+      await this.sendHumanAlertEmail(session.id, session.site_id, session.visitor_name, session.visitor_email, session.needs_human_at, isFirstAlert).catch((err) => {
         this.logger.warn(`Human alert email failed for session ${session.id.slice(-8)}: ${(err as Error).message}`);
       });
     }
   }
 
-  private async sendHumanAlertEmail(sessionId: string, siteId: string, visitorName: string | null, visitorEmail: string | null, isFirstAlert: boolean): Promise<void> {
+  private async sendHumanAlertEmail(sessionId: string, siteId: string, visitorName: string | null, visitorEmail: string | null, needsHumanAt: string | null, isFirstAlert: boolean): Promise<void> {
     const site = await this.livechat.getSiteById(siteId);
 
     const adminTo = site.humanAlertEmail?.trim()
@@ -165,15 +166,38 @@ export class LivechatInactivityService implements OnApplicationBootstrap, OnAppl
     const siteName = site.label?.trim() || site.key;
     const brandColor = site.brandColor || '#2563eb';
 
-    const adminSubject = `Action needed: chat waiting for human reply — ${siteName}`;
+    // Wait duration so the operator knows how long the visitor has been hanging.
+    const waitText = this.formatWait(needsHumanAt);
+
+    // Deep link straight to this conversation. Relative path for push (the
+    // service worker resolves it against the PWA origin and opens in-app); the
+    // email needs an absolute URL, built from the configured console URL.
+    const sessionPath = `/livechat?session=${encodeURIComponent(sessionId)}`;
+    const appBaseUrl = (await this.settings.getDecrypted('app_base_url'))?.trim().replace(/\/+$/, '') || null;
+    const joinUrl = appBaseUrl ? `${appBaseUrl}${sessionPath}` : null;
+
+    // Pull the visitor's last question so the operator has context before opening.
+    let lastQuestion: string | null = null;
+    const detail = await this.livechat.getSessionDetail(sessionId).catch(() => null);
+    if (detail) {
+      const lastVisitorMsg = [...detail.messages].reverse().find((m) => m.role === 'visitor');
+      if (lastVisitorMsg?.content) lastQuestion = lastVisitorMsg.content.trim().slice(0, 280);
+    }
+
+    const adminSubject = `🟠 ${visitorLabel} is waiting for a human — ${siteName}`;
     const adminText = [
-      `${visitorLabel} is waiting for a human agent in the ${siteName} live chat.`,
+      `${visitorLabel} has been waiting ${waitText} in the ${siteName} live chat and no agent has joined yet.`,
       '',
-      'No operator has joined in the last 3 minutes.',
+      'Visitor details',
+      `  • Name:    ${visitorName?.trim() || '—'}`,
+      `  • Email:   ${visitorEmail || '—'}`,
+      `  • Site:    ${siteName}`,
+      `  • Waiting: ${waitText}`,
+      ...(lastQuestion ? ['', 'Their last message:', `  "${lastQuestion}"`] : []),
       '',
-      'Please open the live chat dashboard and join the session.',
+      joinUrl ? `Join the chat: ${joinUrl}` : 'Open the live chat dashboard and take over the conversation before they drop off.',
     ].join('\n');
-    const adminHtml = this.buildHumanAlertHtml({ visitorLabel, siteName, brandColor });
+    const adminHtml = this.buildHumanAlertHtml({ visitorLabel, visitorName, visitorEmail, siteName, brandColor, waitText, lastQuestion, joinUrl });
 
     await this.ses.sendEmail({ to: toAddress, from: fromAddress, subject: adminSubject, textBody: adminText, htmlBody: adminHtml })
       .then(() => this.logger.log(`Human alert email sent → ${toAddress} for session ${sessionId.slice(-8)}`))
@@ -182,7 +206,8 @@ export class LivechatInactivityService implements OnApplicationBootstrap, OnAppl
     void this.push.sendToAll({
       title: `Chat waiting — ${siteName}`,
       body: `${visitorLabel} has been waiting for a human agent.`,
-      url: '/livechat',
+      tag: `lc-${sessionId}`,
+      url: sessionPath,
     })
       .then(({ sent, pruned }) => this.logger.debug(`Push sent ${sent} notification(s) for session ${sessionId.slice(-8)}; pruned ${pruned}`))
       .catch((err: Error) => this.logger.warn(`Push notification failed for session ${sessionId.slice(-8)}: ${err.message}`));
@@ -227,21 +252,75 @@ export class LivechatInactivityService implements OnApplicationBootstrap, OnAppl
       .where(eq(livechatSessions.id, sessionId));
   }
 
-  private buildHumanAlertHtml(input: { visitorLabel: string; siteName: string; brandColor: string }): string {
-    const label = input.visitorLabel.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const site = input.siteName.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    return `<!DOCTYPE html><html><body style="margin:0;padding:24px;background:#f9fafb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
-<table cellpadding="0" cellspacing="0" width="100%" style="max-width:480px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.05);">
-  <tr><td style="padding:18px 22px;background:${input.brandColor};color:#fff;">
-    <div style="font-size:16px;font-weight:600;">Chat needs human assistance</div>
-    <div style="font-size:12px;opacity:.85;margin-top:2px;">${site}</div>
+  // Human-readable wait duration from the moment the session entered 'needs_human'.
+  private formatWait(needsHumanAt: string | null): string {
+    if (!needsHumanAt) return 'a few minutes';
+    const started = new Date(needsHumanAt).getTime();
+    if (Number.isNaN(started)) return 'a few minutes';
+    const mins = Math.max(3, Math.round((Date.now() - started) / 60000));
+    if (mins < 60) return `${mins} minute${mins === 1 ? '' : 's'}`;
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    return m ? `${h}h ${m}m` : `${h} hour${h === 1 ? '' : 's'}`;
+  }
+
+  private buildHumanAlertHtml(input: {
+    visitorLabel: string;
+    visitorName: string | null;
+    visitorEmail: string | null;
+    siteName: string;
+    brandColor: string;
+    waitText: string;
+    lastQuestion: string | null;
+    joinUrl: string | null;
+  }): string {
+    const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const label = esc(input.visitorLabel);
+    const site = esc(input.siteName);
+    const wait = esc(input.waitText);
+    const name = input.visitorName?.trim() ? esc(input.visitorName.trim()) : '—';
+    const email = input.visitorEmail?.trim() ? esc(input.visitorEmail.trim()) : '—';
+
+    const detailRow = (k: string, v: string) =>
+      `<tr><td style="padding:6px 0;font-size:12px;color:#6b7280;width:74px;vertical-align:top;">${k}</td><td style="padding:6px 0;font-size:13px;color:#111827;font-weight:500;">${v}</td></tr>`;
+
+    const questionBlock = input.lastQuestion
+      ? `<tr><td style="padding:4px 22px 0;">
+    <div style="font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:#9ca3af;margin-bottom:6px;">Their last message</div>
+    <div style="border-left:3px solid ${input.brandColor};background:#f9fafb;padding:10px 14px;border-radius:0 8px 8px 0;font-size:14px;color:#374151;line-height:1.5;">${esc(input.lastQuestion)}</div>
+  </td></tr>`
+      : '';
+
+    return `<!DOCTYPE html><html><body style="margin:0;padding:24px;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+<table cellpadding="0" cellspacing="0" width="100%" style="max-width:520px;margin:0 auto;background:#fff;border-radius:14px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.08);">
+  <tr><td style="padding:20px 22px;background:${input.brandColor};color:#fff;">
+    <div style="font-size:17px;font-weight:700;letter-spacing:-.01em;">🟠 A visitor needs a human agent</div>
+    <div style="font-size:12px;opacity:.85;margin-top:3px;">${site} · live chat</div>
   </td></tr>
-  <tr><td style="padding:18px 22px;font-size:14px;color:#1f2937;line-height:1.6;">
-    <strong>${label}</strong> is waiting for a human agent and no one has joined in the last 3 minutes.
-    <br><br>
-    Please open the live chat dashboard and join the session.
+  <tr><td style="padding:20px 22px 8px;font-size:15px;color:#111827;line-height:1.6;">
+    <strong>${label}</strong> has been waiting <strong>${wait}</strong> and no agent has joined yet. Jump in before they drop off.
   </td></tr>
-</table></body></html>`;
+  <tr><td style="padding:6px 22px 4px;">
+    <table cellpadding="0" cellspacing="0" width="100%" style="border:1px solid #eef0f3;border-radius:10px;padding:6px 14px;">
+      ${detailRow('Name', name)}
+      ${detailRow('Email', email)}
+      ${detailRow('Waiting', wait)}
+    </table>
+  </td></tr>
+  ${questionBlock}
+  ${input.joinUrl ? `<tr><td style="padding:20px 22px 4px;">
+    <a href="${esc(input.joinUrl)}" style="display:block;text-align:center;background:${input.brandColor};color:#fff;text-decoration:none;font-size:15px;font-weight:600;padding:13px 20px;border-radius:10px;">Join the chat →</a>
+  </td></tr>
+  <tr><td style="padding:8px 22px 18px;">
+    <div style="font-size:12px;color:#9ca3af;line-height:1.6;text-align:center;">Opens the conversation with <strong>${label}</strong> in your live chat console. On your phone, open it from the installed app for the fastest reply.</div>
+  </td></tr>` : `<tr><td style="padding:20px 22px;">
+    <div style="font-size:13px;color:#6b7280;line-height:1.6;">
+      Open the live chat dashboard, find <strong>${label}</strong> under <strong>Needs human</strong>, and take over the conversation. They'll get an in-chat note that an agent is on the way.
+    </div>
+  </td></tr>`}
+</table>
+<div style="max-width:520px;margin:14px auto 0;text-align:center;font-size:11px;color:#9ca3af;">You're receiving this because you're a live chat operator for ${site}.</div>
+</body></html>`;
   }
 
   private buildVisitorHumanAlertHtml(input: { visitorLabel: string; siteName: string; brandColor: string }): string {

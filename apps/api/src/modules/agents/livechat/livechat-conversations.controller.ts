@@ -407,7 +407,9 @@ export class LivechatConversationsController {
     // Suppress bot replies for 90 s after an operator speaks.
     void this.rateLimit.markOperatorActive(id);
 
-    if (session.status === 'open' || session.status === 'needs_human') {
+    // An operator reply always (re)activates the conversation. Sending into a
+    // closed chat auto-reopens it as 'human_taken_over' so the visitor can reply.
+    if (session.status !== 'human_taken_over') {
       await this.livechat.setSessionStatus(id, 'human_taken_over');
       this.stream.publish(id, { type: 'session_status', sessionId: id, status: 'human_taken_over' });
     }

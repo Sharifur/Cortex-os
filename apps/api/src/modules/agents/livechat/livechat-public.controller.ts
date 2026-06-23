@@ -512,31 +512,31 @@ export class LivechatPublicController {
       ? await this.agent.handleVisitorMessage({ sessionId, visitorMessage: visitorContent })
       : { ok: true, status: 'skipped_taken_over' as const };
 
-    // Push notification: fire to subscribed operators when the session needs
-    // human attention. For needs_human sessions, only push when the throttled
-    // reminder actually fires (result.reply set) — not on every silent drop.
-    const isNeedsHumanReminder = result.status === 'skipped_needs_human' && !!result.reply;
+    // Push notification: fire to subscribed operators for per-message events
+    // (a draft awaiting review, or the visitor replying to an operator who has
+    // already taken over).
+    //
+    // Needs-human alerts (first escalation + the throttled "still waiting"
+    // reminders) are intentionally NOT pushed here. The inactivity sweep
+    // sends a single de-duplicated push + email per waiting period (gated by
+    // human_alert_sent_at, reset when an operator joins) so the same waiting
+    // chat is never pushed more than once. See LivechatInactivityService.
     const pushable =
       result.status === 'pending_approval' ||
-      result.status === 'fallback_needs_human' ||
-      result.status === 'skipped_taken_over' ||
-      isNeedsHumanReminder;
+      result.status === 'skipped_taken_over';
     if (pushable) {
       const session = await this.livechat.getSession(sessionId).catch(() => null);
       const name = session?.visitorName?.trim() || session?.visitorEmail || `visitor${body.visitorId.slice(-5)}`;
-      const isUrgent = result.status === 'fallback_needs_human' || isNeedsHumanReminder;
       const title =
         result.status === 'pending_approval' ? `Review needed — ${name}` :
-        result.status === 'fallback_needs_human' ? `Live chat needs you — ${name}` :
-        result.status === 'skipped_taken_over' ? `${name} replied` :
-        `Still waiting — ${name}`;
+        `${name} replied`;
       void this.push.sendToAll({
         title,
         body: visitorContent.slice(0, 140) || '(attachment)',
         tag: `lc-${sessionId}`,
         url: `/livechat?session=${sessionId}`,
         renotify: true,
-        requireInteraction: isUrgent,
+        requireInteraction: false,
       }).catch(() => undefined);
     }
 
