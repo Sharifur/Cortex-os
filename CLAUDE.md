@@ -3,8 +3,9 @@
 ## Project Prefix: CX
 
 ## Sprint 1 — Live Chat human-alert fixes
-**Status:** IN PROGRESS
+**Status:** COMPLETE
 **Started:** 2026-06-23
+**Closed:** 2026-06-23
 
 ### Tickets
 
@@ -27,3 +28,22 @@
 - Badge: `apps/web/src/pages/LiveChatPage.tsx` (`InboxRow`)
 - Email template: `livechat-inactivity.service.ts` (`buildHumanAlertHtml`, `formatWait`, `sendHumanAlertEmail`)
 - Reopen-on-reply: `livechat-conversations.controller.ts` (`operatorReply`) + `LiveChatPage.tsx` (`composerEnabled`)
+
+## Sprint 2 — Live Chat AI answer accuracy
+**Status:** IN PROGRESS
+**Started:** 2026-06-23
+
+### Tickets
+
+| Ticket | Title | Status | Priority | Tokens | Description |
+|--------|-------|--------|----------|--------|-------------|
+| CX-007 | Lock AI replies to the product the visitor is viewing | DONE | HIGH | ~45k | Bot quoted SafeCart's price to a visitor on the Influstar page. Root cause: `getAlwaysOnContext` loads ALL site products/offers and `buildKbPromptBlock` renders them side-by-side, so the model can grab the wrong product's pricing. Fix: resolve the active product from the current page (title + sourceUrl) and strip sibling-product entries from catalog/references at the data layer (template-independent), pin PRODUCT LOCK to the active product. Decisions: stay locked to current product (siblings only if visitor names them); match by title + sourceUrl. |
+
+### Sprint Stats
+- Total: 1  /  TODO: 0  /  IN_PROGRESS: 0  /  DONE: 1  /  BLOCKED: 0
+- Tokens: ~45k total
+
+### Notes
+- AI reply pipeline: `apps/api/src/modules/agents/livechat/agent.ts` (`handleVisitorMessage`)
+- KB retrieval/render: `apps/api/src/modules/knowledge-base/knowledge-base.service.ts` (`searchEntries`, `getAlwaysOnContext`, `buildKbPromptBlock`)
+- Product lock helpers + scoping live in `agent.ts` (`resolveActiveProduct`, `scopeEntriesToProduct`, `productPrimaryName`).

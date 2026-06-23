@@ -112,6 +112,88 @@ function redactPii(text: string): string {
   return out;
 }
 
+/**
+ * The distinctive "primary name" of a product/offer entry — the token before
+ * any separator. "Influstar – Influencer Hiring Marketplace" → "Influstar".
+ * This is what we match against the visitor's current page to know which
+ * product they're looking at.
+ */
+function productPrimaryName(title: string): string {
+  const head = title.split(/[–—\-|:•·]/)[0]?.trim();
+  return (head && head.length ? head : title.trim());
+}
+
+/** Whole-word, case-insensitive test for `name` appearing anywhere in `text`. */
+function mentionsName(text: string, name: string): boolean {
+  if (!name) return false;
+  const esc = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(^|\\W)${esc}(\\W|$)`, 'i').test(text);
+}
+
+/**
+ * Match the visitor's current page against the product catalog so the reply can
+ * be locked to that product (CX-007). Matches by sourceUrl path first (exact
+ * page → entry), then by the longest product name that appears in the page
+ * title. Returns the product's primary name, or null when there is no confident
+ * match (generic pages, or a page whose title names no catalog product) — in
+ * which case the caller leaves behaviour unchanged.
+ */
+function resolveActiveProduct(
+  catalog: KnowledgeEntry[],
+  currentPageUrl?: string | null,
+  currentPageTitle?: string | null,
+): string | null {
+  const products = catalog.filter((e) => e.entryType === 'product');
+  if (!products.length) return null;
+
+  const pathOf = (u?: string | null): string | null => {
+    try { return u ? new URL(u).pathname.replace(/\/+$/, '').toLowerCase() : null; } catch { return null; }
+  };
+
+  // 1) URL match — a product entry whose sourceUrl path equals the page path.
+  const pagePath = pathOf(currentPageUrl);
+  if (pagePath && pagePath.length > 1) {
+    for (const p of products) {
+      const srcPath = pathOf(p.sourceUrl);
+      if (srcPath && srcPath.length > 1 && srcPath === pagePath) return productPrimaryName(p.title);
+    }
+  }
+
+  // 2) Title match — the longest product name present in the page title wins
+  //    (so "Influstar Pro" beats "Influstar" when both are in the catalog).
+  const title = (currentPageTitle ?? '').trim();
+  if (title) {
+    let best: string | null = null;
+    for (const p of products) {
+      const name = productPrimaryName(p.title);
+      if (name.length >= 3 && mentionsName(title, name) && (!best || name.length > best.length)) best = name;
+    }
+    if (best) return best;
+  }
+  return null;
+}
+
+/**
+ * Drop entries that belong to a SIBLING product. An entry is removed only when
+ * it names another product (whole-word) and does NOT name the active product —
+ * this is what keeps SafeCart's pricing out of an Influstar conversation.
+ * Entries mentioning no product (site-wide facts/offers), or mentioning the
+ * active product, are always kept. Returns the input unchanged when there are
+ * no siblings to filter against.
+ */
+function scopeEntriesToProduct<T extends { title: string; content: string }>(
+  entries: T[],
+  activeName: string,
+  allProductNames: string[],
+): T[] {
+  const siblings = allProductNames.filter((n) => n.toLowerCase() !== activeName.toLowerCase());
+  if (!siblings.length) return entries;
+  return entries.filter((e) => {
+    const hay = `${e.title}\n${e.content}`;
+    return mentionsName(hay, activeName) || !siblings.some((s) => mentionsName(hay, s));
+  });
+}
+
 export interface HandleVisitorMessageResult {
   ok: boolean;
   status: 'replied' | 'pending_approval' | 'skipped_taken_over' | 'skipped_needs_human' | 'fallback_needs_human' | 'error';
@@ -359,11 +441,29 @@ export class LivechatAgent implements IAgent, OnModuleInit {
             (m.role === 'visitor' ? stripRolePrefixes(String(m.content)) : String(m.content)).slice(0, 300),
       }));
 
+    // Product-page lock (CX-007): when the visitor is on a known product's
+    // page, resolve that product and strip sibling-product entries from the
+    // catalog and references BEFORE they reach the prompt. This is the
+    // template-independent guard — the wrong product's pricing simply isn't in
+    // the model's context, so it can't be quoted even if a custom DB prompt
+    // template replaces the PRODUCT LOCK instructions below.
+    const fullCatalog = alwaysOn.filter((e) => ['product', 'service', 'offer', 'product_qa'].includes(e.entryType));
+    const allProductNames = fullCatalog
+      .filter((e) => e.entryType === 'product')
+      .map((e) => productPrimaryName(e.title))
+      .filter((n) => n.length >= 3);
+    const activeProduct = resolveActiveProduct(fullCatalog, session.currentPageUrl, session.currentPageTitle);
+    const scopedCatalog = activeProduct ? scopeEntriesToProduct(fullCatalog, activeProduct, allProductNames) : fullCatalog;
+    const scopedReferences = activeProduct ? scopeEntriesToProduct(references, activeProduct, allProductNames) : references;
+    if (activeProduct && (scopedCatalog.length !== fullCatalog.length || scopedReferences.length !== references.length)) {
+      this.logger.log(`session ${input.sessionId}: locked to product "${activeProduct}" — catalog ${fullCatalog.length}→${scopedCatalog.length}, refs ${references.length}→${scopedReferences.length}`);
+    }
+
     const kbBlock = this.kb.buildKbPromptBlock({
       voiceProfile: alwaysOn.find((e) => e.entryType === 'voice_profile') ?? null,
       facts: alwaysOn.filter((e) => e.entryType === 'fact'),
-      catalog: alwaysOn.filter((e) => ['product', 'service', 'offer', 'product_qa'].includes(e.entryType)),
-      references,
+      catalog: scopedCatalog,
+      references: scopedReferences,
       positiveSamples: samples.filter((s) => s.polarity === 'positive'),
       negativeSamples: samples.filter((s) => s.polarity === 'negative'),
       rejections,
@@ -386,7 +486,10 @@ export class LivechatAgent implements IAgent, OnModuleInit {
 
     // Operator-voice persona: speak AS the website's owner/team, not as a third-party
     // chatbot helping the user. "We", "our product", confident product knowledge.
-    const productLabel = site?.botName?.trim() || site?.label?.trim() || 'our product';
+    // When the visitor is on a specific product's page, the PRODUCT LOCK and
+    // persona name THAT product (e.g. "Influstar") rather than the site name —
+    // so the model's scope rules are pinned to what they're actually viewing.
+    const productLabel = activeProduct || site?.botName?.trim() || site?.label?.trim() || 'our product';
     const operatorPersona = site?.operatorName?.trim()
       ? `You are ${site.operatorName} from the ${productLabel} team, replying to a visitor on ${productLabel}'s website.`
       : `You are part of the ${productLabel} team, replying to a visitor on ${productLabel}'s website.`;
@@ -455,9 +558,11 @@ export class LivechatAgent implements IAgent, OnModuleInit {
     const currentTitle = session.currentPageTitle?.trim();
     const currentPath = (() => { try { return session.currentPageUrl ? new URL(session.currentPageUrl).pathname : null; } catch { return null; } })();
     const isGenericPath = !currentPath || /^\/?$|^\/?(home|about|contact|blog|products|our-products\/?$|index)/i.test(currentPath);
-    const pagePinBlock = currentTitle && !isGenericPath
-      ? `\n\n## Page Context Pin\nThe visitor is currently viewing: "${currentTitle.slice(0, 120)}"\nFocus your reply on the product or topic shown on this page. Do not introduce or describe unrelated products unless the visitor explicitly asks.\n`
-      : '';
+    const pagePinBlock = activeProduct
+      ? `\n\n## Page Context Pin\nThe visitor is on the ${activeProduct} product page. Answer ONLY about ${activeProduct}. Every product detail in your Knowledge Base below refers to ${activeProduct} for this conversation — all pricing, features, and tiers you quote must be ${activeProduct}'s. Do not name, describe, compare, or quote a price for any other product unless the visitor explicitly names that other product themselves.\n`
+      : (currentTitle && !isGenericPath
+        ? `\n\n## Page Context Pin\nThe visitor is currently viewing: "${currentTitle.slice(0, 120)}"\nFocus your reply on the product or topic shown on this page. Do not introduce or describe unrelated products unless the visitor explicitly asks.\n`
+        : '');
 
     const systemPrompt = (template?.system ?? defaultSystem) + topicRulesBlock + pagePinBlock + kbBlock + visitorBlock + intentBlock;
 
