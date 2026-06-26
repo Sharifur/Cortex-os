@@ -13,6 +13,7 @@ import { LivechatRateLimitService } from './livechat-rate-limit.service';
 import { LivechatIntentService, type VisitorIntent } from './livechat-intent.service';
 import { LivechatEscalationService } from './livechat-escalation.service';
 import { LivechatKbGuardrailService } from './livechat-kb-guardrail.service';
+import { PushService } from '../../push/push.service';
 import type {
   IAgent,
   TriggerSpec,
@@ -220,6 +221,7 @@ export class LivechatAgent implements IAgent, OnModuleInit {
     private intent: LivechatIntentService,
     private escalation: LivechatEscalationService,
     private kbGuardrail: LivechatKbGuardrailService,
+    private push: PushService,
   ) {}
 
   onModuleInit() {
@@ -459,6 +461,32 @@ export class LivechatAgent implements IAgent, OnModuleInit {
       this.logger.log(`session ${input.sessionId}: locked to product "${activeProduct}" — catalog ${fullCatalog.length}→${scopedCatalog.length}, refs ${references.length}→${scopedReferences.length}`);
     }
 
+    // Pricing fallback: if the visitor asks about pricing but the KB has no
+    // price data, try scraping the visitor's current page. If the page also
+    // has no pricing, escalate to a human — we'd otherwise hallucinate prices.
+    const PRICING_KEYWORDS = ['pricing', 'price', 'cost', 'how much', 'fee', 'subscription', 'plan', 'plans', 'license', 'tier', 'package', 'charge', 'rate'];
+    const isPricingQuery = isSubstantiveQuestion && PRICING_KEYWORDS.some((k) => safeVisitorMessage.toLowerCase().includes(k));
+    const PRICE_PATTERN = /\$[\d,.]+|\d+\s*USD|regular license|extended license|\bplan\b|\btier\b|pricing/i;
+    const hasPricingInKb =
+      scopedCatalog.some((e) => PRICE_PATTERN.test(e.content)) ||
+      scopedReferences.some((e) => PRICE_PATTERN.test(e.content));
+
+    let pagePricingBlock = '';
+    if (isPricingQuery && !hasPricingInKb) {
+      const pageUrl = session.currentPageUrl;
+      const pagePricing = pageUrl ? await this.fetchPagePricingContext(pageUrl) : null;
+      if (pagePricing) {
+        this.logger.log(`session ${input.sessionId}: pricing from page scrape (${pageUrl})`);
+        pagePricingBlock = `\n\n## Live Pricing (from visitor's current page)\n${pagePricing}\nUse this pricing information to answer the visitor's question accurately.`;
+      } else {
+        this.logger.log(`session ${input.sessionId}: pricing query — no KB and no page pricing — escalating`);
+        void this.livechat.saveKbGap({ siteKey: siteKey ?? 'unknown', visitorQuestion: safeVisitorMessage, escalationReason: 'no_pricing_info', sessionId: input.sessionId }).catch(() => undefined);
+        const r = await this.postFallback(input.sessionId);
+        void finalizeRun(r);
+        return r;
+      }
+    }
+
     const kbBlock = this.kb.buildKbPromptBlock({
       voiceProfile: alwaysOn.find((e) => e.entryType === 'voice_profile') ?? null,
       facts: alwaysOn.filter((e) => e.entryType === 'fact'),
@@ -564,7 +592,7 @@ export class LivechatAgent implements IAgent, OnModuleInit {
         ? `\n\n## Page Context Pin\nThe visitor is currently viewing: "${currentTitle.slice(0, 120)}"\nFocus your reply on the product or topic shown on this page. Do not introduce or describe unrelated products unless the visitor explicitly asks.\n`
         : '');
 
-    const systemPrompt = (template?.system ?? defaultSystem) + topicRulesBlock + pagePinBlock + kbBlock + visitorBlock + intentBlock;
+    const systemPrompt = (template?.system ?? defaultSystem) + topicRulesBlock + pagePinBlock + pagePricingBlock + kbBlock + visitorBlock + intentBlock;
 
     // Per-site LLM override beats the agent-level config.
     const baseLlmOpts = agentLlmOpts(config);
@@ -787,6 +815,21 @@ export class LivechatAgent implements IAgent, OnModuleInit {
       const siteKey = site?.key ?? null;
       this.logger.debug({ sessionId, siteId: session?.siteId, siteKey }, 'afterEscalation: site resolution');
 
+      const siteName = site?.label?.trim() || site?.key || 'Live Chat';
+      const visitorLabel = session?.visitorName?.trim() || session?.visitorEmail || 'A visitor';
+      const lastVisitorMsg = recent.filter((m) => m.role === 'visitor').slice(-1)[0]?.content;
+      const pushBody = lastVisitorMsg
+        ? String(lastVisitorMsg).trim().slice(0, 80)
+        : `${visitorLabel} is waiting for a human agent.`;
+      void this.push.sendToAll({
+        title: `🟠 ${visitorLabel} needs help — ${siteName}`,
+        body: pushBody,
+        tag: `lc-${sessionId}`,
+        url: `/livechat?session=${encodeURIComponent(sessionId)}`,
+      })
+        .then(({ sent, pruned }) => this.logger.debug(`Push sent ${sent} notification(s) for session ${sessionId.slice(-8)}; pruned ${pruned}`))
+        .catch((err: Error) => this.logger.warn(`Push notification failed for session ${sessionId.slice(-8)}: ${err.message}`));
+
       await Promise.allSettled([
         (async () => {
           try {
@@ -858,6 +901,38 @@ export class LivechatAgent implements IAgent, OnModuleInit {
       ]);
     } catch (err) {
       this.logger.warn({ err, sessionId }, 'afterEscalation failed');
+    }
+  }
+
+  private async fetchPagePricingContext(url: string): Promise<string | null> {
+    try {
+      const res = await fetch(url, {
+        signal: AbortSignal.timeout(5000),
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; CortexBot/1.0; +https://cortex.xgenious.com)' },
+      });
+      if (!res.ok) return null;
+      const html = await res.text();
+      const text = html.replace(/<script[\s\S]*?<\/script>/gi, ' ')
+        .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      // Check if page has any pricing signals at all
+      if (!/\$[\d,.]+|\d+\s*USD|regular license|extended license|\bpric/i.test(text)) return null;
+      // Extract windows of text around price mentions
+      const words = text.split(' ');
+      const snippets: string[] = [];
+      for (let i = 0; i < words.length; i++) {
+        if (/\$[\d,.]+|\d+\s*USD|regular license|extended license/i.test(words[i])) {
+          const start = Math.max(0, i - 25);
+          const end = Math.min(words.length, i + 25);
+          snippets.push(words.slice(start, end).join(' '));
+        }
+      }
+      if (!snippets.length) return null;
+      return [...new Set(snippets)].slice(0, 6).join('\n---\n').slice(0, 1500);
+    } catch {
+      return null;
     }
   }
 

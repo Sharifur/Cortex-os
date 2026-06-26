@@ -203,6 +203,50 @@ export class SelfImprovementService {
     return { proposalId: row.id };
   }
 
+  async proposeKbGapEntry(opts: {
+    siteKey: string;
+    entryType: string;
+    title: string;
+    content: string;
+    reasoning: string;
+    occurrenceCount: number;
+    theme: string;
+  }): Promise<void> {
+    const { siteKey, entryType, title, content, reasoning, occurrenceCount, theme } = opts;
+
+    const [row] = await this.db.db
+      .insert(kbProposals)
+      .values({
+        agentKey: 'livechat',
+        proposedEntryType: entryType,
+        title,
+        content,
+        polarity: null,
+        reasoning,
+        category: 'faq',
+        sourceType: 'kb_gap_sweep',
+        siteKey,
+      })
+      .returning();
+
+    const text = [
+      `*Weekly KB Gap Report — ${siteKey}*`,
+      ``,
+      `Visitors asked this ${occurrenceCount}x and the AI had no answer:`,
+      `_${theme}_`,
+      ``,
+      `Proposed entry: *${title}*`,
+      `_${content.slice(0, 300)}_`,
+      ``,
+      `Why: ${reasoning}`,
+      ``,
+      `Fill in the answer and add to the Knowledge Base?`,
+    ].join('\n');
+
+    this.events.emit('telegram.kb_proposal', { proposalId: row.id, text } as KbProposalNotifyEvent);
+    this.logger.log(`KB gap proposal created: "${title}" site=${siteKey} (${occurrenceCount}x)`);
+  }
+
   async approveProposal(proposalId: string): Promise<void> {
     const [proposal] = await this.db.db
       .select()
