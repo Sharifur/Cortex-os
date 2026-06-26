@@ -31,6 +31,7 @@ import EmailSuppressionsPage from '@/pages/EmailSuppressionsPage';
 import PostRendersPage from '@/pages/PostRendersPage';
 import NotFoundPage from '@/pages/NotFoundPage';
 import GmailOAuthCallbackPage from '@/pages/GmailOAuthCallbackPage';
+import GoPage from '@/pages/GoPage';
 import ListingProspectDetailPage from '@/pages/ListingProspectDetailPage';
 import ListingProspectsPage from '@/pages/ListingProspectsPage';
 import TrialSequencesPage from '@/pages/TrialSequencesPage';
@@ -58,6 +59,7 @@ export default function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
+          <Route path="/go" element={<GoPage />} />
           <Route path="/gmail/oauth/callback" element={<GmailOAuthCallbackPage />} />
           <Route
             element={

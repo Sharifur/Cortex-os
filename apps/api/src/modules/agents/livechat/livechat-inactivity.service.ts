@@ -8,18 +8,22 @@ import { SesService } from '../../ses/ses.service';
 import { SettingsService } from '../../settings/settings.service';
 import { LivechatInboundService } from './livechat-inbound.service';
 import { LivechatStreamService } from './livechat-stream.service';
-import { PushService } from '../../push/push.service';
+import { LlmRouterService } from '../../llm/llm-router.service';
+import { SelfImprovementService } from '../../knowledge-base/self-improvement.service';
 
 const INACTIVITY_THRESHOLD_MS = 3 * 60 * 1000;    // 3 min visitor absence
 const RESEND_COOLDOWN_MS = 30 * 60 * 1000;         // 30 min between emails per session
 const SCAN_INTERVAL_MS = 60 * 1000;                // scan every 60s
 const RECENT_MESSAGES_WINDOW_MS = 15 * 60 * 1000;  // look at messages from last 15 min
 const HUMAN_ALERT_THRESHOLD_MS = 3 * 60 * 1000;    // 3 min waiting for operator
+const KB_GAP_SWEEP_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000; // weekly
 
 @Injectable()
 export class LivechatInactivityService implements OnApplicationBootstrap, OnApplicationShutdown {
   private readonly logger = new Logger(LivechatInactivityService.name);
   private timer: ReturnType<typeof setInterval> | null = null;
+
+  private kbGapTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
     private db: DbService,
@@ -28,15 +32,18 @@ export class LivechatInactivityService implements OnApplicationBootstrap, OnAppl
     private settings: SettingsService,
     private inbound: LivechatInboundService,
     private stream: LivechatStreamService,
-    private push: PushService,
+    private llm: LlmRouterService,
+    private selfImprovement: SelfImprovementService,
   ) {}
 
   onApplicationBootstrap() {
     this.timer = setInterval(() => { void this.sweep(); void this.sweepNeedsHuman(); }, SCAN_INTERVAL_MS);
+    this.kbGapTimer = setInterval(() => { void this.sweepKbGaps(); }, KB_GAP_SWEEP_INTERVAL_MS);
   }
 
   onApplicationShutdown() {
     if (this.timer) clearInterval(this.timer);
+    if (this.kbGapTimer) clearInterval(this.kbGapTimer);
   }
 
   async sweep(): Promise<void> {
@@ -171,10 +178,13 @@ export class LivechatInactivityService implements OnApplicationBootstrap, OnAppl
 
     // Deep link straight to this conversation. Relative path for push (the
     // service worker resolves it against the PWA origin and opens in-app); the
-    // email needs an absolute URL, built from the configured console URL.
+    // email uses /go?s=<id> which is a public interstitial page — on Android with
+    // the PWA installed it triggers the Web APK handler; on iOS it guides the
+    // operator to open the link in Safari or install the PWA.
     const sessionPath = `/livechat?session=${encodeURIComponent(sessionId)}`;
+    const goPath = `/go?s=${encodeURIComponent(sessionId)}`;
     const appBaseUrl = (await this.settings.getDecrypted('app_base_url'))?.trim().replace(/\/+$/, '') || null;
-    const joinUrl = appBaseUrl ? `${appBaseUrl}${sessionPath}` : null;
+    const joinUrl = appBaseUrl ? `${appBaseUrl}${goPath}` : null;
 
     // Pull the visitor's last question so the operator has context before opening.
     let lastQuestion: string | null = null;
@@ -202,15 +212,6 @@ export class LivechatInactivityService implements OnApplicationBootstrap, OnAppl
     await this.ses.sendEmail({ to: toAddress, from: fromAddress, subject: adminSubject, textBody: adminText, htmlBody: adminHtml })
       .then(() => this.logger.log(`Human alert email sent → ${toAddress} for session ${sessionId.slice(-8)}`))
       .catch((err: Error) => this.logger.warn(`Human alert email failed for session ${sessionId.slice(-8)} (to: ${toAddress}): ${err.message}`));
-
-    void this.push.sendToAll({
-      title: `Chat waiting — ${siteName}`,
-      body: `${visitorLabel} has been waiting for a human agent.`,
-      tag: `lc-${sessionId}`,
-      url: sessionPath,
-    })
-      .then(({ sent, pruned }) => this.logger.debug(`Push sent ${sent} notification(s) for session ${sessionId.slice(-8)}; pruned ${pruned}`))
-      .catch((err: Error) => this.logger.warn(`Push notification failed for session ${sessionId.slice(-8)}: ${err.message}`));
 
     if (isFirstAlert) {
       if (visitorEmail) {
@@ -250,6 +251,107 @@ export class LivechatInactivityService implements OnApplicationBootstrap, OnAppl
       .update(livechatSessions)
       .set({ humanAlertSentAt: new Date() })
       .where(eq(livechatSessions.id, sessionId));
+  }
+
+  // ─── Weekly KB gap analysis ────────────────────────────────────────────────
+  // Groups unanswered visitor questions from the past 7 days by site, clusters
+  // similar ones, and proposes KB entries (site-scoped) for admin approval.
+  async sweepKbGaps(): Promise<void> {
+    this.logger.log('KB gap sweep: starting weekly analysis');
+    try {
+      const rows = await this.db.db.execute<{ site_key: string; visitor_question: string; escalation_reason: string }>(sql`
+        SELECT site_key, visitor_question, escalation_reason
+        FROM livechat_kb_gaps
+        WHERE created_at >= NOW() - INTERVAL '7 days'
+        ORDER BY site_key, created_at DESC
+        LIMIT 500
+      `);
+
+      if (!rows.length) {
+        this.logger.debug('KB gap sweep: no gaps in the last 7 days');
+        return;
+      }
+
+      // Group by site
+      const bySite = new Map<string, string[]>();
+      for (const row of rows) {
+        if (!bySite.has(row.site_key)) bySite.set(row.site_key, []);
+        bySite.get(row.site_key)!.push(row.visitor_question);
+      }
+
+      for (const [siteKey, questions] of bySite.entries()) {
+        if (questions.length < 3) continue; // not enough signal for a site
+        await this.analyzeGapsForSite(siteKey, questions);
+      }
+    } catch (err) {
+      this.logger.error(`KB gap sweep failed: ${(err as Error).message}`);
+    }
+  }
+
+  private async analyzeGapsForSite(siteKey: string, questions: string[]): Promise<void> {
+    const questionList = questions.slice(0, 40).map((q, i) => `${i + 1}. "${q.slice(0, 200)}"`).join('\n');
+    const system = `You are a knowledge base curator for a live chat product support team.
+The following visitor questions were asked on site "${siteKey}" but the AI could NOT answer them — it had to escalate to a human because there was no KB entry covering the topic.
+
+Your job: identify the top recurring themes (3+ similar questions) and propose ONE concise KB entry per theme that would let the AI answer it next time.
+
+Return a JSON array (empty if no clear themes):
+[{
+  "theme": "one-line summary of what visitors kept asking",
+  "occurrenceCount": 4,
+  "entryType": "reference",
+  "title": "max 8 words",
+  "content": "Q: [clean generalized question]\\nA: [BLANK — the admin will fill this in, or note what info is needed]",
+  "reasoning": "one sentence: what gap this fills"
+}]
+
+Return ONLY the JSON array.`;
+
+    let proposals: Array<{ theme: string; occurrenceCount: number; entryType: string; title: string; content: string; reasoning: string }>;
+    try {
+      const res = await this.llm.complete({
+        messages: [
+          { role: 'system', content: system },
+          { role: 'user', content: `Site: ${siteKey}\n\nUnanswered questions (${questions.length} total, showing ${Math.min(questions.length, 40)}):\n${questionList}` },
+        ],
+        provider: 'auto',
+        model: 'gpt-4o-mini',
+        maxTokens: 800,
+        temperature: 0.2,
+      });
+      const text = res.content.trim();
+      const match = text.match(/\[[\s\S]*\]/);
+      proposals = JSON.parse(match?.[0] ?? text);
+      if (!Array.isArray(proposals)) return;
+    } catch (err) {
+      this.logger.warn(`KB gap analysis LLM failed for site ${siteKey}: ${(err as Error).message}`);
+      return;
+    }
+
+    for (const p of proposals) {
+      if (!p.title || !p.content || (p.occurrenceCount ?? 0) < 3) continue;
+
+      // Cooldown: skip if same title proposed for this site in last 14 days
+      const dup = await this.db.db.execute<{ count: number }>(sql`
+        SELECT COUNT(*)::int AS count FROM kb_proposals
+        WHERE site_key = ${siteKey}
+          AND title = ${p.title}
+          AND source_type = 'kb_gap_sweep'
+          AND created_at >= NOW() - INTERVAL '14 days'
+      `);
+      if (((dup[0]?.count as number) ?? 0) > 0) continue;
+
+      await this.selfImprovement.proposeKbGapEntry({
+        siteKey,
+        entryType: p.entryType ?? 'reference',
+        title: p.title,
+        content: p.content,
+        reasoning: p.reasoning ?? '',
+        occurrenceCount: p.occurrenceCount,
+        theme: p.theme ?? p.title,
+      });
+      this.logger.log(`KB gap proposal created for site ${siteKey}: "${p.title}" (${p.occurrenceCount}x)`);
+    }
   }
 
   // Human-readable wait duration from the moment the session entered 'needs_human'.

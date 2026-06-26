@@ -31,6 +31,7 @@ self.addEventListener('fetch', (event) => {
   // Bypass non-GET, websockets, API routes — let the network handle them.
   if (event.request.method !== 'GET') return;
   const url = new URL(event.request.url);
+  // /go is the public PWA-open interstitial — let the SPA handle it (pass through).
   if (
     url.pathname.startsWith('/auth/') ||
     url.pathname.startsWith('/agents/') ||
