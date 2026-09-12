@@ -80,12 +80,14 @@ export class LivechatConversationsController {
     @Query('siteKey') siteKey?: string,
     @Query('hasPendingDrafts') hasPendingDrafts?: string,
     @Query('limit') limit?: string,
+    @Query('q') q?: string,
   ) {
     return this.livechat.listSessions({
       status,
       siteKey,
       hasPendingDrafts: hasPendingDrafts === 'true' || hasPendingDrafts === '1',
       limit: limit ? Number(limit) : undefined,
+      q: q?.trim() || undefined,
     });
   }
 
