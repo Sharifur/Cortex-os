@@ -699,9 +699,9 @@ export class LivechatService implements OnModuleInit {
     return rows[0]?.position ?? 0;
   }
 
-  async listSessions(opts: { status?: string; siteKey?: string; hasPendingDrafts?: boolean; limit?: number; before?: string } = {}) {
+  async listSessions(opts: { status?: string; siteKey?: string; hasPendingDrafts?: boolean; limit?: number; before?: string; q?: string } = {}) {
     const limit = Math.min(opts.limit ?? 50, 200);
-    const where: ReturnType<typeof eq>[] = [];
+    const where: any[] = [];
     if (opts.status) where.push(eq(livechatSessions.status, opts.status));
 
     let siteId: string | null = null;
@@ -722,6 +722,24 @@ export class LivechatService implements OnModuleInit {
       const ids = pendingSessionIds.map((r) => r.sessionId);
       if (!ids.length) return [];
       where.push(inArray(livechatSessions.id, ids));
+    }
+
+    const q = opts.q?.trim();
+    if (q) {
+      // Escape LIKE wildcards so "100%" matches literally, then wrap for substring / phrase match.
+      const escaped = q.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
+      const pattern = `%${escaped}%`;
+      where.push(sql`(
+        ${livechatSessions.visitorName} ILIKE ${pattern} ESCAPE '\'
+        OR ${livechatSessions.visitorEmail} ILIKE ${pattern} ESCAPE '\'
+        OR ${livechatSessions.visitorId} ILIKE ${pattern} ESCAPE '\'
+        OR ${livechatSessions.currentPageTitle} ILIKE ${pattern} ESCAPE '\'
+        OR EXISTS (
+          SELECT 1 FROM livechat_messages m
+          WHERE m.session_id = ${livechatSessions.id}
+            AND m.content ILIKE ${pattern} ESCAPE '\'
+        )
+      )`);
     }
 
     const rows = await this.db.db

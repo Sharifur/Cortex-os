@@ -1256,7 +1256,12 @@ function ConversationsTab() {
   const [filterKey, setFilterKey] = useState('all');
   const [filterSite, setFilterSite] = useState<string | null>(null);
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [advFilterOpen, setAdvFilterOpen] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 300);
+    return () => clearTimeout(t);
+  }, [search]);
   // Open the session named in ?session= on first render — set by the "Join the
   // chat" email button and the push-notification click handler, both of which
   // point the PWA at /livechat?session=<id>.
@@ -1301,7 +1306,7 @@ function ConversationsTab() {
     staleTime: 60_000,
   });
 
-  const sessionsKey = ['livechat-sessions', filter.status ?? 'all', filter.hasPendingDrafts ? 'pending' : 'any', filterSite ?? 'all'] as const;
+  const sessionsKey = ['livechat-sessions', filter.status ?? 'all', filter.hasPendingDrafts ? 'pending' : 'any', filterSite ?? 'all', debouncedSearch.trim()] as const;
   const { data: sessions = [], refetch: refetchList } = useQuery<SessionRow[]>({
     queryKey: sessionsKey,
     queryFn: () => {
@@ -1309,6 +1314,7 @@ function ConversationsTab() {
       if (filter.status) qs.set('status', filter.status);
       if (filter.hasPendingDrafts) qs.set('hasPendingDrafts', 'true');
       if (filterSite) qs.set('siteKey', filterSite);
+      if (debouncedSearch.trim()) qs.set('q', debouncedSearch.trim());
       const suffix = qs.toString() ? `?${qs.toString()}` : '';
       return apiFetch(token, `/agents/livechat/sessions${suffix}`);
     },
@@ -1322,20 +1328,9 @@ function ConversationsTab() {
   const statsPendingReview = useMemo(() => sessions.filter((s) => (s.pendingDrafts ?? 0) > 0).length, [sessions]);
 
   // T4: client-side 'needs_reply' layer on top of server results.
+  // Search is now server-side (q param) and scans all messages in the conversation, not just lastMessage.
   const baseFiltered = filterKey === 'needs_reply' ? sessions.filter(needsReply) : sessions;
-
-  // Client-side text search across visitor name / email / last message.
-  const searchedSessions = search.trim()
-    ? baseFiltered.filter((s) => {
-        const q = search.trim().toLowerCase();
-        return (
-          (s.visitorName ?? '').toLowerCase().includes(q) ||
-          (s.visitorEmail ?? '').toLowerCase().includes(q) ||
-          (s.lastMessage?.content ?? '').toLowerCase().includes(q) ||
-          (s.currentPageTitle ?? '').toLowerCase().includes(q)
-        );
-      })
-    : baseFiltered;
+  const searchedSessions = baseFiltered;
 
   // Pending review count for the filter chip badge.
   const pendingCountKey = ['livechat-pending-count'] as const;
