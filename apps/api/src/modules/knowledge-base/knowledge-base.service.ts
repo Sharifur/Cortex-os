@@ -146,7 +146,12 @@ export class KnowledgeBaseService {
     });
 
     const [fts, vec] = await Promise.all([ftsPromise, vectorPromise]);
-    const results = !vec.length ? fts.slice(0, limit) : reciprocalRankFusion(fts, vec, limit);
+    // plainto_tsquery joins every term with AND, so natural-language questions
+    // ("tell me about your product") only match entries containing every word —
+    // usually nothing. Fall back to an OR query over the content words so the
+    // topic term alone can surface the right entries.
+    const keywordRows = fts.length ? fts : await this.ftsOrFallback(q, agentKey, siteKey, widerLimit);
+    const results = !vec.length ? keywordRows.slice(0, limit) : reciprocalRankFusion(keywordRows, vec, limit);
     if (results.length > 0) {
       const ids = results.map((r) => r.id);
       void this.db.db
@@ -156,6 +161,37 @@ export class KnowledgeBaseService {
         .catch(() => undefined);
     }
     return results;
+  }
+
+  /**
+   * Fallback keyword retrieval for natural-language questions. Pulls the
+   * content words out of the query (dropping stopwords and question filler),
+   * ORs them into a prefix-matched tsquery, and ranks by ts_rank so the most
+   * relevant matches win. Only runs when the strict AND search found nothing.
+   */
+  private async ftsOrFallback(
+    query: string,
+    agentKey?: string,
+    siteKey?: string | null,
+    limit = 20,
+  ): Promise<KnowledgeEntry[]> {
+    const terms = queryKeywords(query);
+    if (!terms.length) return [];
+    const tsquery = terms.map((t) => `${t}:*`).join(' | ');
+    return this.db.db
+      .select()
+      .from(knowledgeEntries)
+      .where(
+        sql`${this.agentKeyWhere(agentKey)}
+          AND ${this.siteKeyWhere(siteKey)}
+          AND entry_type IN ('reference', 'documentation', 'service', 'product', 'offer', 'product_qa')
+          AND to_tsvector('english', title || ' ' || content) @@ to_tsquery('english', ${tsquery})`,
+      )
+      .orderBy(
+        sql`ts_rank(to_tsvector('english', title || ' ' || content), to_tsquery('english', ${tsquery})) DESC`,
+        desc(knowledgeEntries.priority),
+      )
+      .limit(limit);
   }
 
   /**
@@ -655,6 +691,36 @@ export class KnowledgeBaseService {
 function trunc(str: string, maxLen: number): string {
   if (str.length <= maxLen) return str;
   return str.slice(0, maxLen - 1) + '…';
+}
+
+/**
+ * Content words from a visitor question, for the OR-based retrieval fallback.
+ * Drops question filler and stopwords that would otherwise match almost every
+ * entry, keeping nouns/verbs ("product", "pricing", "integrations", "work").
+ */
+const QUERY_STOPWORDS = new Set([
+  'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
+  'do', 'does', 'did', 'doing', 'done', 'can', 'could', 'would', 'should',
+  'will', 'shall', 'may', 'might', 'must', 'have', 'has', 'had',
+  'i', 'me', 'my', 'we', 'our', 'us', 'you', 'your', 'yours', 'it', 'its',
+  'they', 'them', 'their', 'he', 'she', 'his', 'her',
+  'how', 'what', 'whats', 'when', 'where', 'which', 'who', 'why', 'whom',
+  'this', 'that', 'these', 'those', 'there', 'here',
+  'to', 'of', 'and', 'or', 'but', 'for', 'on', 'in', 'at', 'by', 'with',
+  'from', 'about', 'into', 'over', 'under', 'as', 'if', 'then', 'than',
+  'so', 'not', 'no', 'yes', 'all', 'any', 'some', 'more', 'most', 'much',
+  'just', 'only', 'also', 'very', 'too', 'up', 'down', 'out',
+  'tell', 'explain', 'please', 'give', 'show', 'know', 'want', 'need',
+  'like', 'get', 'got', 'let', 'make', 'use', 'using', 'used',
+  'hi', 'hello', 'hey', 'thanks', 'thank', 'ok', 'okay',
+]);
+
+function queryKeywords(query: string): string[] {
+  const words = query
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((w) => w.length >= 3 && !QUERY_STOPWORDS.has(w) && !/^\d+$/.test(w));
+  return [...new Set(words)].slice(0, 8);
 }
 
 /** Blocklist rules are short patterns — embeddings would be noise. Everything else gets vectorised. */
