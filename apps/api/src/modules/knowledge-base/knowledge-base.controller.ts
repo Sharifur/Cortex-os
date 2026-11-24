@@ -121,13 +121,14 @@ export class KnowledgeBaseController {
   // ─── Ingestion ─────────────────────────────────────────────────────────────
 
   @Post('ingest/link')
-  ingestLink(@Body() body: { url: string; agentKeys?: string; category?: string; siteKeys?: string | null; excludedSiteKeys?: string | null }) {
+  ingestLink(@Body() body: { url: string; agentKeys?: string; category?: string; siteKeys?: string | null; excludedSiteKeys?: string | null; entryType?: string }) {
     if (!body.url) throw new BadRequestException('url is required');
     return this.ingestion.ingestLink(body.url, {
       agentKeys: body.agentKeys,
       category: body.category,
       siteKeys: body.siteKeys ?? null,
       excludedSiteKeys: body.excludedSiteKeys ?? null,
+      entryType: body.entryType,
     });
   }
 
