@@ -10,6 +10,7 @@ export const livechatSites = pgTable(
     origin: text('origin').notNull(),
     enabled: boolean('enabled').notNull().default(true),
     productContext: text('product_context'),
+    pricingUrl: text('pricing_url'),
     replyTone: text('reply_tone'),
     trackBots: boolean('track_bots').notNull().default(false),
     autoApprove: boolean('auto_approve').notNull().default(true),

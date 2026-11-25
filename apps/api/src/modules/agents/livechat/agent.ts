@@ -13,6 +13,7 @@ import { LivechatRateLimitService } from './livechat-rate-limit.service';
 import { LivechatIntentService, type VisitorIntent } from './livechat-intent.service';
 import { LivechatEscalationService } from './livechat-escalation.service';
 import { LivechatKbGuardrailService } from './livechat-kb-guardrail.service';
+import { LivechatPricingService } from './livechat-pricing.service';
 import { PushService } from '../../push/push.service';
 import { SettingsService } from '../../settings/settings.service';
 import type {
@@ -271,6 +272,7 @@ export class LivechatAgent implements IAgent, OnModuleInit {
     private intent: LivechatIntentService,
     private escalation: LivechatEscalationService,
     private kbGuardrail: LivechatKbGuardrailService,
+    private pricing: LivechatPricingService,
     private push: PushService,
     private settings: SettingsService,
   ) {}
@@ -536,11 +538,13 @@ export class LivechatAgent implements IAgent, OnModuleInit {
       this.logger.log(`session ${input.sessionId}: locked to product "${activeProduct}" — catalog ${fullCatalog.length}→${scopedCatalog.length}, refs ${references.length}→${scopedReferences.length}`);
     }
 
-    // Pricing fallback: if the visitor asks about pricing but the KB has no
-    // price data, try scraping the visitor's current page. If the page also
-    // has no pricing, escalate to a human — we'd otherwise hallucinate prices.
-    const PRICING_KEYWORDS = ['pricing', 'price', 'cost', 'how much', 'fee', 'subscription', 'plan', 'plans', 'license', 'tier', 'package', 'charge', 'rate'];
+    // Live pricing: the site's configured pricing page is authoritative for
+    // plans, prices and promotions. Cached for 48h, refreshed in the background
+    // when stale. Only injected for pricing-related turns to keep prompts lean.
+    const PRICING_KEYWORDS = ['pricing', 'price', 'cost', 'how much', 'fee', 'subscription', 'plan', 'plans', 'license', 'tier', 'package', 'charge', 'rate', 'offer', 'deal', 'discount', 'coupon'];
+    const PRICING_CONTEXT = /pricing|price|plan|cost|discount|offer|deal|coupon|lifetime|subscription|tier|package/i;
     const isPricingQuery = isSubstantiveQuestion && PRICING_KEYWORDS.some((k) => safeVisitorMessage.toLowerCase().includes(k));
+    const wantsPricing = isSubstantiveQuestion && (isPricingQuery || PRICING_CONTEXT.test(priorContext));
     const PRICE_PATTERN = /\$[\d,.]+|€[\d,.]+|£[\d,.]+|[\d,.]+\s*(USD|EUR|GBP)|regular license|extended license|\bplan\b|\btier\b|pricing|\bprice\b|\/mo\b|\/month\b|\/year\b/i;
     const scopedDocs = alwaysOn.filter((e) => e.entryType === 'documentation');
     const hasPricingInKb =
@@ -549,18 +553,32 @@ export class LivechatAgent implements IAgent, OnModuleInit {
       scopedDocs.some((e) => PRICE_PATTERN.test(e.content));
 
     let pagePricingBlock = '';
-    if (isPricingQuery && !hasPricingInKb) {
-      const pageUrl = session.currentPageUrl;
-      const pagePricing = pageUrl ? await this.fetchPagePricingContext(pageUrl) : null;
-      if (pagePricing) {
-        this.logger.log(`session ${input.sessionId}: pricing from page scrape (${pageUrl})`);
-        pagePricingBlock = `\n\n## Live Pricing (from visitor's current page)\n${pagePricing}\nUse this pricing information to answer the visitor's question accurately.`;
-      } else {
-        this.logger.log(`session ${input.sessionId}: pricing query — no KB and no page pricing — escalating`);
-        void this.livechat.saveKbGap({ siteKey: siteKey ?? 'unknown', visitorQuestion: safeVisitorMessage, escalationReason: 'no_pricing_info', sessionId: input.sessionId }).catch(() => undefined);
-        const r = await this.postFallback(input.sessionId);
-        void finalizeRun(r);
-        return r;
+    let livePricingText: string | null = null;
+    if (wantsPricing && site) {
+      const snapshot = await this.pricing
+        .getForSite({ key: site.key, pricingUrl: site.pricingUrl })
+        .catch(() => null);
+      if (snapshot?.text) {
+        livePricingText = snapshot.text;
+        const ageHours = Math.max(0, Math.round((Date.now() - Date.parse(snapshot.fetchedAt)) / 3_600_000));
+        this.logger.log(`session ${input.sessionId}: live pricing cached ${ageHours}h ago${snapshot.stale ? ' (refreshing)' : ''}`);
+        pagePricingBlock = `\n\n## Live Pricing (authoritative — fetched ${ageHours}h ago from ${snapshot.sourceUrl})\n${snapshot.text}\n\nPricing rules:\n- Quote plans, prices, discounts and offers exactly as listed above.\n- This block supersedes any pricing in the Knowledge Base or documentation.\n- If a plan or offer is not listed above, say the team can confirm — never guess.`;
+      } else if (isPricingQuery && !hasPricingInKb) {
+        // Legacy fallback: scrape the visitor's current page when the site has
+        // no configured pricing source and the KB has no price data.
+        const pageUrl = session.currentPageUrl;
+        const pagePricing = pageUrl ? await this.pricing.fetchPagePricing(pageUrl) : null;
+        if (pagePricing) {
+          livePricingText = pagePricing;
+          this.logger.log(`session ${input.sessionId}: pricing from page scrape (${pageUrl})`);
+          pagePricingBlock = `\n\n## Live Pricing (from visitor's current page)\n${pagePricing}\nUse this pricing information to answer the visitor's question accurately.`;
+        } else {
+          this.logger.log(`session ${input.sessionId}: pricing query — no live, KB or page pricing — escalating`);
+          void this.livechat.saveKbGap({ siteKey: siteKey ?? 'unknown', visitorQuestion: safeVisitorMessage, escalationReason: 'no_pricing_info', sessionId: input.sessionId }).catch(() => undefined);
+          const r = await this.postFallback(input.sessionId);
+          void finalizeRun(r);
+          return r;
+        }
       }
     }
 
@@ -760,6 +778,7 @@ export class LivechatAgent implements IAgent, OnModuleInit {
       references,
       alwaysOn.filter((e) => ['product', 'service', 'offer', 'fact', 'documentation'].includes(e.entryType)),
       session.currentPageUrl,
+      livePricingText,
     ).catch(() => ({ grounded: true as const }));
     if (!groundingResult.grounded) {
       // Don't hand the whole conversation to a human just because one draft
@@ -1019,40 +1038,6 @@ export class LivechatAgent implements IAgent, OnModuleInit {
     }
   }
 
-  private async fetchPagePricingContext(url: string): Promise<string | null> {
-    try {
-      const res = await fetch(url, {
-        signal: AbortSignal.timeout(5000),
-        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; CortexBot/1.0; +https://cortex.xgenious.com)' },
-      });
-      if (!res.ok) return null;
-      const html = await res.text();
-      const text = html.replace(/<script[\s\S]*?<\/script>/gi, ' ')
-        .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-        .replace(/<[^>]+>/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
-      // Check if page has any pricing signals at all
-      const PRICE_SIG = /\$[\d,.]+|€[\d,.]+|£[\d,.]+|[\d,.]+\s*(USD|EUR|GBP)|regular license|extended license|\/mo\b|\/month\b|\/year\b|\bpric/i;
-      if (!PRICE_SIG.test(text)) return null;
-      // Extract windows of text around price mentions
-      const PRICE_WORD = /\$[\d,.]+|€[\d,.]+|£[\d,.]+|[\d,.]+\s*(USD|EUR|GBP)|regular license|extended license|\/mo\b|\/month\b|\/year\b|\bpric\w*/i;
-      const words = text.split(' ');
-      const snippets: string[] = [];
-      for (let i = 0; i < words.length; i++) {
-        if (PRICE_WORD.test(words[i])) {
-          const start = Math.max(0, i - 25);
-          const end = Math.min(words.length, i + 25);
-          snippets.push(words.slice(start, end).join(' '));
-        }
-      }
-      if (!snippets.length) return null;
-      return [...new Set(snippets)].slice(0, 6).join('\n---\n').slice(0, 1500);
-    } catch {
-      return null;
-    }
-  }
-
   private buildVisitorContextBlock(input: {
     visitor: { ipCountryName: string | null; ipCity: string | null; ipTimezone: string | null; browserName: string | null; browserVersion: string | null; osName: string | null; language: string | null } | null;
     currentPageUrl: string | null;
@@ -1182,10 +1167,12 @@ If not, rewrite and return: {"ok":false,"revised":"improved reply here"}`,
     references: KnowledgeEntry[],
     catalog: KnowledgeEntry[],
     currentPageUrl?: string | null,
+    extraContext?: string | null,
   ): Promise<{ grounded: true } | { grounded: false; claim: string }> {
     const allEntries = [...references, ...catalog];
-    // If there are no KB entries at all, skip — T4 gate handles the empty case.
-    if (!allEntries.length) return { grounded: true };
+    // If there is no KB text and no live pricing snapshot, skip — the coverage
+    // gate already handled the empty case.
+    if (!allEntries.length && !extraContext) return { grounded: true };
 
     // Check only claims that can be verified mechanically: money, percentages,
     // storage/quota/user figures and URLs. Descriptive prose (features,
@@ -1195,21 +1182,36 @@ If not, rewrite and return: {"ok":false,"revised":"improved reply here"}`,
     // inventing facts; this check exists for quotable figures and links.
     const tokens = new Set<string>();
     const clean = (s: string) => s.toLowerCase().replace(/[.,;:!?]+$/, '').replace(/\/+$/, '');
+    // Normalize equivalent price spellings so "$12/month", "$12 per month" and
+    // "$12/mo" compare equal (the KB and the model rarely use the same form).
+    const canonicalPrice = (s: string) =>
+      s
+        .toLowerCase()
+        .replace(/,(?=\d)/g, '')
+        .replace(/\s*\/\s*(?:month(?:ly)?|mo)\b/g, '/mo')
+        .replace(/\s*\/\s*(?:year(?:ly)?|yr)\b/g, '/yr')
+        .replace(/\s*per\s+month\b/g, '/mo')
+        .replace(/\s*per\s+year\b/g, '/yr')
+        .replace(/\s*a\s+month\b/g, '/mo')
+        .replace(/\s*monthly\b/g, '/mo')
+        .replace(/\s*yearly\b/g, '/yr')
+        .replace(/\s*annually\b/g, '/yr')
+        .replace(/\s+/g, ' ')
+        .trim();
     for (const m of draft.matchAll(/(?:https?:\/\/|www\.)[^\s)"'<>]+/gi)) {
       tokens.add(clean(m[0]));
     }
     // Currency + period is captured as one token ("$5/month"), so a real
     // "$10/month" elsewhere in the KB cannot bless a fabricated "$5/month".
     for (const m of draft.matchAll(/(?:[$€£]\s?\d[\d,.]*\s?(?:\/mo(?:nth(?:ly)?)?|\/yr|\/year|per\s+(?:month|year)|a\s+month)|[$€£]\s?\d[\d,.]*|\d[\d,.]*\s?(?:%|\/mo|\/month|\/year|gb|tb|mb|users?|workspaces?|runs?|ai\s+credits?))/gi)) {
-      tokens.add(clean(m[0]));
+      tokens.add(canonicalPrice(clean(m[0])));
     }
     if (!tokens.size) return { grounded: true };
 
-    const kbText = allEntries
-      .map((e) => `${e.title} ${e.content} ${e.sourceUrl ?? ''}`)
-      .join(' ')
-      .toLowerCase()
-      .replace(/,/g, '');
+    const kbText = canonicalPrice([
+      ...allEntries.map((e) => `${e.title} ${e.content} ${e.sourceUrl ?? ''}`),
+      extraContext ?? '',
+    ].join(' '));
 
     // Boundary-aware match: "$5" must not be satisfied by "$5.54", and "10"
     // must not be satisfied by "100". A plain substring check let a fabricated

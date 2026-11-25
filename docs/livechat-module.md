@@ -312,6 +312,28 @@ git add apps/api/public/livechat.js && git commit -m "chore(livechat): rebuild w
 #    add a site row with the right origin, paste the snippet from the Setup tab.
 ```
 
+### Live pricing cache (48h)
+
+Sites that run changing promotions set a **Pricing page URL** in Sites → edit. The agent treats
+the extracted snapshot as the single source of truth for plans, prices, discounts and offers —
+it wins over any pricing text in the knowledge base.
+
+- **Fetch**: `LivechatPricingService` downloads the page (axios, 12s, 3 MB cap, CortexBot UA),
+  strips chrome, and extracts plan/price lines plus offer/coupon lines with cheerio.
+- **Cache**: Redis key `livechat:pricing:v1:<siteKey>`, TTL 7 days. Snapshots are considered
+  **fresh for 48 hours**.
+- **Refresh**: fresh → returned as-is. Stale (>48h) → returned immediately while a background
+  refresh runs (Redis `SET NX` lock prevents stampedes). Cold cache → one synchronous fetch with
+  an 8s budget; on failure the agent falls back to KB pricing and the visitor's current page.
+- **Manual refresh**: `POST /agents/livechat/sites/:id/pricing/refresh` (also a refresh button
+  on each site row). Changing the URL invalidates the cache and warms it in the background.
+- **Status**: `GET /agents/livechat/sites/:id/pricing` returns `fetchedAt`, `ageHours`, `stale`,
+  `chars`, and a preview.
+- **Prompt**: the block is injected only on pricing-related turns (current message or recent
+  context mentions price/plan/cost/discount/offer/deal/coupon/lifetime) and is capped at
+  1,500 chars. The live text is also passed to the grounding check so scraped figures are not
+  treated as hallucinations.
+
 ### Known fragile points to watch on first 24h
 
 - **socket.io upgrade** — if the Coolify nginx proxy strips `Connection: upgrade` headers on the new path, the widget falls back to long-polling automatically (already in `transports: ['websocket', 'polling']`). Check the Network panel for repeated POSTs to `/livechat-ws/?EIO=4&transport=polling` — that's the polling fallback, not a failure.
@@ -389,3 +411,4 @@ Parallelizable side-tracks: LC-03, LC-12. Hand-off candidates if a second engine
 | 2026-04-30 | LC-26 (cross-session visitor history) shipped. `LivechatService.getVisitorSessions(visitorPk)` joins sessions + sites + message counts, ordered by lastSeenAt desc. Endpoint `GET /agents/livechat/visitors/:id/sessions`. New `PastConversationsSection` accordion in the visitor sidebar — "Past conversations (N)" shows site label, status pill, message count, last-page hint per past session; click opens the session inline. |
 | 2026-04-30 | LC-28 (visitor message dedupe) shipped. `appendMessage` for `role='visitor'` looks up identical content within the last 5 seconds and returns the existing message instead of inserting. Public `/livechat/message` short-circuits when the helper returns `duplicate=true` — skips attachment linking, socket publish, and agent run. Catches double-clicks, network retries, and SNS at-least-once delivery on the inbound path (LC-27). |
 | 2026-04-30 | LC-27 (email-to-thread) shipped. New `LivechatInboundService` with HMAC-signed reply addresses (`transcript+{sessionId}.{token}@<reply-domain>`) and an inbound MIME parser. Transcript emails now set `Reply-To` to the signed address. New `POST /livechat/inbound?t=<token>` endpoint receives SES → SNS notifications, parses RFC822 (multipart, base64/quoted-printable decoding, HTML→text fallback), extracts `In-Reply-To` and recipient, validates HMAC token + visitor email match, strips quoted reply (Gmail/Outlook/Apple Mail/iPhone signatures), reopens closed sessions, posts as visitor message, runs the agent. Three new settings: `livechat_reply_domain`, `livechat_reply_secret`, `livechat_inbound_token`. Inbound controller lives inside the livechat module to avoid `SesModule ↔ LivechatModule` cycle. AWS-side setup documented below. |
+| 2026-11-25 | Dynamic pricing shipped. Migration `0097_livechat_pricing_url.sql` adds `livechat_sites.pricing_url`. New `LivechatPricingService` fetches the configured pricing page, extracts plans/prices/offers with cheerio, and caches the snapshot in Redis for 48h (stale-while-revalidate, `SET NX` refresh lock, 7-day TTL). `GET /agents/livechat/sites/:id/pricing` reports age/staleness/preview; `POST .../pricing/refresh` forces a fetch. The agent injects the snapshot only on pricing-related turns, treats it as authoritative over KB pricing, and passes it to the grounding check. Sites UI gains a Pricing page URL field plus per-row refresh control. |

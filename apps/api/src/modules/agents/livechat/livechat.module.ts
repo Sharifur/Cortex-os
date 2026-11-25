@@ -25,6 +25,7 @@ import { LivechatIntentService } from './livechat-intent.service';
 import { LivechatEscalationService } from './livechat-escalation.service';
 import { LivechatKbGuardrailService } from './livechat-kb-guardrail.service';
 import { LivechatMetricsService } from './livechat-metrics.service';
+import { LivechatPricingService } from './livechat-pricing.service';
 import { LivechatInactivityService } from './livechat-inactivity.service';
 import { SesModule } from '../../ses/ses.module';
 import { SettingsModule } from '../../settings/settings.module';
@@ -51,6 +52,7 @@ import { PurchaseVerifyService } from '../purchase-verify/purchase-verify.servic
     LivechatEscalationService,
     LivechatKbGuardrailService,
     LivechatMetricsService,
+    LivechatPricingService,
     LivechatInactivityService,
     PurchaseVerifyService,
   ],
