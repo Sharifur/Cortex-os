@@ -12,40 +12,20 @@ import { RunsModule } from './modules/runs/runs.module';
 import { ApprovalsModule } from './modules/approvals/approvals.module';
 import { SettingsModule } from './modules/settings/settings.module';
 import { LlmModule } from './modules/llm/llm.module';
-import { TelegramModule } from './modules/telegram/telegram.module';
-import { McpModule } from './modules/mcp/mcp.module';
 import { SesModule } from './modules/ses/ses.module';
 import { SpamCheckerModule } from './modules/spam-checker/spam-checker.module';
-import { GmailModule } from './modules/gmail/gmail.module';
-import { TaskipTrialModule } from './modules/agents/taskip-trial/taskip-trial.module';
-import { DailyReminderModule } from './modules/agents/daily-reminder/daily-reminder.module';
-import { EmailManagerModule } from './modules/agents/email-manager/email-manager.module';
-import { TaskipInternalModule } from './modules/agents/taskip-internal/taskip-internal.module';
-import { SupportModule } from './modules/agents/support/support.module';
-import { WhatsAppModule } from './modules/agents/whatsapp/whatsapp.module';
-import { LinkedInModule } from './modules/agents/linkedin/linkedin.module';
-import { RedditModule } from './modules/agents/reddit/reddit.module';
-import { HrModule } from './modules/agents/hr/hr.module';
-import { CanvaModule } from './modules/agents/canva/canva.module';
 import { LivechatModule } from './modules/agents/livechat/livechat.module';
 import { KnowledgeBaseModule } from './modules/knowledge-base/knowledge-base.module';
 import { TasksModule } from './modules/tasks/tasks.module';
-import { IntegrationsModule } from './modules/integrations/integrations.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { DebugLogsModule } from './modules/debug-logs/debug-logs.module';
-import { PurchaseVerifyModule } from './modules/agents/purchase-verify/purchase-verify.module';
 import { ContactsModule } from './modules/contacts/contacts.module';
 import { RealtimeModule } from './modules/realtime/realtime.module';
-import { TelegramBotAgentModule } from './modules/agents/telegram-bot/telegram-bot.module';
 import { VisitorEnrichmentModule } from './common/visitor-enrichment/visitor-enrichment.module';
 import { StorageModule } from './modules/storage/storage.module';
 import { PushModule } from './modules/push/push.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { TrackingModule } from './modules/tracking/tracking.module';
-import { EmailSanitizerModule } from './modules/email-sanitizer/email-sanitizer.module';
-import { PostRenderModule } from './modules/post-render/post-render.module';
-import { DesignStudioModule } from './modules/design-studio/design-studio.module';
-import { ListingOutreachModule } from './modules/agents/listing-outreach/listing-outreach.module';
 
 @Module({
   imports: [
@@ -89,40 +69,20 @@ import { ListingOutreachModule } from './modules/agents/listing-outreach/listing
     ApprovalsModule,
     SettingsModule,
     LlmModule,
-    TelegramModule,
-    McpModule,
     SesModule,
     SpamCheckerModule,
-    GmailModule,
-    TaskipTrialModule,
-    DailyReminderModule,
-    EmailManagerModule,
-    TaskipInternalModule,
-    SupportModule,
-    WhatsAppModule,
-    LinkedInModule,
-    RedditModule,
-    HrModule,
-    CanvaModule,
     LivechatModule,
     KnowledgeBaseModule,
     TasksModule,
-    IntegrationsModule,
     DashboardModule,
     DebugLogsModule,
-    PurchaseVerifyModule,
     ContactsModule,
     RealtimeModule,
-    TelegramBotAgentModule,
     VisitorEnrichmentModule,
     StorageModule,
     PushModule,
     NotificationsModule,
     TrackingModule,
-    EmailSanitizerModule,
-    PostRenderModule,
-    DesignStudioModule,
-    ListingOutreachModule,
   ],
 })
 export class AppModule {}
