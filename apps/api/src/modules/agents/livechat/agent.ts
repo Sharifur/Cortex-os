@@ -759,6 +759,7 @@ export class LivechatAgent implements IAgent, OnModuleInit {
       draft,
       references,
       alwaysOn.filter((e) => ['product', 'service', 'offer', 'fact', 'documentation'].includes(e.entryType)),
+      session.currentPageUrl,
     ).catch(() => ({ grounded: true as const }));
     if (!groundingResult.grounded) {
       // Don't hand the whole conversation to a human just because one draft
@@ -1180,6 +1181,7 @@ If not, rewrite and return: {"ok":false,"revised":"improved reply here"}`,
     draft: string,
     references: KnowledgeEntry[],
     catalog: KnowledgeEntry[],
+    currentPageUrl?: string | null,
   ): Promise<{ grounded: true } | { grounded: false; claim: string }> {
     const allEntries = [...references, ...catalog];
     // If there are no KB entries at all, skip — T4 gate handles the empty case.
@@ -1196,7 +1198,9 @@ If not, rewrite and return: {"ok":false,"revised":"improved reply here"}`,
     for (const m of draft.matchAll(/(?:https?:\/\/|www\.)[^\s)"'<>]+/gi)) {
       tokens.add(clean(m[0]));
     }
-    for (const m of draft.matchAll(/(?:[$€£]\s?\d[\d,.]*|\d[\d,.]*\s?(?:%|\/mo|\/month|\/year|gb|tb|mb|users?|workspaces?|runs?|ai\s+credits?))/gi)) {
+    // Currency + period is captured as one token ("$5/month"), so a real
+    // "$10/month" elsewhere in the KB cannot bless a fabricated "$5/month".
+    for (const m of draft.matchAll(/(?:[$€£]\s?\d[\d,.]*\s?(?:\/mo(?:nth(?:ly)?)?|\/yr|\/year|per\s+(?:month|year)|a\s+month)|[$€£]\s?\d[\d,.]*|\d[\d,.]*\s?(?:%|\/mo|\/month|\/year|gb|tb|mb|users?|workspaces?|runs?|ai\s+credits?))/gi)) {
       tokens.add(clean(m[0]));
     }
     if (!tokens.size) return { grounded: true };
@@ -1214,7 +1218,27 @@ If not, rewrite and return: {"ok":false,"revised":"improved reply here"}`,
       const escaped = token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       return new RegExp(`${escaped}(?![a-z0-9.])`, 'i').test(kbText);
     };
-    const missing = [...tokens].filter((t) => !present(t));
+
+    // Links to the visitor's own site are not hallucinations — don't deflect
+    // because the KB happens not to include the exact path they were linked to.
+    const allowedHosts = new Set<string>();
+    try {
+      if (currentPageUrl) {
+        const host = new URL(currentPageUrl).hostname.replace(/^www\./, '').toLowerCase();
+        allowedHosts.add(host);
+        const parts = host.split('.');
+        if (parts.length >= 2) allowedHosts.add(parts.slice(-2).join('.'));
+      }
+    } catch { /* ignore malformed page URL */ }
+    const isOwnSiteUrl = (token: string) => {
+      if (!/^(https?:\/\/|www\.)/i.test(token)) return false;
+      try {
+        const host = new URL(token.startsWith('www.') ? `https://${token}` : token).hostname.replace(/^www\./, '').toLowerCase();
+        return [...allowedHosts].some((a) => host === a || host.endsWith(`.${a}`));
+      } catch { return false; }
+    };
+
+    const missing = [...tokens].filter((t) => !isOwnSiteUrl(t) && !present(t));
     if (!missing.length) return { grounded: true };
     return { grounded: false, claim: missing[0].slice(0, 60) };
   }
