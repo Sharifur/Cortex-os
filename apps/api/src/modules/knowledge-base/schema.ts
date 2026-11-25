@@ -24,6 +24,8 @@ export const knowledgeEntries = pgTable('knowledge_entries', {
   parentDocId: text('parent_doc_id'), // set on chunk entries; FK to parent entry id
   createdAt:        timestamp('created_at').notNull().defaultNow(),
   updatedAt:        timestamp('updated_at').notNull().defaultNow(),
+  /** Optional expiry for time-limited offers. Expired entries are not retrieved. */
+  validUntil:       timestamp('valid_until'),
   lastRetrievedAt:  timestamp('last_retrieved_at'),
 });
 

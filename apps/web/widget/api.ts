@@ -120,6 +120,8 @@ export interface SendMessageMeta {
 }
 
 export interface VisitorPageContext {
+  url?: string;
+  title?: string;
   scrollDepth?: number;
   timeOnPageSec?: number;
   pageH1?: string;

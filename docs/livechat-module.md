@@ -314,12 +314,14 @@ git add apps/api/public/livechat.js && git commit -m "chore(livechat): rebuild w
 
 ### Live pricing cache (48h)
 
-Sites that run changing promotions set a **Pricing page URL** in Sites → edit. The agent treats
-the extracted snapshot as the single source of truth for plans, prices, discounts and offers —
-it wins over any pricing text in the knowledge base.
+Sites that run changing promotions set one or more **Pricing / offers page URLs** in Sites →
+edit (comma-separated, max 3 — e.g. the pricing page plus the current offers page). The agent
+treats the extracted snapshot as the single source of truth for plans, prices, discounts and
+offers — it wins over any pricing text in the knowledge base.
 
-- **Fetch**: `LivechatPricingService` downloads the page (axios, 12s, 3 MB cap, CortexBot UA),
-  strips chrome, and extracts plan/price lines plus offer/coupon lines with cheerio.
+- **Fetch**: `LivechatPricingService` downloads each page (axios, 12s total budget, 3 MB cap per
+  page, CortexBot UA), strips chrome, and extracts plan cards, price lines and offer/coupon
+  lines with cheerio.
 - **Cache**: Redis key `livechat:pricing:v1:<siteKey>`, TTL 7 days. Snapshots are considered
   **fresh for 48 hours**.
 - **Refresh**: fresh → returned as-is. Stale (>48h) → returned immediately while a background
@@ -331,8 +333,8 @@ it wins over any pricing text in the knowledge base.
   `chars`, and a preview.
 - **Prompt**: the block is injected only on pricing-related turns (current message or recent
   context mentions price/plan/cost/discount/offer/deal/coupon/lifetime) and is capped at
-  1,500 chars. The live text is also passed to the grounding check so scraped figures are not
-  treated as hallucinations.
+  2,000 chars per page / 3,000 chars total. The live text is also passed to the grounding check
+  so scraped figures are not treated as hallucinations.
 
 ### Known fragile points to watch on first 24h
 

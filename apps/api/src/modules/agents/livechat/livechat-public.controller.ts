@@ -434,7 +434,7 @@ export class LivechatPublicController {
       enrichment: enriched,
     });
 
-    const { sessionId } = await this.livechat.getOrCreateSession({
+    const { sessionId, isNew } = await this.livechat.getOrCreateSession({
       siteId: site.id,
       siteKey: site.key,
       visitorPk,
@@ -445,6 +445,21 @@ export class LivechatPublicController {
       const raw = JSON.stringify(body.pageContext);
       if (raw.length <= 5120) {
         void this.livechat.setPageContext(sessionId, body.pageContext as Record<string, unknown>);
+      }
+    }
+
+    // Make the page URL/title available on the FIRST reply (product-page
+    // pricing/features). Prefer the widget's pageContext, else the visitor's
+    // most recent pageview — a heartbeat may not have landed yet.
+    const ctx = (body.pageContext ?? {}) as Record<string, unknown>;
+    const ctxUrl = typeof ctx.url === 'string' && /^https?:\/\//i.test(ctx.url) ? ctx.url : null;
+    const ctxTitle = typeof ctx.title === 'string' ? ctx.title : null;
+    if (ctxUrl) {
+      await this.livechat.setSessionCurrentPage(sessionId, ctxUrl, ctxTitle).catch(() => undefined);
+    } else if (isNew) {
+      const [latest] = await this.livechat.getRecentPageviews(visitorPk, 1).catch(() => [] as { url: string; title: string | null }[]);
+      if (latest?.url) {
+        await this.livechat.setSessionCurrentPage(sessionId, latest.url, latest.title ?? null).catch(() => undefined);
       }
     }
 

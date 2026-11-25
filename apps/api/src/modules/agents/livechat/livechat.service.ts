@@ -377,6 +377,17 @@ export class LivechatService implements OnModuleInit {
     return { sessionId: row.id, isNew: true };
   }
 
+  /**
+   * Set the session's current page. Called when a message arrives so the very
+   * first reply can use product/page context, before any heartbeat lands.
+   */
+  async setSessionCurrentPage(sessionId: string, url: string, title: string | null): Promise<void> {
+    await this.db.db
+      .update(livechatSessions)
+      .set({ currentPageUrl: url.slice(0, 2000), currentPageTitle: title ? title.slice(0, 300) : null, lastSeenAt: new Date() })
+      .where(eq(livechatSessions.id, sessionId));
+  }
+
   async setPageContext(sessionId: string, ctx: Record<string, unknown>): Promise<void> {
     await this.db.db
       .update(livechatSessions)
@@ -1360,19 +1371,25 @@ export class LivechatService implements OnModuleInit {
     return p === 'bottom-left' ? 'bottom-left' : 'bottom-right';
   }
 
-  /** Empty clears the setting; anything else must be an absolute http(s) URL. */
-  private normalizePricingUrl(url: string | null | undefined): string | null {
-    if (url === null || url === undefined) return null;
-    const trimmed = String(url).trim();
-    if (!trimmed) return null;
-    if (!/^https?:\/\//i.test(trimmed)) {
-      throw new BadRequestException('Pricing URL must start with http:// or https://');
-    }
-    try {
-      return new URL(trimmed).toString();
-    } catch {
-      throw new BadRequestException('Pricing URL is not a valid URL');
-    }
+  /**
+   * Empty clears the setting. Otherwise accepts one or more absolute http(s)
+   * URLs separated by comma, semicolon or newline (pricing page + offers page).
+   */
+  private normalizePricingUrl(value: string | null | undefined): string | null {
+    if (value === null || value === undefined) return null;
+    const parts = String(value).split(/[\n,;]+/).map((s) => s.trim()).filter(Boolean);
+    if (!parts.length) return null;
+    const urls = parts.slice(0, 3).map((part) => {
+      if (!/^https?:\/\//i.test(part)) {
+        throw new BadRequestException('Pricing URLs must start with http:// or https://');
+      }
+      try {
+        return new URL(part).toString();
+      } catch {
+        throw new BadRequestException(`Pricing URL is not valid: ${part}`);
+      }
+    });
+    return urls.join(',');
   }
 
   /**

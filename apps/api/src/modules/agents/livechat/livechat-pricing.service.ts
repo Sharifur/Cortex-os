@@ -163,22 +163,32 @@ export class LivechatPricingService {
 
   private async fetchAndStore(site: PricingSiteRef, timeoutMs: number): Promise<PricingSnapshot> {
     if (!site.pricingUrl) throw new BadRequestException('No pricing URL configured');
+    const urls = this.parseUrls(site.pricingUrl);
+    if (!urls.length) throw new BadRequestException('No pricing URL configured');
 
-    let html: string;
-    try {
-      html = await this.fetchHtml(site.pricingUrl, timeoutMs);
-    } catch (err) {
-      throw new BadGatewayException(`Could not fetch pricing page: ${(err as Error).message}`);
+    const deadline = Date.now() + timeoutMs;
+    const texts: string[] = [];
+    const errors: string[] = [];
+    for (const url of urls) {
+      const remaining = deadline - Date.now();
+      if (remaining < 1_500) break;
+      try {
+        const html = await this.fetchHtml(url, Math.min(remaining, FETCH_TIMEOUT_MS));
+        const extracted = this.extractPricingFacts(html, url);
+        if (extracted) texts.push(extracted);
+        else errors.push(`${url}: no prices or offers found`);
+      } catch (err) {
+        errors.push(`${url}: ${(err as Error).message}`);
+      }
+    }
+    if (!texts.length) {
+      throw new BadGatewayException(`Could not read pricing pages — ${errors.join('; ')}`);
     }
 
-    const text = this.extractPricingFacts(html, site.pricingUrl);
-    if (!text) {
-      throw new BadRequestException('No prices or offers found on the pricing page');
-    }
-    const capped = text.slice(0, MAX_EXTRACT_CHARS);
+    const capped = texts.join('\n\n---\n\n').slice(0, MAX_EXTRACT_CHARS);
     const snapshot: PricingSnapshot = {
       text: capped,
-      sourceUrl: site.pricingUrl,
+      sourceUrl: urls.join(', '),
       fetchedAt: new Date().toISOString(),
       contentHash: createHash('sha256').update(capped).digest('hex').slice(0, 16),
     };
@@ -187,8 +197,12 @@ export class LivechatPricingService {
     } catch (err) {
       this.logger.warn(`pricing cache write failed for ${site.key}: ${(err as Error).message}`);
     }
-    this.logger.log(`pricing refreshed for ${site.key}: ${capped.length} chars from ${site.pricingUrl}`);
+    this.logger.log(`pricing refreshed for ${site.key}: ${capped.length} chars from ${snapshot.sourceUrl}${errors.length ? ` (warnings: ${errors.join('; ')})` : ''}`);
     return snapshot;
+  }
+
+  private parseUrls(raw: string): string[] {
+    return raw.split(/[\n,;]+/).map((s) => s.trim()).filter(Boolean).slice(0, 3);
   }
 
   private async fetchHtml(url: string, timeoutMs: number): Promise<string> {

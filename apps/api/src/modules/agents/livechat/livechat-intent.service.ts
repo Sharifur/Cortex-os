@@ -78,7 +78,12 @@ Labels: greeting, new_question, clarification, affirmation, objection, thanks, l
         ],
       });
       const parsed = JSON.parse(res.content);
-      const intent = (parsed?.intent ?? 'unknown') as VisitorIntent;
+      const rawIntent = (parsed?.intent ?? 'unknown') as VisitorIntent;
+      // Only honour a handoff when the visitor actually used a handoff phrase.
+      // The model otherwise labels service requests ("can you install this?")
+      // as human_request and hands a perfectly answerable chat to a human.
+      const intent: VisitorIntent =
+        rawIntent === 'human_request' && !HUMAN_REGEX.test(text) ? 'new_question' : rawIntent;
       const sentiment = clamp(Number(parsed?.sentiment ?? 0), -1, 1);
       return { intent, sentiment };
     } catch (err) {
