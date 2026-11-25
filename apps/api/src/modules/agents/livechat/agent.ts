@@ -1118,7 +1118,10 @@ export class LivechatAgent implements IAgent, OnModuleInit {
   }
 
   private static readonly SELF_DISCLOSURE_PATTERNS: RegExp[] = [
-    /\b(i|my)\s+(am|'m|am\s+a[n]?)\s+(ai|language\s+model|neural\s+network|large\s+language\s+model|llm|chatbot)\b/i,
+    // Bare "AI" only. "I'm an AI-first / AI-powered / AI agent ..." is product
+    // copy, not a disclosure — matching it replaced real answers such as
+    // "How does it work?" with the identity deflection.
+    /\b(i|my)\s+(am|'m|am\s+a[n]?)\s+(ai\b(?![- ]?(first|powered|native|driven|agent|assistant|tool|platform|workspace))|language\s+model|neural\s+network|large\s+language\s+model|llm|chatbot)\b/i,
     /\bi\s+(was\s+)?(created|built|made|developed|trained)\s+by\b/i,
     /\b(powered|based|built)\s+by\s+(open|anthro|google|meta|deep|mis)/i,
     /\bmy\s+(underlying\s+)?(model|ai|llm|architecture)\s+is\b/i,
