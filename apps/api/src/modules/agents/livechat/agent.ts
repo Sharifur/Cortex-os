@@ -771,7 +771,7 @@ export class LivechatAgent implements IAgent, OnModuleInit {
       draft = `I don't have that detail confirmed in our docs right now — our team can follow up on it if you'd like.`;
     }
 
-    const disclosureReplacement = this.filterDisclosure(draft, productLabel);
+    const disclosureReplacement = this.filterDisclosure(draft, productLabel, safeVisitorMessage);
     if (disclosureReplacement) {
       this.logger.warn(`session ${input.sessionId}: AI disclosure detected in draft — replaced with safe deflection`);
       draft = disclosureReplacement;
@@ -1117,23 +1117,33 @@ export class LivechatAgent implements IAgent, OnModuleInit {
     return `\n\n---\nVisitor context:\n${lines.join('\n')}\n---\n`;
   }
 
-  private static readonly DISCLOSURE_PATTERNS: RegExp[] = [
-    /\b(gpt[-\s]?[34]o?|chatgpt)\b/i,
-    /\b(openai|anthropic|google\s+ai|deepseek|mistral|cohere|groq)\b/i,
-    /\bgemini\b/i,
-    /\bclaude\b/i,
-    /\bllama\b/i,
+  private static readonly SELF_DISCLOSURE_PATTERNS: RegExp[] = [
     /\b(i|my)\s+(am|'m|am\s+a[n]?)\s+(ai|language\s+model|neural\s+network|large\s+language\s+model|llm|chatbot)\b/i,
     /\bi\s+(was\s+)?(created|built|made|developed|trained)\s+by\b/i,
     /\b(powered|based|built)\s+by\s+(open|anthro|google|meta|deep|mis)/i,
     /\bmy\s+(underlying\s+)?(model|ai|llm|architecture)\s+is\b/i,
   ];
 
-  private filterDisclosure(draft: string, productLabel: string): string | null {
-    for (const pattern of LivechatAgent.DISCLOSURE_PATTERNS) {
-      if (pattern.test(draft)) {
-        return `I'm a support assistant for ${productLabel}. Is there something I can help you with about our product?`;
-      }
+  private static readonly PROVIDER_NAME_PATTERNS: RegExp[] = [
+    /\b(gpt[-\s]?[34]o?|chatgpt)\b/i,
+    /\b(openai|anthropic|google\s+ai|deepseek|mistral|cohere|groq)\b/i,
+    /\bgemini\b/i,
+    /\bclaude\b/i,
+    /\bllama\b/i,
+  ];
+
+  /**
+   * Gate provider names on identity questions — they are legitimate when naming
+   * integrations ("connect Claude, ChatGPT, Cursor"). Deliberately does not match
+   * a bare "AI" or "model", so MCP/feature questions keep their real answer.
+   */
+  private static readonly IDENTITY_QUESTION = /\b(are|is)\s+(you|this|it)\b|\bwho\s+(built|made|created|trained)\s+you\b|\bwhat\s+are\s+you\b|\byour\s+(ai|model|llm|underlying)\b|\bwhat\s+(ai\s+)?model\s+(do|are|is|does)\b|\bwhich\s+(ai\s+)?model\b|\bwhat\s+(ai|model|llm)\s+(powers|runs|drives)\b/i;
+
+  private filterDisclosure(draft: string, productLabel: string, visitorMessage: string): string | null {
+    const deflect = `I'm a support assistant for ${productLabel}. Is there something I can help you with about our product?`;
+    if (LivechatAgent.SELF_DISCLOSURE_PATTERNS.some((p) => p.test(draft))) return deflect;
+    if (LivechatAgent.IDENTITY_QUESTION.test(visitorMessage) && LivechatAgent.PROVIDER_NAME_PATTERNS.some((p) => p.test(draft))) {
+      return deflect;
     }
     return null;
   }

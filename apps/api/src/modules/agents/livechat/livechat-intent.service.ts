@@ -18,7 +18,9 @@ export interface IntentResult {
   sentiment: number;
 }
 
-const HUMAN_REGEX = /\b(human|real person|agent|someone real|talk to (a |an )?person|speak to|customer (service|support))\b/i;
+// Require a handoff phrase — a bare "agent" also appears in product copy
+// ("Taspi, the AI agent"), which used to escalate legitimate questions.
+const HUMAN_REGEX = /\b(human|real person|live (agent|person)|human (agent|support)|someone real|talk to (a |an )?(human|person|agent|representative)|speak (to|with) (a |an )?(human|person|agent|representative)|customer (service|support))\b/i;
 const AFFIRM_REGEX = /^(yes|yeah|yep|yup|sure|ok(ay)?|please|go ahead|sounds good|why not|of course|definitely|absolutely|do it|list (them|it)|show me|tell me( more)?|continue|proceed|👍|✅|y)$/i;
 const THANKS_REGEX = /^(thanks|thank you|ty|thx|cheers|appreciate it|got it|cool|nice|great)\.?\s*[!.]*$/i;
 const LEAVING_REGEX = /^(bye|goodbye|cya|see ya|later|gotta go|brb|nvm|nevermind|never mind)\.?\s*[!.]*$/i;
