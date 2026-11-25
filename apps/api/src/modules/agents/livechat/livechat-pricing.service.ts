@@ -74,9 +74,7 @@ export class LivechatPricingService {
       const age = Date.now() - Date.parse(cached.fetchedAt);
       if (Number.isFinite(age) && age <= PRICING_FRESH_MS) return cached;
       // Stale-while-revalidate: answer from cache now, refresh in the background.
-      void this.fetchAndStore(site, SYNC_FETCH_TIMEOUT_MS).catch((err: Error) => {
-        this.logger.warn(`pricing background refresh failed for ${site.key}: ${err.message}`);
-      });
+      void this.refreshInBackground(site);
       return { ...cached, stale: true };
     }
 
@@ -133,6 +131,20 @@ export class LivechatPricingService {
 
   async invalidate(siteKey: string): Promise<void> {
     await this.redis.del(this.redisKey(siteKey)).catch(() => undefined);
+  }
+
+  /** Lock-protected background refresh — no-op when another refresh is running. */
+  private async refreshInBackground(site: PricingSiteRef): Promise<void> {
+    const lock = this.lockKey(site.key);
+    const acquired = await this.redis.set(lock, '1', 'EX', 60, 'NX').catch(() => null);
+    if (!acquired) return;
+    try {
+      await this.fetchAndStore(site, FETCH_TIMEOUT_MS);
+    } catch (err) {
+      this.logger.warn(`pricing background refresh failed for ${site.key}: ${(err as Error).message}`);
+    } finally {
+      await this.redis.del(lock).catch(() => undefined);
+    }
   }
 
   // ─── Fetch + extract ──────────────────────────────────────────────────────
