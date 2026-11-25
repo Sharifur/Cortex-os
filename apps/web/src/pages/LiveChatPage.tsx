@@ -73,6 +73,7 @@ interface Site {
   origin: string;
   enabled: boolean;
   productContext: string | null;
+  pricingUrl: string | null;
   replyTone: string | null;
   trackBots: boolean;
   autoApprove: boolean;
@@ -496,6 +497,7 @@ function SitesTab() {
         origin: s.origin,
         enabled: s.enabled,
         productContext: s.productContext ?? null,
+        pricingUrl: s.pricingUrl ?? null,
         replyTone: s.replyTone ?? null,
         trackBots: s.trackBots,
         autoApprove: s.autoApprove,
@@ -611,6 +613,7 @@ function SitesTab() {
                   </Button>
                 </div>
               </div>
+              <SitePricingRow site={s} token={token} />
               <SiteMetricsRow siteId={s.id} token={token} />
             </div>
           ))
@@ -647,6 +650,69 @@ interface SiteMetrics {
   csatPct: number | null;
   avgMessagesPerSession: number;
   avgFirstResponseMs: number | null;
+}
+
+interface PricingStatus {
+  configured: boolean;
+  sourceUrl: string | null;
+  fetchedAt: string | null;
+  ageHours: number | null;
+  stale: boolean;
+  chars: number;
+  preview: string | null;
+}
+
+function SitePricingRow({ site, token }: { site: Site; token: string }) {
+  const qc = useQueryClient();
+  const { data, isLoading } = useQuery<PricingStatus>({
+    queryKey: ['livechat-pricing', site.id],
+    queryFn: () => apiFetch(token, `/agents/livechat/sites/${site.id}/pricing`),
+    enabled: Boolean(site.pricingUrl),
+    staleTime: 60_000,
+    retry: false,
+  });
+  const refreshMut = useMutation({
+    mutationFn: () => apiFetch(token, `/agents/livechat/sites/${site.id}/pricing/refresh`, { method: 'POST' }),
+    onSuccess: (next: PricingStatus) => qc.setQueryData(['livechat-pricing', site.id], next),
+  });
+
+  if (!site.pricingUrl) {
+    return (
+      <div className="text-xs text-muted-foreground border-t border-border/50 pt-2">
+        No pricing page configured — pricing answers come from the knowledge base.
+      </div>
+    );
+  }
+
+  const label = isLoading
+    ? 'Checking…'
+    : data?.fetchedAt
+      ? `${data.ageHours ?? 0}h ago${data.stale ? ' · stale' : ''} · ${data.chars} chars`
+      : 'not fetched yet';
+
+  return (
+    <div className="text-xs border-t border-border/50 pt-2 flex items-center justify-between gap-3">
+      <div className="min-w-0">
+        <span className="text-muted-foreground">Pricing:</span>{' '}
+        <span className="font-mono break-all">{site.pricingUrl}</span>{' '}
+        <span className="text-muted-foreground">· {label}</span>
+        {refreshMut.isError && (
+          <div className="text-red-500 mt-1">
+            {parseSaveError((refreshMut.error as Error)?.message) ?? 'Pricing refresh failed'}
+          </div>
+        )}
+      </div>
+      <Button
+        size="sm"
+        variant="ghost"
+        onClick={() => refreshMut.mutate()}
+        disabled={refreshMut.isPending}
+        title="Fetch the pricing page now — otherwise it refreshes every 48h"
+      >
+        <RefreshCw className={`w-4 h-4 ${refreshMut.isPending ? 'animate-spin' : ''}`} />
+      </Button>
+    </div>
+  );
 }
 
 function SiteMetricsRow({ siteId, token }: { siteId: string; token: string }) {
@@ -1030,6 +1096,16 @@ function SiteFormModal({ site, onClose, onSave, error }: { site: Partial<Site>; 
                 onChange={(e) => setDraft({ ...draft, productContext: e.target.value })}
                 className="w-full text-sm bg-background border border-border rounded-md px-3 py-2 min-h-[60px]"
                 placeholder="Bytesed builds…"
+              />
+            </Field>
+            <Field
+              label="Pricing page URL"
+              hint="Fetched and cached for 48h. The AI treats this as the authoritative source for plans, prices and current offers. Leave blank to use the knowledge base."
+            >
+              <Input
+                value={draft.pricingUrl ?? ''}
+                onChange={(e) => setDraft({ ...draft, pricingUrl: e.target.value })}
+                placeholder="https://example.com/pricing"
               />
             </Field>
             <Field label="Reply tone">

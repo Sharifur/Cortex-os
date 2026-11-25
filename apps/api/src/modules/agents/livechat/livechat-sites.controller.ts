@@ -15,6 +15,7 @@ import {
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { LivechatService, CreateSiteDto, UpdateSiteDto } from './livechat.service';
 import { LivechatMetricsService } from './livechat-metrics.service';
+import { LivechatPricingService } from './livechat-pricing.service';
 
 @Controller('agents/livechat/sites')
 @UseGuards(JwtAuthGuard)
@@ -22,6 +23,7 @@ export class LivechatSitesController {
   constructor(
     private livechat: LivechatService,
     private metrics: LivechatMetricsService,
+    private pricing: LivechatPricingService,
   ) {}
 
   @Get()
@@ -61,5 +63,19 @@ export class LivechatSitesController {
   @HttpCode(HttpStatus.OK)
   clearWidgetCache(@Param('id') id: string) {
     return this.livechat.clearWidgetCache(id);
+  }
+
+  @Get(':id/pricing')
+  async pricingStatus(@Param('id') id: string) {
+    const site = await this.livechat.getSiteById(id);
+    return this.pricing.getStatus({ key: site.key, pricingUrl: site.pricingUrl });
+  }
+
+  @Post(':id/pricing/refresh')
+  @HttpCode(HttpStatus.OK)
+  async refreshPricing(@Param('id') id: string) {
+    const site = await this.livechat.getSiteById(id);
+    await this.pricing.refresh({ key: site.key, pricingUrl: site.pricingUrl });
+    return this.pricing.getStatus({ key: site.key, pricingUrl: site.pricingUrl });
   }
 }

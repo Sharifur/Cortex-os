@@ -16,6 +16,7 @@ import { LivechatOriginCache } from './livechat-origin.cache';
 import { ContactsService } from '../../contacts/contacts.service';
 import { KnowledgeBaseService } from '../../knowledge-base/knowledge-base.service';
 import { SettingsService } from '../../settings/settings.service';
+import { LivechatPricingService } from './livechat-pricing.service';
 
 export type WidgetPosition = 'bottom-right' | 'bottom-left';
 
@@ -31,6 +32,7 @@ export interface LivechatSiteRow {
   origin: string;
   enabled: boolean;
   productContext: string | null;
+  pricingUrl: string | null;
   replyTone: string | null;
   trackBots: boolean;
   autoApprove: boolean;
@@ -58,6 +60,7 @@ export interface CreateSiteDto {
   label: string;
   origin: string;
   productContext?: string | null;
+  pricingUrl?: string | null;
   replyTone?: string | null;
   trackBots?: boolean;
   autoApprove?: boolean;
@@ -83,6 +86,7 @@ export interface UpdateSiteDto {
   origin?: string;
   enabled?: boolean;
   productContext?: string | null;
+  pricingUrl?: string | null;
   replyTone?: string | null;
   trackBots?: boolean;
   autoApprove?: boolean;
@@ -137,6 +141,7 @@ export class LivechatService implements OnModuleInit {
     private contactsSvc: ContactsService,
     private kb: KnowledgeBaseService,
     private settings: SettingsService,
+    private pricing: LivechatPricingService,
   ) {}
 
   onModuleInit() {
@@ -1097,6 +1102,7 @@ export class LivechatService implements OnModuleInit {
         label,
         origin,
         productContext: dto.productContext?.toString().trim() || null,
+        pricingUrl: this.normalizePricingUrl(dto.pricingUrl),
         replyTone: (dto.replyTone?.toString().trim()) || defaults.replyTone,
         trackBots: dto.trackBots ?? false,
         autoApprove: dto.autoApprove ?? true,
@@ -1222,6 +1228,7 @@ export class LivechatService implements OnModuleInit {
     if (!existing) throw new NotFoundException(`Live chat site not found: ${id}`);
 
     const set: Record<string, unknown> = {};
+    let pricingChanged = false;
     if (dto.label !== undefined) {
       if (!dto.label.trim()) throw new BadRequestException('label cannot be empty');
       set.label = dto.label.trim();
@@ -1233,6 +1240,14 @@ export class LivechatService implements OnModuleInit {
     }
     if (dto.enabled !== undefined) set.enabled = dto.enabled;
     if (dto.productContext !== undefined) set.productContext = dto.productContext?.toString().trim() || null;
+    if (dto.pricingUrl !== undefined) {
+      const next = this.normalizePricingUrl(dto.pricingUrl);
+      set.pricingUrl = next;
+      if (next !== existing.pricingUrl) {
+        await this.pricing.invalidate(existing.key);
+        pricingChanged = true;
+      }
+    }
     if (dto.replyTone !== undefined) set.replyTone = dto.replyTone?.toString().trim() || null;
     if (dto.trackBots !== undefined) set.trackBots = dto.trackBots;
     if (dto.autoApprove !== undefined) set.autoApprove = dto.autoApprove;
@@ -1256,6 +1271,11 @@ export class LivechatService implements OnModuleInit {
 
     const [row] = await this.db.db.update(livechatSites).set(set).where(eq(livechatSites.id, id)).returning();
     await this.originCache.refresh().catch(() => undefined);
+    if (pricingChanged && row.pricingUrl) {
+      void this.pricing
+        .refresh({ key: row.key, pricingUrl: row.pricingUrl })
+        .catch((err: Error) => this.logger.warn(`pricing warm-up failed for ${row.key}: ${err.message}`));
+    }
     return this.toSiteRow(row);
   }
 
@@ -1263,6 +1283,7 @@ export class LivechatService implements OnModuleInit {
     const [existing] = await this.db.db.select().from(livechatSites).where(eq(livechatSites.id, id));
     if (!existing) throw new NotFoundException(`Live chat site not found: ${id}`);
     await this.db.db.delete(livechatSites).where(eq(livechatSites.id, id));
+    void this.pricing.invalidate(existing.key).catch(() => undefined);
     await this.originCache.refresh().catch(() => undefined);
   }
 
@@ -1337,6 +1358,21 @@ export class LivechatService implements OnModuleInit {
 
   private normalizePosition(p: string | null | undefined): WidgetPosition {
     return p === 'bottom-left' ? 'bottom-left' : 'bottom-right';
+  }
+
+  /** Empty clears the setting; anything else must be an absolute http(s) URL. */
+  private normalizePricingUrl(url: string | null | undefined): string | null {
+    if (url === null || url === undefined) return null;
+    const trimmed = String(url).trim();
+    if (!trimmed) return null;
+    if (!/^https?:\/\//i.test(trimmed)) {
+      throw new BadRequestException('Pricing URL must start with http:// or https://');
+    }
+    try {
+      return new URL(trimmed).toString();
+    } catch {
+      throw new BadRequestException('Pricing URL is not a valid URL');
+    }
   }
 
   /**
@@ -1457,6 +1493,7 @@ export class LivechatService implements OnModuleInit {
       origin: r.origin,
       enabled: r.enabled,
       productContext: r.productContext,
+      pricingUrl: r.pricingUrl ?? null,
       replyTone: r.replyTone,
       trackBots: r.trackBots,
       autoApprove: r.autoApprove,
