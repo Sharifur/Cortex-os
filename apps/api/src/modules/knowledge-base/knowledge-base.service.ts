@@ -117,7 +117,8 @@ export class KnowledgeBaseService {
         .select()
         .from(knowledgeEntries)
         .where(
-          sql`${this.agentKeyWhere(agentKey)} AND ${this.siteKeyWhere(siteKey)} AND entry_type = 'reference'`,
+          sql`${this.agentKeyWhere(agentKey)} AND ${this.siteKeyWhere(siteKey)} AND entry_type = 'reference'
+            AND (valid_until IS NULL OR valid_until > now())`,
         )
         .orderBy(desc(knowledgeEntries.priority))
         .limit(limit);
@@ -135,6 +136,7 @@ export class KnowledgeBaseService {
         sql`${this.agentKeyWhere(agentKey)}
           AND ${this.siteKeyWhere(siteKey)}
           AND entry_type IN ('reference', 'documentation', 'service', 'product', 'offer', 'product_qa')
+          AND (valid_until IS NULL OR valid_until > now())
           AND to_tsvector('english', title || ' ' || content) @@ plainto_tsquery('english', ${q})`,
       )
       .orderBy(desc(knowledgeEntries.priority))
@@ -185,6 +187,7 @@ export class KnowledgeBaseService {
         sql`${this.agentKeyWhere(agentKey)}
           AND ${this.siteKeyWhere(siteKey)}
           AND entry_type IN ('reference', 'documentation', 'service', 'product', 'offer', 'product_qa')
+          AND (valid_until IS NULL OR valid_until > now())
           AND to_tsvector('english', title || ' ' || content) @@ to_tsquery('english', ${tsquery})`,
       )
       .orderBy(
@@ -218,6 +221,7 @@ export class KnowledgeBaseService {
         sql`${this.agentKeyWhere(agentKey)}
           AND ${this.siteKeyWhere(siteKey)}
           AND entry_type IN ('reference', 'documentation', 'service', 'product', 'offer', 'product_qa')
+          AND (valid_until IS NULL OR valid_until > now())
           AND embedding IS NOT NULL
           AND embedding <=> ${literal}::vector <= 0.40`,
       )
@@ -311,7 +315,9 @@ export class KnowledgeBaseService {
         .select()
         .from(knowledgeEntries)
         .where(
-          sql`${this.agentKeyWhere(agentKey)} AND ${this.siteKeyWhere(siteKey)} AND entry_type IN ('fact', 'voice_profile', 'product', 'service', 'offer', 'documentation')`,
+          sql`${this.agentKeyWhere(agentKey)} AND ${this.siteKeyWhere(siteKey)}
+            AND entry_type IN ('fact', 'voice_profile', 'product', 'service', 'offer', 'documentation')
+            AND (valid_until IS NULL OR valid_until > now())`,
         )
         .orderBy(desc(knowledgeEntries.priority));
 
@@ -344,6 +350,8 @@ export class KnowledgeBaseService {
     sourceType?: string;
     sourceUrl?: string;
     parentDocId?: string;
+    /** ISO date/time. Leave null for evergreen entries. */
+    validUntil?: string | Date | null;
   }) {
     const [row] = await this.db.db
       .insert(knowledgeEntries)
@@ -360,6 +368,7 @@ export class KnowledgeBaseService {
         sourceType: dto.sourceType ?? 'manual',
         sourceUrl: dto.sourceUrl ?? null,
         parentDocId: dto.parentDocId ?? null,
+        validUntil: dto.validUntil ? new Date(dto.validUntil) : null,
       })
       .returning();
     await this.invalidateCacheForEntry(row);
@@ -392,10 +401,17 @@ export class KnowledgeBaseService {
     agentKeys: string | null;
     siteKeys: string | null;
     excludedSiteKeys: string | null;
+    validUntil: string | Date | null;
   }>) {
+    const { validUntil, ...rest } = dto;
+    const patch = {
+      ...rest,
+      updatedAt: new Date(),
+      ...(validUntil !== undefined ? { validUntil: validUntil ? new Date(validUntil) : null } : {}),
+    };
     const [row] = await this.db.db
       .update(knowledgeEntries)
-      .set({ ...dto, updatedAt: new Date() })
+      .set(patch)
       .where(eq(knowledgeEntries.id, id))
       .returning();
     if (row) await this.invalidateCacheForEntry(row);

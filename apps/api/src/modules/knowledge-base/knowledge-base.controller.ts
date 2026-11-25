@@ -59,6 +59,7 @@ export class KnowledgeBaseController {
     agentKeys?: string;
     siteKeys?: string | null;
     excludedSiteKeys?: string | null;
+    validUntil?: string | null;
   }) {
     if (!body.title?.trim()) throw new BadRequestException('title is required');
     if (!body.content?.trim()) throw new BadRequestException('content is required');
@@ -82,6 +83,7 @@ export class KnowledgeBaseController {
     agentKeys?: string | null;
     siteKeys?: string | null;
     excludedSiteKeys?: string | null;
+    validUntil?: string | null;
   }) {
     const row = await this.kb.updateEntry(id, body);
     if (!row) throw new NotFoundException('Entry not found');
