@@ -1099,13 +1099,13 @@ function SiteFormModal({ site, onClose, onSave, error }: { site: Partial<Site>; 
               />
             </Field>
             <Field
-              label="Pricing page URL"
-              hint="Fetched and cached for 48h. The AI treats this as the authoritative source for plans, prices and current offers. Leave blank to use the knowledge base."
+              label="Pricing / offers page URLs"
+              hint="Fetched and cached for 48h. Comma-separated, up to 3 pages (e.g. pricing + current offers). The AI treats these as the authoritative source for plans, prices and promotions. Leave blank to use the knowledge base."
             >
               <Input
                 value={draft.pricingUrl ?? ''}
                 onChange={(e) => setDraft({ ...draft, pricingUrl: e.target.value })}
-                placeholder="https://example.com/pricing"
+                placeholder="https://example.com/pricing, https://example.com/deals"
               />
             </Field>
             <Field label="Reply tone">
