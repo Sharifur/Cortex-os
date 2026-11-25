@@ -237,8 +237,13 @@ function scopeEntriesToProduct<T extends { title: string; content: string }>(
   entries: T[],
   activeName: string,
   allProductNames: string[],
+  /** Siblings the visitor explicitly named — keep their entries so comparisons work. */
+  allowNames: string[] = [],
 ): T[] {
-  const siblings = allProductNames.filter((n) => n.toLowerCase() !== activeName.toLowerCase());
+  const allowed = new Set(allowNames.map((n) => n.toLowerCase()));
+  const siblings = allProductNames.filter(
+    (n) => n.toLowerCase() !== activeName.toLowerCase() && !allowed.has(n.toLowerCase()),
+  );
   if (!siblings.length) return entries;
   return entries.filter((e) => {
     const hay = `${e.title}\n${e.content}`;
@@ -532,8 +537,18 @@ export class LivechatAgent implements IAgent, OnModuleInit {
       .map((e) => productPrimaryName(e.title))
       .filter((n) => n.length >= 3);
     const activeProduct = resolveActiveProduct(fullCatalog, session.currentPageUrl, session.currentPageTitle);
-    const scopedCatalog = activeProduct ? scopeEntriesToProduct(fullCatalog, activeProduct, allProductNames) : fullCatalog;
-    const scopedReferences = activeProduct ? scopeEntriesToProduct(references, activeProduct, allProductNames) : references;
+    // Keep entries for any sibling the visitor explicitly names ("Qixer vs Prohandy").
+    const mentionedSiblings = activeProduct
+      ? allProductNames.filter(
+          (n) => n.toLowerCase() !== activeProduct.toLowerCase() && mentionsName(safeVisitorMessage, n),
+        )
+      : [];
+    const scopedCatalog = activeProduct
+      ? scopeEntriesToProduct(fullCatalog, activeProduct, allProductNames, mentionedSiblings)
+      : fullCatalog;
+    const scopedReferences = activeProduct
+      ? scopeEntriesToProduct(references, activeProduct, allProductNames, mentionedSiblings)
+      : references;
     if (activeProduct && (scopedCatalog.length !== fullCatalog.length || scopedReferences.length !== references.length)) {
       this.logger.log(`session ${input.sessionId}: locked to product "${activeProduct}" — catalog ${fullCatalog.length}→${scopedCatalog.length}, refs ${references.length}→${scopedReferences.length}`);
     }
@@ -636,6 +651,7 @@ export class LivechatAgent implements IAgent, OnModuleInit {
       `- If the visitor asks about any other company, competitor, unrelated product, or off-topic subject (politics, personal advice, coding help unrelated to our product, etc.), respond with: "I can only help with ${productLabel}-related questions — is there something specific about our product I can answer?" Do not answer the off-topic question at all.`,
       `- If you don't have enough information to answer an on-topic question, say "I don't have that detail right now — our team will follow up." Do NOT make up or guess facts not present in the Knowledge Base below.`,
       `- If you have partial information about a topic, share what you do know and flag the gap: "I know X, but I'm not sure about Y — our team can confirm."`,
+      `- Custom project pricing: never invent a price range or estimate for a custom build. Quote only published starting prices from the Knowledge Base, state that the final quote depends on scope, and point to the sales/contact path (book a call or email).`,
       // Only a multi-product catalog needs the "which product?" clarification.
       // Single-product sites (the common case) must answer directly instead of
       // asking the visitor to name the product they are already looking at.
@@ -690,7 +706,7 @@ export class LivechatAgent implements IAgent, OnModuleInit {
     const currentPath = (() => { try { return session.currentPageUrl ? new URL(session.currentPageUrl).pathname : null; } catch { return null; } })();
     const isGenericPath = !currentPath || /^\/?$|^\/?(home|about|contact|blog|products|our-products\/?$|index)/i.test(currentPath);
     const pagePinBlock = activeProduct
-      ? `\n\n## Page Context Pin\nThe visitor is on the ${activeProduct} product page. Answer ONLY about ${activeProduct}. Every product detail in your Knowledge Base below refers to ${activeProduct} for this conversation — all pricing, features, and tiers you quote must be ${activeProduct}'s. Do not name, describe, compare, or quote a price for any other product unless the visitor explicitly names that other product themselves.\n`
+      ? `\n\n## Page Context Pin\nThe visitor is on the ${activeProduct} product page. Answer about ${activeProduct}; all pricing, features and tiers you quote must be ${activeProduct}'s unless the visitor explicitly names another product. If they name another product (for example "X vs Y"), you may compare using that product's catalog entry. Otherwise do not name, describe, compare with, or quote a price for any other product.${mentionedSiblings.length ? ` The visitor named ${mentionedSiblings.join(' and ')} — a comparison is allowed.` : ''}\n`
       : (currentTitle && !isGenericPath
         ? `\n\n## Page Context Pin\nThe visitor is currently viewing: "${currentTitle.slice(0, 120)}"\nFocus your reply on the product or topic shown on this page. Do not introduce or describe unrelated products unless the visitor explicitly asks.\n`
         : '');

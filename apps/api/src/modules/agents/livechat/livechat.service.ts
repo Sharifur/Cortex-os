@@ -377,6 +377,17 @@ export class LivechatService implements OnModuleInit {
     return { sessionId: row.id, isNew: true };
   }
 
+  /**
+   * Set the session's current page. Called when a message arrives so the very
+   * first reply can use product/page context, before any heartbeat lands.
+   */
+  async setSessionCurrentPage(sessionId: string, url: string, title: string | null): Promise<void> {
+    await this.db.db
+      .update(livechatSessions)
+      .set({ currentPageUrl: url.slice(0, 2000), currentPageTitle: title ? title.slice(0, 300) : null, lastSeenAt: new Date() })
+      .where(eq(livechatSessions.id, sessionId));
+  }
+
   async setPageContext(sessionId: string, ctx: Record<string, unknown>): Promise<void> {
     await this.db.db
       .update(livechatSessions)

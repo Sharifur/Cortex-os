@@ -254,6 +254,11 @@ export function mountWidget(cfg: WidgetConfig, siteConfig: SiteConfigResponse = 
     } catch {}
     ctx.timeOnPageSec = Math.round((Date.now() - pageLoadTime) / 1000);
     try {
+      ctx.url = window.location.href.slice(0, 2000);
+      const docTitle = document.title?.trim().slice(0, 300);
+      if (docTitle) ctx.title = docTitle;
+    } catch {}
+    try {
       const h1 = document.querySelector('h1')?.textContent?.trim().slice(0, 100);
       if (h1) ctx.pageH1 = h1;
     } catch {}
