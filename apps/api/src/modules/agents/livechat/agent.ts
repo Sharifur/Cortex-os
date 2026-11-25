@@ -1155,32 +1155,32 @@ If not, rewrite and return: {"ok":false,"revised":"improved reply here"}`,
     const allEntries = [...references, ...catalog];
     // If there are no KB entries at all, skip — T4 gate handles the empty case.
     if (!allEntries.length) return { grounded: true };
-    // Only verify concrete, checkable claims. General descriptions of what the
-    // product does (features, workflow, benefits) are paraphrases, not facts to
-    // police — flagging those escalates almost every "how does it work?" reply.
-    // Prices, numbers, URLs, versions and availability guarantees still get checked.
-    const hasHardFact = /\d|https?:\/\/|www\.|\$|€|£/i.test(draft);
-    if (!hasHardFact) return { grounded: true };
-    const kbSummary = allEntries
-      .slice(0, 16)
-      .map((e) => `- ${e.title}: ${e.content.slice(0, 400)}`)
-      .join('\n');
-    const res = await this.llm.complete({
-      messages: [
-        { role: 'system', content: 'You are a fact-checker. Reply ONLY with valid JSON, no markdown.' },
-        {
-          role: 'user',
-          content: `KB entries:\n${kbSummary}\n\nAgent draft: "${draft.slice(0, 800)}"\n\nDoes this draft state a specific verifiable fact — a price or currency amount, numeric limit/quota, date, URL, version number, or an explicit availability/integration guarantee — that is NOT supported by the KB entries above?\nGeneral descriptions of what the product does (features, workflow, benefits, target audience) are NOT specific facts; do not flag them. If the draft only paraphrases or summarises the KB, it is grounded.\nReply: {"grounded":true} or {"grounded":false,"claim":"<the unsupported claim, max 60 chars>"}`,
-        },
-      ],
-      agentKey: this.key,
-      maxTokens: 60,
-    });
-    const parsed = JSON.parse(res.content.trim().replace(/^```[a-z]*\n?/i, '').replace(/```$/,''));
-    if (parsed.grounded === false && typeof parsed.claim === 'string') {
-      return { grounded: false, claim: parsed.claim };
+
+    // Check only claims that can be verified mechanically: money, percentages,
+    // storage/quota/user figures and URLs. Descriptive prose (features,
+    // workflow, benefits) is not policed — an LLM fact-checker flagged
+    // perfectly grounded replies ("how does it work?", "is there a mobile
+    // app?") and escalated real conversations. The prompt already forbids
+    // inventing facts; this check exists for quotable figures and links.
+    const tokens = new Set<string>();
+    const clean = (s: string) => s.toLowerCase().replace(/[.,;:!?]+$/, '').replace(/\/+$/, '');
+    for (const m of draft.matchAll(/(?:https?:\/\/|www\.)[^\s)"'<>]+/gi)) {
+      tokens.add(clean(m[0]));
     }
-    return { grounded: true };
+    for (const m of draft.matchAll(/(?:[$€£]\s?\d[\d,.]*|\d[\d,.]*\s?(?:%|\/mo|\/month|\/year|gb|tb|mb|users?))/gi)) {
+      tokens.add(clean(m[0]));
+    }
+    if (!tokens.size) return { grounded: true };
+
+    const kbText = allEntries
+      .map((e) => `${e.title} ${e.content} ${e.sourceUrl ?? ''}`)
+      .join(' ')
+      .toLowerCase()
+      .replace(/,/g, '');
+
+    const missing = [...tokens].filter((t) => !kbText.includes(t.replace(/,/g, '')));
+    if (!missing.length) return { grounded: true };
+    return { grounded: false, claim: missing[0].slice(0, 60) };
   }
 
   /**
