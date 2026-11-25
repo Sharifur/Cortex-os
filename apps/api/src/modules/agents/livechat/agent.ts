@@ -368,11 +368,27 @@ export class LivechatAgent implements IAgent, OnModuleInit {
     const config = await this.getConfig();
     const site = await this.livechat.getSiteById(session.siteId).catch(() => null);
 
-    const { cleaned: injectionCleaned, detected: injectionDetected } = stripInjectionAttempts(input.visitorMessage.slice(0, 800));
+    const { detected: injectionDetected } = stripInjectionAttempts(input.visitorMessage.slice(0, 800));
     if (injectionDetected) {
-      this.logger.warn(`session ${input.sessionId}: prompt injection attempt detected and stripped`);
+      // Refuse and stay with the bot. Running the model on a jailbreak attempt
+      // wastes tokens and used to escalate the session to a human.
+      this.logger.warn(`session ${input.sessionId}: prompt injection attempt detected — sending refusal`);
+      const label = site?.botName?.trim() || site?.label?.trim() || 'our product';
+      const refusal = `I can only help with ${label} questions — is there something about the product I can answer?`;
+      const msg = await this.livechat.appendMessage({ sessionId: input.sessionId, role: 'agent', content: refusal });
+      this.stream.publish(input.sessionId, {
+        type: 'message',
+        sessionId: input.sessionId,
+        role: 'agent',
+        content: refusal,
+        messageId: msg.id,
+        createdAt: msg.createdAt.toISOString(),
+      });
+      const r = { ok: true, status: 'replied' as const, agentMessageId: msg.id, reply: refusal };
+      void finalizeRun(r);
+      return r;
     }
-    const safeVisitorMessage = redactPii(injectionCleaned);
+    const safeVisitorMessage = redactPii(input.visitorMessage.slice(0, 800));
 
     if (site) {
       const limits = await this.livechat.getLimits();
@@ -1167,7 +1183,7 @@ If not, rewrite and return: {"ok":false,"revised":"improved reply here"}`,
     for (const m of draft.matchAll(/(?:https?:\/\/|www\.)[^\s)"'<>]+/gi)) {
       tokens.add(clean(m[0]));
     }
-    for (const m of draft.matchAll(/(?:[$€£]\s?\d[\d,.]*|\d[\d,.]*\s?(?:%|\/mo|\/month|\/year|gb|tb|mb|users?))/gi)) {
+    for (const m of draft.matchAll(/(?:[$€£]\s?\d[\d,.]*|\d[\d,.]*\s?(?:%|\/mo|\/month|\/year|gb|tb|mb|users?|workspaces?|runs?|ai\s+credits?))/gi)) {
       tokens.add(clean(m[0]));
     }
     if (!tokens.size) return { grounded: true };
@@ -1178,7 +1194,14 @@ If not, rewrite and return: {"ok":false,"revised":"improved reply here"}`,
       .toLowerCase()
       .replace(/,/g, '');
 
-    const missing = [...tokens].filter((t) => !kbText.includes(t.replace(/,/g, '')));
+    // Boundary-aware match: "$5" must not be satisfied by "$5.54", and "10"
+    // must not be satisfied by "100". A plain substring check let a fabricated
+    // "$5/month add-on" pass because the pricing page contains "$5.54".
+    const present = (token: string) => {
+      const escaped = token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      return new RegExp(`${escaped}(?![a-z0-9.])`, 'i').test(kbText);
+    };
+    const missing = [...tokens].filter((t) => !present(t));
     if (!missing.length) return { grounded: true };
     return { grounded: false, claim: missing[0].slice(0, 60) };
   }
